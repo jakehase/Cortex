@@ -10,6 +10,7 @@ import {
 import { prerequisiteClosure, validateCurriculumGraph } from './curriculum-planner.mjs';
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
 import { sha256Text } from './hash.mjs';
+import { validateIndependentAssessmentBank } from './phd-assessment.mjs';
 import {
   applyMasteryDeltasAtomically,
   validateMasteryState,
@@ -237,6 +238,10 @@ export function buildParallelWave({
   concurrency = DEFAULT_WAVE_CONCURRENCY,
   signingSecret,
   runtimeOverride = null,
+  assessmentBank = null,
+  assessmentTrustPolicy = null,
+  assessmentDeployment = null,
+  assessmentRubric = null,
   now = new Date().toISOString(),
   expiresAt = new Date(Date.parse(now) + 4 * 60 * 60 * 1000).toISOString(),
 } = {}) {
@@ -256,6 +261,21 @@ export function buildParallelWave({
   }
   const runtime = runtimeOverride === null ? policy.modelRuntime : runtimeOverride;
   if (!validateAdaptivePlanRuntime(policy, runtime)) throw new Error('parallel wave runtime is weaker than policy');
+  if (assessmentBank !== null) {
+    const assessmentValidation = validateIndependentAssessmentBank(assessmentBank, {
+      graph,
+      rubric: assessmentRubric,
+      trustPolicy: assessmentTrustPolicy,
+      deployment: assessmentDeployment,
+      campaignBinding: assessmentBank?.bindings?.campaign,
+    });
+    if (!assessmentValidation.ok) {
+      throw new Error(`invalid production acquisition assessment bank: ${assessmentValidation.errors.join('; ')}`);
+    }
+    if (assessmentBank.purpose !== 'acquisition') {
+      throw new Error('parallel acquisition requires an acquisition-purpose independent bank');
+    }
+  }
   const actions = selectParallelWaveActions({ graph, state, policy, seed, concurrency });
   const selected = actions.map((action, mergeIndex) => {
     const runId = `${waveId}.c${String(mergeIndex + 1).padStart(2, '0')}`;
@@ -272,6 +292,10 @@ export function buildParallelWave({
       signingSecret,
       runtimeOverride: runtime,
       frozenAction: action,
+      assessmentBank,
+      assessmentTrustPolicy,
+      deployment: assessmentDeployment,
+      assessmentRubric,
       now,
     });
     return {
@@ -312,6 +336,11 @@ export function buildParallelWave({
       graph: { curriculumId: graph.curriculumId, sha256: sha256Text(graphBytes) },
       policy: { policyId: policy.policyId, sha256: sha256Text(policyBytes) },
       capsule: { capsuleId: capsule.capsuleId, sha256: sha256Text(capsuleBytes) },
+      assessmentBank: assessmentBank === null ? null : {
+        bankId: assessmentBank.bankId,
+        bankDigest: assessmentBank.bankDigest,
+        sha256: sha256Text(canonicalJson(assessmentBank)),
+      },
       state: {
         schemaVersion: state.schemaVersion,
         baseRevision: state.revision,
@@ -353,6 +382,7 @@ export function verifyParallelWave({
   signingSecret,
   expectedSourceCommit,
   expectedSourceTree,
+  assessmentBank = null,
   now = new Date().toISOString(),
   allowExpired = false,
 } = {}) {
@@ -386,6 +416,14 @@ export function verifyParallelWave({
       || !Array.isArray(wave.baseAppliedRuns?.receipts)
       || wave.baseAppliedRuns.runIds.length !== wave.baseAppliedRuns.receipts.length) {
     throw new Error('parallel wave graph, policy, or capsule identity mismatch');
+  }
+  const expectedAssessmentIdentity = assessmentBank === null ? null : {
+    bankId: assessmentBank.bankId,
+    bankDigest: assessmentBank.bankDigest,
+    sha256: sha256Text(canonicalJson(assessmentBank)),
+  };
+  if (canonicalJson(wave.identities.assessmentBank) !== canonicalJson(expectedAssessmentIdentity)) {
+    throw new Error('parallel wave independent assessment bank identity mismatch');
   }
   const seenFootprints = new Set();
   const conceptIds = new Set(graph.concepts.map((concept) => concept.conceptId));
@@ -460,6 +498,9 @@ function verifyAndApplyParallelWaveInternal({
   fixedTemplates = [],
   allowTestFixtures = false,
   executionTrustPolicy = null,
+  assessmentBank = null,
+  assessmentDeployment = null,
+  assessmentRubric = null,
   now = new Date().toISOString(),
 } = {}) {
   verifyParallelWave({
@@ -470,6 +511,7 @@ function verifyAndApplyParallelWaveInternal({
     signingSecret,
     expectedSourceCommit,
     expectedSourceTree,
+    assessmentBank,
     now,
     allowExpired: true,
   });
@@ -490,6 +532,9 @@ function verifyAndApplyParallelWaveInternal({
       expectedSourceCommit,
       fixedTemplates,
       executionTrustPolicy,
+      assessmentBank,
+      assessmentDeployment,
+      assessmentRubric,
       planSecret: signingSecret,
       expectedPlan: selected.child.sessionPlan,
       allowFrozenWaveSelection: true,

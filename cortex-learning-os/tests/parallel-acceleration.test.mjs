@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
@@ -876,6 +877,39 @@ test('additive migration rejects removal, rewrite, repetition, bad signature, st
   }
 });
 
+test('production parallel launcher fails before dispatch when no independent assessment bank is supplied', () => {
+  const launcher = path.join(root, 'scripts/launch-parallel-adaptive-wave.sh');
+  const result = spawnSync('bash', [launcher, '--dry-run'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  assert.equal(result.status, 2, result.stderr || result.stdout);
+  assert.match(result.stderr, /--assessment-bank requires a safe absolute owner-only path/);
+});
+
+test('parallel wave rejects an invalid production assessment bank before building child plans', () => {
+  const fixture = waveState();
+  assert.throws(() => buildParallelWave({
+    waveId: 'wave-invalid-production-bank',
+    graph,
+    policy,
+    capsule,
+    state: fixture.state,
+    sourceCommit,
+    sourceTree,
+    seed: 'wave-invalid-production-bank',
+    concurrency: 4,
+    signingSecret: secret,
+    assessmentBank: {},
+    assessmentTrustPolicy: {},
+    assessmentDeployment: {},
+    assessmentRubric: {},
+    now: fixture.now,
+    expiresAt: new Date(Date.parse(fixture.now) + 60 * 60 * 1000).toISOString(),
+  }), /invalid production acquisition assessment bank/);
+});
+
 test('parallel launchers and supervisor keep all Codex work detached on Hetzner with acquisition-only defaults', () => {
   const waveLauncher = fs.readFileSync(path.join(root, 'scripts/launch-parallel-adaptive-wave.sh'), 'utf8');
   const child = fs.readFileSync(path.join(root, 'scripts/remote-parallel-adaptive-child.sh'), 'utf8');
@@ -890,6 +924,8 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(waveLauncher, /chown jake:jake "\$REMOTE_WAVE_ROOT"/);
   assert.match(waveLauncher, /dispatchReceipts/);
   assert.match(waveLauncher, /timed out waiting for remote dispatch receipts/);
+  assert.match(waveLauncher, /--assessment-bank/);
+  assert.match(waveLauncher, /REMOTE_ASSESSMENT_BANK/);
   assert.match(waveLauncher, /SOURCE_TREE=.*rev-parse/);
   assert.equal(
     waveLauncher.match(/sudo -u jake -- git -C "\$REMOTE_REPO"/g)?.length,
@@ -900,8 +936,10 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(child, /toolsAllowed/);
   assert.match(child, /curriculum[.]phd-trajectory-v1[.]graph[.]json/);
   assert.match(child, /adaptive-math-phd-v1[.]json/);
+  assert.match(child, /--assessment-bank/);
   assert.doesNotMatch(child, /mastery[.]hmac|HMAC/);
   assert.match(harvester, /all children independently replayed and merged in one atomic signed state update/);
+  assert.match(harvester, /--assessment-bank/);
   assert.match(harvester, /time[.]sleep\(max\(5[.]0, args[.]poll_seconds\)\)/);
   assert.match(continuation, /max-waves/);
   assert.match(continuation, /max-sessions/);
@@ -911,7 +949,10 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(continuation, /concurrent detached Hetzner Codex children/);
   assert.match(continuation, /curriculum[.]phd-trajectory-v1[.]graph[.]json/);
   assert.match(continuation, /adaptive-math-phd-v1[.]json/);
+  assert.match(continuation, /assessment_bank_sha256/);
+  assert.match(continuation, /--assessment-bank/);
   assert.doesNotMatch(continuation, /spaced.review|nextReviewAt|shadow/i);
   assert.match(continuationLauncher, /Restart=on-failure/);
+  assert.match(continuationLauncher, /--assessment-bank/);
   assert.match(continuationLauncher, /detached_job_notifier[.]py/);
 });

@@ -11,14 +11,14 @@ correction evidence; it never selects or schedules retention review.
 The control plane builds and HMAC-signs one wave. The signed envelope freezes:
 
 - the exact Git commit and tree;
-- canonical graph, policy, capsule, and complete signed-state identities;
+- canonical graph, policy, capsule, complete signed-state identities, and the exact external assessment-bank identity;
 - the base revision and existing applied-run receipt prefix;
 - each selected concept record and relevant pending-repair record;
 - each child run ID, seed, xhigh model runtime, read-only/no-tools constraints, and exact signed session plan;
 - canonical UTF-8 bytes and SHA-256 digests for observed, correction, and paired generated items and their local oracle inputs;
 - the expiry and deterministic merge order.
 
-Only the per-child session plan is copied to Hetzner. The state HMAC secret stays on the control plane. Every Codex process runs as the `jake` service user in a detached Hetzner unit with its own artifact root.
+Only the per-child session plan and an owner-only copy of the exact assessment bank are copied to Hetzner. The state HMAC secret stays on the control plane. Every Codex process runs as the `jake` service user in a detached Hetzner unit with its own artifact root.
 
 The independent harvester waits at least five seconds between polls. It copies artifacts only after every child is terminal. A remote infrastructure, source, or execution failure prevents any apply attempt.
 
@@ -28,8 +28,11 @@ The default concurrency is four; the accepted range is 1 through 8.
 
 ```bash
 cd /root/clawd
-cortex-learning-os/scripts/launch-parallel-adaptive-wave.sh
+cortex-learning-os/scripts/launch-parallel-adaptive-wave.sh \
+  --assessment-bank /owner-only/acquisition-bank.json
 ```
+
+`--assessment-bank` is mandatory, including for a dry run. It must name the exact externally supplied, independently authored and reviewed production bank bound to the canonical trust policy, deployment, rubric, and campaign. The launcher validates it before any worker dispatch, stages it mode `0600` for `jake`, threads the same bytes through every child and the control-plane apply, and fails closed if it changes. Generated fixture banks are never accepted as production evidence.
 
 Use `--concurrency N`, `--expires-seconds N`, or `--dry-run` as needed. A dry run still performs source/Hetzner/runtime preflight and writes a signed wave, but launches no Codex process.
 
@@ -43,7 +46,8 @@ node cortex-learning-os/src/live-control.mjs adaptive-wave-apply \
   --wave /root/.openclaw/cortex-learning-os/waves/WAVE_ID/wave.json \
   --artifact-root /root/clawd/artifacts/cortex-learning-os-waves/WAVE_ID \
   --source-commit COMMIT \
-  --source-tree TREE
+  --source-tree TREE \
+  --assessment-bank /owner-only/acquisition-bank.json
 ```
 
 Do not invoke it before all child artifact roots are present.
@@ -82,6 +86,7 @@ cortex-learning-os/scripts/launch-parallel-adaptive-continuation.sh \
   --max-waves 100 \
   --max-sessions 800 \
   --max-wall-seconds 86400 \
+  --assessment-bank /owner-only/acquisition-bank.json \
   --graph /absolute/committed/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json \
   --policy /absolute/committed/cortex-learning-os/policies/adaptive-math-phd-v1.json \
   --capsule /absolute/committed/cortex-learning-os/capsules/math-foundations/capsule.json

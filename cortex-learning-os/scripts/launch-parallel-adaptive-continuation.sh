@@ -19,6 +19,7 @@ CAPSULE="$LOCAL_CLOS/capsules/math-foundations/capsule.json"
 REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
 REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
+ASSESSMENT_BANK=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --remote-graph) REMOTE_GRAPH="${2:-}"; shift 2 ;;
     --remote-policy) REMOTE_POLICY="${2:-}"; shift 2 ;;
     --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
+    --assessment-bank) ASSESSMENT_BANK="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -42,6 +44,8 @@ done
 [[ "$CONCURRENCY" =~ ^[1-8]$ ]] || { echo "--concurrency must be 1..8" >&2; exit 2; }
 [[ "$MAX_WAVES" =~ ^[0-9]+$ ]] && (( MAX_WAVES >= 1 && MAX_WAVES <= 100 )) || { echo "--max-waves must be 1..100" >&2; exit 2; }
 [[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] && (( MAX_SESSIONS >= 1 && MAX_SESSIONS <= 800 )) || { echo "--max-sessions must be 1..800" >&2; exit 2; }
+[[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
+[[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
 
 CONTINUATION_ID="math-acceleration-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 SAFE_UNIT="clos-${CONTINUATION_ID//[^a-zA-Z0-9-]/-}"
@@ -65,6 +69,7 @@ ARGS=(
   --graph "$GRAPH"
   --policy "$POLICY"
   --capsule "$CAPSULE"
+  --assessment-bank "$ASSESSMENT_BANK"
   --remote-graph "$REMOTE_GRAPH"
   --remote-policy "$REMOTE_POLICY"
   --remote-capsule "$REMOTE_CAPSULE"

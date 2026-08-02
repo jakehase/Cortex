@@ -667,6 +667,7 @@ try {
       const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
       const policyPath = value('--policy');
       const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+      const assessmentBankPath = requiredPath('--assessment-bank');
       const waveId = value('--wave-id');
       const seed = value('--seed');
       const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
@@ -680,6 +681,12 @@ try {
         throw new Error('parallel wave source commit/tree is not the checked-out control plane');
       }
       const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      const canonicalProgram = loadCanonicalPhdProgram({
+        sourceCommit: gitIdentity.commit,
+        sourceTree: gitIdentity.tree,
+        productTree: gitIdentity.productTree,
+      });
+      const assessmentBank = readJson(assessmentBankPath);
       const wave = buildParallelWave({
         waveId,
         graph: adaptive.graph,
@@ -691,6 +698,10 @@ try {
         seed,
         concurrency,
         signingSecret: adaptive.secret,
+        assessmentBank,
+        assessmentTrustPolicy: canonicalProgram.trustPolicy,
+        assessmentDeployment: canonicalProgram.deployment,
+        assessmentRubric: canonicalProgram.rubric,
         ...(expiresAt ? { expiresAt } : {}),
       });
       const outPath = path.resolve(out);
@@ -713,6 +724,7 @@ try {
       const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
       const policyPath = value('--policy');
       const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+      const assessmentBankPath = requiredPath('--assessment-bank');
       const wavePath = requiredPath('--wave');
       const artifactRoot = requiredPath('--artifact-root');
       const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
@@ -724,6 +736,12 @@ try {
         throw new Error('parallel wave apply source commit/tree is not the checked-out control plane');
       }
       const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      const canonicalProgram = loadCanonicalPhdProgram({
+        sourceCommit: gitIdentity.commit,
+        sourceTree: gitIdentity.tree,
+        productTree: gitIdentity.productTree,
+      });
+      const assessmentBank = readJson(assessmentBankPath);
       const artifactRoots = new Map(wave.selected.map((selected) => [
         selected.child.runId,
         path.join(artifactRoot, selected.child.artifactRelativeRoot),
@@ -740,6 +758,9 @@ try {
         expectedSourceTree: sourceTree,
         fixedTemplates: adaptive.fixedTemplates,
         executionTrustPolicy: adaptive.executionTrustPolicy,
+        assessmentBank,
+        assessmentDeployment: canonicalProgram.deployment,
+        assessmentRubric: canonicalProgram.rubric,
       });
       const state = result.applied
         ? atomicWriteMasteryState(masteryPath, result.state, adaptive.secret, {

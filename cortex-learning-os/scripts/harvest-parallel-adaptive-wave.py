@@ -65,6 +65,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--graph")
     value.add_argument("--policy")
     value.add_argument("--capsule")
+    value.add_argument("--assessment-bank", required=True, type=Path)
     value.add_argument("--poll-seconds", type=float, default=30.0)
     value.add_argument("--timeout-seconds", type=float, default=14_400.0)
     return value
@@ -83,6 +84,8 @@ def remote_json(host: str, path: str) -> dict[str, Any] | None:
 
 def main() -> int:
     args = parser().parse_args()
+    if not args.assessment_bank.is_file() or args.assessment_bank.is_symlink() or not os.access(args.assessment_bank, os.R_OK):
+        raise WaveHarvestError("independent assessment bank is unavailable")
     wave = json.loads(args.wave.read_text(encoding="utf-8"))
     wave_id = str(wave.get("waveId") or "")
     run_ids = list(wave.get("mergeOrder") or [])
@@ -152,6 +155,7 @@ def main() -> int:
             "--artifact-root", str(args.local_artifact_root),
             "--source-commit", wave["source"]["commit"],
             "--source-tree", wave["source"]["tree"],
+            "--assessment-bank", str(args.assessment_bank),
         ]
         for flag, supplied in [("--graph", args.graph), ("--policy", args.policy), ("--capsule", args.capsule)]:
             if supplied:

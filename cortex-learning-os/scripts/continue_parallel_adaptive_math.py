@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--graph", default="/root/clawd/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json", type=Path)
     parser.add_argument("--policy", default="/root/clawd/cortex-learning-os/policies/adaptive-math-phd-v1.json", type=Path)
     parser.add_argument("--capsule", default="/root/clawd/cortex-learning-os/capsules/math-foundations/capsule.json", type=Path)
+    parser.add_argument("--assessment-bank", required=True, type=Path)
     parser.add_argument("--remote-graph", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json")
     parser.add_argument("--remote-policy", default="/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json")
     parser.add_argument("--remote-capsule", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json")
@@ -136,6 +138,8 @@ def validate(args: argparse.Namespace) -> None:
         raise ParallelContinuationError("signed acquisition state or repository root is unavailable")
     if not args.graph.is_file() or not args.policy.is_file() or not args.capsule.is_file():
         raise ParallelContinuationError("adaptive graph, policy, or capsule is unavailable")
+    if not args.assessment_bank.is_file() or args.assessment_bank.is_symlink() or not os.access(args.assessment_bank, os.R_OK):
+        raise ParallelContinuationError("independent assessment bank is unavailable")
     for remote_path in (args.remote_graph, args.remote_policy, args.remote_capsule):
         if not re.fullmatch(r"/[A-Za-z0-9._/-]+", remote_path):
             raise ParallelContinuationError("unsafe remote adaptive input path")
@@ -169,6 +173,14 @@ def source_commit(args: argparse.Namespace) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ParallelContinuationError("canonical source marker is invalid")
     return commit
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def wait_for_wave(path: Path, launched_at: str, args: argparse.Namespace, started_at: str) -> dict[str, Any]:
@@ -215,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ParallelContinuationError("another parallel continuation owns this state") from error
 
     committed_source = source_commit(args)
+    assessment_bank_sha256 = file_sha256(args.assessment_bank)
     acquisition = read_json(args.acquisition_state)
     revision = acquisition.get("revision")
     if not isinstance(revision, int):
@@ -237,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
             or state.get("graph") != str(args.graph)
             or state.get("policy") != str(args.policy)
             or state.get("capsule") != str(args.capsule)
+            or state.get("assessmentBank") != str(args.assessment_bank)
+            or state.get("assessmentBankSha256") != assessment_bank_sha256
             or state.get("remoteGraph") != args.remote_graph
             or state.get("remotePolicy") != args.remote_policy
             or state.get("remoteCapsule") != args.remote_capsule
@@ -266,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
             "graph": str(args.graph),
             "policy": str(args.policy),
             "capsule": str(args.capsule),
+            "assessmentBank": str(args.assessment_bank),
+            "assessmentBankSha256": assessment_bank_sha256,
             "remoteGraph": args.remote_graph,
             "remotePolicy": args.remote_policy,
             "remoteCapsule": args.remote_capsule,
@@ -298,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
                 break
             if source_commit(args) != committed_source:
                 raise ParallelContinuationError("canonical source changed during continuation")
+            if file_sha256(args.assessment_bank) != assessment_bank_sha256:
+                raise ParallelContinuationError("independent assessment bank changed during continuation")
             if state.get("currentWaveId"):
                 matches = [
                     row for row in state["waves"]
@@ -319,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--graph", str(args.graph),
                     "--policy", str(args.policy),
                     "--capsule", str(args.capsule),
+                    "--assessment-bank", str(args.assessment_bank),
                     "--remote-graph", args.remote_graph,
                     "--remote-policy", args.remote_policy,
                     "--remote-capsule", args.remote_capsule,

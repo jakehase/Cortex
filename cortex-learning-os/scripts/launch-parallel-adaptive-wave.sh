@@ -19,6 +19,7 @@ LOCAL_CAPSULE="$LOCAL_CLOS/capsules/math-foundations/capsule.json"
 REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json"
 REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
+ASSESSMENT_BANK=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --remote-graph) REMOTE_GRAPH="${2:-}"; shift 2 ;;
     --remote-policy) REMOTE_POLICY="${2:-}"; shift 2 ;;
     --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
+    --assessment-bank) ASSESSMENT_BANK="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -51,6 +53,8 @@ done
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable" >&2; exit 2; }
+[[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
+[[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
 for input_path in "$LOCAL_GRAPH" "$LOCAL_POLICY" "$LOCAL_CAPSULE" "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE"; do
   [[ "$input_path" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe adaptive input path" >&2; exit 2; }
 done
@@ -95,6 +99,7 @@ node "$LOCAL_CLOS/src/live-control.mjs" adaptive-wave-plan \
   --graph "$LOCAL_GRAPH" \
   --policy "$LOCAL_POLICY" \
   --capsule "$LOCAL_CAPSULE" \
+  --assessment-bank "$ASSESSMENT_BANK" \
   --out "$WAVE_PLAN" >/dev/null
 
 SELECTED_COUNT="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.selected.length))' "$WAVE_PLAN")"
@@ -143,12 +148,16 @@ fi
 
 REMOTE_WAVE_ROOT="$REMOTE_REPO/state/cortex-learning-os/waves/$WAVE_ID"
 REMOTE_PLAN_ROOT="$REMOTE_WAVE_ROOT/plans"
+REMOTE_ASSESSMENT_BANK="$REMOTE_WAVE_ROOT/assessment-bank.json"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   install -d -m 700 -o jake -g jake "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   chown jake:jake "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   chmod 700 "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
+scp -q -o BatchMode=yes -o ConnectTimeout=10 "$ASSESSMENT_BANK" "$SSH_HOST:$REMOTE_ASSESSMENT_BANK"
+ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_ASSESSMENT_BANK"
+ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_ASSESSMENT_BANK"
 for RUN_ID in "${RUN_IDS[@]}"; do
   LOCAL_CHILD_PLAN="$WAVE_ROOT/$RUN_ID.plan.json"
   REMOTE_CHILD_PLAN="$REMOTE_PLAN_ROOT/$RUN_ID.json"
@@ -184,7 +193,8 @@ systemd-run \
     --state-root "$STATE_ROOT" \
     --graph "$LOCAL_GRAPH" \
     --policy "$LOCAL_POLICY" \
-    --capsule "$LOCAL_CAPSULE"
+    --capsule "$LOCAL_CAPSULE" \
+    --assessment-bank "$ASSESSMENT_BANK"
 HARVEST_STARTED=true
 
 if [[ "$NOTIFY" == true ]]; then
@@ -203,7 +213,8 @@ for RUN_ID in "${RUN_IDS[@]}"; do
       --working-directory="$REMOTE_CLOS" \
       /bin/bash "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh" \
         "$WAVE_ID" "$RUN_ID" "$SOURCE_COMMIT" "$SOURCE_TREE" "$REMOTE_CODEX_BIN" "$REMOTE_CHILD_PLAN" \
-        "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE"
+        "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE" \
+        "$REMOTE_ASSESSMENT_BANK"
 done
 
 # Do not report or account for dispatch until every detached worker has written
