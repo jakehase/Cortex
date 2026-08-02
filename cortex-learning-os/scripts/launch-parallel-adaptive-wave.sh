@@ -86,7 +86,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- "$REMOTE_C
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -f "$REMOTE_GRAPH" -a -f "$REMOTE_POLICY" -a -f "$REMOTE_CAPSULE"
 
-install -d -m 700 "$WAVE_ROOT" "$LOCAL_ARTIFACT_ROOT/children"
+install -d -m 700 "$WAVE_ROOT" "$LOCAL_ARTIFACT_ROOT" "$LOCAL_ARTIFACT_ROOT/children"
 EXPIRES_AT="$(date -u -d "+$EXPIRES_SECONDS seconds" +%Y-%m-%dT%H:%M:%S.000Z)"
 node "$LOCAL_CLOS/src/live-control.mjs" adaptive-wave-plan \
   --state-root "$STATE_ROOT" \

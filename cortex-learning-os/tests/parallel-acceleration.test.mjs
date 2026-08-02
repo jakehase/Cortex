@@ -926,6 +926,7 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(waveLauncher, /timed out waiting for remote dispatch receipts/);
   assert.match(waveLauncher, /--assessment-bank/);
   assert.match(waveLauncher, /REMOTE_ASSESSMENT_BANK/);
+  assert.match(waveLauncher, /install -d -m 700 "\$WAVE_ROOT" "\$LOCAL_ARTIFACT_ROOT"/);
   assert.match(waveLauncher, /SOURCE_TREE=.*rev-parse/);
   assert.equal(
     waveLauncher.match(/sudo -u jake -- git -C "\$REMOTE_REPO"/g)?.length,
