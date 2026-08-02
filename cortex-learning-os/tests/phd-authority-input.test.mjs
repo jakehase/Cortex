@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,6 +30,40 @@ function withRoot(label, callback) {
 
 function writeJson(target, value) {
   fs.writeFileSync(target, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+}
+
+function assertCandidateRenameDenied(source, target) {
+  if (typeof process.geteuid === 'function' && process.geteuid() === 0) {
+    const attempt = spawnSync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      [
+        "import fs from 'node:fs';",
+        'try {',
+        'fs.renameSync(process.argv[1], process.argv[2]);',
+        'process.exit(3);',
+        '} catch (error) {',
+        "if (!['EACCES', 'EPERM'].includes(error.code)) {",
+        'console.error(error.stack || error);',
+        'process.exit(2);',
+        '}',
+        '}',
+      ].join(''),
+      source,
+      target,
+    ], {
+      encoding: 'utf8',
+      gid: 65534,
+      timeout: 10_000,
+      uid: 65534,
+    });
+    assert.equal(attempt.status, 0, attempt.stderr || attempt.stdout);
+    return;
+  }
+  assert.throws(
+    () => fs.renameSync(source, target),
+    /EACCES|EPERM/,
+  );
 }
 
 test('authority JSON reader returns one descriptor-bound in-memory snapshot', () => {
@@ -420,10 +455,7 @@ test('authority reader can require a stable non-writable broker handoff', () => 
       });
       assert.deepEqual(loaded.record, { identity: 'sealed-authority' });
       assert.equal(loaded.parentIdentity.mode, '0500');
-      assert.throws(
-        () => fs.renameSync(replacement, target),
-        /EACCES|EPERM/,
-      );
+      assertCandidateRenameDenied(replacement, target);
 
       assert.throws(
         () => readAuthorityJson(target, 'unsealed campaign', {

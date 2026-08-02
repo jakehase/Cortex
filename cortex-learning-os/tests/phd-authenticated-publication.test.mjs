@@ -53,6 +53,41 @@ const mappedRootNamespaceAvailable = (() => {
   return probe.status === 0 && probe.stdout.trim() === '0';
 })();
 
+function assertCandidateRenameDenied(source, target, label) {
+  if (typeof process.geteuid === 'function' && process.geteuid() === 0) {
+    const attempt = spawnSync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      [
+        "import fs from 'node:fs';",
+        'try {',
+        'fs.renameSync(process.argv[1], process.argv[2]);',
+        'process.exit(3);',
+        '} catch (error) {',
+        "if (!['EACCES', 'EPERM'].includes(error.code)) {",
+        'console.error(error.stack || error);',
+        'process.exit(2);',
+        '}',
+        '}',
+      ].join(''),
+      source,
+      target,
+    ], {
+      encoding: 'utf8',
+      gid: 65534,
+      timeout: 10_000,
+      uid: 65534,
+    });
+    assert.equal(attempt.status, 0, attempt.stderr || attempt.stdout || label);
+    return;
+  }
+  assert.throws(
+    () => fs.renameSync(source, target),
+    /EACCES|EPERM/,
+    label,
+  );
+}
+
 function makeFifo(targetPath, mode = '0600') {
   const result = spawnSync('/usr/bin/mkfifo', [
     `--mode=${mode}`,
@@ -2694,13 +2729,20 @@ test('root broker crash recovery seals content and rejects the final candidate m
       os.tmpdir(),
       `clos-root-broker-${crashPhase}-`,
     ));
+    const attackExchange = fs.mkdtempSync(path.join(
+      os.tmpdir(),
+      'clos-root-broker-candidate-',
+    ));
+    fs.chmodSync(attackExchange, 0o733);
     const authority = path.join(root, 'authority');
-    const inputPath = path.join(root, 'input.json');
+    const inputPath = path.join(attackExchange, 'input.json');
     const resultPath = path.join(root, 'result.json');
     const targetPath = path.join(authority, 'control.json');
-    const attackReadyPath = path.join(root, 'attack.ready');
-    const attackResultPath = path.join(root, 'attack.result');
-    const attackReplacementPath = path.join(root, 'replacement.json');
+    const attackReadyPath = path.join(attackExchange, 'attack.ready');
+    const attackResultPath = path.join(attackExchange, 'attack.result');
+    const attackReplacementPath = path.join(attackExchange, 'replacement.json');
+    const attackUid = process.geteuid() === 0 ? 65534 : process.geteuid();
+    const attackGid = process.getegid() === 0 ? 65534 : process.getegid();
     const record = {
       schemaVersion: 'root.broker.regression.v1',
       authenticated: true,
@@ -2712,12 +2754,12 @@ test('root broker crash recovery seals content and rejects the final candidate m
         attackReadyPath,
         attackReplacementPath,
         attackResultPath,
-        attackUid: process.geteuid(),
+        attackUid,
         crashPhase: selectedCrashPhase,
         record,
         resultPath,
         targetPath,
-      })}\n`, { mode: 0o600 });
+      })}\n`, { mode: 0o644 });
       if (selectedCrashPhase === null) {
         fs.writeFileSync(
           attackReplacementPath,
@@ -2726,13 +2768,22 @@ test('root broker crash recovery seals content and rejects the final candidate m
         );
         return spawnSync('/bin/bash', [
           '-c',
-          '"$1" "$2" "$3" & exec "$4" --user --map-root-user "$1" "$5" "$3"',
+          [
+            'if [ "$6" = "root" ]; then',
+            '/usr/bin/setpriv --reuid="$7" --regid="$8" --clear-groups',
+            '"$1" "$2" "$3" &',
+            'else "$1" "$2" "$3" & fi;',
+            'exec "$4" --user --map-root-user "$1" "$5" "$3"',
+          ].join(' '),
           'root-broker-final-close-coordinator',
           process.execPath,
           rootBrokerAttackerPath,
           inputPath,
           '/usr/bin/unshare',
           rootBrokerChildPath,
+          process.geteuid() === 0 ? 'root' : 'candidate',
+          String(attackUid),
+          String(attackGid),
         ], {
           encoding: 'utf8',
           timeout: 30_000,
@@ -2793,21 +2844,20 @@ test('root broker crash recovery seals content and rejects the final candidate m
       assert.equal(result.objectMode, '0400');
       assert.match(
         result.finalCloseMutation,
-        new RegExp(`^denied:(EACCES|EPERM):uid-${process.geteuid()}$`),
+        new RegExp(`^denied:(EACCES|EPERM):uid-${attackUid}$`),
       );
       assert.deepEqual(result.stagingEntries, []);
 
-      const replacement = path.join(root, 'post-return-replacement.json');
+      const replacement = path.join(
+        attackExchange,
+        'post-return-replacement.json',
+      );
       fs.writeFileSync(
         replacement,
         `${JSON.stringify({ ...record, identity: 'hostile' })}\n`,
         { mode: 0o600 },
       );
-      assert.throws(
-        () => fs.renameSync(replacement, targetPath),
-        /EACCES|EPERM/,
-        crashPhase,
-      );
+      assertCandidateRenameDenied(replacement, targetPath, crashPhase);
       assert.deepEqual(
         JSON.parse(fs.readFileSync(targetPath, 'utf8')),
         record,
@@ -2819,6 +2869,7 @@ test('root broker crash recovery seals content and rejects the final candidate m
       }
       if (fs.existsSync(authority)) fs.chmodSync(authority, 0o700);
       fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(attackExchange, { recursive: true, force: true });
     }
   }
 });

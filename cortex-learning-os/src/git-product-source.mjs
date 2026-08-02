@@ -499,7 +499,12 @@ function buildExecutionClosure({
 
 function workingTreeSnapshot(repositoryRoot = REPOSITORY_ROOT, {
   excludeMutableRuntime = false,
+  rootDescriptor = null,
 } = {}) {
+  if (rootDescriptor !== null
+      && (!Number.isInteger(rootDescriptor) || rootDescriptor < 0)) {
+    throw new Error('execution checkout root descriptor is invalid');
+  }
   const files = [];
   const directories = ['plugins'];
   const ignored = (relative, entry) => (
@@ -589,13 +594,19 @@ function workingTreeSnapshot(repositoryRoot = REPOSITORY_ROOT, {
     }
   };
   const root = path.resolve(repositoryRoot);
-  let rootDescriptor = null;
+  let ownedRootDescriptor = null;
+  const checkoutRootDescriptor = rootDescriptor === null
+    ? (ownedRootDescriptor = fs.openSync(root, DIRECTORY_FLAGS))
+    : rootDescriptor;
   try {
-    rootDescriptor = fs.openSync(root, DIRECTORY_FLAGS);
-    const rootMountId = linuxDescriptorMountId(rootDescriptor);
+    const rootStat = fs.fstatSync(checkoutRootDescriptor);
+    if (!rootStat.isDirectory()) {
+      throw new Error('execution checkout root descriptor is not a directory');
+    }
+    const rootMountId = linuxDescriptorMountId(checkoutRootDescriptor);
     for (const relative of [PRODUCT_PREFIX, 'plugins/cortex-learning-os-live']) {
       const opened = [];
-      let current = rootDescriptor;
+      let current = checkoutRootDescriptor;
       try {
         const components = relative.split('/');
         for (const component of components) {
@@ -616,7 +627,7 @@ function workingTreeSnapshot(repositoryRoot = REPOSITORY_ROOT, {
           relative,
           rootMountId,
           opened.length === 1
-            ? rootDescriptor
+            ? checkoutRootDescriptor
             : opened.at(-2),
           components.at(-1),
         );
@@ -633,7 +644,7 @@ function workingTreeSnapshot(repositoryRoot = REPOSITORY_ROOT, {
     }
     throw error;
   } finally {
-    if (rootDescriptor !== null) fs.closeSync(rootDescriptor);
+    if (ownedRootDescriptor !== null) fs.closeSync(ownedRootDescriptor);
   }
   return {
     files: files.sort((left, right) => left.path.localeCompare(right.path)),
@@ -873,8 +884,12 @@ function exactEntry(entry) {
 
 function assertObservedExecutionClosure(closure, checkoutRoot, {
   excludeMutableRuntime = false,
+  rootDescriptor = null,
 } = {}) {
-  const observed = workingTreeSnapshot(checkoutRoot, { excludeMutableRuntime });
+  const observed = workingTreeSnapshot(checkoutRoot, {
+    excludeMutableRuntime,
+    rootDescriptor,
+  });
   if (canonicalJson(observed.files) !== canonicalJson(closure.files)) {
     throw new Error('execution checkout is dirty, substituted, partial, or has extra bytes');
   }
@@ -967,7 +982,8 @@ function assertImmutableClosureDirectoryDescriptor(
       || stat.nlink < 1n
       || linuxDescriptorMountId(descriptor) !== expectedMountId) {
     throw new Error(
-      `execution checkout directory is not exact root-owned immutable material: ${relative}`,
+      'execution checkout directory ownership, type, or mode mismatch; '
+        + `exact root-owned immutable material required: ${relative}`,
     );
   }
   return stat;
@@ -1045,15 +1061,16 @@ export function assertExecutionClosureAtRoot(closure, checkoutRoot) {
     trustedChain = openRootOwnedDirectoryChain(root);
   }
   try {
-    const stableRoot = trustedChain?.rootView || root;
     const rootStat = trustedChain?.rootStat || fs.lstatSync(root);
     if (!rootStat.isDirectory() || (!trustedChain && rootStat.isSymbolicLink())) {
       throw new Error('execution checkout root is unsafe');
     }
-    assertObservedExecutionClosure(closure, stableRoot, {
-      excludeMutableRuntime: !closure.immutable,
-    });
-    if (!closure.immutable) return true;
+    if (!closure.immutable) {
+      assertObservedExecutionClosure(closure, root, {
+        excludeMutableRuntime: true,
+      });
+      return true;
+    }
     if (rootStat.uid !== 0 || rootStat.gid !== 0 || (rootStat.mode & 0o7777) !== 0o555) {
       throw new Error('execution checkout root is not root-owned immutable material');
     }
@@ -1114,6 +1131,13 @@ export function assertExecutionClosureAtRoot(closure, checkoutRoot) {
         for (const descriptor of openedParents.reverse()) fs.closeSync(descriptor);
       }
     }
+    // Exact expected entries are validated first so ownership, link-count, and
+    // full-mode violations retain their specific fail-closed disposition. The
+    // descriptor-pinned snapshot then proves there is no injected or missing
+    // negative space beyond that exact entry set.
+    assertObservedExecutionClosure(closure, root, {
+      rootDescriptor: trustedChain.rootDescriptor,
+    });
     return true;
   } finally {
     for (const descriptor of trustedChain?.descriptors.reverse() || []) fs.closeSync(descriptor);

@@ -16,5 +16,5 @@ try {
 }
 fs.writeFileSync(input.attackResultPath, `${result}\n`, {
   flag: 'wx',
-  mode: 0o600,
+  mode: 0o644,
 });

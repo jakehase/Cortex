@@ -275,7 +275,9 @@ export function buildProcessRuntimeClosure({
     throw new Error('process runtime helper, mount, or store paths are invalid');
   }
   const loadedFiles = runtimeFilePaths(executable);
-  const helperFiles = new Set(additionalExecutablePaths.map(path.resolve));
+  const helperFiles = new Set(
+    additionalExecutablePaths.map((target) => path.resolve(target)),
+  );
   if (helperFiles.has(executable)
       || loadedFiles.some((target) => helperFiles.has(target))) {
     throw new Error('process runtime helper executable overlaps the loaded runtime');
@@ -386,8 +388,12 @@ export function buildProcessRuntimeClosure({
     }
   }
   const filePaths = [...sourceBindings.keys()];
-  const mountDirectories = [...new Set(mountDirectoryPaths.map(path.resolve))];
-  const mountFiles = [...new Set(mountFilePaths.map(path.resolve))];
+  const mountDirectories = [...new Set(
+    mountDirectoryPaths.map((target) => path.resolve(target)),
+  )];
+  const mountFiles = [...new Set(
+    mountFilePaths.map((target) => path.resolve(target)),
+  )];
   if (mountFiles.some((target) => sourceBindings.has(target))
       || mountDirectories.some((target) => sourceBindings.has(target))
       || mountFiles.some((target) => mountDirectories.includes(target))) {
@@ -869,7 +875,9 @@ export function assertProcessRuntimeClosure(closure, {
     }
     const observedPaths = [];
     const walk = (directoryDescriptor, logicalDirectory) => {
-      const names = fs.readdirSync(directoryDescriptor).sort();
+      const names = fs.readdirSync(
+        `/proc/self/fd/${directoryDescriptor}`,
+      ).sort();
       for (const name of names) {
         const logical = logicalDirectory === '/'
           ? `/${name}`
