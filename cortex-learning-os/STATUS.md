@@ -5,9 +5,9 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-07-27`
-- Status: `retained_phd_source_fail_closed_pending_trusted_evidence`
-- Current fidelity: `production_boundaries_repaired_no_live_qualification`
+- Last updated: `2026-08-02`
+- Status: `retained_phd_source_trust_roots_active_pending_exact_external_evidence`
+- Current fidelity: `production_trust_roots_configured_no_live_qualification`
 - Package version: `1.0.0`
 
 ## Current checkpoint
@@ -19,9 +19,12 @@ the declared Git commit/tree, and production commands reject a dirty product
 subtree or external input paths. The prior 84-node program remains the explicit
 source for additive migration.
 
-The checked-in production trust policy is intentionally disabled and has no
-authorities. Generated advanced exercises and generated qualifying banks are
-marked synthetic fixtures and production verifiers reject them. Production
+The checked-in production trust policy is enabled under
+`clos-phd-production-20260802-v1` with twelve capability-separated Ed25519
+public authorities; every critical capability has a distinct authority ID and
+key, while private keys remain owner-only outside Git. Generated advanced
+exercises and generated qualifying banks remain synthetic fixtures and
+production verifiers reject them. Production
 evidence requires independently authored and expert-reviewed sealed banks,
 graduate track/outcome/concept/theorem-family coverage, cross-campaign family
 disjointness, and authenticated provenance. No current implementation test or
@@ -41,9 +44,9 @@ specifications, resource/no-tools policy, exact graph/rubric identities, and
 distinct Ed25519 author/reviewer attestations before materialization or
 grading. Production adaptive plan, worker, apply, and continuation entry
 points require `--assessment-bank`; generated exercises are accepted only by
-the explicit fixture verifier. No real bank or production authority key was
-added, so externally supplied signed bank count remains zero and all live
-claims remain non-green.
+the explicit fixture verifier. No bank is committed to the product, so an
+exact external signed bank is still required and qualification claims remain
+non-green. Configured trust roots alone are not acquisition evidence.
 
 Production model evidence now binds the exact raw provider output and
 append-only raw event ledger to provider-observed request/session identities,

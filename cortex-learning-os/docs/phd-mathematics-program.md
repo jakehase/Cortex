@@ -8,10 +8,13 @@ obligations, two retention windows, and a bounded research gate. These are
 program specifications, not evidence.
 
 The checked-in `policies/phd-production-trust.v1.json` has
-`productionEnabled: false` and no authorities. Pinned Lean, production sealed
-banks, a live signed 264-concept state, retention windows, proof runs, and
-research artifacts are absent. Therefore every production qualification gate
-is non-green and `phd_math_qualified` remains false.
+`productionEnabled: true` and twelve capability-separated Ed25519 public
+authorities under `clos-phd-production-20260802-v1`; owner-only private keys
+remain outside Git. This configures authentication roots but supplies no
+evidence. Pinned Lean, committed production sealed banks, a complete signed
+264-concept state, retention windows, proof runs, and research artifacts are
+absent. Therefore production qualification remains non-green and
+`phd_math_qualified` remains false.
 
 The first 84 graph records are canonically identical to the prior
 continuous-acquisition graph. The 180 additional records describe advanced

@@ -2221,10 +2221,10 @@ test('production reproduction rejects authenticated failed, incomplete, or outpu
   }
 });
 
-test('generated qualification banks and the checked-in trust policy remain explicitly non-production', () => {
+test('generated qualification banks remain non-production while checked-in trust roots are capability-separated', () => {
   const trustPolicy = read('policies/phd-production-trust.v1.json');
   assert.equal(validatePhdTrustPolicy(trustPolicy).ok, true);
-  assert.equal(validatePhdTrustPolicy(trustPolicy, { requireProduction: true }).ok, false);
+  assert.equal(validatePhdTrustPolicy(trustPolicy, { requireProduction: true }).ok, true);
   const runtime = loadCanonicalPhdProgram({
     sourceCommit: 'a'.repeat(40),
     sourceTree: 'b'.repeat(40),
@@ -2252,6 +2252,7 @@ test('generated qualification banks and the checked-in trust policy remain expli
   });
   assert.equal(invalidProductionBank.ok, false);
   assert.match(invalidProductionBank.errors.join('; '), /identity|provenance|attestation|graduate/);
+  // Working-tree fixture source remains non-production even with valid public trust roots.
   assert.equal(runtime.productionTrustReady, false);
 });
 

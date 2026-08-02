@@ -21,13 +21,14 @@ source target is the 264-node `math-phd-trajectory-v1` graph with
 The prior 84-node continuous-acquisition graph and policy are explicit
 migration/compatibility inputs, not implicit defaults.
 
-The production trust policy is deliberately disabled and contains no trusted
-authorities. The additional 180 concepts currently have deterministic
-synthetic track drills for mechanics and coverage tests only. Those drills are
-rejected by the production adaptive verifier and can never satisfy acquisition,
-retention, or qualification. Live progress beyond independently authored and
-attested assessment surfaces is therefore blocked, honestly, until those
-surfaces and trust roots are supplied.
+The production trust policy is enabled with twelve capability-separated
+Ed25519 public authorities under boundary `clos-phd-production-20260802-v1`;
+each critical capability has its own authority ID and verification key. Private
+keys remain owner-only outside Git. This trust-root configuration does not make
+fixtures into evidence. The additional 180 concepts still have deterministic
+synthetic track drills for mechanics and coverage tests only, and production
+verifiers reject those drills. Live acquisition additionally requires the
+exact externally commissioned, independently authored/reviewed signed bank.
 
 The source slice contains:
 

@@ -430,7 +430,7 @@ test('production control and layered status preserve the exact executable-bound 
     bundle: { expectedDeployment: deployment },
   });
   assert.equal(control.ok, false);
-  assert.match(control.errors.join('; '), /production trust policy is not enabled/);
+  assert.doesNotMatch(control.errors.join('; '), /production trust policy is not enabled/);
   assert.match(control.errors.join('; '), /sourceMode must be exact_git_blobs/);
   assert.match(
     control.errors.join('; '),

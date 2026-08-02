@@ -140,9 +140,8 @@ function loadCanonicalPhdProgramFromReaders({
       productionBlockers: [
         'No independently authored, independently reviewed, signed acquisition bank is committed or externally supplied.',
         'No independently authored, independently reviewed, signed retention banks are committed or externally supplied.',
-        'The checked-in production trust policy has no configured independent authority keys.',
       ],
-      truthBoundary: 'The runtime and schemas can ingest signed independent banks, but none are present. Generated exercise replay coverage remains fixture mechanics only and cannot qualify acquisition, retention, or PhD capability.',
+      truthBoundary: 'Capability-separated production trust roots are configured, but no signed independent bank is committed. Generated exercise replay coverage remains fixture mechanics only and cannot qualify acquisition, retention, or PhD capability.',
     },
     sourceMode,
     productionTrustReady: sourceMode !== 'working_tree_fixture'
