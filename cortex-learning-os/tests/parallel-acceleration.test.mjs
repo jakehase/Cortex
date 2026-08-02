@@ -886,6 +886,10 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(waveLauncher, /concurrent detached Hetzner Codex children/);
   assert.match(waveLauncher, /--property=User=jake --property=Group=jake/);
   assert.match(waveLauncher, /SOURCE_TREE=.*rev-parse/);
+  assert.equal(
+    waveLauncher.match(/sudo -u jake -- git -C "\$REMOTE_REPO"/g)?.length,
+    2,
+  );
   assert.match(waveLauncher, /systemd-run/);
   assert.match(child, /PLAN_SANDBOX.*read-only/s);
   assert.match(child, /toolsAllowed/);

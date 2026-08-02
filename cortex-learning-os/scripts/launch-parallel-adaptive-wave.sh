@@ -75,8 +75,8 @@ CHECKED_OUT_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
 ORIGIN_MAIN="$(git -C "$LOCAL_REPO" ls-remote origin refs/heads/main | awk '{print $1}')"
 [[ "$SOURCE_COMMIT" == "$ORIGIN_MAIN" ]] || { echo "canonical source is not origin/main" >&2; exit 3; }
 REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
-REMOTE_TREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" git -C "$REMOTE_REPO" rev-parse "$REMOTE_COMMIT^{tree}" | tr -d '[:space:]')"
-REMOTE_HEAD="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" git -C "$REMOTE_REPO" rev-parse HEAD | tr -d '[:space:]')"
+REMOTE_TREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse "$REMOTE_COMMIT^{tree}" | tr -d '[:space:]')"
+REMOTE_HEAD="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse HEAD | tr -d '[:space:]')"
 [[ "$REMOTE_COMMIT" == "$SOURCE_COMMIT" && "$REMOTE_HEAD" == "$SOURCE_COMMIT" && "$REMOTE_TREE" == "$SOURCE_TREE" ]] || { echo "Hetzner source commit/tree mismatch" >&2; exit 4; }
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- "$REMOTE_CODEX_BIN" --version >/dev/null
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh"
