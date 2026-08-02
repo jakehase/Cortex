@@ -11,6 +11,7 @@ import { prerequisiteClosure, validateCurriculumGraph } from './curriculum-plann
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
 import { sha256Text } from './hash.mjs';
 import { validateIndependentAssessmentBank } from './phd-assessment.mjs';
+import { validateApprovedModelExecutableBinding } from './approved-model-executable.mjs';
 import {
   applyMasteryDeltasAtomically,
   validateMasteryState,
@@ -242,6 +243,7 @@ export function buildParallelWave({
   assessmentTrustPolicy = null,
   assessmentDeployment = null,
   assessmentRubric = null,
+  approvedModelExecutable = null,
   now = new Date().toISOString(),
   expiresAt = new Date(Date.parse(now) + 4 * 60 * 60 * 1000).toISOString(),
 } = {}) {
@@ -274,6 +276,10 @@ export function buildParallelWave({
     }
     if (assessmentBank.purpose !== 'acquisition') {
       throw new Error('parallel acquisition requires an acquisition-purpose independent bank');
+    }
+    const executableValidation = validateApprovedModelExecutableBinding(approvedModelExecutable);
+    if (!executableValidation.ok) {
+      throw new Error(`parallel production acquisition requires an approved model executable: ${executableValidation.errors.join('; ')}`);
     }
   }
   const actions = selectParallelWaveActions({ graph, state, policy, seed, concurrency });
@@ -332,6 +338,7 @@ export function buildParallelWave({
     expiresAt,
     concurrency,
     source: { commit: sourceCommit, tree: sourceTree },
+    approvedModelExecutable: structuredClone(approvedModelExecutable),
     identities: {
       graph: { curriculumId: graph.curriculumId, sha256: sha256Text(graphBytes) },
       policy: { policyId: policy.policyId, sha256: sha256Text(policyBytes) },
@@ -388,6 +395,14 @@ export function verifyParallelWave({
 } = {}) {
   if (wave?.schemaVersion !== PARALLEL_WAVE_SCHEMA || !verifyWaveSignature(wave, signingSecret)) {
     throw new Error('parallel wave signature mismatch');
+  }
+  if (wave.identities?.assessmentBank !== null) {
+    const executableValidation = validateApprovedModelExecutableBinding(wave.approvedModelExecutable);
+    if (!executableValidation.ok) {
+      throw new Error(`parallel wave approved model executable is invalid: ${executableValidation.errors.join('; ')}`);
+    }
+  } else if (wave.approvedModelExecutable !== null) {
+    throw new Error('fixture parallel wave cannot bind a production model executable');
   }
   if (!Number.isInteger(wave.concurrency)
       || wave.concurrency < MIN_WAVE_CONCURRENCY || wave.concurrency > MAX_WAVE_CONCURRENCY
@@ -535,6 +550,7 @@ function verifyAndApplyParallelWaveInternal({
       assessmentBank,
       assessmentDeployment,
       assessmentRubric,
+      approvedModelExecutable: wave.approvedModelExecutable,
       planSecret: signingSecret,
       expectedPlan: selected.child.sessionPlan,
       allowFrozenWaveSelection: true,

@@ -11,6 +11,8 @@ GRAPH_PATH="${7:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-founda
 POLICY_PATH="${8:-/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json}"
 CAPSULE_PATH="${9:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json}"
 ASSESSMENT_BANK_PATH="${10:-}"
+APPROVED_MODEL_EXECUTABLE_BINDING_PATH="${11:-}"
+EXECUTION_PRIVATE_KEY_PATH="${12:-}"
 REPO_ROOT="/home/jake/clawd-remote"
 CLOS_ROOT="$REPO_ROOT/cortex-learning-os"
 STATE_ROOT="$REPO_ROOT/state/cortex-learning-os/waves/$WAVE_ID"
@@ -26,12 +28,17 @@ LOG_FILE="$LOG_ROOT/$RUN_ID.log"
 [[ "$CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid Codex executable path" >&2; exit 2; }
 [[ "$PLAN_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid child plan path" >&2; exit 2; }
 [[ "$ASSESSMENT_BANK_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid independent assessment bank path" >&2; exit 2; }
+[[ "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid approved model executable binding path" >&2; exit 2; }
+[[ "$EXECUTION_PRIVATE_KEY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid execution private key path" >&2; exit 2; }
 [[ "$GRAPH_PATH" =~ ^/[A-Za-z0-9._/-]+$ && "$POLICY_PATH" =~ ^/[A-Za-z0-9._/-]+$ && "$CAPSULE_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid adaptive input path" >&2; exit 2; }
 [[ -f "$PLAN_PATH" && ! -L "$PLAN_PATH" && -r "$PLAN_PATH" ]] || { echo "child plan must be a readable regular file" >&2; exit 2; }
 for input_path in "$GRAPH_PATH" "$POLICY_PATH" "$CAPSULE_PATH"; do
   [[ -f "$input_path" && ! -L "$input_path" && -r "$input_path" ]] || { echo "adaptive input must be a readable regular file: $input_path" >&2; exit 2; }
 done
 [[ -f "$ASSESSMENT_BANK_PATH" && ! -L "$ASSESSMENT_BANK_PATH" && -r "$ASSESSMENT_BANK_PATH" ]] || { echo "independent assessment bank must be a readable regular file" >&2; exit 2; }
+[[ -f "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" && ! -L "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" && -r "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" ]] || { echo "approved model executable binding must be a readable regular file" >&2; exit 2; }
+[[ -f "$EXECUTION_PRIVATE_KEY_PATH" && ! -L "$EXECUTION_PRIVATE_KEY_PATH" && -r "$EXECUTION_PRIVATE_KEY_PATH" ]] || { echo "execution private key must be a readable regular file" >&2; exit 2; }
+[[ "$(stat -c '%a' "$EXECUTION_PRIVATE_KEY_PATH")" == "600" ]] || { echo "execution private key must be owner-only" >&2; exit 2; }
 
 install -d -m 700 "$STATE_ROOT" "$LOG_ROOT" "$ARTIFACT_ROOT"
 
@@ -102,7 +109,9 @@ write_state running "detached Hetzner child is collecting bounded acquisition or
     --graph "$GRAPH_PATH" \
     --policy "$POLICY_PATH" \
     --capsule "$CAPSULE_PATH" \
-    --assessment-bank "$ASSESSMENT_BANK_PATH"; then
+    --assessment-bank "$ASSESSMENT_BANK_PATH" \
+    --approved-model-executable-binding "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" \
+    --execution-private-key "$EXECUTION_PRIVATE_KEY_PATH"; then
     TRAIN_EXIT=0
   else
     TRAIN_EXIT=$?

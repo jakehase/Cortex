@@ -269,6 +269,7 @@ function verifyAdaptiveArtifactsInternal({
   assessmentBank = null,
   assessmentDeployment = null,
   assessmentRubric = null,
+  approvedModelExecutable = null,
 } = {}) {
   const root = path.resolve(artifactRoot);
   const manifestPath = path.join(root, 'artifact_manifest.json');
@@ -344,7 +345,7 @@ function verifyAdaptiveArtifactsInternal({
         sourceTree: assessmentDeployment.sourceTree,
       }))
       : null,
-    approvedExecutable: assessmentDeployment?.approvedModelExecutable,
+    approvedExecutable: approvedModelExecutable || assessmentDeployment?.approvedModelExecutable,
     notBeforeMs: generatedAtMs - 300_000,
     notAfterMs: Date.now() + 300_000,
   };

@@ -315,7 +315,7 @@ export function validateExecutionEvidenceCore(core) {
         || model.toolsAllowed !== false
         || !Array.isArray(model.toolsUsed) || model.toolsUsed.length !== 0
         || !validUsage(model.usage)
-        || !IDENTIFIER.test(String(model.providerRequestId || ''))
+        || !validOptionalIdentifier(model.providerRequestId)
         || !IDENTIFIER.test(String(model.providerSessionId || ''))
         || model.plannedSessionId !== bindings?.candidateSessionId
         || stdoutRecord?.bytes < 1

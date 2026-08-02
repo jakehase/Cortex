@@ -9,6 +9,7 @@ SSH_HOST="root@37.27.129.239"
 REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
 REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
+REMOTE_EXECUTION_PRIVATE_KEY="/home/jake/.config/cortex-learning-os/authorities/execution.private.pem"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 EXPIRES_SECONDS=14400
 DRY_RUN=false
@@ -20,6 +21,7 @@ REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v
 REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
 ASSESSMENT_BANK=""
+APPROVED_MODEL_EXECUTABLE_BINDING=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
+    --remote-execution-private-key) REMOTE_EXECUTION_PRIVATE_KEY="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --expires-seconds) EXPIRES_SECONDS="${2:-}"; shift 2 ;;
     --graph) LOCAL_GRAPH="${2:-}"; shift 2 ;;
@@ -43,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --remote-policy) REMOTE_POLICY="${2:-}"; shift 2 ;;
     --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
     --assessment-bank) ASSESSMENT_BANK="${2:-}"; shift 2 ;;
+    --approved-model-executable-binding) APPROVED_MODEL_EXECUTABLE_BINDING="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -53,8 +57,14 @@ done
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable" >&2; exit 2; }
+[[ "$REMOTE_EXECUTION_PRIVATE_KEY" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote execution private key" >&2; exit 2; }
 [[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
 [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
+[[ "$APPROVED_MODEL_EXECUTABLE_BINDING" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--approved-model-executable-binding requires a safe absolute path" >&2; exit 2; }
+[[ -f "$APPROVED_MODEL_EXECUTABLE_BINDING" && ! -L "$APPROVED_MODEL_EXECUTABLE_BINDING" && -r "$APPROVED_MODEL_EXECUTABLE_BINDING" ]] || { echo "approved model executable binding is unavailable" >&2; exit 2; }
+BOUND_CODEX_BIN="$(node -e 'const b=require(process.argv[1]);process.stdout.write(String(b.path||""))' "$APPROVED_MODEL_EXECUTABLE_BINDING")"
+[[ "$BOUND_CODEX_BIN" =~ ^/opt/cortex-learning-os/approved-model-executors/[0-9a-f]{64}/codex$ ]] || { echo "approved model executable binding path is invalid" >&2; exit 2; }
+REMOTE_CODEX_BIN="$BOUND_CODEX_BIN"
 for input_path in "$LOCAL_GRAPH" "$LOCAL_POLICY" "$LOCAL_CAPSULE" "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE"; do
   [[ "$input_path" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe adaptive input path" >&2; exit 2; }
 done
@@ -83,6 +93,8 @@ REMOTE_TREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jak
 REMOTE_HEAD="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse HEAD | tr -d '[:space:]')"
 [[ "$REMOTE_COMMIT" == "$SOURCE_COMMIT" && "$REMOTE_HEAD" == "$SOURCE_COMMIT" && "$REMOTE_TREE" == "$SOURCE_TREE" ]] || { echo "Hetzner source commit/tree mismatch" >&2; exit 4; }
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- "$REMOTE_CODEX_BIN" --version >/dev/null
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -f "$REMOTE_EXECUTION_PRIVATE_KEY" -a ! -L "$REMOTE_EXECUTION_PRIVATE_KEY"
+[[ "$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" stat -c '%U:%G:%a' "$REMOTE_EXECUTION_PRIVATE_KEY")" == "jake:jake:600" ]] || { echo "remote execution authority key is not owner-only" >&2; exit 4; }
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -f "$REMOTE_GRAPH" -a -f "$REMOTE_POLICY" -a -f "$REMOTE_CAPSULE"
 
@@ -100,6 +112,7 @@ node "$LOCAL_CLOS/src/live-control.mjs" adaptive-wave-plan \
   --policy "$LOCAL_POLICY" \
   --capsule "$LOCAL_CAPSULE" \
   --assessment-bank "$ASSESSMENT_BANK" \
+  --approved-model-executable-binding "$APPROVED_MODEL_EXECUTABLE_BINDING" \
   --out "$WAVE_PLAN" >/dev/null
 
 SELECTED_COUNT="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.selected.length))' "$WAVE_PLAN")"
@@ -149,6 +162,7 @@ fi
 REMOTE_WAVE_ROOT="$REMOTE_REPO/state/cortex-learning-os/waves/$WAVE_ID"
 REMOTE_PLAN_ROOT="$REMOTE_WAVE_ROOT/plans"
 REMOTE_ASSESSMENT_BANK="$REMOTE_WAVE_ROOT/assessment-bank.json"
+REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING="$REMOTE_WAVE_ROOT/approved-model-executable.json"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   install -d -m 700 -o jake -g jake "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
@@ -156,8 +170,10 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
   chmod 700 "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
 scp -q -o BatchMode=yes -o ConnectTimeout=10 "$ASSESSMENT_BANK" "$SSH_HOST:$REMOTE_ASSESSMENT_BANK"
+scp -q -o BatchMode=yes -o ConnectTimeout=10 "$APPROVED_MODEL_EXECUTABLE_BINDING" "$SSH_HOST:$REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING"
 ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_ASSESSMENT_BANK"
-ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_ASSESSMENT_BANK"
+ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING"
+ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_ASSESSMENT_BANK" "$REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING"
 for RUN_ID in "${RUN_IDS[@]}"; do
   LOCAL_CHILD_PLAN="$WAVE_ROOT/$RUN_ID.plan.json"
   REMOTE_CHILD_PLAN="$REMOTE_PLAN_ROOT/$RUN_ID.json"
@@ -191,6 +207,7 @@ systemd-run \
     --local-artifact-root "$LOCAL_ARTIFACT_ROOT" \
     --state-file "$LOCAL_STATE" \
     --state-root "$STATE_ROOT" \
+    --live-control "$LOCAL_CLOS/src/live-control.mjs" \
     --graph "$LOCAL_GRAPH" \
     --policy "$LOCAL_POLICY" \
     --capsule "$LOCAL_CAPSULE" \
@@ -214,7 +231,8 @@ for RUN_ID in "${RUN_IDS[@]}"; do
       /bin/bash "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh" \
         "$WAVE_ID" "$RUN_ID" "$SOURCE_COMMIT" "$SOURCE_TREE" "$REMOTE_CODEX_BIN" "$REMOTE_CHILD_PLAN" \
         "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE" \
-        "$REMOTE_ASSESSMENT_BANK"
+        "$REMOTE_ASSESSMENT_BANK" "$REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING" \
+        "$REMOTE_EXECUTION_PRIVATE_KEY"
 done
 
 # Do not report or account for dispatch until every detached worker has written

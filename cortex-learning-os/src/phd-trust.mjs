@@ -171,6 +171,75 @@ export function verifyAuthorityAttestation(attestation, {
   }
 }
 
+export function createExecutionAttestation({
+  trustPolicy,
+  privateKeyPem,
+  executionEvidenceCore,
+  executionEvidenceSha256: suppliedExecutionEvidenceSha256,
+  executionId,
+  ledgerPreviousSha256 = null,
+} = {}) {
+  const trustValidation = validatePhdTrustPolicy(trustPolicy, { requireProduction: true });
+  if (!trustValidation.ok) {
+    throw new Error(`cannot sign execution evidence under an invalid production trust policy: ${trustValidation.errors.join('; ')}`);
+  }
+  const evidenceValidation = validateExecutionEvidenceRecord({
+    core: executionEvidenceCore,
+    executionEvidenceSha256: suppliedExecutionEvidenceSha256,
+  });
+  if (!evidenceValidation.ok) {
+    throw new Error(`cannot sign invalid execution evidence: ${evidenceValidation.errors.join('; ')}`);
+  }
+  if (!IDENTIFIER.test(String(executionId || ''))
+      || (!DIGEST.test(String(ledgerPreviousSha256 || '')) && ledgerPreviousSha256 !== null)) {
+    throw new Error('execution attestation identity or ledger predecessor is invalid');
+  }
+  const authorities = trustPolicy.authorities.filter((authority) => (
+    authority.capabilities.length === 1 && authority.capabilities[0] === 'execution'
+  ));
+  if (authorities.length !== 1) throw new Error('production trust policy requires one dedicated execution authority');
+  const authority = authorities[0];
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  const derivedPublicKey = crypto.createPublicKey(privateKey);
+  const derivedFingerprint = sha256Text(derivedPublicKey.export({ format: 'der', type: 'spki' }));
+  if (derivedFingerprint !== authority.keyId) {
+    throw new Error('execution authority private key does not match the production trust policy');
+  }
+  const payload = {
+    boundaryId: trustPolicy.boundaryId,
+    executionEvidenceCore: structuredClone(executionEvidenceCore),
+    executionEvidenceSha256: suppliedExecutionEvidenceSha256,
+    executionId,
+    ledgerPreviousSha256,
+  };
+  const core = {
+    schemaVersion: EXECUTION_ATTESTATION_SCHEMA,
+    attestationId: `attestation-${executionId}`,
+    authorityId: authority.authorityId,
+    payload,
+  };
+  const attestation = {
+    ...core,
+    signature: {
+      algorithm: 'ed25519',
+      keyId: authority.keyId,
+      valueBase64: crypto.sign(
+        null,
+        Buffer.from(canonicalJson(core), 'utf8'),
+        privateKey,
+      ).toString('base64'),
+    },
+  };
+  if (!verifyAuthorityAttestation(attestation, {
+    trustPolicy,
+    capability: 'execution',
+    schemaVersion: EXECUTION_ATTESTATION_SCHEMA,
+  })) {
+    throw new Error('execution attestation failed self-verification');
+  }
+  return attestation;
+}
+
 export function validateCapabilityAuthorityIndependence({
   trustPolicy,
   firstAttestation,

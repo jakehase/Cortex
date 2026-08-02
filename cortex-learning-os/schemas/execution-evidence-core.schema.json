@@ -165,7 +165,12 @@
             "toolsAllowed": { "const": false },
             "toolsUsed": { "type": "array", "maxItems": 0 },
             "usage": { "type": "object", "minProperties": 1 },
-            "providerRequestId": { "$ref": "#/$defs/identifier" },
+            "providerRequestId": {
+              "oneOf": [
+                { "$ref": "#/$defs/identifier" },
+                { "type": "null" }
+              ]
+            },
             "providerSessionId": { "$ref": "#/$defs/identifier" },
             "plannedSessionId": { "$ref": "#/$defs/identifier" }
           }

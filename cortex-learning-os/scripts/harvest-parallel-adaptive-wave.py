@@ -17,6 +17,7 @@ from typing import Any
 SAFE_WAVE = re.compile(r"^math-wave-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$")
 SAFE_RUN = re.compile(r"^math-wave-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}[.]c0[1-8]$")
 TERMINAL = {"candidate", "failed"}
+DEFAULT_LIVE_CONTROL = str(Path(__file__).resolve().parents[1] / "src" / "live-control.mjs")
 
 
 class WaveHarvestError(RuntimeError):
@@ -61,7 +62,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--local-artifact-root", required=True, type=Path)
     value.add_argument("--state-file", required=True, type=Path)
     value.add_argument("--state-root", default="/root/.openclaw/cortex-learning-os")
-    value.add_argument("--live-control", default="/root/clawd/cortex-learning-os/src/live-control.mjs")
+    value.add_argument("--live-control", default=DEFAULT_LIVE_CONTROL)
     value.add_argument("--graph")
     value.add_argument("--policy")
     value.add_argument("--capsule")

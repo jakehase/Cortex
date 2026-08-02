@@ -39,6 +39,7 @@ import {
   verifyAndApplyParallelWave,
 } from './parallel-wave.mjs';
 import { loadCanonicalPhdProgram } from './phd-program-runtime.mjs';
+import { validateApprovedModelExecutableBinding } from './approved-model-executable.mjs';
 import {
   ACTIVATION_PROFILES,
   LESSON_SCHEMA,
@@ -668,6 +669,7 @@ try {
       const policyPath = value('--policy');
       const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
       const assessmentBankPath = requiredPath('--assessment-bank');
+      const approvedModelExecutableBindingPath = requiredPath('--approved-model-executable-binding');
       const waveId = value('--wave-id');
       const seed = value('--seed');
       const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
@@ -687,6 +689,11 @@ try {
         productTree: gitIdentity.productTree,
       });
       const assessmentBank = readJson(assessmentBankPath);
+      const approvedModelExecutable = readJson(approvedModelExecutableBindingPath);
+      const approvedExecutableValidation = validateApprovedModelExecutableBinding(approvedModelExecutable);
+      if (!approvedExecutableValidation.ok) {
+        throw new Error(`approved model executable binding is invalid: ${approvedExecutableValidation.errors.join('; ')}`);
+      }
       const wave = buildParallelWave({
         waveId,
         graph: adaptive.graph,
@@ -702,6 +709,7 @@ try {
         assessmentTrustPolicy: canonicalProgram.trustPolicy,
         assessmentDeployment: canonicalProgram.deployment,
         assessmentRubric: canonicalProgram.rubric,
+        approvedModelExecutable,
         ...(expiresAt ? { expiresAt } : {}),
       });
       const outPath = path.resolve(out);

@@ -115,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--policy", default="/root/clawd/cortex-learning-os/policies/adaptive-math-phd-v1.json", type=Path)
     parser.add_argument("--capsule", default="/root/clawd/cortex-learning-os/capsules/math-foundations/capsule.json", type=Path)
     parser.add_argument("--assessment-bank", required=True, type=Path)
+    parser.add_argument("--approved-model-executable-binding", required=True, type=Path)
     parser.add_argument("--remote-graph", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json")
     parser.add_argument("--remote-policy", default="/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json")
     parser.add_argument("--remote-capsule", default="/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json")
@@ -138,6 +139,8 @@ def validate(args: argparse.Namespace) -> None:
         raise ParallelContinuationError("signed acquisition state or repository root is unavailable")
     if not args.graph.is_file() or not args.policy.is_file() or not args.capsule.is_file():
         raise ParallelContinuationError("adaptive graph, policy, or capsule is unavailable")
+    if not args.approved_model_executable_binding.is_file():
+        raise ParallelContinuationError("approved model executable binding is unavailable")
     if not args.assessment_bank.is_file() or args.assessment_bank.is_symlink() or not os.access(args.assessment_bank, os.R_OK):
         raise ParallelContinuationError("independent assessment bank is unavailable")
     for remote_path in (args.remote_graph, args.remote_policy, args.remote_capsule):
@@ -339,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--policy", str(args.policy),
                     "--capsule", str(args.capsule),
                     "--assessment-bank", str(args.assessment_bank),
+                    "--approved-model-executable-binding", str(args.approved_model_executable_binding),
                     "--remote-graph", args.remote_graph,
                     "--remote-policy", args.remote_policy,
                     "--remote-capsule", args.remote_capsule,

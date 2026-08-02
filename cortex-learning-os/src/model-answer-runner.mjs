@@ -8,8 +8,10 @@ import {
   observeExecutableIdentity,
   observeProcessEnvironment,
 } from './execution-evidence.mjs';
+import { openApprovedModelExecutable } from './approved-model-executable.mjs';
 import { sha256Bytes } from './hash.mjs';
 import { CLOS_ROOT } from './paths.mjs';
+import { createExecutionAttestation } from './phd-trust.mjs';
 
 export function extractJson(text) {
   const stripped = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -113,6 +115,9 @@ export function runCodexExam({
   model = 'gpt-5.6-sol',
   codexCommand = 'codex',
   executionContext = null,
+  approvedModelExecutable = null,
+  executionTrustPolicy = null,
+  executionPrivateKeyPem = null,
 } = {}) {
   if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
   const prompt = buildExamPrompt({ exam, learningContext });
@@ -131,23 +136,46 @@ export function runCodexExam({
       CLOS_EXPERIMENT_SESSION_ID: sessionId,
       CLOS_THINKING: thinking,
     };
-    const selectedExecutable = observeExecutableIdentity(codexCommand, {
-      cwd: temporaryRoot,
-      env: processEnvironment,
-    }).resolvedPath;
-    const executableIdentity = observeExecutableIdentity(selectedExecutable, {
+    if (executionContext !== null
+        && (approvedModelExecutable === null
+          || executionTrustPolicy === null
+          || executionPrivateKeyPem === null)) {
+      throw new Error('production model execution requires an approved executable and execution authority');
+    }
+    const approvedExecutable = approvedModelExecutable === null
+      ? null
+      : openApprovedModelExecutable(approvedModelExecutable);
+    const selectedExecutable = approvedExecutable === null
+      ? observeExecutableIdentity(codexCommand, {
+        cwd: temporaryRoot,
+        env: processEnvironment,
+      }).resolvedPath
+      : approvedExecutable.requestedPath;
+    if (approvedExecutable !== null && codexCommand !== approvedExecutable.requestedPath) {
+      fs.closeSync(approvedExecutable.descriptor);
+      throw new Error('requested Codex command differs from the signed approved executable');
+    }
+    const executedExecutable = approvedExecutable?.executedPath || selectedExecutable;
+    const executableIdentity = approvedExecutable?.identity || observeExecutableIdentity(selectedExecutable, {
       cwd: temporaryRoot,
       env: processEnvironment,
     });
     const startedAt = new Date().toISOString();
-    result = spawnSync(selectedExecutable, args, {
-      input: prompt,
-      encoding: 'utf8',
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: (timeoutSeconds + 30) * 1000,
-      env: processEnvironment,
-      cwd: temporaryRoot,
-    });
+    try {
+      result = spawnSync(executedExecutable, args, {
+        input: prompt,
+        encoding: 'utf8',
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: (timeoutSeconds + 30) * 1000,
+        env: processEnvironment,
+        cwd: temporaryRoot,
+        stdio: approvedExecutable === null
+          ? ['pipe', 'pipe', 'pipe']
+          : ['pipe', 'pipe', 'pipe', approvedExecutable.descriptor],
+      });
+    } finally {
+      if (approvedExecutable !== null) fs.closeSync(approvedExecutable.descriptor);
+    }
     const completedAt = new Date().toISOString();
     const events = parseJsonLines(result.stdout);
     const toolEvents = observedToolEvents(events);
@@ -185,6 +213,7 @@ export function runCodexExam({
     ]);
     let executionEvidenceCore = null;
     let executionEvidenceDigest = null;
+    let executionAttestation = null;
     if (executionContext !== null) {
       executionEvidenceCore = createExecutionEvidenceCore({
         executionKind: 'model',
@@ -206,7 +235,7 @@ export function runCodexExam({
         },
         observedEnvironment: observeProcessEnvironment(processEnvironment),
         requestedArgv: [selectedExecutable, ...args],
-        executedArgv: [selectedExecutable, ...args],
+        executedArgv: [executedExecutable, ...args],
         executable: executableIdentity,
         cwd: temporaryRoot,
         startedAt,
@@ -243,6 +272,13 @@ export function runCodexExam({
         },
       });
       executionEvidenceDigest = executionEvidenceSha256(executionEvidenceCore);
+      executionAttestation = createExecutionAttestation({
+        trustPolicy: executionTrustPolicy,
+        privateKeyPem: executionPrivateKeyPem,
+        executionEvidenceCore,
+        executionEvidenceSha256: executionEvidenceDigest,
+        executionId: `execution-${executionEvidenceDigest.slice(0, 32)}`,
+      });
     }
     Object.assign(raw, {
       startedAt,
@@ -251,7 +287,7 @@ export function runCodexExam({
       stderrBase64: Buffer.from(result.stderr || '', 'utf8').toString('base64'),
       executionEvidenceCore,
       executionEvidenceSha256: executionEvidenceDigest,
-      executionAttestation: null,
+      executionAttestation,
     });
     const answerSet = {
       schemaVersion: 'cortex.learning_os.answer_set.v0',

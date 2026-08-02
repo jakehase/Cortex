@@ -20,6 +20,7 @@ REMOTE_GRAPH="$REMOTE_CLOS/capsules/math-foundations/curriculum.phd-trajectory-v
 REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
 ASSESSMENT_BANK=""
+APPROVED_MODEL_EXECUTABLE_BINDING=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --remote-policy) REMOTE_POLICY="${2:-}"; shift 2 ;;
     --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
     --assessment-bank) ASSESSMENT_BANK="${2:-}"; shift 2 ;;
+    --approved-model-executable-binding) APPROVED_MODEL_EXECUTABLE_BINDING="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -46,6 +48,8 @@ done
 [[ "$MAX_SESSIONS" =~ ^[0-9]+$ ]] && (( MAX_SESSIONS >= 1 && MAX_SESSIONS <= 800 )) || { echo "--max-sessions must be 1..800" >&2; exit 2; }
 [[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
 [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
+[[ "$APPROVED_MODEL_EXECUTABLE_BINDING" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--approved-model-executable-binding requires a safe absolute path" >&2; exit 2; }
+[[ -f "$APPROVED_MODEL_EXECUTABLE_BINDING" && ! -L "$APPROVED_MODEL_EXECUTABLE_BINDING" && -r "$APPROVED_MODEL_EXECUTABLE_BINDING" ]] || { echo "approved model executable binding is unavailable" >&2; exit 2; }
 
 CONTINUATION_ID="math-acceleration-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 SAFE_UNIT="clos-${CONTINUATION_ID//[^a-zA-Z0-9-]/-}"
@@ -70,6 +74,7 @@ ARGS=(
   --policy "$POLICY"
   --capsule "$CAPSULE"
   --assessment-bank "$ASSESSMENT_BANK"
+  --approved-model-executable-binding "$APPROVED_MODEL_EXECUTABLE_BINDING"
   --remote-graph "$REMOTE_GRAPH"
   --remote-policy "$REMOTE_POLICY"
   --remote-capsule "$REMOTE_CAPSULE"
