@@ -99,10 +99,18 @@ node "$LOCAL_CLOS/src/live-control.mjs" adaptive-wave-plan \
 
 SELECTED_COUNT="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.selected.length))' "$WAVE_PLAN")"
 MERGE_ORDER="$(node -e 'const w=require(process.argv[1]); process.stdout.write(w.mergeOrder.join(","))' "$WAVE_PLAN")"
-python3 - "$WAVE_ID" "$WAVE_PLAN" "$LOCAL_STATE" "$LOCAL_ARTIFACT_ROOT" "$SOURCE_COMMIT" "$SOURCE_TREE" "$CONCURRENCY" "$SELECTED_COUNT" "$MERGE_ORDER" "$DRY_RUN" <<'PY'
+mapfile -t RUN_IDS < <(node -e 'const w=require(process.argv[1]); for(const id of w.mergeOrder) console.log(id)' "$WAVE_PLAN")
+[[ "${#RUN_IDS[@]}" -eq "$SELECTED_COUNT" ]] || { echo "wave merge order count differs from selected count" >&2; exit 5; }
+[[ "$(IFS=,; echo "${RUN_IDS[*]}")" == "$MERGE_ORDER" ]] || { echo "wave merge order materialization changed" >&2; exit 5; }
+DISPATCH_RECEIPTS_FILE="$WAVE_ROOT/dispatch-receipts.json"
+
+emit_descriptor() {
+python3 - "$WAVE_ID" "$WAVE_PLAN" "$LOCAL_STATE" "$LOCAL_ARTIFACT_ROOT" "$SOURCE_COMMIT" "$SOURCE_TREE" "$CONCURRENCY" "$SELECTED_COUNT" "$MERGE_ORDER" "$DRY_RUN" "$DISPATCH_RECEIPTS_FILE" <<'PY'
 import json
+from pathlib import Path
 import sys
-wave_id, wave, state, artifacts, commit, tree, concurrency, count, order, dry = sys.argv[1:]
+wave_id, wave, state, artifacts, commit, tree, concurrency, count, order, dry, receipts_path = sys.argv[1:]
+receipts = json.loads(Path(receipts_path).read_text(encoding="utf-8")) if Path(receipts_path).is_file() else []
 print(json.dumps({
     "ok": True,
     "dryRun": dry == "true",
@@ -115,6 +123,8 @@ print(json.dumps({
     "concurrency": int(concurrency),
     "selectedCount": int(count),
     "mergeOrder": order.split(",") if order else [],
+    "dispatchedCount": len(receipts),
+    "dispatchReceipts": receipts,
     "frontierReached": int(count) == 0,
     "reviewSelectionEnabled": False,
     "placement": {
@@ -123,23 +133,47 @@ print(json.dumps({
     },
 }, indent=2))
 PY
-[[ "$DRY_RUN" == true || "$SELECTED_COUNT" == "0" ]] && exit 0
+}
 
-REMOTE_PLAN_ROOT="$REMOTE_REPO/state/cortex-learning-os/waves/$WAVE_ID/plans"
-ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" install -d -m 700 -o jake -g jake "$REMOTE_PLAN_ROOT"
-while IFS= read -r RUN_ID; do
+if [[ "$DRY_RUN" == true || "$SELECTED_COUNT" == "0" ]]; then
+  printf '[]\n' >"$DISPATCH_RECEIPTS_FILE"
+  emit_descriptor
+  exit 0
+fi
+
+REMOTE_WAVE_ROOT="$REMOTE_REPO/state/cortex-learning-os/waves/$WAVE_ID"
+REMOTE_PLAN_ROOT="$REMOTE_WAVE_ROOT/plans"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+  install -d -m 700 -o jake -g jake "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+  chown jake:jake "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+  chmod 700 "$REMOTE_WAVE_ROOT" "$REMOTE_PLAN_ROOT"
+for RUN_ID in "${RUN_IDS[@]}"; do
   LOCAL_CHILD_PLAN="$WAVE_ROOT/$RUN_ID.plan.json"
   REMOTE_CHILD_PLAN="$REMOTE_PLAN_ROOT/$RUN_ID.json"
   node -e 'const fs=require("fs"); const w=require(process.argv[1]); const id=process.argv[2]; const row=w.selected.find(x=>x.child.runId===id); if(!row)process.exit(2); fs.writeFileSync(process.argv[3], JSON.stringify(row.child.sessionPlan,null,2)+"\n",{mode:0o600});' \
     "$WAVE_PLAN" "$RUN_ID" "$LOCAL_CHILD_PLAN"
   scp -q -o BatchMode=yes -o ConnectTimeout=10 "$LOCAL_CHILD_PLAN" "$SSH_HOST:$REMOTE_CHILD_PLAN"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_CHILD_PLAN"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_CHILD_PLAN"
-done < <(node -e 'const w=require(process.argv[1]); for(const id of w.mergeOrder) console.log(id)' "$WAVE_PLAN")
+  ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chown jake:jake "$REMOTE_CHILD_PLAN"
+  ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" chmod 600 "$REMOTE_CHILD_PLAN"
+done
 
 SAFE_UNIT="clos-${WAVE_ID//[^a-zA-Z0-9-]/-}"
+HARVEST_UNIT="$SAFE_UNIT-harvest"
+NOTIFY_UNIT="$SAFE_UNIT-notify"
+HARVEST_STARTED=false
+NOTIFY_STARTED=false
+cleanup_failed_launch() {
+  local exit_code=$?
+  if [[ "$exit_code" -ne 0 ]]; then
+    [[ "$HARVEST_STARTED" == true ]] && systemctl stop "$HARVEST_UNIT.service" >/dev/null 2>&1 || true
+    [[ "$NOTIFY_STARTED" == true ]] && systemctl stop "$NOTIFY_UNIT.service" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_failed_launch EXIT
 systemd-run \
-  --unit="$SAFE_UNIT-harvest" --collect --quiet \
+  --unit="$HARVEST_UNIT" --collect --quiet \
   --working-directory="$LOCAL_REPO" \
   /usr/bin/python3 "$LOCAL_CLOS/scripts/harvest-parallel-adaptive-wave.py" \
     --wave "$WAVE_PLAN" \
@@ -151,21 +185,71 @@ systemd-run \
     --graph "$LOCAL_GRAPH" \
     --policy "$LOCAL_POLICY" \
     --capsule "$LOCAL_CAPSULE"
+HARVEST_STARTED=true
 
 if [[ "$NOTIFY" == true ]]; then
   NOTIFIER="$LOCAL_CLOS/scripts/detached_job_notifier.py"
   NOTIFY_COMMAND="until /usr/bin/python3 '$NOTIFIER' --once --state-file '$LOCAL_STATE' --job-label 'Cortex Learning OS parallel acquisition $WAVE_ID'; do sleep 30; done"
-  systemd-run --unit="$SAFE_UNIT-notify" --collect --quiet --working-directory="$LOCAL_REPO" /bin/bash -lc "$NOTIFY_COMMAND"
+  systemd-run --unit="$NOTIFY_UNIT" --collect --quiet --working-directory="$LOCAL_REPO" /bin/bash -lc "$NOTIFY_COMMAND"
+  NOTIFY_STARTED=true
 fi
 
-while IFS= read -r RUN_ID; do
+for RUN_ID in "${RUN_IDS[@]}"; do
   REMOTE_CHILD_PLAN="$REMOTE_PLAN_ROOT/$RUN_ID.json"
   REMOTE_UNIT="${SAFE_UNIT}-${RUN_ID##*.}"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+  ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
     systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
       --property=User=jake --property=Group=jake \
       --working-directory="$REMOTE_CLOS" \
       /bin/bash "$REMOTE_CLOS/scripts/remote-parallel-adaptive-child.sh" \
         "$WAVE_ID" "$RUN_ID" "$SOURCE_COMMIT" "$SOURCE_TREE" "$REMOTE_CODEX_BIN" "$REMOTE_CHILD_PLAN" \
         "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE"
-done < <(node -e 'const w=require(process.argv[1]); for(const id of w.mergeOrder) console.log(id)' "$WAVE_PLAN")
+done
+
+# Do not report or account for dispatch until every detached worker has written
+# an identity-bound state receipt from the Hetzner execution plane.
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
+  python3 - "$REMOTE_WAVE_ROOT" "$WAVE_ID" "$SOURCE_COMMIT" "$SOURCE_TREE" "${RUN_IDS[@]}" \
+  >"$DISPATCH_RECEIPTS_FILE" <<'PY'
+import json
+from pathlib import Path
+import sys
+import time
+
+root, wave_id, commit, tree, *run_ids = sys.argv[1:]
+deadline = time.monotonic() + 30
+while True:
+    receipts = []
+    missing = []
+    for run_id in run_ids:
+        path = Path(root) / f"{run_id}.json"
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            missing.append(run_id)
+            continue
+        if not isinstance(receipt, dict):
+            raise SystemExit(f"invalid dispatch receipt for {run_id}")
+        if receipt.get("waveId") != wave_id or receipt.get("runId") != run_id:
+            raise SystemExit(f"dispatch receipt identity mismatch for {run_id}")
+        if receipt.get("sourceCommit") != commit or receipt.get("sourceTree") != tree:
+            raise SystemExit(f"dispatch receipt source mismatch for {run_id}")
+        if receipt.get("placement") != "hetzner":
+            raise SystemExit(f"dispatch receipt placement mismatch for {run_id}")
+        if receipt.get("status") == "failed":
+            raise SystemExit(f"remote child failed during dispatch: {run_id}: {receipt.get('reason', '')}")
+        if receipt.get("status") not in {"running", "candidate"}:
+            raise SystemExit(f"invalid dispatch receipt status for {run_id}")
+        receipts.append(receipt)
+    if not missing:
+        print(json.dumps(receipts, indent=2, sort_keys=True))
+        break
+    if time.monotonic() >= deadline:
+        raise SystemExit(f"timed out waiting for remote dispatch receipts: {','.join(missing)}")
+    time.sleep(0.5)
+PY
+
+[[ "$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.length))' "$DISPATCH_RECEIPTS_FILE")" == "$SELECTED_COUNT" ]] \
+  || { echo "remote dispatch receipt count differs from selected count" >&2; exit 6; }
+emit_descriptor
+trap - EXIT

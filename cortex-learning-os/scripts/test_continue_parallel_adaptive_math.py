@@ -23,6 +23,38 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
         )
         self.assertEqual(descriptor["selectedCount"], 4)
 
+    def test_dispatch_receipts_require_exact_remote_identity_and_merge_order(self):
+        run_ids = [f"math-wave-20260727T180000Z-abc123.c0{index}" for index in range(1, 5)]
+        descriptor = {
+            "sourceCommit": "a" * 40,
+            "sourceTree": "b" * 40,
+            "selectedCount": 4,
+            "dispatchedCount": 4,
+            "mergeOrder": run_ids,
+            "dispatchReceipts": [
+                {
+                    "runId": run_id,
+                    "status": "running",
+                    "placement": "hetzner",
+                    "sourceCommit": "a" * 40,
+                    "sourceTree": "b" * 40,
+                }
+                for run_id in run_ids
+            ],
+        }
+        self.assertEqual(len(MODULE.validate_dispatch_receipts(descriptor, 4)), 4)
+        for mutation, message in [
+            ({"dispatchedCount": 3}, "dispatched count"),
+            ({"dispatchReceipts": descriptor["dispatchReceipts"][:1]}, "incomplete"),
+            ({"mergeOrder": list(reversed(run_ids))}, "merge order"),
+        ]:
+            with self.assertRaisesRegex(MODULE.ParallelContinuationError, message):
+                MODULE.validate_dispatch_receipts({**descriptor, **mutation}, 4)
+        failed = [dict(receipt) for receipt in descriptor["dispatchReceipts"]]
+        failed[0]["status"] = "failed"
+        with self.assertRaisesRegex(MODULE.ParallelContinuationError, "unproved"):
+            MODULE.validate_dispatch_receipts({**descriptor, "dispatchReceipts": failed}, 4)
+
     def test_concurrency_and_safety_caps_are_bounded(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -98,6 +130,7 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
         self.assertIn('"executionPlane": "concurrent detached Hetzner Codex children"', source)
         self.assertIn('"reviewSelectionEnabled": False', source)
         self.assertIn('"curriculum_frontier_reached"', source)
+        self.assertIn("validate_dispatch_receipts", source)
         self.assertNotIn("nextReviewAt", source)
         self.assertNotIn("spaced_review", source)
         self.assertNotIn("shadow", source.lower())

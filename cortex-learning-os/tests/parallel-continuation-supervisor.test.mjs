@@ -13,6 +13,6 @@ test('parallel continuation supervisor is bounded, responsive, and acquisition-o
     timeout: 30_000,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stderr, /Ran 5 tests/);
+  assert.match(result.stderr, /Ran 6 tests/);
   assert.match(result.stderr, /OK/);
 });

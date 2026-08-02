@@ -76,6 +76,32 @@ def parse_descriptor(text: str) -> dict[str, Any]:
     raise ParallelContinuationError("parallel launcher returned no valid descriptor")
 
 
+def validate_dispatch_receipts(descriptor: dict[str, Any], selected_count: int) -> list[dict[str, Any]]:
+    receipts = descriptor.get("dispatchReceipts")
+    merge_order = descriptor.get("mergeOrder")
+    if not isinstance(receipts, list) or len(receipts) != selected_count:
+        raise ParallelContinuationError("launcher returned incomplete remote dispatch receipts")
+    if descriptor.get("dispatchedCount") != selected_count:
+        raise ParallelContinuationError("launcher dispatched count differs from selected count")
+    if not isinstance(merge_order, list) or len(merge_order) != selected_count:
+        raise ParallelContinuationError("launcher merge order differs from selected count")
+    run_ids: list[str] = []
+    for receipt in receipts:
+        if not isinstance(receipt, dict):
+            raise ParallelContinuationError("launcher returned an invalid remote dispatch receipt")
+        run_id = receipt.get("runId")
+        if not isinstance(run_id, str) or not run_id:
+            raise ParallelContinuationError("launcher returned a dispatch receipt without a run identity")
+        if receipt.get("placement") != "hetzner" or receipt.get("status") not in {"running", "candidate"}:
+            raise ParallelContinuationError("launcher returned an unproved remote dispatch receipt")
+        if receipt.get("sourceCommit") != descriptor.get("sourceCommit") or receipt.get("sourceTree") != descriptor.get("sourceTree"):
+            raise ParallelContinuationError("launcher dispatch receipt source binding changed")
+        run_ids.append(run_id)
+    if run_ids != merge_order or len(set(run_ids)) != selected_count:
+        raise ParallelContinuationError("launcher dispatch receipts differ from deterministic merge order")
+    return receipts
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--continuation-id", required=True)
@@ -317,11 +343,13 @@ def main(argv: list[str] | None = None) -> int:
                     state.update(status="ready", reason="parallel no-call preflight passed", updatedAt=utc_now())
                     atomic_json(args.state_file, state)
                     break
+                dispatch_receipts = validate_dispatch_receipts(descriptor, selected_count)
                 wave_record = {
                     "waveId": descriptor["waveId"],
                     "status": "running",
                     "selectedCount": selected_count,
                     "mergeOrder": descriptor.get("mergeOrder"),
+                    "dispatchReceipts": dispatch_receipts,
                     "beforeAcquisitionRevision": before_revision,
                     "launchedAt": utc_now(),
                     "stateFile": descriptor.get("stateFile"),

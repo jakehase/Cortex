@@ -885,6 +885,11 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(waveLauncher, /CONCURRENCY=4/);
   assert.match(waveLauncher, /concurrent detached Hetzner Codex children/);
   assert.match(waveLauncher, /--property=User=jake --property=Group=jake/);
+  assert.match(waveLauncher, /mapfile -t RUN_IDS/);
+  assert.match(waveLauncher, /REMOTE_WAVE_ROOT/);
+  assert.match(waveLauncher, /chown jake:jake "\$REMOTE_WAVE_ROOT"/);
+  assert.match(waveLauncher, /dispatchReceipts/);
+  assert.match(waveLauncher, /timed out waiting for remote dispatch receipts/);
   assert.match(waveLauncher, /SOURCE_TREE=.*rev-parse/);
   assert.equal(
     waveLauncher.match(/sudo -u jake -- git -C "\$REMOTE_REPO"/g)?.length,
@@ -902,6 +907,7 @@ test('parallel launchers and supervisor keep all Codex work detached on Hetzner 
   assert.match(continuation, /max-sessions/);
   assert.match(continuation, /curriculum_frontier_reached/);
   assert.match(continuation, /reviewSelectionEnabled/);
+  assert.match(continuation, /validate_dispatch_receipts/);
   assert.match(continuation, /concurrent detached Hetzner Codex children/);
   assert.match(continuation, /curriculum[.]phd-trajectory-v1[.]graph[.]json/);
   assert.match(continuation, /adaptive-math-phd-v1[.]json/);
