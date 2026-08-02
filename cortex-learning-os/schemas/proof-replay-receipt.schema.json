@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_replay_receipt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "obligationId",
+    "requestBytesBase64",
+    "requestSha256",
+    "kernelEvidenceDigest",
+    "taskBytesSha256",
+    "candidateBytesSha256",
+    "templateSha256",
+    "replayEvidenceDigest",
+    "replayEvidence",
+    "proofRuntimeEvidenceDigest",
+    "proofRuntimeAttestationSha256",
+    "proofRuntimeIdentitySha256",
+    "proofRuntimeAuthorityId",
+    "proofRuntimeVerificationKeySha256",
+    "proofRuntime",
+    "replaySessionId",
+    "replayAuthorityId",
+    "replayVerificationKeySha256",
+    "replayAuthorityAttestation",
+    "claimSemanticsSha256",
+    "researchArtifactDigest",
+    "verified",
+    "truthBoundary",
+    "controlPlaneSignature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_replay_receipt.v1" },
+    "obligationId": { "$ref": "#/$defs/id" },
+    "requestBytesBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 5592408,
+      "contentEncoding": "base64"
+    },
+    "requestSha256": { "$ref": "#/$defs/digest" },
+    "kernelEvidenceDigest": { "$ref": "#/$defs/digest" },
+    "taskBytesSha256": { "$ref": "#/$defs/digest" },
+    "candidateBytesSha256": { "$ref": "#/$defs/digest" },
+    "templateSha256": { "$ref": "#/$defs/digest" },
+    "replayEvidenceDigest": { "$ref": "#/$defs/digest" },
+    "replayEvidence": { "$ref": "proof-kernel-evidence.schema.json" },
+    "proofRuntimeEvidenceDigest": { "$ref": "#/$defs/digest" },
+    "proofRuntimeAttestationSha256": { "$ref": "#/$defs/digest" },
+    "proofRuntimeIdentitySha256": { "$ref": "#/$defs/digest" },
+    "proofRuntimeAuthorityId": { "$ref": "#/$defs/id" },
+    "proofRuntimeVerificationKeySha256": { "$ref": "#/$defs/digest" },
+    "proofRuntime": { "$ref": "proof-runtime-evidence.schema.json" },
+    "replaySessionId": { "$ref": "#/$defs/id" },
+    "replayAuthorityId": {
+      "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+    },
+    "replayVerificationKeySha256": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "replayAuthorityAttestation": {
+      "oneOf": [
+        { "$ref": "authority-attestation.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "claimSemanticsSha256": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "researchArtifactDigest": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "verified": { "const": true },
+    "truthBoundary": {
+      "const": "This signed receipt attests exact independent pinned-Lean replay only."
+    },
+    "controlPlaneSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "digest"],
+      "properties": {
+        "algorithm": { "const": "hmac-sha256" },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

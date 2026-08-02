@@ -8,9 +8,14 @@ import { isContinuousAcquisitionPolicy, policyDigest, validateAdaptivePlanRuntim
 import { selectNextAction } from './curriculum-planner.mjs';
 import { gradeExam } from './exam-runner.mjs';
 import { generateExercise, replayGeneratedExercise } from './generated-exercises.mjs';
-import { sha256File, sha256Text } from './hash.mjs';
+import { sha256Bytes, sha256File, sha256Text } from './hash.mjs';
 import { buildCandidatePrompt, buildCandidateRecord } from './model-candidate.mjs';
 import { buildExamPrompt, extractJson, observedToolEvents } from './model-answer-runner.mjs';
+import { verifyTrustedExecutionEvidence } from './phd-trust.mjs';
+import {
+  materializeIndependentAssessmentItem,
+  validateIndependentAssessmentBank,
+} from './phd-assessment.mjs';
 
 function readRequired(filePath, maximumBytes = 16 * 1024 * 1024) {
   const stat = fs.lstatSync(filePath);
@@ -43,7 +48,24 @@ function verifyAttemptTiming(answerSet, label, { notBeforeMs, notAfterMs } = {})
       || startedAt < notBeforeMs || completedAt > notAfterMs) throw new Error(`${label} model timing is outside the signed-plan verification window`);
 }
 
-function verifyRawModelProvenance(modelCall, answerSource, toolsUsed, label, expectedRuntime) {
+function verifyRawModelProvenance(
+  modelCall,
+  answerSource,
+  toolsUsed,
+  label,
+  expectedRuntime,
+  {
+    allowTestFixtures,
+    executionTrustPolicy,
+    promptSha256,
+    promptBytes,
+    executionBindings,
+    evidenceRole,
+    notBeforeMs,
+    notAfterMs,
+    approvedExecutable,
+  } = {},
+) {
   const modelIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--model') : -1;
   const sandboxIndex = Array.isArray(modelCall?.args) ? modelCall.args.indexOf('--sandbox') : -1;
   const reasoningBound = Array.isArray(modelCall?.args) && modelCall.args.some((arg, index) => arg === '--config'
@@ -62,6 +84,32 @@ function verifyRawModelProvenance(modelCall, answerSource, toolsUsed, label, exp
   if (!positiveUsage(rawUsage) || canonicalJson(rawUsage) !== canonicalJson(answerSource?.usage)) throw new Error(`${label} raw/model usage mismatch`);
   const rawTools = observedToolEvents(modelCall.events || []).map((event) => event?.item?.type || event?.type || 'unknown_tool');
   if (canonicalJson(rawTools) !== canonicalJson(toolsUsed)) throw new Error(`${label} raw/model tool provenance mismatch`);
+  if (!allowTestFixtures) {
+    const trusted = verifyTrustedExecutionEvidence({
+      attestation: modelCall.executionAttestation,
+      trustPolicy: executionTrustPolicy,
+      executionEvidenceCore: modelCall.executionEvidenceCore,
+      executionEvidenceSha256: modelCall.executionEvidenceSha256,
+      inputBytes: promptBytes,
+      rawOutputBytes: Buffer.from(modelCall.finalText || '', 'utf8'),
+      rawEventLedgerBytes: Buffer.from(modelCall.stdoutBase64 || '', 'base64'),
+      rawStderrBytes: Buffer.from(modelCall.stderrBase64 || '', 'base64'),
+      expected: {
+        provider: expectedRuntime.provider,
+        model: expectedRuntime.model,
+        role: `adaptive_${evidenceRole}`,
+        plannedSessionId: answerSource.sessionId,
+        promptSha256,
+        bindings: executionBindings,
+        startedAt: modelCall.startedAt,
+        completedAt: modelCall.completedAt,
+        notBefore: new Date(notBeforeMs).toISOString(),
+        notAfter: new Date(notAfterMs).toISOString(),
+        approvedExecutable,
+      },
+    });
+    if (!trusted.ok) throw new Error(`${label} trusted execution provenance failed: ${trusted.errors.join('; ')}`);
+  }
 }
 
 function verifyFailedCandidateRuntime(modelCall, plan) {
@@ -121,12 +169,53 @@ function replayPhase(artifactRoot, relative, capsule, expectedItem, options, exp
   const summary = readRequired(path.join(root, 'score_summary.json'));
   const modelCall = readRequired(path.join(root, 'model_call.json'));
   if (canonicalJson(exam.items) !== canonicalJson([expectedItem])) throw new Error(`${relative} generated item mismatch`);
-  replayGeneratedExercise(exam.items[0]);
+  if (expectedItem.independentAssessment) {
+    if (!options.independentItem
+        || canonicalJson(materializeIndependentAssessmentItem(options.independentItem, {
+          bank: options.assessmentBank,
+        })) !== canonicalJson(expectedItem)) {
+      throw new Error(`${relative} independent assessment bytes or checker were substituted`);
+    }
+  } else {
+    replayGeneratedExercise(exam.items[0]);
+    if (!options.allowTestFixtures) {
+      throw new Error(`${relative} uses a synthetic generated exercise that is fixture-only and ineligible for production acquisition`);
+    }
+  }
   verifyProvenance(answers, relative, options);
   verifyAttemptTiming(answers, relative, options);
-  verifyRawModelProvenance(modelCall, answers.answerSource, answers.toolsUsed, relative, options.expectedRuntime);
   const prompt = fs.readFileSync(path.join(root, 'model_prompt.txt'), 'utf8').trimEnd();
   if (prompt !== buildExamPrompt({ exam, learningContext: expectedLearningContext })) throw new Error(`${relative} model prompt/context mismatch`);
+  verifyRawModelProvenance(
+    modelCall,
+    answers.answerSource,
+    answers.toolsUsed,
+    relative,
+    options.expectedRuntime,
+    {
+      ...options,
+      promptSha256: sha256Text(prompt),
+      promptBytes: Buffer.from(prompt, 'utf8'),
+      executionBindings: options.allowTestFixtures ? undefined : {
+        candidateId: null,
+        candidateSessionId: answers.answerSource.sessionId,
+        candidateSha256: sha256Bytes(Buffer.from(modelCall.finalText || '', 'utf8')),
+        taskId: expectedItem.itemId,
+        taskSha256: sha256Text(canonicalJson(exam)),
+        jobId: `${options.plan.runId}.${relative.replaceAll('/', '.')}`,
+        jobSha256: sha256Text(canonicalJson({
+          planSha256: sha256Text(canonicalJson(options.plan)),
+          phase: relative,
+          taskSha256: sha256Text(canonicalJson(exam)),
+        })),
+        campaignId: options.plan.assessmentSelection.campaign.campaignId,
+        campaignSha256: options.plan.assessmentSelection.campaign.campaignDigest,
+        deploymentSha256: options.assessmentDeploymentDigest,
+        sourceSha256: options.executionSourceSha256,
+      },
+      evidenceRole: answers.evidenceRole,
+    },
+  );
   if (modelCall.exitCode !== 0) throw new Error(`${relative} model call did not complete`);
   if (typeof modelCall.finalText === 'string' && modelCall.finalText) {
     const rawAnswers = extractJson(modelCall.finalText);
@@ -164,7 +253,7 @@ function expectedDeltaSchema(policy) {
     : 'cortex.learning_os.mastery_delta.v1';
 }
 
-export function verifyAdaptiveArtifacts({
+function verifyAdaptiveArtifactsInternal({
   artifactRoot,
   graph,
   policy,
@@ -174,6 +263,12 @@ export function verifyAdaptiveArtifacts({
   fixedTemplates = [],
   allowTestFixtures = false,
   planSecret,
+  expectedPlan = null,
+  allowFrozenWaveSelection = false,
+  executionTrustPolicy = null,
+  assessmentBank = null,
+  assessmentDeployment = null,
+  assessmentRubric = null,
 } = {}) {
   const root = path.resolve(artifactRoot);
   const manifestPath = path.join(root, 'artifact_manifest.json');
@@ -183,6 +278,51 @@ export function verifyAdaptiveArtifacts({
   const plan = readRequired(path.join(root, 'adaptive_plan.json'));
   const summary = readRequired(path.join(root, 'session_summary.json'));
   const continuous = isContinuousAcquisitionPolicy(policy);
+  let independentItem = null;
+  if (!allowTestFixtures) {
+    if (assessmentBank === null) {
+      throw new Error('production acquisition requires an external independently authored assessment bank');
+    }
+    const terminal = plan.action?.kind === 'terminal';
+    if (!terminal && plan.assessmentSelection === null) {
+      throw new Error('production acquisition plan omits its independent assessment selection');
+    }
+    if (terminal && plan.assessmentSelection !== null) {
+      throw new Error('terminal acquisition plan unexpectedly selects an assessment item');
+    }
+    const bankValidation = validateIndependentAssessmentBank(assessmentBank, {
+      graph,
+      rubric: assessmentRubric,
+      trustPolicy: executionTrustPolicy,
+      deployment: assessmentDeployment,
+      campaignBinding: plan.assessmentSelection?.campaign || assessmentBank?.bindings?.campaign,
+    });
+    if (!bankValidation.ok) {
+      throw new Error(`invalid production acquisition assessment bank: ${bankValidation.errors.join('; ')}`);
+    }
+    independentItem = terminal ? null : assessmentBank.items.find((item) => (
+      item.itemId === plan.assessmentSelection.itemId
+    ));
+    const expectedSelection = independentItem && {
+      bankId: assessmentBank.bankId,
+      bankDigest: assessmentBank.bankDigest,
+      itemId: independentItem.itemId,
+      itemContentDigest: independentItem.contentDigest,
+      checkerSpecificationSha256: independentItem.checker.specificationSha256,
+      campaign: structuredClone(assessmentBank.bindings.campaign),
+    };
+    if (!terminal && (!independentItem
+        || canonicalJson(expectedSelection) !== canonicalJson(plan.assessmentSelection)
+        || independentItem.conceptId !== plan.action?.conceptId
+        || independentItem.assessmentRole !== plan.action?.role)) {
+      throw new Error('production acquisition assessment selection or bank bytes were substituted');
+    }
+  } else if (plan.assessmentSelection !== null) {
+    throw new Error('fixture adaptive verifier cannot accept a production independent assessment selection');
+  }
+  if (expectedPlan !== null && canonicalJson(plan) !== canonicalJson(expectedPlan)) {
+    throw new Error('adaptive child plan differs from the signed wave');
+  }
   if (plan.schemaVersion !== expectedPlanSchema(policy)) throw new Error('invalid adaptive plan');
   if (!verifyAdaptivePlanSignature(plan, planSecret)) throw new Error('adaptive plan signature mismatch');
   const generatedAtMs = Date.parse(String(plan.generatedAt || ''));
@@ -191,6 +331,20 @@ export function verifyAdaptiveArtifacts({
   const timingOptions = {
     allowTestFixtures,
     expectedRuntime: plan.modelRuntime,
+    executionTrustPolicy,
+    assessmentBank,
+    independentItem,
+    plan,
+    assessmentDeploymentDigest: assessmentDeployment
+      ? sha256Text(canonicalJson(assessmentDeployment))
+      : null,
+    executionSourceSha256: assessmentDeployment
+      ? sha256Text(canonicalJson({
+        sourceCommit: assessmentDeployment.sourceCommit,
+        sourceTree: assessmentDeployment.sourceTree,
+      }))
+      : null,
+    approvedExecutable: assessmentDeployment?.approvedModelExecutable,
     notBeforeMs: generatedAtMs - 300_000,
     notAfterMs: Date.now() + 300_000,
   };
@@ -210,7 +364,7 @@ export function verifyAdaptiveArtifacts({
     const receipt = currentMastery.appliedRunReceipts?.find((row) => row.runId === plan.runId);
     if (receipt?.artifactManifestDigest !== artifactManifestDigest) throw new Error('adaptive run artifact receipt mismatch');
   }
-  if (!alreadyApplied) {
+  if (!alreadyApplied && !allowFrozenWaveSelection) {
     if (plan.masteryRevision !== currentMastery.revision || plan.masterySnapshotDigest !== sha256Text(canonicalJson(currentMastery))) throw new Error('adaptive mastery snapshot mismatch');
     const replayedAction = selectNextAction({
       graph,
@@ -221,6 +375,12 @@ export function verifyAdaptiveArtifacts({
       operatorDirective: plan.operatorDirective ?? null,
     });
     if (canonicalJson(replayedAction) !== canonicalJson(plan.action)) throw new Error('adaptive planner replay mismatch');
+  } else if (!alreadyApplied) {
+    if (expectedPlan === null || !continuous) throw new Error('frozen wave verification requires an exact continuous-acquisition plan');
+    if (!['acquisition', 'learning_retry', 'prerequisite_repair', 'same_concept_correction'].includes(plan.action?.kind)
+        || !['acquisition', 'correction'].includes(plan.action?.role)) {
+      throw new Error('frozen wave selected forbidden work');
+    }
   }
   const terminalReason = continuous ? 'curriculum_frontier_reached' : 'curriculum_currently_satisfied';
   if (summary.status === terminalReason) {
@@ -245,11 +405,13 @@ export function verifyAdaptiveArtifacts({
       }
       const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);
       if (!concept) throw new Error('diagnostic blocker planned concept is unknown');
-      const observedItem = generateExercise({
-        conceptId: concept.conceptId,
-        seed: `${plan.seed}:observed`,
-        role: plan.action.role,
-      });
+      const observedItem = independentItem
+        ? materializeIndependentAssessmentItem(independentItem, { bank: assessmentBank })
+        : generateExercise({
+          conceptId: concept.conceptId,
+          seed: `${plan.seed}:observed`,
+          role: plan.action.role,
+        });
       const observed = replayPhase(root, 'observed-attempt', capsule, observedItem, timingOptions, null);
       if (observed.verifiers[0].status !== 'failed' || observed.verifiers[0].score !== 0) {
         throw new Error('candidate diagnostic lacks a replayed observed failure');
@@ -271,13 +433,22 @@ export function verifyAdaptiveArtifacts({
   }
   const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);
   if (!concept) throw new Error('planned adaptive concept is unknown');
-  const observedItem = generateExercise({
-    conceptId: concept.conceptId,
-    seed: `${plan.seed}:observed`,
-    role: plan.action.role,
-  });
+  const observedItem = independentItem
+    ? materializeIndependentAssessmentItem(independentItem, { bank: assessmentBank })
+    : generateExercise({
+      conceptId: concept.conceptId,
+      seed: `${plan.seed}:observed`,
+      role: plan.action.role,
+    });
   const observed = replayPhase(root, 'observed-attempt', capsule, observedItem, timingOptions, null);
   const events = [eventFor(concept.conceptId, plan.action.role, observed, 'observed-attempt')];
+  if (independentItem && [
+    'candidate/candidate.json',
+    'correction/exam.json',
+    'paired_plan.json',
+  ].some((relative) => fs.existsSync(path.join(root, relative)))) {
+    throw new Error('production independent acquisition attempted synthetic remediation or paired generation');
+  }
   let candidate = null;
   let analysis = null;
   let qualified = null;
@@ -298,7 +469,18 @@ export function verifyAdaptiveArtifacts({
     }
     if (storedCandidate.provenance.provider !== plan.modelRuntime.provider
         || storedCandidate.provenance.model !== plan.modelRuntime.model) throw new Error('candidate model runtime differs from signed plan');
-    verifyRawModelProvenance(modelCall, storedCandidate.provenance, storedCandidate.provenance.toolsUsed, 'candidate', timingOptions.expectedRuntime);
+    verifyRawModelProvenance(
+      modelCall,
+      storedCandidate.provenance,
+      storedCandidate.provenance.toolsUsed,
+      'candidate',
+      timingOptions.expectedRuntime,
+      {
+        ...timingOptions,
+        promptSha256: sha256Text(prompt),
+        evidenceRole: 'candidate_synthesis',
+      },
+    );
     if (typeof modelCall.finalText === 'string' && modelCall.finalText
         && canonicalJson(extractJson(modelCall.finalText)) !== canonicalJson(output)) throw new Error('candidate output/source mismatch');
     candidate = buildCandidateRecord({
@@ -386,7 +568,9 @@ export function verifyAdaptiveArtifacts({
     events,
     authority: 'worker_proposal_only',
     truthBoundary: continuous
-      ? 'This worker-authored acquisition delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical covered-once state.'
+      ? (plan.assessmentSelection
+        ? 'This worker-authored acquisition delta is inert until the independent control plane revalidates the exact signed bank/item/checker bytes, re-grades the attempt, replays policy, and signs canonical covered-once state.'
+        : 'This fixture worker-authored acquisition delta is inert and cannot enter production; fixture replay regenerates exercises only for mechanics tests.')
       : 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
   };
   if (canonicalJson(storedDelta) !== canonicalJson(recomputedDelta)) throw new Error('worker-rewritten mastery delta');
@@ -456,4 +640,19 @@ export function verifyAdaptiveArtifacts({
     if (analysis && summary.pairedThresholdPassed !== false) throw new Error('adaptive summary paired result mismatch');
   }
   return { plan, summary, manifest, artifactManifestDigest, alreadyApplied, recomputedDelta, candidate, analysis, qualified, liveEntry };
+}
+
+export function verifyAdaptiveArtifacts(options = {}) {
+  if (Object.hasOwn(options, 'allowTestFixtures')) {
+    throw new Error('production adaptive verifier has no fixture acceptance mode');
+  }
+  if (options.assessmentBank === null || options.assessmentBank === undefined) {
+    throw new Error('production acquisition requires an external independently authored assessment bank');
+  }
+  return verifyAdaptiveArtifactsInternal({ ...options, allowTestFixtures: false });
+}
+
+export function verifyAdaptiveFixtureArtifacts(options = {}) {
+  const { allowTestFixtures: _fixtureMarker, ...fixtureOptions } = options;
+  return verifyAdaptiveArtifactsInternal({ ...fixtureOptions, allowTestFixtures: true });
 }

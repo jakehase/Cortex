@@ -19,7 +19,7 @@
     "schemaVersion": { "const": "cortex.learning_os.mastery_delta.v2" },
     "runId": { "type": "string" },
     "baseRevision": { "type": "integer", "minimum": 0 },
-    "curriculumId": { "const": "math-continuous-acquisition-v1" },
+    "curriculumId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
     "capsuleId": { "type": "string" },
     "policyDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "completedAt": { "type": "string", "format": "date-time" },

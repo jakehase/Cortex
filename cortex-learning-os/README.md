@@ -13,14 +13,28 @@ Math acquisition evidence is not coding-transfer qualification. An acquired or h
 
 The canonical transfer default is `transferEnabled: true` plus `transferMode: "active"`, per the operator's direct-live decision. Active mode still injects nothing unless a separately qualified, signed, enabled, unexpired profile matches all assumptions and no negative gate. This release contains no checked-in qualification, does not manufacture a live entry from implementation tests, and makes no empirical transfer-benefit claim. See [`docs/semantic-coding-transfer-contract.md`](docs/semantic-coding-transfer-contract.md).
 
-## Current production slice
+## Current production source boundary
 
-The canonical starter capsule is `capsules/math-foundations/`. Its active continuous-acquisition slice contains:
+The canonical starter capsule is `capsules/math-foundations/`. Its active
+source target is the 264-node `math-phd-trajectory-v1` graph with
+`adaptive-math-phd-v1`. Review selection and scheduling remain disabled.
+The prior 84-node continuous-acquisition graph and policy are explicit
+migration/compatibility inputs, not implicit defaults.
 
-- an 84-node acyclic curriculum: the original 36 concepts plus 48 coherent next concepts
-- explicit `adaptive-math-continuous-v1` policy with review selection and scheduling disabled
+The production trust policy is deliberately disabled and contains no trusted
+authorities. The additional 180 concepts currently have deterministic
+synthetic track drills for mechanics and coverage tests only. Those drills are
+rejected by the production adaptive verifier and can never satisfy acquisition,
+retention, or qualification. Live progress beyond independently authored and
+attested assessment surfaces is therefore blocked, honestly, until those
+surfaces and trust roots are supplied.
+
+The source slice contains:
+
+- a 264-node acyclic target curriculum preserving the prior 84 concepts
+- explicit `adaptive-math-phd-v1` acquisition-only policy
 - schema-v2 owner-only HMAC state using honest `acquired` (covered-once) semantics
-- one-shot signed migration from the legacy revision-74 representation
+- recoverable journaled additive migration from an exact signed 84-node state
 - 30-item deterministic baseline exam
 - exactness/reliability challenge exams
 - no-tool OpenClaw model attempt capture
@@ -34,11 +48,18 @@ The canonical starter capsule is `capsules/math-foundations/`. Its active contin
 - content-free answer-influence telemetry
 - detached Hetzner Codex training, control-plane re-verification, and automatic qualified-lesson installation
 - deterministic adaptive planning over the complete prerequisite graph
-- seeded, locally replayable exercise families for all 84 curriculum concepts
+- seeded, locally replayable exercise mechanics, with synthetic advanced drills
+  categorically excluded from production evidence
 - acquisition, learning retry, and genuine correction with no active review due dates
 - failure-gated structured model-derived candidates that cannot copy fixed exam templates
 - preregistered paired candidate-context versus no-context promotion analysis
 - worker-only acquisition proposals with independent control-plane policy and grading replay
+- exact-Git-blob program loading and clean-tree enforcement
+- authenticated raw provider output/event-ledger bindings and separate
+  execution, proctor, grader, proof, acquisition, and research authorities
+- exact 264-entry concept/outcome acquisition-registry binding with
+  seed-independent families disjoint from every qualifying bank
+- durable signed retention wait/resume contracts
 
 The latest qualified run pointer is `artifacts/latest-qualified-run.json`. The live architecture and exact claim boundary are defined in [`docs/live-math-integration-contract.md`](docs/live-math-integration-contract.md).
 
@@ -60,6 +81,15 @@ npm run live:verify
 npm run live:adaptive:plan -- --run-id <id> --seed <seed> --source-commit <sha> --out <plan.json>
 npm run live:adaptive:apply -- --artifact-root <returned-dir> --source-commit <sha>
 npm run live:adaptive:migrate-continuous -- --audit-out <audit.json> --source-commit <sha> --expected-source-commit <sha> --expected-source-revision 74 --expected-source-state-digest <sha256> --expected-source-curriculum-digest <sha256> --expected-source-policy-digest <sha256> --expected-target-curriculum-digest <sha256> --expected-target-policy-digest <sha256>
+npm run phd:validate
+npm run phd:jobs:verify -- --plan <signed-jobs.json> --secret <owner-only-qualification.hmac>
+scripts/launch-phd-qualification.sh --jobs <signed-jobs.json> --secret <owner-only-qualification.hmac>
+scripts/launch-phd-qualification.sh --archival-only --jobs <campaign-root>/plan.v2.json --secret <owner-only-qualification.hmac>
+npm run test:synthetic
+npm run test:integration
+npm run test:lean-real
+npm run qualify:retention
+npm run qualify:phd
 npm run transfer:init
 npm run transfer:status
 npm run transfer:verify
@@ -87,13 +117,37 @@ npm run validate:novel-math -- --resume --phase durability --validation-id <id> 
 npm run validate:novel-math:verify -- --artifact-root <dir> --out <verification-json>
 ```
 
+Production PhD qualification plans must use an executable-bound v3 deployment.
+The independently approved static Linux x86-64 executor is installed by root at
+`/opt/cortex-learning-os/approved-model-executors/<sha256>/codex`; its directory
+and file are `root:root` mode `0555`. The signed campaign and every signed job
+bind that exact path, byte length, SHA-256, and runtime-closure digest. The
+qualification launcher has no executable override and fails closed unless the
+remote object matches the signed binding.
+
 `dogfood:*` uses isolated, non-delivering `openclaw agent` sessions. A run writes immutable evidence under `artifacts/<run-id>/`. With `--promote-default`, canonical capsule files change only after every promotion gate and the held-out retest pass.
 
-The detached launcher defaults to continuous acquisition. The control plane verifies signed schema-v2 state, selects one acquisition/learning/correction action from the frozen policy, and creates a digest-bound plan before any remote work. Overdue or future historical review dates are never selected and do not block an acquired prerequisite. An early-review request fails closed. The remote worker may emit generated exercises, model provenance, deterministic grading records, candidate/paired evidence, and a proposed acquisition delta. It cannot write canonical state or the live registry. After return, `adaptive-apply` checks exact manifest coverage and source identity, regenerates the complete item and oracle digest, re-grades every answer, replays candidate validation and exact paired analysis, reconstructs the delta, and only then atomically signs state. A lesson is installed only when the paired threshold passes and the concept has an approved narrow activation profile.
+The detached launcher defaults to the PhD trajectory acquisition policy. The
+control plane verifies signed schema-v2 state, selects one
+acquisition/learning/correction action from committed graph and policy blobs,
+and creates a digest-bound plan before remote work. Overdue or future
+historical review dates are never selected and do not block an acquired
+prerequisite. An early-review request fails closed. A remote worker can return
+only inert artifacts. Production apply additionally requires a trusted-runner
+signature over raw output, an append-only raw event ledger, provider request
+and session identities, xhigh, no-tools, usage, exact prompt, and the committed
+deployment. Worker-authored manifests or JSON labels are never sufficient.
 
 The continuation launcher runs those same one-action sessions sequentially from a lightweight control-plane supervisor. It starts another remote session only after the prior result has reached terminal independent replay and advanced signed acquisition state. It permits one remote child, at most 100 sessions, 24 persisted wall-clock hours, and four hours per child. It stops on the first genuine blocker, source drift, no progress, or `curriculum_frontier_reached`. Frontier is an honest zero-call terminal result: it schedules no review and does not busy-loop or fabricate learning. Per-session notifications are suppressed; an independent supervisor-level notifier reports the terminal result.
 
-The original 36-concept graph, v0.8 policy, schema-v1 state transitions, and spaced-review generators remain available only to verify signed historical evidence and exercise audit/rollback paths. The bounded migration command verifies the exact legacy HMAC and caller-supplied source/target identities, preserves counters, evidence and applied receipts plus historical review timestamps/stages, clears active review dates, converts passed legacy records to `acquired`, adds only new concepts as unassessed, increments the revision once, writes a signed audit, and atomically signs v2 state. See [`docs/adaptive-curriculum-operations.md`](docs/adaptive-curriculum-operations.md); do not run migration without separately frozen live-state digests and authorization.
+The original 36-concept graph, prior 84-concept graph, and their policies
+remain available only for exact historical verification, migration, and
+rollback tests. Additive migration uses a signed durable transaction journal,
+writes the target state before publishing its audit, and reconciles prepared,
+state-committed, audit-committed, and legacy completed cases on retry. See
+[`docs/parallel-acceleration-and-migration-operations.md`](docs/parallel-acceleration-and-migration-operations.md);
+do not run migration without separately frozen live-state digests and
+authorization.
 
 Fixed exams remain available only through explicit `--exam baseline|challenge|stress`. They retain the v0.7 behavior and artifact verifier for diagnostics and historical reproducibility.
 

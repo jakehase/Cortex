@@ -1,0 +1,2511 @@
+{
+  "schemaVersion": "cortex.learning_os.phd_competency_rubric.v1",
+  "rubricId": "math-phd-competency-v1",
+  "version": "1.0.0",
+  "effectiveAt": "2026-07-27T00:00:00.000Z",
+  "curriculum": {
+    "curriculumId": "math-phd-trajectory-v1",
+    "version": "1.0.0"
+  },
+  "qualifyingBlueprint": {
+    "blueprintId": "math-phd-qualifying-v1",
+    "version": "1.0.0"
+  },
+  "stages": [
+    {
+      "stageId": "proof_foundations",
+      "title": "Proof foundations",
+      "prerequisiteStages": [],
+      "evidenceRequirements": {
+        "conceptCoverage": "all_required_mapped_concepts",
+        "assessmentMode": "constructed_proof_or_deterministic_solution",
+        "minimumIndependentAssessmentsPerConcept": 1
+      }
+    },
+    {
+      "stageId": "undergraduate_core",
+      "title": "Undergraduate core",
+      "prerequisiteStages": [
+        "proof_foundations"
+      ],
+      "evidenceRequirements": {
+        "conceptCoverage": "all_required_mapped_concepts",
+        "assessmentMode": "proctored_problem_or_replayed_deterministic_solution",
+        "minimumIndependentAssessmentsPerConcept": 1
+      }
+    },
+    {
+      "stageId": "graduate_core",
+      "title": "Graduate core",
+      "prerequisiteStages": [
+        "undergraduate_core"
+      ],
+      "evidenceRequirements": {
+        "conceptCoverage": "all_required_mapped_concepts",
+        "assessmentMode": "graduate_problem_or_kernel_checked_proof",
+        "minimumIndependentAssessmentsPerConcept": 1
+      }
+    },
+    {
+      "stageId": "qualifying",
+      "title": "Qualifying",
+      "prerequisiteStages": [
+        "graduate_core"
+      ],
+      "evidenceRequirements": {
+        "examCoverage": "all_required_core_exams",
+        "assessmentMode": "declared_unseen_proctored_exam",
+        "minimumPassingScorePolicy": "per_blueprint_exam_threshold"
+      }
+    },
+    {
+      "stageId": "specialization",
+      "title": "Specialization",
+      "prerequisiteStages": [
+        "qualifying"
+      ],
+      "evidenceRequirements": {
+        "examCoverage": "one_declared_specialization_exam",
+        "assessmentMode": "declared_unseen_proctored_exam",
+        "minimumPassingScorePolicy": "specialization_blueprint_threshold"
+      }
+    },
+    {
+      "stageId": "research",
+      "title": "Research",
+      "prerequisiteStages": [
+        "specialization"
+      ],
+      "evidenceRequirements": {
+        "artifactCoverage": "one_bounded_research_artifact",
+        "assessmentMode": "independent_reproduction_and_kernel_checked_main_result",
+        "noveltyPolicy": "separate_scoped_status_required"
+      }
+    }
+  ],
+  "tracks": [
+    {
+      "trackId": "proof-foundations",
+      "title": "Proof foundations",
+      "description": "Construction, criticism, and formal dependency structure of proofs.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "advanced-linear-algebra",
+      "title": "Advanced linear algebra",
+      "description": "Vector spaces, operators, canonical forms, tensors, and spectral methods.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "real-analysis",
+      "title": "Real analysis",
+      "description": "Completeness, convergence, compactness, differentiation, and integration.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "complex-analysis",
+      "title": "Complex analysis",
+      "description": "Holomorphic functions, contour methods, residues, and conformal theory.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "functional-analysis",
+      "title": "Functional analysis",
+      "description": "Infinite-dimensional spaces, operators, duality, and weak topologies.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "harmonic-analysis",
+      "title": "Harmonic analysis",
+      "description": "Fourier, convolution, distributional, and localization methods.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "abstract-algebra",
+      "title": "Abstract algebra",
+      "description": "Groups, rings, fields, modules, representations, and categorical structure.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "commutative-algebra",
+      "title": "Commutative algebra",
+      "description": "Noetherian, local, ideal-theoretic, and computational methods.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "topology",
+      "title": "Topology",
+      "description": "General topology, compactness, separation, convergence, and manifolds.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "algebraic-topology",
+      "title": "Algebraic topology",
+      "description": "Homotopy, homology, cohomology, and spectral-sequence invariants.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "differential-geometry",
+      "title": "Differential geometry",
+      "description": "Smooth manifolds, bundles, connections, curvature, and Lie theory.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "differential-equations-dynamical-systems",
+      "title": "Differential equations and dynamical systems",
+      "description": "ODE, PDE, stability, bifurcation, and weak-solution theory.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "measure-probability-stochastic",
+      "title": "Measure, probability, and stochastic processes",
+      "description": "Measure-theoretic probability, limit theory, martingales, and stochastic calculus.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "statistics",
+      "title": "Statistics",
+      "description": "Estimation, testing, regression, asymptotics, Bayesian, and causal methods.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "combinatorics-graph-theory",
+      "title": "Combinatorics and graph theory",
+      "description": "Enumeration, extremal and probabilistic methods, graphs, and matroids.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "number-theory",
+      "title": "Number theory",
+      "description": "Diophantine, analytic, algebraic, local, and arithmetic-geometric methods.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "logic-set-theory",
+      "title": "Logic and set theory",
+      "description": "Formal semantics, computability, axiomatic set theory, forcing, and model theory.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "numerical-analysis-optimization",
+      "title": "Numerical analysis and optimization",
+      "description": "Stable algorithms, approximation, discretization, convexity, and duality.",
+      "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "research-practice",
+      "title": "Mathematical research practice",
+      "description": "Corpus discipline, reproducibility, formalization, review, and bounded research.",
+      "minimumMappedConcepts": 5
+    }
+  ],
+  "conceptMappings": [
+    {
+      "conceptId": "number-fractions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-inverse-operations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-linear-equations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-factoring",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-quadratics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-absolute-value",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functions-evaluation",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functions-inverse",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functions-transformations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "series-geometric",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-counting",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-binomial",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-complements",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-conditional",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-bayes",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-independence",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-inclusion-exclusion",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-waiting-time",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-combinatorics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-mean",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-weighted-mean",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-median",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-variance",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-bernoulli",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-z-score",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-causation",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-derivative",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-quadratic",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-multivariate",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-constraints",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "reasoning-percent-base",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "reasoning-expected-value",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "reasoning-sample-space",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "reasoning-self-overlap",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-determinant",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "reasoning-truth-boundary",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-polynomial-arithmetic",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-rational-expressions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebra-complex-numbers",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functions-composition",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functions-polynomial-behavior",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "precalculus-exponential-functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "precalculus-logarithms",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "precalculus-unit-circle",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-limits",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-continuity",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-product-rule",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-chain-rule",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-implicit-differentiation",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-antiderivatives",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-definite-integrals",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-fundamental-theorem",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-substitution",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "calculus-series-convergence",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-vectors",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-dot-product",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-matrix-multiplication",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-linear-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-row-reduction",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-independence",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-eigenvalues",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-orthogonal-projection",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-random-variables",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-expectation-linearity",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-discrete-distributions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-covariance-correlation",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-sampling-distributions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-confidence-intervals",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-hypothesis-tests",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-linear-regression",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "discrete-logic",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "discrete-proof-induction",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "discrete-sets-relations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "discrete-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "discrete-recurrences",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-modular-arithmetic",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-gcd",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-prime-factorization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-convexity",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-gradients",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-hessian",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-lagrange-multipliers",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-linear-programming",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-gradient-descent",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-quantifiers-and-scope",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "graph-theory-matchings-flows",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-chinese-remainder",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-floating-point-error",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-direct-and-contrapositive",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-strong-and-structural-induction",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-counterexample-construction",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-spaces-bases",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "combinatorics-matroids",
+      "stage": "specialization",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "logic-first-order-syntax-semantics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-contradiction-and-minimal-counterexample",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-equivalence-and-biconditionals",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-pigeonhole-and-double-counting",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-continuous-quotient-product-maps",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-separation-axioms",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "combinatorics-probabilistic-method",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "set-theory-ordinals-transfinite",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-existence-and-uniqueness",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-invariants-and-extremal-principles",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-vector-spaces-subspaces",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-completeness",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-groups-homomorphisms",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-connectedness-paths",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebraic-topology-simplicial-cell-complexes",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "combinatorics-bijections-generating-functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-diophantine-equations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "set-theory-cardinal-arithmetic",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "proof-dependency-audit",
+      "stage": "qualifying",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "linear-algebra-linear-maps-kernel-image",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-epsilon-delta-limits",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-group-actions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-rings-ideals-quotients",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-topological-manifolds",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebraic-topology-homotopy-fundamental-group",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "measure-theory-sigma-algebras-measures",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "combinatorics-extremal-set-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "graph-theory-connectivity-planarity",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-quadratic-residues",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-basis-dimension",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-cauchy-sequences",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-mean-value-theorems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-sylow-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-field-extensions",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebraic-topology-covering-spaces",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "measure-theory-measurable-functions",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "combinatorics-posets-mobius",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "graph-theory-coloring-ramsey",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "logic-completeness-compactness",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "research-practice-literature-corpus",
+      "stage": "graduate_core",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-rank-nullity",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-continuity-compactness",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-metric-spaces",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-solvable-nilpotent-groups",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-galois-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-arithmetic-functions",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "logic-computability-incompleteness",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "logic-model-theory-types",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "research-practice-conjecture-counterexample",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "research-practice-computational-reproducibility",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "linear-algebra-quotients-and-duals",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-riemann-integration",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-multivariable-differentiation",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-compactness-local-compactness",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-nets-filters",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-ode-existence-uniqueness",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-canonical-forms",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-tensors-and-exterior-powers",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-uniform-convergence",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "complex-analysis-holomorphic-functions",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functional-analysis-normed-banach-spaces",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-urysohn-tietze",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-geometry-smooth-manifolds-tangent",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "measure-theory-lebesgue-integration",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-quadrature-ode",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-spectral-theorem",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "real-analysis-arzela-ascoli",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "complex-analysis-contour-integration",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "complex-analysis-mobius-conformal-maps",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functional-analysis-sobolev-spaces",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis",
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "abstract-algebra-modules-structure",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-paracompact-partitions",
+      "stage": "specialization",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-geometry-differential-forms-stokes",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-geometry-lie-groups-algebras",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-equations-linear-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "measure-theory-product-fubini",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-measure-spaces-laws",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-interpolation-approximation",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "linear-algebra-matrix-decompositions",
+      "stage": "qualifying",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "real-analysis-theorem-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "real-analysis",
+        "proof-foundations"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "complex-analysis-cauchy-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-representation-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-category-functor-natural",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-noetherian-modules",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "topology-theorem-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-geometry-vector-bundles",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-stability-lyapunov",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-pde-classification",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "probability-convergence-laws-large-numbers",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "stochastic-processes-markov-chains",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-decision-sufficiency",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "graph-theory-spectral-random-graphs",
+      "stage": "qualifying",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "complex-analysis-laurent-residues",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "complex-analysis-maximum-open-mapping",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functional-analysis-bounded-operators-duals",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functional-analysis-baire-mapping-theorems",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "abstract-algebra-homological-exactness",
+      "stage": "specialization",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "abstract-algebra-structure-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "commutative-algebra-localization",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-grobner-bases",
+      "stage": "qualifying",
+      "tracks": [
+        "commutative-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-geometry-riemannian-metrics-connections",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-flows-bifurcations",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-characteristics",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-weak-solutions",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-likelihood-estimation",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-neyman-pearson-testing",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-conditioning",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "research-practice-proof-architecture",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "proof-foundations"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "complex-analysis-analytic-continuation",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "functional-analysis-hahn-banach",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "functional-analysis-hilbert-riesz",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-integral-dependence",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-primary-decomposition",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "commutative-algebra-spectrum-dimension",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-completions",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-topology-singular-homology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-geometry-geodesics-curvature",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-equations-chaos-symbolic-dynamics",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "statistics-nonparametric-methods",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "combinatorics-analytic-asymptotics",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-direct-linear-solvers",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-unconstrained-convex-algorithms",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "research-practice-seminar-exposition",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "complex-analysis-riemann-mapping",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "functional-analysis-compact-spectral",
+      "stage": "qualifying",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "functional-analysis-weak-topologies",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-fourier-series",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "commutative-algebra-dedekind-domains",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra",
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-topology-excision-mayer-vietoris",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebraic-topology-cohomology-cup-products",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-equations-elliptic-variational",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "measure-theory-radon-nikodym-conditional",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-prime-distribution",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "number-theory-algebraic-number-fields",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-p-adic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "set-theory-choice-equivalents",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "numerical-analysis-krylov-iterations",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "optimization-duality-kkt",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "research-practice-peer-review-response",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-fourier-transform",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "algebraic-topology-degree-hurewicz",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-topology-spectral-sequences",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-geometry-de-rham-cohomology",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-equations-parabolic-semigroups",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "stochastic-processes-martingales-stopping",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-bayesian-inference",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-ideal-class-groups",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "number-theory-elliptic-curves",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "set-theory-forcing-independence",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "numerical-analysis-finite-elements",
+      "stage": "specialization",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimization-stochastic-large-scale",
+      "stage": "qualifying",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "research-practice-bounded-artifact",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-convolution-approximation",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "harmonic-analysis-plancherel",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "differential-geometry-gauss-bonnet",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "probability-characteristic-functions-clt",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "number-theory-modular-forms-l-functions",
+      "stage": "qualifying",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "logic-foundations-theorem-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "research-practice-novelty-adjudication",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-distributions",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-singular-integrals",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-geometry-theorem-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-equations-hyperbolic-energy",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "stochastic-processes-brownian-ito",
+      "stage": "specialization",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "statistics-linear-models",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-asymptotic-empirical-processes",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "harmonic-analysis-wavelets-frequency-localization",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "differential-equations-theorem-synthesis",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "stochastic-processes-sde",
+      "stage": "qualifying",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "statistics-generalized-linear-models",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true
+    },
+    {
+      "conceptId": "statistics-causal-identification",
+      "stage": "qualifying",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false
+    }
+  ],
+  "formalProofObligations": [
+    {
+      "obligationId": "formal-proof-induction-well-ordering",
+      "title": "Induction from well ordering",
+      "stage": "proof_foundations",
+      "statement": "Formalize that well ordering of natural numbers implies strong induction for an arbitrary decidable predicate.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-rank-nullity",
+      "title": "Finite rank-nullity",
+      "stage": "undergraduate_core",
+      "statement": "Formalize rank-nullity for a linear map between finite-dimensional vector spaces.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-monotone-convergence",
+      "title": "Monotone convergence",
+      "stage": "graduate_core",
+      "statement": "Formalize monotone convergence for a nonnegative increasing sequence of measurable functions.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-first-isomorphism",
+      "title": "First isomorphism theorem",
+      "stage": "graduate_core",
+      "statement": "Formalize the first isomorphism theorem for groups including the induced quotient map.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-compact-image",
+      "title": "Continuous image of compact space",
+      "stage": "graduate_core",
+      "statement": "Formalize that the continuous image of a compact topological space is compact.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-conditional-tower",
+      "title": "Conditional-expectation tower property",
+      "stage": "qualifying",
+      "statement": "Formalize the tower property for integrable random variables over nested sigma algebras.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": false
+    },
+    {
+      "obligationId": "formal-proof-research-main-result",
+      "title": "Research artifact main result",
+      "stage": "research",
+      "statement": "Kernel-check the bounded research artifact main theorem with its artifact digest and explicit assumptions in the proof environment.",
+      "acceptedKernels": [
+        "lean4",
+        "coq",
+        "isabelle"
+      ],
+      "requiredForQualification": true,
+      "researchArtifactBound": true
+    }
+  ],
+  "noveltyStatuses": [
+    {
+      "status": "unestablished",
+      "meaning": "No novelty conclusion has been established.",
+      "permitsGlobalNoveltyClaim": false
+    },
+    {
+      "status": "bounded_corpus_only",
+      "meaning": "No matching result was found only within the frozen declared corpus and search protocol.",
+      "permitsGlobalNoveltyClaim": false
+    },
+    {
+      "status": "externally_established",
+      "meaning": "An identified external review process supplied affirmative novelty evidence.",
+      "permitsGlobalNoveltyClaim": false
+    }
+  ],
+  "evidenceFreshnessDays": {
+    "conceptCoverage": 3650,
+    "qualifyingExam": 730,
+    "formalProof": 730,
+    "specializationExam": 730,
+    "researchArtifact": 365
+  },
+  "qualificationClaim": {
+    "claimId": "phd_math_qualified",
+    "requiredConceptStages": [
+      "proof_foundations",
+      "undergraduate_core",
+      "graduate_core"
+    ],
+    "conceptCoveragePolicy": "all_required_concepts",
+    "requiredCoreExamPolicy": "all_required_unseen_core_exams_pass",
+    "formalProofPolicy": "all_required_obligations_kernel_checked",
+    "specializationPolicy": "one_unseen_specialization_exam_pass",
+    "researchPolicy": "bounded_artifact_independently_reproduced_and_main_result_kernel_checked",
+    "noveltyPolicy": "record_separately_never_infer_global_novelty",
+    "courseCoverageAloneCanSatisfy": false
+  },
+  "truthBoundary": "Course or acquisition coverage is curriculum breadth evidence only. phd_math_qualified requires every declared gate; it does not confer a degree, alter model weights, or establish unrestricted research novelty."
+}

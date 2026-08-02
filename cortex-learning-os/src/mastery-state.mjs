@@ -160,6 +160,29 @@ export function validateMasteryState(state, { graph, policy } = {}) {
         errors.push('invalid continuous mastery migration receipt');
       }
     }
+    if (state.graphMigrations !== undefined) {
+      if (!Array.isArray(state.graphMigrations)
+          || state.graphMigrations.length > 1_000
+          || new Set(state.graphMigrations.map((row) => row?.migrationId)).size !== state.graphMigrations.length
+          || state.graphMigrations.some((row) => !row
+            || row.schemaVersion !== 'cortex.learning_os.additive_graph_migration_receipt.v1'
+            || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(row.migrationId || ''))
+            || !Number.isSafeInteger(row.sourceRevision) || row.sourceRevision < 0
+            || !Number.isSafeInteger(row.targetRevision) || row.targetRevision !== row.sourceRevision + 1
+            || !/^[0-9a-f]{64}$/.test(String(row.sourceStateDigest || ''))
+            || !/^[0-9a-f]{64}$/.test(String(row.sourceGraphDigest || ''))
+            || !/^[0-9a-f]{64}$/.test(String(row.targetGraphDigest || ''))
+            || !/^[0-9a-f]{64}$/.test(String(row.sourcePolicyDigest || ''))
+            || !/^[0-9a-f]{64}$/.test(String(row.targetPolicyDigest || ''))
+            || !/^[0-9a-f]{40}$/.test(String(row.sourceCommit || ''))
+            || !/^[0-9a-f]{40}$/.test(String(row.sourceTree || ''))
+            || !Number.isFinite(Date.parse(String(row.migratedAt || '')))
+            || row.targetRevision > state.revision
+            || !Array.isArray(row.addedConceptIds) || row.addedConceptIds.length < 1
+            || new Set(row.addedConceptIds).size !== row.addedConceptIds.length)) {
+        errors.push('invalid additive graph migration receipts');
+      }
+    }
   }
   return { ok: errors.length === 0, errors };
 }
@@ -268,6 +291,98 @@ export function applyMasteryDelta({ state, delta, graph, policy, artifactManifes
     pendingRepairs,
     appliedRunIds: [...state.appliedRunIds, delta.runId],
     appliedRunReceipts: [...state.appliedRunReceipts, { runId: delta.runId, artifactManifestDigest }],
+  };
+}
+
+export function applyMasteryDeltasAtomically({
+  state,
+  deltas,
+  graph,
+  policy,
+  artifactManifestDigests,
+  expectedBaseRevision,
+  expectedConceptIds,
+} = {}) {
+  const validation = validateMasteryState(state, { graph, policy });
+  if (!validation.ok) throw new Error(`invalid mastery state: ${validation.errors.join('; ')}`);
+  if (!isContinuousAcquisitionPolicy(policy)) throw new Error('atomic wave application requires continuous acquisition policy');
+  if (!Number.isSafeInteger(expectedBaseRevision) || expectedBaseRevision < 0) throw new Error('invalid wave base revision');
+  if (!Array.isArray(deltas) || deltas.length < 1 || deltas.length > 8
+      || !Array.isArray(expectedConceptIds) || expectedConceptIds.length !== deltas.length
+      || !(artifactManifestDigests instanceof Map)) throw new Error('invalid atomic wave delta set');
+  if (new Set(expectedConceptIds).size !== expectedConceptIds.length) throw new Error('wave concept overlap');
+
+  const concepts = structuredClone(state.concepts);
+  let pendingRepairs = structuredClone(state.pendingRepairs);
+  const appliedRunIds = [...state.appliedRunIds];
+  const appliedRunReceipts = structuredClone(state.appliedRunReceipts);
+  let updatedAtMs = Date.parse(state.updatedAt);
+
+  for (const [index, delta] of deltas.entries()) {
+    const expectedConceptId = expectedConceptIds[index];
+    const artifactManifestDigest = artifactManifestDigests.get(delta?.runId);
+    if (!delta || delta.schemaVersion !== 'cortex.learning_os.mastery_delta.v2'
+        || delta.baseRevision !== expectedBaseRevision
+        || delta.curriculumId !== state.curriculumId
+        || delta.capsuleId !== state.capsuleId
+        || delta.policyDigest !== state.policyDigest
+        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(String(delta.runId || ''))
+        || !/^[0-9a-f]{64}$/.test(String(artifactManifestDigest || ''))
+        || appliedRunIds.includes(delta.runId)
+        || !Array.isArray(delta.events) || delta.events.length < 1
+        || delta.events.length > policy.budgets.maxSteps
+        || delta.completedAt !== delta.events.at(-1)?.completedAt
+        || delta.events.some((event) => event?.conceptId !== expectedConceptId)) {
+      throw new Error('invalid atomic wave mastery delta');
+    }
+    const record = concepts[expectedConceptId];
+    if (!record) throw new Error('wave delta selected an unknown concept');
+    let conceptTimestamp = record.lastAttemptedAt === null ? Number.NEGATIVE_INFINITY : Date.parse(record.lastAttemptedAt);
+    for (const event of delta.events) {
+      const completedAtMs = Date.parse(String(event.completedAt || ''));
+      if (!Number.isFinite(completedAtMs) || completedAtMs < conceptTimestamp
+          || typeof event.passed !== 'boolean'
+          || !CONTINUOUS_ROLES.has(event.role)
+          || !/^[0-9a-f]{64}$/.test(String(event.evidenceDigest || ''))) {
+        throw new Error('invalid atomic wave mastery event');
+      }
+      conceptTimestamp = completedAtMs;
+      updatedAtMs = Math.max(updatedAtMs, completedAtMs);
+      record.attempts += 1;
+      record.lastAttemptedAt = event.completedAt;
+      record.lastEvidenceDigest = event.evidenceDigest;
+      record.lastRunId = delta.runId;
+      record.nextReviewAt = null;
+      if (event.passed) {
+        record.passes += 1;
+        record.consecutivePasses += 1;
+        record.consecutiveFailures = 0;
+        record.state = 'acquired';
+        record.acquiredAt = event.completedAt;
+        pendingRepairs = pendingRepairs.filter((row) => row.failedConceptId !== expectedConceptId);
+      } else {
+        record.failures += 1;
+        record.consecutivePasses = 0;
+        record.consecutiveFailures += 1;
+        record.state = 'learning';
+        record.acquiredAt = null;
+        pendingRepairs = [
+          ...pendingRepairs.filter((row) => row.failedConceptId !== expectedConceptId),
+          { failedConceptId: expectedConceptId, evidenceDigest: event.evidenceDigest, runId: delta.runId },
+        ];
+      }
+    }
+    appliedRunIds.push(delta.runId);
+    appliedRunReceipts.push({ runId: delta.runId, artifactManifestDigest });
+  }
+  return {
+    ...unsigned(state),
+    revision: state.revision + 1,
+    updatedAt: new Date(updatedAtMs).toISOString(),
+    concepts,
+    pendingRepairs,
+    appliedRunIds,
+    appliedRunReceipts,
   };
 }
 

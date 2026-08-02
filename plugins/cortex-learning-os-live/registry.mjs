@@ -46,10 +46,66 @@ function boundedString(value, maximum, { pattern = null, allowEmpty = false } = 
 }
 
 export function canonicalJson(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
+  const active = new Set();
+  const serialize = (candidate) => {
+    if (candidate === null) return 'null';
+    if (typeof candidate === 'string' || typeof candidate === 'boolean') {
+      return JSON.stringify(candidate);
+    }
+    if (typeof candidate === 'number') {
+      if (!Number.isFinite(candidate)) {
+        throw new TypeError('canonical JSON rejects non-finite numbers');
+      }
+      return JSON.stringify(candidate);
+    }
+    if (typeof candidate !== 'object') {
+      throw new TypeError(`canonical JSON rejects ${typeof candidate} values`);
+    }
+    if (active.has(candidate)) throw new TypeError('canonical JSON rejects cyclic values');
+    const prototype = Object.getPrototypeOf(candidate);
+    if (!Array.isArray(candidate)
+        && prototype !== Object.prototype
+        && prototype !== null) {
+      throw new TypeError('canonical JSON accepts only arrays and plain objects');
+    }
+    active.add(candidate);
+    try {
+      if (Array.isArray(candidate)) {
+        const ownKeys = Reflect.ownKeys(candidate);
+        if (ownKeys.length !== candidate.length + 1
+            || ownKeys.some((key) => (
+              key !== 'length'
+              && (typeof key !== 'string'
+                || !/^(0|[1-9]\d*)$/.test(key)
+                || Number(key) >= candidate.length)
+            ))) {
+          throw new TypeError('canonical JSON rejects sparse or extended arrays');
+        }
+        for (let index = 0; index < candidate.length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(candidate, String(index));
+          if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) {
+            throw new TypeError('canonical JSON rejects sparse arrays');
+          }
+        }
+        return `[${candidate.map(serialize).join(',')}]`;
+      }
+      const ownKeys = Reflect.ownKeys(candidate);
+      const keys = Object.keys(candidate);
+      if (ownKeys.length !== keys.length
+          || keys.some((key) => !Object.hasOwn(
+            Object.getOwnPropertyDescriptor(candidate, key),
+            'value',
+          ))) {
+        throw new TypeError('canonical JSON rejects symbols, accessors, or hidden fields');
+      }
+      return `{${keys.sort().map((key) => (
+        `${JSON.stringify(key)}:${serialize(candidate[key])}`
+      )).join(',')}}`;
+    } finally {
+      active.delete(candidate);
+    }
+  };
+  return serialize(value);
 }
 
 function normalizedSemanticText(value) {

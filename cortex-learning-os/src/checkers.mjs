@@ -4,8 +4,10 @@ function normalized(value, caseSensitive = false) {
 }
 
 function numeric(value) {
-  if (typeof value === 'number') return value;
-  const text = String(value ?? '').trim();
+  if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN;
+  if (typeof value !== 'string') return Number.NaN;
+  const text = value.trim();
+  if (text.length < 1) return Number.NaN;
   const fraction = text.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
   if (fraction) {
     const denominator = Number(fraction[2]);
@@ -37,17 +39,21 @@ export function checkAnswer(answer, checker = {}) {
   let passed = false;
   let observed = answer;
   if (mode === 'exact_number') {
-    observed = numeric(answer);
-    passed = Number.isFinite(observed) && observed === numeric(checker.expected);
+    const parsed = numeric(answer);
+    observed = Number.isFinite(parsed) ? parsed : null;
+    const expected = numeric(checker.expected);
+    passed = observed !== null && Number.isFinite(expected) && observed === expected;
   } else if (mode === 'exact_integer_string') {
     observed = String(answer ?? '').trim().replace(/[,_\s]/g, '').replace(/^\+/, '');
     const expected = String(checker.expected ?? '').trim().replace(/[,_\s]/g, '').replace(/^\+/, '');
     passed = /^-?\d+$/.test(observed) && observed === expected;
   } else if (mode === 'numeric_tolerance') {
-    observed = numeric(answer);
+    const parsed = numeric(answer);
+    observed = Number.isFinite(parsed) ? parsed : null;
     const expected = numeric(checker.expected);
     const tolerance = Math.max(0, Number(checker.tolerance ?? 1e-9));
-    passed = Number.isFinite(observed) && Number.isFinite(expected) && Math.abs(observed - expected) <= tolerance;
+    passed = observed !== null && Number.isFinite(expected)
+      && Number.isFinite(tolerance) && Math.abs(observed - expected) <= tolerance;
   } else if (mode === 'exact_string' || mode === 'multiple_choice') {
     observed = normalized(answer, checker.caseSensitive === true);
     passed = observed === normalized(checker.expected, checker.caseSensitive === true);

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_candidate_output.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proofTerm"],
+  "properties": {
+    "proofTerm": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    }
+  }
+}

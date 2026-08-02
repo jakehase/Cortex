@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.independent_assessment_item.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "itemId",
+    "fixtureOnly",
+    "assessmentClass",
+    "assessmentRole",
+    "content",
+    "contentSha256",
+    "contentDigest",
+    "answerFormat",
+    "conceptId",
+    "outcomeIds",
+    "stage",
+    "trackIds",
+    "semanticFamilyId",
+    "checker",
+    "resourceLimits",
+    "toolsPolicy",
+    "bindings",
+    "authorAttestation",
+    "reviewerAttestation",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.independent_assessment_item.v1"
+    },
+    "itemId": { "$ref": "#/$defs/identifier" },
+    "fixtureOnly": { "const": false },
+    "assessmentClass": {
+      "const": "independently_authored_concept_specific"
+    },
+    "assessmentRole": {
+      "enum": ["acquisition", "correction", "promotion-transfer", "retention"]
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "mediaType", "promptBase64"],
+      "properties": {
+        "encoding": { "const": "base64" },
+        "mediaType": { "const": "text/plain; charset=utf-8" },
+        "promptBase64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 2097152,
+          "contentEncoding": "base64"
+        }
+      }
+    },
+    "contentSha256": { "$ref": "#/$defs/digest" },
+    "contentDigest": { "$ref": "#/$defs/digest" },
+    "answerFormat": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "conceptId": { "$ref": "#/$defs/identifier" },
+    "outcomeIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^outcome:[0-9a-f]{64}$"
+      }
+    },
+    "stage": { "$ref": "#/$defs/identifier" },
+    "trackIds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "semanticFamilyId": { "$ref": "#/$defs/identifier" },
+    "checker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "specification", "specificationSha256"],
+      "properties": {
+        "runtime": {
+          "const": "cortex.learning_os.deterministic_checker.v1"
+        },
+        "specification": {
+          "oneOf": [
+            { "$ref": "#/$defs/exactNumberChecker" },
+            { "$ref": "#/$defs/exactIntegerStringChecker" },
+            { "$ref": "#/$defs/numericToleranceChecker" },
+            { "$ref": "#/$defs/exactStringChecker" },
+            { "$ref": "#/$defs/multipleChoiceChecker" },
+            { "$ref": "#/$defs/setEqualityChecker" },
+            { "$ref": "#/$defs/orderedNumericTupleChecker" }
+          ]
+        },
+        "specificationSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxPromptBytes", "maxAnswerBytes", "maxCheckerRuntimeMs"],
+      "properties": {
+        "maxPromptBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "maxAnswerBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "maxCheckerRuntimeMs": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    },
+    "toolsPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "policy"],
+      "properties": {
+        "allowed": { "const": false },
+        "policy": { "const": "no_tools" }
+      }
+    },
+    "bindings": { "$ref": "#/$defs/bindings" },
+    "authorAttestation": { "$ref": "authority-attestation.schema.json" },
+    "reviewerAttestation": { "$ref": "authority-attestation.schema.json" },
+    "truthBoundary": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "exactNumberChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected"],
+      "properties": {
+        "mode": { "const": "exact_number" },
+        "expected": { "type": "number" }
+      }
+    },
+    "exactIntegerStringChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected"],
+      "properties": {
+        "mode": { "const": "exact_integer_string" },
+        "expected": { "type": "string", "pattern": "^-?[0-9]+$" }
+      }
+    },
+    "numericToleranceChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected", "tolerance"],
+      "properties": {
+        "mode": { "const": "numeric_tolerance" },
+        "expected": { "type": "number" },
+        "tolerance": { "type": "number", "minimum": 0 }
+      }
+    },
+    "exactStringChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected", "caseSensitive"],
+      "properties": {
+        "mode": { "const": "exact_string" },
+        "expected": { "type": "string", "minLength": 1 },
+        "caseSensitive": { "type": "boolean" }
+      }
+    },
+    "multipleChoiceChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected", "caseSensitive"],
+      "properties": {
+        "mode": { "const": "multiple_choice" },
+        "expected": { "type": "string", "minLength": 1 },
+        "caseSensitive": { "type": "boolean" }
+      }
+    },
+    "setEqualityChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected"],
+      "properties": {
+        "mode": { "const": "set_equality" },
+        "expected": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "number" }
+            ]
+          }
+        }
+      }
+    },
+    "orderedNumericTupleChecker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "expected"],
+      "properties": {
+        "mode": { "const": "ordered_numeric_tuple" },
+        "expected": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "number" }
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trustPolicyDigest", "deploymentDigest", "campaign"],
+      "properties": {
+        "trustPolicyDigest": { "$ref": "#/$defs/digest" },
+        "deploymentDigest": { "$ref": "#/$defs/digest" },
+        "campaign": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["campaignId", "campaignDigest"],
+          "properties": {
+            "campaignId": { "$ref": "#/$defs/identifier" },
+            "campaignDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    }
+  }
+}

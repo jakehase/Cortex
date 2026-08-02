@@ -18,6 +18,7 @@
     "masterySnapshotDigest",
     "operatorDirective",
     "action",
+    "assessmentSelection",
     "budgets",
     "modelRuntime",
     "pairedEvaluation",
@@ -31,10 +32,10 @@
     "generatedAt": { "type": "string", "format": "date-time" },
     "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "seed": { "type": "string", "minLength": 1, "maxLength": 256 },
-    "curriculumId": { "const": "math-continuous-acquisition-v1" },
+    "curriculumId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
     "capsuleId": { "type": "string" },
     "curriculumDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "policyId": { "const": "adaptive-math-continuous-v1" },
+    "policyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
     "policyDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "masteryRevision": { "type": "integer", "minimum": 0 },
     "masterySnapshotDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
@@ -47,6 +48,31 @@
         },
         "role": { "enum": ["acquisition", "correction", null] }
       }
+    },
+    "assessmentSelection": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bankId",
+            "bankDigest",
+            "itemId",
+            "itemContentDigest",
+            "checkerSpecificationSha256",
+            "campaign"
+          ],
+          "properties": {
+            "bankId": { "type": "string" },
+            "bankDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "itemId": { "type": "string" },
+            "itemContentDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "checkerSpecificationSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "campaign": { "type": "object" }
+          }
+        }
+      ]
     },
     "budgets": { "type": "object" },
     "modelRuntime": { "type": "object" },

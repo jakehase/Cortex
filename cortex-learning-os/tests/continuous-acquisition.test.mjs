@@ -8,11 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import {
   LEGACY_ADAPTIVE_POLICY_PATH,
+  CONTINUOUS_ADAPTIVE_POLICY_PATH,
   loadAdaptivePolicy,
   policyDigest,
 } from '../src/adaptive-policy.mjs';
 import { buildAdaptiveSessionPlan, runAdaptiveSession } from '../src/adaptive-session.mjs';
-import { verifyAdaptiveArtifacts } from '../src/adaptive-verifier.mjs';
+import { verifyAdaptiveFixtureArtifacts as verifyAdaptiveArtifactsImplementation } from '../src/adaptive-verifier.mjs';
 import {
   buildEarlyReviewDirective,
   selectNextAction,
@@ -46,10 +47,14 @@ const legacyGraph = read('capsules/math-foundations/curriculum.graph.json');
 const graph = read('capsules/math-foundations/curriculum.continuous-acquisition-v1.graph.json');
 const capsule = read('capsules/math-foundations/capsule.json');
 const legacyPolicy = loadAdaptivePolicy(LEGACY_ADAPTIVE_POLICY_PATH).policy;
-const policy = loadAdaptivePolicy().policy;
+const policy = loadAdaptivePolicy(CONTINUOUS_ADAPTIVE_POLICY_PATH).policy;
 const secret = 'continuous-acquisition-test-secret-with-forty-eight-chars';
 const sourceCommit = 'c'.repeat(40);
 const now = '2026-07-27T15:39:00.000Z';
+const verifyAdaptiveArtifacts = (options) => verifyAdaptiveArtifactsImplementation({
+  ...options,
+  allowTestFixtures: options.allowTestFixtures ?? true,
+});
 
 function graphDigest(value) {
   return sha256Text(canonicalJson(value));

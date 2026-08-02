@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "cortex.learning_os.retention_policy.v1",
+  "policyId": "phd-retention-v1",
+  "curriculumId": "math-phd-trajectory-v1",
+  "capsuleId": "math-foundations-v0",
+  "production": true,
+  "requiredWindows": 2,
+  "minimumSeparationSeconds": 604800,
+  "maximumClockSkewSeconds": 300,
+  "minimumItemsPerWindow": 19,
+  "minimumScore": 0.8,
+  "minimumStageCoverage": 3,
+  "minimumTrackCoverage": 15,
+  "modelRuntime": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinking": "xhigh",
+    "sandbox": "read-only",
+    "toolsAllowed": false
+  },
+  "independence": {
+    "distinctSessionPerWindow": true,
+    "disjointItemIds": true,
+    "disjointTheoremIds": true,
+    "previousWindowDigestRequired": true
+  },
+  "truthBoundary": "Retention is qualified only by two signed declared-unseen windows separated by at least seven elapsed days. Acquisition coverage never substitutes for this evidence."
+}

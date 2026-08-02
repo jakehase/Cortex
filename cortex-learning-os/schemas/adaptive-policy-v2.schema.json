@@ -21,8 +21,8 @@
   ],
   "properties": {
     "schemaVersion": { "const": "cortex.learning_os.adaptive_policy.v2" },
-    "policyId": { "const": "adaptive-math-continuous-v1" },
-    "curriculumId": { "const": "math-continuous-acquisition-v1" },
+    "policyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "curriculumId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
     "capsuleId": { "type": "string" },
     "mode": { "const": "continuous_acquisition" },
     "reviewSelection": {

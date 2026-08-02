@@ -8,6 +8,8 @@ import { readJson } from './json.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 import { runCodexExam } from './model-answer-runner.mjs';
 import { runCodexCandidate } from './model-candidate.mjs';
+import { currentCommittedIdentity } from './git-product-source.mjs';
+import { loadCanonicalPhdProgram } from './phd-program-runtime.mjs';
 
 const args = process.argv.slice(2);
 const value = (flag, fallback = null) => {
@@ -18,16 +20,30 @@ const planPath = path.resolve(value('--plan', ''));
 const artifactRoot = path.resolve(value('--artifact-root', ''));
 const codexCommand = value('--codex-command', 'codex');
 const sourceCommit = value('--source-commit', process.env.CLOS_SOURCE_COMMIT || '');
+const graphPath = path.resolve(value('--graph', DEFAULT_CURRICULUM_GRAPH_PATH));
+const policyPath = value('--policy');
+const capsulePath = path.resolve(value('--capsule', path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json')));
+const assessmentBankPath = path.resolve(value('--assessment-bank', ''));
 if (!value('--plan') || !value('--artifact-root')) throw new Error('--plan and --artifact-root are required');
 if (!fs.existsSync(planPath)) throw new Error('adaptive plan does not exist');
 const plan = readJson(planPath);
 if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('adaptive plan is unreadable or invalid JSON');
+if (!value('--assessment-bank')) throw new Error('--assessment-bank is required for production acquisition');
 const model = value('--model', plan.modelRuntime?.model);
 const thinking = value('--thinking', plan.modelRuntime?.thinking);
 if (model !== plan.modelRuntime?.model || thinking !== plan.modelRuntime?.thinking) throw new Error('runtime model/reasoning differs from the signed adaptive plan');
-const graph = readJson(DEFAULT_CURRICULUM_GRAPH_PATH);
-const capsule = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/capsule.json'));
-const { policy } = loadAdaptivePolicy();
+const graph = readJson(graphPath);
+const capsule = readJson(capsulePath);
+const { policy } = loadAdaptivePolicy(policyPath ? path.resolve(policyPath) : undefined);
+const assessmentBank = readJson(assessmentBankPath);
+if (!graph || !capsule || !assessmentBank) throw new Error('adaptive graph, capsule, or independent assessment bank is unreadable');
+const identity = currentCommittedIdentity({ requireClean: true });
+if (sourceCommit !== identity.sourceCommit) throw new Error('adaptive worker source commit is not the checked-out control plane');
+const canonicalProgram = loadCanonicalPhdProgram({
+  sourceCommit: identity.sourceCommit,
+  sourceTree: identity.sourceTree,
+  productTree: identity.productTree,
+});
 const fixedTemplates = ['baseline.exam.json', 'reliability-challenge.exam.json', 'exact-arithmetic-stress.exam.json']
   .flatMap((name) => readJson(path.join(CLOS_ROOT, 'exams/math-foundations', name))?.items || [])
   .map((item) => item.remediation?.lessonTemplate?.rule)
@@ -41,6 +57,10 @@ const summary = runAdaptiveSession({
   artifactRoot,
   sourceCommit,
   fixedTemplates,
+  assessmentBank,
+  assessmentTrustPolicy: canonicalProgram.trustPolicy,
+  deployment: canonicalProgram.deployment,
+  assessmentRubric: canonicalProgram.rubric,
   callExam: (options) => runCodexExam({ ...options, codexCommand, model, thinking, timeoutSeconds: 240 }),
   callCandidate: (options) => runCodexCandidate({ ...options, codexCommand, model, thinking, timeoutSeconds: 240 }),
 });

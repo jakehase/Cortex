@@ -4,15 +4,18 @@
 
 Jake directed: **“stop the reviews just keep learning.”** This contract supersedes active v0.8 spaced-review selection. It defines a finite continuous-acquisition curriculum, honest covered-once state, deterministic evidence, and an independently signed control-plane transition. It does not erase or reinterpret historical review evidence.
 
-The production defaults are:
+The current production source defaults are:
 
-- policy `adaptive-math-continuous-v1`;
-- curriculum `math-continuous-acquisition-v1`;
+- policy `adaptive-math-phd-v1`;
+- curriculum `math-phd-trajectory-v1`;
 - state schema `cortex.learning_os.mastery_state.v2`;
 - session plan schema `cortex.learning_os.adaptive_session_plan.v2`;
 - delta schema `cortex.learning_os.mastery_delta.v2`.
 
-The legacy `adaptive-math-v0.8` policy, original `math-foundations-curriculum-v0` 36-concept graph, schema-v1 state, and review transitions remain immutable compatibility inputs for revision-74 verification, migration, audit, and rollback tests. They are not the canonical active path.
+The prior `adaptive-math-continuous-v1` 84-concept program and legacy
+`adaptive-math-v0.8` 36-concept program remain immutable compatibility inputs
+for exact verification, migration, audit, and rollback tests. They are not the
+canonical active path.
 
 ## Truth boundary
 
@@ -89,21 +92,27 @@ The migration must:
 
 An already migrated source, tampered source, repeated audit path, non-monotonic migration time, source mismatch, or legacy concept rewrite fails closed. The migration does not delete historical run artifacts or rewrite historical outcomes.
 
-## Curriculum and deterministic exercises
+## Curriculum and assessment boundary
 
-The active DAG contains exactly 84 concepts: the original 36 plus 48 coherent additions.
+The source-default DAG contains 264 concepts and canonically preserves the
+prior 84-node prefix.
 
-- algebra/precalculus: 8;
-- calculus: 10;
-- linear algebra: 8;
-- probability/statistics: 8;
-- discrete mathematics: 5;
-- number theory: 3;
-- optimization: 6.
+The deterministic generator catalog is accepted only in mechanics fixtures.
+Production acquisition requires a versioned external independent bank.
+Each item commits immutable prompt bytes, a fixed executable checker
+specification, resource limits, no-tools policy, concept/outcome/stage/track
+and semantic-family identities, exact trust/deployment/campaign bindings, and
+distinct author/reviewer attestations. The 264-entry acquisition registry must
+be derived from those exact signed records; identifiers without bank bytes are
+invalid. No such bank is checked in, so production remains blocked.
 
-Every active concept has a stable seeded generator. `generateExercise({ conceptId, seed, role })` produces a complete locally checkable item: concept, family/version, role, item ID, prompt, parameters, checker, expected output, and oracle digest.
-
-Independent replay regenerates and compares the complete canonical item, not merely its final answer. Exact, normalized set/order, bounded numeric tolerance, and finite-choice checkers are used only where mathematically appropriate. No model assertion, uncheckable prose, or model-as-judge result is an oracle. Generator catalog coverage, deterministic replay, role/seed freshness, malformed inputs, missing generators, and oracle digests are tested across all 84 concepts.
+Independent fixture replay regenerates and compares the complete canonical
+item, not merely its final answer. Exact, normalized set/order, bounded numeric
+tolerance, and finite-choice checkers are used only where mathematically
+appropriate. No model assertion, uncheckable prose, or model-as-judge result is
+an oracle. Tests cover the substantive legacy 84 surfaces and the explicit
+synthetic dispatch behavior across all 264 IDs without treating that coverage
+as acquisition or qualification.
 
 Legacy exercise roles, including `spaced-review`, remain available to reproduce old evidence. Active continuous plans cannot select them.
 
@@ -115,7 +124,12 @@ Fresh correction, held-out transfer, and identical-item paired candidate/no-cont
 
 ## Detached production path
 
-The default launcher, worker, harvester, status command, and continuation supervisor load the continuous graph and policy. The worker remains secretless and proposal-only on Hetzner; verification and HMAC signing remain separate on the control plane.
+The default launcher, parallel launchers, status command, and control plane
+load the PhD graph and policy. The worker remains secretless and proposal-only;
+verification and HMAC signing remain separate on the control plane. Production
+verification additionally requires a trusted-runner signature over exact raw
+provider output and the append-only provider event ledger. A worker-authored
+manifest is insufficient provenance.
 
 Each frozen plan binds source commit, source tree identity, policy/curriculum/capsule digests, base signed-state revision/digest, seed, runtime, finite budgets, selected action, and complete generated item. Accepted active terminal results are:
 

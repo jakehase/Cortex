@@ -18,6 +18,7 @@
     "masterySnapshotDigest",
     "operatorDirective",
     "action",
+    "assessmentSelection",
     "budgets",
     "modelRuntime",
     "pairedEvaluation",
@@ -90,6 +91,31 @@
     },
     "action": {
       "type": "object"
+    },
+    "assessmentSelection": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bankId",
+            "bankDigest",
+            "itemId",
+            "itemContentDigest",
+            "checkerSpecificationSha256",
+            "campaign"
+          ],
+          "properties": {
+            "bankId": { "type": "string" },
+            "bankDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "itemId": { "type": "string" },
+            "itemContentDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "checkerSpecificationSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "campaign": { "type": "object" }
+          }
+        }
+      ]
     },
     "budgets": {
       "type": "object"

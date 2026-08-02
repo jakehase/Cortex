@@ -19,6 +19,7 @@ import { buildRetrievalPack } from './retrieval-pack.mjs';
 import { sha256File } from './hash.mjs';
 import { readJson, writeJson } from './json.mjs';
 import { CLOS_ROOT } from './paths.mjs';
+import { currentCommittedIdentity } from './git-product-source.mjs';
 
 const args = process.argv.slice(2);
 const value = (flag) => { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : null; };
@@ -77,7 +78,7 @@ function gitCommit() {
     if (!/^[0-9a-f]{40}$/.test(process.env.CLOS_SOURCE_COMMIT)) throw new Error('CLOS_SOURCE_COMMIT must be a full lowercase Git commit');
     return process.env.CLOS_SOURCE_COMMIT;
   }
-  return execFileSync('git', ['-C', CLOS_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  return currentCommittedIdentity().sourceCommit;
 }
 
 function workerProvenance(commandName, explicitOverride) {

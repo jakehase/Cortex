@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.sealed_exam_bank.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "fixtureOnly",
+    "examId",
+    "examVersion",
+    "kind",
+    "items",
+    "bankDigest",
+    "keyDigest",
+    "provenance",
+    "authorityAttestation",
+    "expertReviewAttestation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.sealed_exam_bank.v2"
+    },
+    "fixtureOnly": {
+      "const": false
+    },
+    "examId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "examVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "kind": {
+      "enum": [
+        "core",
+        "specialization"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "itemId",
+          "prompt",
+          "answerFormat",
+          "checker",
+          "qualification"
+        ],
+        "not": {
+          "required": [
+            "generation"
+          ]
+        }
+      }
+    },
+    "bankDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "keyDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "unavailableDuringAcquisition",
+        "acquisitionFamilyDisjoint",
+        "priorCampaignFamilyDisjoint",
+        "acquisitionAssessmentRegistryDigest",
+        "priorQualificationFamilyLedgerDigest",
+        "authorIds",
+        "expertReviewerIds"
+      ],
+      "properties": {
+        "mode": {
+          "const": "independently_authored_expert_reviewed"
+        },
+        "unavailableDuringAcquisition": {
+          "const": true
+        },
+        "acquisitionFamilyDisjoint": {
+          "const": true
+        },
+        "priorCampaignFamilyDisjoint": {
+          "const": true
+        },
+        "acquisitionAssessmentRegistryDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "priorQualificationFamilyLedgerDigest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "expertReviewerIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "authorityAttestation": {
+      "$ref": "cortex.learning_os.authority_attestation.v1"
+    },
+    "expertReviewAttestation": {
+      "$ref": "cortex.learning_os.authority_attestation.v1"
+    }
+  }
+}

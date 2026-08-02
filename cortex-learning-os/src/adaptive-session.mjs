@@ -6,11 +6,18 @@ import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mj
 import { buildPairedCandidatePlan, analyzeCandidatePairs } from './adaptive-evaluator.mjs';
 import { isContinuousAcquisitionPolicy, policyDigest, validateAdaptivePlanRuntime } from './adaptive-policy.mjs';
 import { buildEarlyReviewDirective, selectNextAction, validateCurriculumGraph } from './curriculum-planner.mjs';
+import { deploymentBindingDigest, validateDeploymentBinding } from './deployment-identity.mjs';
+import { executionSourceSha256 } from './execution-evidence.mjs';
 import { generateExercise, validateGeneratedExerciseCoverage } from './generated-exercises.mjs';
 import { sha256File, sha256Text } from './hash.mjs';
 import { writeJson } from './json.mjs';
 import { buildCandidatePrompt, buildCandidateRecord } from './model-candidate.mjs';
 import { writeExamRun } from './exam-runner.mjs';
+import {
+  materializeIndependentAssessmentItem,
+  selectIndependentAssessmentItem,
+  validateIndependentAssessmentBank,
+} from './phd-assessment.mjs';
 
 function allFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -29,7 +36,9 @@ function oneItemExam(capsuleId, examId, title, item) {
     passThreshold: 1,
     allowedTools: [],
     items: [item],
-    truthBoundary: 'This deterministic generated exercise supports only the named role, concept, and recorded session.',
+    truthBoundary: item.independentAssessment
+      ? 'This exam executes one control-plane-verified independently authored item for only the named role, concept, and recorded session.'
+      : 'This deterministic generated exercise is fixture-only and supports only mechanics tests for the named role, concept, and recorded session.',
   };
 }
 
@@ -53,6 +62,45 @@ function activeStatus(plan, legacy, continuous) {
   return plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2' ? continuous : legacy;
 }
 
+function independentSelection(bank, item) {
+  return {
+    bankId: bank.bankId,
+    bankDigest: bank.bankDigest,
+    itemId: item.itemId,
+    itemContentDigest: item.contentDigest,
+    checkerSpecificationSha256: item.checker.specificationSha256,
+    campaign: structuredClone(bank.bindings.campaign),
+  };
+}
+
+function resolveIndependentPlanItem({
+  plan,
+  assessmentBank,
+  graph,
+  rubric,
+  deployment,
+  assessmentTrustPolicy,
+} = {}) {
+  if (plan?.assessmentSelection === null) return null;
+  const validation = validateIndependentAssessmentBank(assessmentBank, {
+    graph,
+    rubric,
+    trustPolicy: assessmentTrustPolicy,
+    deployment,
+    campaignBinding: plan.assessmentSelection?.campaign,
+  });
+  if (!validation.ok) throw new Error(`invalid production acquisition assessment bank: ${validation.errors.join('; ')}`);
+  const item = assessmentBank.items.find((row) => row.itemId === plan.assessmentSelection.itemId);
+  if (!item
+      || canonicalJson(independentSelection(assessmentBank, item))
+        !== canonicalJson(plan.assessmentSelection)
+      || item.conceptId !== plan.action?.conceptId
+      || item.assessmentRole !== plan.action?.role) {
+    throw new Error('adaptive independent assessment selection or bank bytes were substituted');
+  }
+  return item;
+}
+
 export function buildAdaptiveSessionPlan({
   runId,
   graph,
@@ -63,6 +111,11 @@ export function buildAdaptiveSessionPlan({
   signingSecret,
   runtimeOverride = null,
   allowEarlyReview = false,
+  frozenAction = null,
+  assessmentBank = null,
+  assessmentTrustPolicy = null,
+  deployment = null,
+  assessmentRubric = null,
   now = new Date().toISOString(),
 } = {}) {
   const graphValidation = validateCurriculumGraph(graph);
@@ -81,9 +134,42 @@ export function buildAdaptiveSessionPlan({
     throw new Error('early-review mode is disabled under the continuous-acquisition policy');
   }
   const operatorDirective = allowEarlyReview ? buildEarlyReviewDirective(now) : null;
-  const action = selectNextAction({ graph, mastery, policy, now, seed, operatorDirective });
+  const action = frozenAction === null
+    ? selectNextAction({ graph, mastery, policy, now, seed, operatorDirective })
+    : structuredClone(frozenAction);
+  if (frozenAction !== null && (!isContinuousAcquisitionPolicy(policy)
+      || !['acquisition', 'learning_retry', 'prerequisite_repair', 'same_concept_correction'].includes(action?.kind)
+      || !['acquisition', 'correction'].includes(action?.role)
+      || !graph.concepts.some((concept) => concept.conceptId === action?.conceptId))) {
+    throw new Error('invalid frozen continuous-acquisition action');
+  }
   if (typeof signingSecret !== 'string' || signingSecret.length < 32) throw new Error('adaptive plan requires a control-plane signing secret');
   const continuous = isContinuousAcquisitionPolicy(policy);
+  let assessmentSelection = null;
+  if (assessmentBank !== null) {
+    const assessmentValidation = validateIndependentAssessmentBank(assessmentBank, {
+      graph,
+      rubric: assessmentRubric,
+      trustPolicy: assessmentTrustPolicy,
+      deployment,
+      campaignBinding: assessmentBank?.bindings?.campaign,
+    });
+    if (!assessmentValidation.ok) {
+      throw new Error(`invalid production acquisition assessment bank: ${assessmentValidation.errors.join('; ')}`);
+    }
+    if (assessmentBank.purpose !== 'acquisition') {
+      throw new Error('adaptive acquisition requires an acquisition-purpose independent bank');
+    }
+    if (action.kind !== 'terminal') {
+      const item = selectIndependentAssessmentItem({
+        bank: assessmentBank,
+        conceptId: action.conceptId,
+        assessmentRole: action.role,
+        selectionNonce: `${runId}:${seed}:observed`,
+      });
+      assessmentSelection = independentSelection(assessmentBank, item);
+    }
+  }
   const plan = {
     schemaVersion: planSchema(policy),
     runId,
@@ -99,6 +185,7 @@ export function buildAdaptiveSessionPlan({
     masterySnapshotDigest: sha256Text(canonicalJson(mastery)),
     operatorDirective,
     action,
+    assessmentSelection,
     budgets: structuredClone(policy.budgets),
     modelRuntime: structuredClone(modelRuntime),
     pairedEvaluation: structuredClone(policy.pairedEvaluation),
@@ -175,14 +262,46 @@ function writeManifest(artifactRoot, plan, truthBoundary) {
   });
 }
 
-function phaseWriter({ artifactRoot, capsule, plan, phase, item, call, learningContext, evidenceRole, sessionId = null }) {
+function phaseWriter({
+  artifactRoot,
+  capsule,
+  plan,
+  phase,
+  item,
+  call,
+  learningContext,
+  evidenceRole,
+  sessionId = null,
+  deployment = null,
+}) {
   const exam = oneItemExam(capsule.capsuleId, `${plan.runId}-${phase}`, `Adaptive ${phase}`, item);
+  const deploymentValidation = validateDeploymentBinding(deployment);
+  const campaign = plan.assessmentSelection?.campaign || null;
+  const taskSha256 = sha256Text(canonicalJson(exam));
   const result = call({
     exam,
     learningContext,
     evidenceRole,
     sessionId: sessionId || `${plan.runId}-${phase}`,
     runId: `${plan.runId}-${phase}`,
+    executionContext: deploymentValidation.ok && campaign ? {
+      role: `adaptive_${evidenceRole}`,
+      bindings: {
+        candidateId: null,
+        taskId: item.itemId,
+        taskSha256,
+        jobId: `${plan.runId}.${phase.replaceAll('/', '.')}`,
+        jobSha256: sha256Text(canonicalJson({
+          planSha256: sha256Text(canonicalJson(plan)),
+          phase,
+          taskSha256,
+        })),
+        campaignId: campaign.campaignId,
+        campaignSha256: campaign.campaignDigest,
+        deploymentSha256: deploymentBindingDigest(deployment),
+        sourceSha256: executionSourceSha256(deployment),
+      },
+    } : null,
   });
   const phaseRoot = path.join(artifactRoot, phase);
   fs.mkdirSync(phaseRoot, { recursive: true });
@@ -211,7 +330,9 @@ function proposedDelta(plan, completedAt, events) {
     events,
     authority: 'worker_proposal_only',
     truthBoundary: plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
-      ? 'This worker-authored acquisition delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical covered-once state.'
+      ? (plan.assessmentSelection
+        ? 'This worker-authored acquisition delta is inert until the independent control plane revalidates the exact signed bank/item/checker bytes, re-grades the attempt, replays policy, and signs canonical covered-once state.'
+        : 'This fixture worker-authored acquisition delta is inert and cannot enter production; fixture replay regenerates exercises only for mechanics tests.')
       : 'This worker-authored delta is inert until the independent control plane regenerates exercises, re-grades attempts, replays policy, and signs canonical mastery.',
   };
 }
@@ -226,8 +347,22 @@ export function runAdaptiveSession({
   callExam,
   callCandidate,
   fixedTemplates = [],
+  assessmentBank = null,
+  assessmentTrustPolicy = null,
+  deployment = null,
+  assessmentRubric = null,
 } = {}) {
   validatePlan(plan, { graph, policy, sourceCommit });
+  const independentItem = plan.assessmentSelection === null
+    ? null
+    : resolveIndependentPlanItem({
+      plan,
+      assessmentBank,
+      graph,
+      rubric: assessmentRubric,
+      deployment,
+      assessmentTrustPolicy,
+    });
   const root = path.resolve(artifactRoot);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   writeJson(path.join(root, 'adaptive_plan.json'), plan);
@@ -281,15 +416,18 @@ export function runAdaptiveSession({
     }
     const concept = graph.concepts.find((row) => row.conceptId === plan.action.conceptId);
     if (!concept) throw new Error('planned concept is absent from curriculum');
-    const baselineItem = generateExercise({
-      conceptId: concept.conceptId,
-      seed: `${plan.seed}:observed`,
-      role: plan.action.role,
-    });
+    const baselineItem = independentItem
+      ? materializeIndependentAssessmentItem(independentItem, { bank: assessmentBank })
+      : generateExercise({
+        conceptId: concept.conceptId,
+        seed: `${plan.seed}:observed`,
+        role: plan.action.role,
+      });
     const baseline = phaseWriter({
       artifactRoot: root, capsule, plan, phase: 'observed-attempt', item: baselineItem,
       call: boundedExamCall, learningContext: null,
       evidenceRole: plan.action.role,
+      deployment,
     });
     const baselineAttempt = baseline.attempts[0];
     const baselineVerifier = baseline.verifierResults[0];
@@ -320,6 +458,17 @@ export function runAdaptiveSession({
           ? { acquisitionDeltaProposed: false }
           : { masteryDeltaProposed: false }),
       });
+    }
+    if (independentItem) {
+      const delta = proposedDelta(plan, baselineAttempt.completedAt, [baselineEvent]);
+      return finish({
+        status: activeStatus(plan, 'candidate_mastery_delta', 'candidate_acquisition_delta'),
+        lessonProposed: false,
+        ...(plan.schemaVersion === 'cortex.learning_os.adaptive_session_plan.v2'
+          ? { acquisitionDeltaProposed: true }
+          : { masteryDeltaProposed: true }),
+        blockerCode: 'independent_assessment_failed',
+      }, delta);
     }
 
     const candidatePrompt = buildCandidatePrompt({
@@ -381,6 +530,7 @@ export function runAdaptiveSession({
     const correction = phaseWriter({
       artifactRoot: root, capsule, plan, phase: 'correction', item: correctionItem,
       call: boundedExamCall, learningContext: candidateContext, evidenceRole: 'correction',
+      deployment,
     });
     const correctionAttempt = correction.attempts[0];
     const correctionVerifier = correction.verifierResults[0];
@@ -425,6 +575,7 @@ export function runAdaptiveSession({
           learningContext: scheduled.arm === 'candidate_context' ? candidateContext : null,
           evidenceRole: `paired_${scheduled.arm}`,
           sessionId: scheduled.sessionId,
+          deployment,
         });
         const answer = run.attempts[0];
         const verifier = run.verifierResults[0];

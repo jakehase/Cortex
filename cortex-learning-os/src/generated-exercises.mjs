@@ -3,6 +3,11 @@ import crypto from 'node:crypto';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { checkAnswer } from './checkers.mjs';
 import { sha256Text } from './hash.mjs';
+import {
+  generatePhdAssessment,
+  replayPhdAssessment,
+  supportsPhdAssessmentConcept,
+} from './phd-assessment.mjs';
 
 export const EXERCISE_ROLES = Object.freeze([
   'baseline', 'acquisition', 'correction', 'promotion-transfer', 'held-out', 'spaced-review',
@@ -431,12 +436,17 @@ export function validateGeneratedExerciseCoverage(graph) {
   const conceptIds = Array.isArray(graph?.concepts)
     ? graph.concepts.map((concept) => concept?.conceptId)
     : [];
-  const missing = conceptIds.filter((conceptId) => !Object.hasOwn(CATALOG, conceptId));
+  const missing = conceptIds.filter((conceptId) => (
+    !Object.hasOwn(CATALOG, conceptId) && !supportsPhdAssessmentConcept(conceptId)
+  ));
   return { ok: missing.length === 0, missing };
 }
 
 export function generateExercise({ conceptId, seed, role } = {}) {
-  if (!Object.hasOwn(CATALOG, conceptId)) throw new Error(`unsupported generated-exercise conceptId: ${String(conceptId)}`);
+  if (!Object.hasOwn(CATALOG, conceptId)) {
+    if (supportsPhdAssessmentConcept(conceptId)) return generatePhdAssessment({ conceptId, seed, role });
+    throw new Error(`unsupported generated-exercise conceptId: ${String(conceptId)}`);
+  }
   if (typeof seed !== 'string' || seed.length < 1 || seed.length > 256) throw new Error('exercise seed must be a non-empty string of at most 256 characters');
   if (!EXERCISE_ROLES.includes(role)) throw new Error(`unsupported exercise role: ${String(role)}`);
   const key = `${conceptId}:${role}:${seed}:generated-exercise-v1`;
@@ -447,6 +457,7 @@ export function generateExercise({ conceptId, seed, role } = {}) {
   return {
     schemaVersion: 'cortex.learning_os.exam_item.v0',
     itemId: `adaptive-${sha256Text(key).slice(0, 20)}`,
+    fixtureOnly: true,
     prompt: built.prompt,
     conceptIds: [conceptId],
     difficulty: role,
@@ -455,6 +466,7 @@ export function generateExercise({ conceptId, seed, role } = {}) {
     generation: {
       schemaVersion: 'cortex.learning_os.exercise_generation.v1',
       generatorVersion: '1.0.0',
+      assessmentClass: 'synthetic_generated_fixture',
       family,
       conceptId,
       seed,
@@ -462,12 +474,14 @@ export function generateExercise({ conceptId, seed, role } = {}) {
       parameters: built.parameters,
       oracleDigest,
     },
+    truthBoundary: 'This deterministic generated exercise is a fixture-only mechanics surface and is ineligible for production acquisition, retention, or qualification.',
   };
 }
 
 export function replayGeneratedExercise(item) {
   const metadata = item?.generation;
   if (!metadata || metadata.schemaVersion !== 'cortex.learning_os.exercise_generation.v1') throw new Error('missing generated-exercise metadata');
+  if (String(metadata.family || '').startsWith('phd-')) return replayPhdAssessment(item);
   const regenerated = generateExercise({ conceptId: metadata.conceptId, seed: metadata.seed, role: metadata.role });
   if (canonicalJson(regenerated) !== canonicalJson(item)) throw new Error(`generated exercise replay mismatch: ${String(item?.itemId || 'unknown')}`);
   return regenerated;

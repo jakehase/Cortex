@@ -229,11 +229,13 @@ test('detached launcher preflights and passes the exact remote Codex executable'
   assert.match(launcher, /"reviewSelectionEnabled": False/);
   assert.match(launcher, /chown jake:jake "\$REMOTE_PLAN"/);
   assert.match(launcher, /sudo -u jake -- test -r "\$REMOTE_PLAN"/);
-  assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN"/);
+  assert.match(launcher, /--assessment-bank "\$ASSESSMENT_BANK"/);
+  assert.match(launcher, /"\$RUN_ID" adaptive "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN" "\$REMOTE_PLAN" "\$REMOTE_ASSESSMENT_BANK"/);
   assert.match(launcher, /"\$RUN_ID" "\$EXAM" "\$LOCAL_COMMIT" "\$REMOTE_CODEX_BIN"/);
   assert.match(worker, /MODE_ARG="\$\{2:-adaptive\}"/);
   assert.match(worker, /CODEX_BIN="\$\{4:-\/home\/jake\/\.local\/bin\/codex\}"/);
   assert.match(worker, /adaptive plan must be readable by the worker service user/);
+  assert.match(worker, /assessment bank must be a readable regular non-symlink file/);
   assert.match(worker, /\[\[ -x "\$CODEX_BIN" \]\]/);
   assert.match(worker, /--codex-command "\$CODEX_BIN"/);
   assert.match(worker, /if npm run "\$NPM_SCRIPT"/);
