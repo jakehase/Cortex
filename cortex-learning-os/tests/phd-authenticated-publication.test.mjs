@@ -2729,11 +2729,18 @@ test('root broker crash recovery seals content and rejects the final candidate m
       os.tmpdir(),
       `clos-root-broker-${crashPhase}-`,
     ));
+    if (process.geteuid() === 0) fs.chmodSync(root, 0o711);
     const attackExchange = fs.mkdtempSync(path.join(
       os.tmpdir(),
       'clos-root-broker-candidate-',
     ));
     fs.chmodSync(attackExchange, 0o733);
+    const candidateAttackerPath = path.join(
+      attackExchange,
+      'candidate-attacker.mjs',
+    );
+    fs.copyFileSync(rootBrokerAttackerPath, candidateAttackerPath);
+    fs.chmodSync(candidateAttackerPath, 0o555);
     const authority = path.join(root, 'authority');
     const inputPath = path.join(attackExchange, 'input.json');
     const resultPath = path.join(root, 'result.json');
@@ -2777,7 +2784,7 @@ test('root broker crash recovery seals content and rejects the final candidate m
           ].join(' '),
           'root-broker-final-close-coordinator',
           process.execPath,
-          rootBrokerAttackerPath,
+          candidateAttackerPath,
           inputPath,
           '/usr/bin/unshare',
           rootBrokerChildPath,
