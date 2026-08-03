@@ -14,8 +14,8 @@ import {
   validateAuthorityExpectations,
 } from './authority-input.mjs';
 import {
-  APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   deploymentBindingDigest,
+  isModelExecutableDeploymentBinding,
 } from './deployment-identity.mjs';
 import { assertExecutionClosureAtRoot } from './git-product-source.mjs';
 import { linuxDescriptorMountId } from './linux-descriptor-identity.mjs';
@@ -759,22 +759,27 @@ export function verifyQualificationApprovedModelExecutable({
   if (plan?.schemaVersion !== 'cortex.learning_os.phd_detached_job_plan.v2'
       || !DIGEST.test(String(expectedPlanDigest || ''))
       || sha256Text(canonicalJson(plan)) !== expectedPlanDigest
-      || plan?.deployment?.schemaVersion
-        !== APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) {
+      || !isModelExecutableDeploymentBinding(plan?.deployment)) {
     throw new Error('qualification plan does not bind the exact approved model executable');
   }
   assertApprovedModelExecutableAtPath(plan.deployment.approvedModelExecutable);
-  assertApprovedResearchRuntimeAtPath(plan.deployment.approvedResearchRuntime);
+  if (plan.deployment.approvedResearchRuntime !== undefined) {
+    assertApprovedResearchRuntimeAtPath(plan.deployment.approvedResearchRuntime);
+  }
   return {
     schemaVersion: 'cortex.learning_os.phd_approved_model_executable_verification.v1',
     planDigest: expectedPlanDigest,
     campaignId: plan.campaignId,
     approvedModelExecutable: structuredClone(plan.deployment.approvedModelExecutable),
-    approvedResearchRuntime: structuredClone(plan.deployment.approvedResearchRuntime),
+    approvedResearchRuntime: plan.deployment.approvedResearchRuntime === undefined
+      ? null
+      : structuredClone(plan.deployment.approvedResearchRuntime),
     immutableRuntimeClosureVerified: true,
     raceFreeExecutionRequired: {
       model: '/proc/self/fd/3',
-      researchRuntime: '/proc/self/fd/4',
+      researchRuntime: plan.deployment.approvedResearchRuntime === undefined
+        ? null
+        : '/proc/self/fd/4',
     },
   };
 }

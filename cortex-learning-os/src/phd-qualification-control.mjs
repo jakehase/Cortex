@@ -17,6 +17,7 @@ import {
   assembleProofRun,
   assembleProductionResearchEvidence,
   buildCanonicalQualificationJobs,
+  buildDetachedRetentionQualificationPlan,
   createAcquisitionQualificationReceipt,
   createProofReplayReceipt,
   freezePhdCampaign,
@@ -345,6 +346,7 @@ try {
   } else if (command === 'retention-grade') {
     result = gradeRetentionWindow({
       ...bundle,
+      executionDeployment: bundle.expectedDeployment,
       qualificationHarvestBinding,
       harvestedWorkerCall,
       signingSecret,
@@ -353,6 +355,7 @@ try {
   } else if (command === 'retention-status') {
     result = evaluateRetentionStatus({
       ...bundle,
+      executionDeployment: bundle.expectedDeployment,
       qualificationHarvestBinding,
       harvestedModelCallsByJob,
       signingSecret,
@@ -391,6 +394,16 @@ try {
     result = buildCanonicalQualificationJobs({
       ...bundle,
       signingSecret,
+    });
+    writeNew(value('--out'), result, signingSecret);
+  } else if (command === 'retention-jobs-build') {
+    result = buildDetachedRetentionQualificationPlan({
+      task: bundle.task,
+      release: bundle.release,
+      executionDeployment: bundle.expectedDeployment,
+      signingSecret,
+      timeoutSeconds: bundle.timeoutSeconds,
+      maxOutputBytes: bundle.maxOutputBytes,
     });
     writeNew(value('--out'), result, signingSecret);
   } else if (command === 'exam-assemble') {

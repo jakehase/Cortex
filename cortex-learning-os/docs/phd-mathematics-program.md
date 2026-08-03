@@ -355,6 +355,16 @@ predecessor and minimum separation exist. If a campaign declares a retention
 session, jobs build fails unless the corresponding signed task and exact
 candidate-visible release are supplied. It never invents a future window.
 
+When only an already released retention window is authorized,
+`phd:retention:jobs:build` creates a one-job successor plan instead of widening
+that authorization into the remaining campaign. The plan requires a v4
+model-executable deployment: the immutable checkout and approved model runtime
+are pinned, no research runtime is required, exactly one signed retention
+release is embedded, protected authority tasks are empty, and every exam,
+proof, research, later-retention, learning, and promotion stage remains absent.
+The ordinary complete campaign path continues to require the v3 model-plus-
+research deployment.
+
 Every detached job has a descriptor digest and idempotency key. Dependencies
 are explicit, terminal artifacts are immutable, and retries may only rerun a
 missing job with the same descriptor identity. The plan separately lists

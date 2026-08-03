@@ -1,6 +1,8 @@
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import {
+  assertModelQualificationDeployment,
   assertQualificationDeployment,
+  MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   sourceDeploymentBinding,
 } from './deployment-identity.mjs';
 import { validatePhdTrustPolicy } from './phd-trust.mjs';
@@ -105,17 +107,34 @@ export function validateProductionControlBundle({
   if (deploymentSourceDiffers(bundle.expectedDeployment, canonicalProgram?.deployment)) {
     errors.push('control bundle expectedDeployment differs from exact committed deployment source identity');
   }
+  const modelOnlyRetention = String(command || '').startsWith('retention-')
+    && bundle.expectedDeployment?.schemaVersion
+      === MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA;
   try {
-    assertQualificationDeployment(bundle.expectedDeployment, canonicalProgram?.deployment);
+    if (modelOnlyRetention) {
+      assertModelQualificationDeployment(
+        bundle.expectedDeployment,
+        canonicalProgram?.deployment,
+      );
+    } else {
+      assertQualificationDeployment(
+        bundle.expectedDeployment,
+        canonicalProgram?.deployment,
+      );
+    }
   } catch (error) {
     errors.push(`control bundle qualification deployment is invalid: ${error.message}`);
   }
   if (isRecord(bundle.campaign)
-      && differs(bundle.expectedDeployment, bundle.campaign.deployment)) {
+      && (modelOnlyRetention
+        ? deploymentSourceDiffers(bundle.expectedDeployment, bundle.campaign.deployment)
+        : differs(bundle.expectedDeployment, bundle.campaign.deployment))) {
     errors.push('control bundle expectedDeployment differs from the signed campaign deployment');
   }
   if (isRecord(bundle.deployment)
-      && differs(bundle.expectedDeployment, bundle.deployment)) {
+      && (modelOnlyRetention
+        ? differs(sourceDeploymentBinding(bundle.expectedDeployment), bundle.deployment)
+        : differs(bundle.expectedDeployment, bundle.deployment))) {
     errors.push('control bundle expectedDeployment differs from its qualification deployment');
   }
   errors.push(...validateCommandPolicyBinding(bundle, canonicalProgram, command));
@@ -166,6 +185,13 @@ export function validateProductionControlBundle({
   }
   if (command === 'retention-task' && !isRecord(bundle.campaignBinding)) {
     errors.push('production retention task requires the exact campaign binding');
+  }
+  if (command === 'retention-jobs-build'
+      && (!isRecord(bundle.task)
+        || !isRecord(bundle.release)
+        || !isRecord(bundle.campaignBinding)
+        || differs(bundle.campaignBinding, bundle.task?.assessmentCampaign))) {
+    errors.push('production retention job build requires the exact task, release, and task campaign binding');
   }
   if (command === 'retention-status') {
     if (!Array.isArray(bundle.windows)

@@ -140,16 +140,24 @@ APPROVED_RESEARCH_DAEMON_SHA256="$(node -e 'const v=JSON.parse(process.argv[1]);
 [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ && "$SOURCE_TREE" =~ ^[0-9a-f]{40}$ && "$PRODUCT_TREE" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid job deployment" >&2; exit 2; }
 for DIGEST_VALUE in "$PLAN_DIGEST" "$CAMPAIGN_DIGEST" "$DEPLOYMENT_DIGEST" \
   "$DESCRIPTOR_SET_SHA256" "$JOB_SET_SHA256" "$RUNTIME_SHA256" "$CLOSURE_SHA256" \
-  "$APPROVED_CODEX_SHA256" "$APPROVED_CODEX_CLOSURE_SHA256" \
-  "$APPROVED_RESEARCH_SHA256" "$APPROVED_RESEARCH_CLOSURE_SHA256" \
-  "$APPROVED_RESEARCH_DAEMON_SHA256"; do
+  "$APPROVED_CODEX_SHA256" "$APPROVED_CODEX_CLOSURE_SHA256"; do
   [[ "$DIGEST_VALUE" =~ ^[0-9a-f]{64}$ ]] || { echo "invalid authenticated plan or closure digest" >&2; exit 2; }
 done
+if [[ -n "$APPROVED_RESEARCH_PATH" || -n "$APPROVED_RESEARCH_SHA256" \
+  || -n "$APPROVED_RESEARCH_CLOSURE_SHA256" || -n "$APPROVED_RESEARCH_DAEMON_SHA256" ]]; then
+  for DIGEST_VALUE in "$APPROVED_RESEARCH_SHA256" \
+    "$APPROVED_RESEARCH_CLOSURE_SHA256" "$APPROVED_RESEARCH_DAEMON_SHA256"; do
+    [[ "$DIGEST_VALUE" =~ ^[0-9a-f]{64}$ ]] \
+      || { echo "invalid authenticated research runtime digest" >&2; exit 2; }
+  done
+fi
 [[ "$APPROVED_CODEX_PATH" == "/opt/cortex-learning-os/approved-model-executors/$APPROVED_CODEX_SHA256/codex" \
   && "$APPROVED_CODEX_BYTES" =~ ^[1-9][0-9]{0,9}$ ]] \
   || { echo "authenticated plan omits an approved immutable model executable" >&2; exit 2; }
-[[ "$APPROVED_RESEARCH_PATH" == "/opt/cortex-learning-os/approved-research-runtimes/$APPROVED_RESEARCH_SHA256/runtime" ]] \
-  || { echo "authenticated plan omits an approved immutable research runtime" >&2; exit 2; }
+if [[ -n "$APPROVED_RESEARCH_PATH" ]]; then
+  [[ "$APPROVED_RESEARCH_PATH" == "/opt/cortex-learning-os/approved-research-runtimes/$APPROVED_RESEARCH_SHA256/runtime" ]] \
+    || { echo "authenticated plan binds an invalid immutable research runtime" >&2; exit 2; }
+fi
 [[ "$JOB_COUNT" =~ ^[1-9][0-9]?$ && "$JOB_COUNT" -le 64 ]] || { echo "invalid authenticated job count" >&2; exit 2; }
 if [[ "$ARCHIVAL_ONLY" == false ]]; then
   [[ "$(git -C "$LOCAL_REPO" rev-parse HEAD)" == "$SOURCE_COMMIT" ]] || { echo "local commit drift" >&2; exit 3; }

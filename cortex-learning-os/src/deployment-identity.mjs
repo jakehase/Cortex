@@ -9,6 +9,8 @@ export const DEPLOYMENT_BINDING_SCHEMA = 'cortex.learning_os.deployment_binding.
 export const FROZEN_DEPLOYMENT_BINDING_SCHEMA = 'cortex.learning_os.deployment_binding.v2';
 export const APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA =
   'cortex.learning_os.deployment_binding.v3';
+export const MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA =
+  'cortex.learning_os.deployment_binding.v4';
 
 const COMMIT = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
@@ -31,11 +33,16 @@ export function validateDeploymentBinding(binding, { requiredContentIds = [] } =
   const frozen = [
     FROZEN_DEPLOYMENT_BINDING_SCHEMA,
     APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+    MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   ].includes(binding?.schemaVersion);
-  const approvedExecutable = binding?.schemaVersion
+  const fullApprovedExecutable = binding?.schemaVersion
     === APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA;
+  const modelApprovedExecutable = binding?.schemaVersion
+    === MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA;
+  const approvedExecutable = fullApprovedExecutable || modelApprovedExecutable;
   const expectedKeys = frozen ? [
-    ...(approvedExecutable ? ['approvedModelExecutable', 'approvedResearchRuntime'] : []),
+    ...(approvedExecutable ? ['approvedModelExecutable'] : []),
+    ...(fullApprovedExecutable ? ['approvedResearchRuntime'] : []),
     'closureSha256', 'contentDigests', 'executionClosure', 'productTree',
     'runtimeSha256', 'schemaVersion', 'sourceCommit', 'sourceTree',
   ] : [
@@ -48,6 +55,7 @@ export function validateDeploymentBinding(binding, { requiredContentIds = [] } =
     DEPLOYMENT_BINDING_SCHEMA,
     FROZEN_DEPLOYMENT_BINDING_SCHEMA,
     APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+    MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   ]
     .includes(binding?.schemaVersion)) errors.push('invalid deployment binding schemaVersion');
   if (!COMMIT.test(String(binding?.sourceCommit || ''))) errors.push('invalid deployment source commit');
@@ -78,11 +86,13 @@ export function validateDeploymentBinding(binding, { requiredContentIds = [] } =
     if (approvedExecutable) {
       const executable = validateApprovedModelExecutableBinding(binding.approvedModelExecutable);
       errors.push(...executable.errors.map((error) => `approved model executable: ${error}`));
-      const researchRuntime = validateApprovedResearchRuntimeBinding(
-        binding.approvedResearchRuntime,
-        { observe: false },
-      );
-      errors.push(...researchRuntime.errors.map((error) => `approved research runtime: ${error}`));
+      if (fullApprovedExecutable) {
+        const researchRuntime = validateApprovedResearchRuntimeBinding(
+          binding.approvedResearchRuntime,
+          { observe: false },
+        );
+        errors.push(...researchRuntime.errors.map((error) => `approved research runtime: ${error}`));
+      }
     }
   }
   return { ok: errors.length === 0, errors };
@@ -100,10 +110,8 @@ export function buildDeploymentBinding({
   if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
     throw new Error('deployment artifacts must be a named object');
   }
-  if ((approvedModelExecutable === null) !== (approvedResearchRuntime === null)) {
-    throw new Error(
-      'approved model executable and approved research runtime must be bound together',
-    );
+  if (approvedModelExecutable === null && approvedResearchRuntime !== null) {
+    throw new Error('approved research runtime requires an approved model executable');
   }
   const contentDigests = Object.fromEntries(Object.entries(artifacts)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -116,7 +124,9 @@ export function buildDeploymentBinding({
       ? DEPLOYMENT_BINDING_SCHEMA
       : approvedModelExecutable === null
         ? FROZEN_DEPLOYMENT_BINDING_SCHEMA
-        : APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+        : approvedResearchRuntime === null
+          ? MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA
+          : APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
     sourceCommit,
     sourceTree,
     ...(executionClosure === null ? {} : {
@@ -126,7 +136,9 @@ export function buildDeploymentBinding({
       executionClosure,
       ...(approvedModelExecutable === null ? {} : {
         approvedModelExecutable: structuredClone(approvedModelExecutable),
-        approvedResearchRuntime: structuredClone(approvedResearchRuntime),
+        ...(approvedResearchRuntime === null ? {} : {
+          approvedResearchRuntime: structuredClone(approvedResearchRuntime),
+        }),
       }),
     }),
     contentDigests,
@@ -140,13 +152,21 @@ export function isFrozenDeploymentBinding(binding) {
   return [
     FROZEN_DEPLOYMENT_BINDING_SCHEMA,
     APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+    MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+  ].includes(binding?.schemaVersion);
+}
+
+export function isModelExecutableDeploymentBinding(binding) {
+  return [
+    APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+    MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   ].includes(binding?.schemaVersion);
 }
 
 export function bindApprovedModelExecutable(
   deployment,
   approvedModelExecutable,
-  approvedResearchRuntime,
+  approvedResearchRuntime = null,
 ) {
   const validation = validateDeploymentBinding(deployment);
   if (!validation.ok || !isFrozenDeploymentBinding(deployment)) {
@@ -156,10 +176,12 @@ export function bindApprovedModelExecutable(
     throw new Error('cannot bind approved runtimes to a mutable execution closure');
   }
   const executable = validateApprovedModelExecutableBinding(approvedModelExecutable);
-  const researchRuntime = validateApprovedResearchRuntimeBinding(
-    approvedResearchRuntime,
-    { observe: false },
-  );
+  const researchRuntime = approvedResearchRuntime === null
+    ? { ok: true, errors: [] }
+    : validateApprovedResearchRuntimeBinding(
+      approvedResearchRuntime,
+      { observe: false },
+    );
   if (!executable.ok) {
     throw new Error(`cannot bind an invalid approved model executable: ${executable.errors.join('; ')}`);
   }
@@ -167,10 +189,14 @@ export function bindApprovedModelExecutable(
     throw new Error(`cannot bind an invalid approved research runtime: ${researchRuntime.errors.join('; ')}`);
   }
   const binding = {
-    ...structuredClone(deployment),
-    schemaVersion: APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+    ...sourceDeploymentBinding(deployment),
+    schemaVersion: approvedResearchRuntime === null
+      ? MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA
+      : APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
     approvedModelExecutable: structuredClone(approvedModelExecutable),
-    approvedResearchRuntime: structuredClone(approvedResearchRuntime),
+    ...(approvedResearchRuntime === null ? {} : {
+      approvedResearchRuntime: structuredClone(approvedResearchRuntime),
+    }),
   };
   const bound = validateDeploymentBinding(binding);
   if (!bound.ok) throw new Error(`invalid executable-bound deployment: ${bound.errors.join('; ')}`);
@@ -180,7 +206,7 @@ export function bindApprovedModelExecutable(
 export function sourceDeploymentBinding(deployment) {
   const validation = validateDeploymentBinding(deployment);
   if (!validation.ok) throw new Error(`invalid deployment binding: ${validation.errors.join('; ')}`);
-  if (deployment.schemaVersion !== APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) {
+  if (!isModelExecutableDeploymentBinding(deployment)) {
     return structuredClone(deployment);
   }
   const {
@@ -194,6 +220,29 @@ export function sourceDeploymentBinding(deployment) {
     throw new Error(`invalid source deployment projection: ${sourceValidation.errors.join('; ')}`);
   }
   return sourceDeployment;
+}
+
+export function assertModelQualificationDeployment(deployment, committedSourceDeployment) {
+  const validation = validateDeploymentBinding(deployment);
+  const sourceValidation = validateDeploymentBinding(committedSourceDeployment);
+  const executableValidation = validateApprovedModelExecutableBinding(
+    deployment?.approvedModelExecutable,
+  );
+  if (!validation.ok
+      || deployment?.schemaVersion !== MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA
+      || !sourceValidation.ok
+      || committedSourceDeployment?.schemaVersion !== FROZEN_DEPLOYMENT_BINDING_SCHEMA
+      || canonicalJson(sourceDeploymentBinding(deployment))
+        !== canonicalJson(committedSourceDeployment)
+      || !executableValidation.ok) {
+    throw new Error([
+      'model qualification deployment is not the exact executable-bound projection of committed source',
+      ...validation.errors,
+      ...sourceValidation.errors,
+      ...executableValidation.errors,
+    ].join('; '));
+  }
+  return deployment;
 }
 
 export function assertQualificationDeployment(deployment, committedSourceDeployment) {

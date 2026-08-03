@@ -37,6 +37,7 @@
     "phd:acquisition:receipt": "node src/phd-qualification-control.mjs acquisition-receipt",
     "phd:retention:task": "node src/phd-qualification-control.mjs retention-task",
     "phd:retention:release": "node src/phd-qualification-control.mjs retention-release",
+    "phd:retention:jobs:build": "node src/phd-qualification-control.mjs retention-jobs-build",
     "phd:retention:grade": "node src/phd-qualification-control.mjs retention-grade",
     "phd:retention:status": "node src/phd-qualification-control.mjs retention-status",
     "phd:retention:wait-build": "node src/phd-qualification-control.mjs retention-wait-build",

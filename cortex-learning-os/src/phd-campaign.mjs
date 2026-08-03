@@ -19,8 +19,10 @@ import { checkAnswer } from './checkers.mjs';
 import {
   APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   assertDeploymentBinding,
+  assertModelQualificationDeployment,
   deploymentBindingDigest,
   isFrozenDeploymentBinding,
+  MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   validateDeploymentBinding,
 } from './deployment-identity.mjs';
 import { generateExercise, replayGeneratedExercise, verifyGeneratedAnswer } from './generated-exercises.mjs';
@@ -45,6 +47,8 @@ import { validateProofRuntimeEvidence } from './lean-proof-preflight.mjs';
 import { CLOS_ROOT } from './paths.mjs';
 import {
   buildRetentionWorkerPrompt,
+  RETENTION_JOB_TASK_SCHEMA,
+  validateRetentionExecutionAuthorization,
   verifyProductionRetentionQualification,
 } from './phd-retention.mjs';
 import {
@@ -95,6 +99,7 @@ export const ACQUISITION_QUALIFICATION_RECEIPT_SCHEMA = 'cortex.learning_os.acqu
 export const RESEARCH_REPRODUCTION_BUNDLE_SCHEMA = 'cortex.learning_os.research_reproduction_bundle.v5';
 export const PHD_DETACHED_JOB_SCHEMA = 'cortex.learning_os.phd_detached_job.v2';
 export const PHD_DETACHED_JOB_PLAN_SCHEMA = 'cortex.learning_os.phd_detached_job_plan.v2';
+export const PHD_RETENTION_JOB_TASK_SCHEMA = RETENTION_JOB_TASK_SCHEMA;
 export const PHD_HARVEST_STATE_SCHEMA = 'cortex.learning_os.phd_harvest_state.v2';
 export const PHD_HARVEST_RECEIPT_SCHEMA = 'cortex.learning_os.phd_harvest_receipt.v1';
 
@@ -3309,6 +3314,119 @@ export function buildCanonicalQualificationJobs({
   });
 }
 
+export function buildDetachedRetentionQualificationPlan({
+  task,
+  release,
+  executionDeployment,
+  signingSecret,
+  timeoutSeconds = 900,
+  maxOutputBytes = 4 * 1024 * 1024,
+} = {}) {
+  const authorization = validateRetentionExecutionAuthorization({
+    task,
+    release,
+    signingSecret,
+  });
+  if (!authorization.ok) {
+    throw new Error(
+      `cannot build retention execution plan: ${authorization.errors.join('; ')}`,
+    );
+  }
+  assertModelQualificationDeployment(executionDeployment, task.deployment);
+  if (!Number.isInteger(timeoutSeconds)
+      || timeoutSeconds < 30 || timeoutSeconds > 3600
+      || !Number.isInteger(maxOutputBytes)
+      || maxOutputBytes < 1024 || maxOutputBytes > 16 * 1024 * 1024) {
+    throw new Error('retention execution limits are invalid');
+  }
+  const jobId = task.taskId;
+  const sessionId = `${task.taskId}.model`;
+  if (!ID.test(jobId) || !ID.test(sessionId)) {
+    throw new Error('retention execution job or session identity is invalid');
+  }
+  const promptBytes = Buffer.from(buildRetentionWorkerPrompt(release), 'utf8');
+  const jobTask = {
+    schemaVersion: PHD_RETENTION_JOB_TASK_SCHEMA,
+    signedTask: structuredClone(task),
+    release: structuredClone(release),
+  };
+  const descriptorSha256 = digest({
+    jobId,
+    role: 'retention',
+    sessionId,
+    executor: 'model_no_tools',
+    dependencies: [],
+    promptBase64: promptBytes.toString('base64'),
+    outputSchema: 'model-answer-output.schema.json',
+    task: jobTask,
+    timeoutSeconds,
+    maxOutputBytes,
+  });
+  const job = sign({
+    schemaVersion: PHD_DETACHED_JOB_SCHEMA,
+    jobId,
+    campaignId: authorization.campaignId,
+    campaignDigest: authorization.campaignDigest,
+    role: 'retention',
+    sessionId,
+    executor: 'model_no_tools',
+    dependencies: [],
+    deployment: structuredClone(executionDeployment),
+    notBefore: task.notBefore,
+    expiresAt: task.expiresAt,
+    promptBase64: promptBytes.toString('base64'),
+    promptSha256: sha256Text(promptBytes),
+    outputSchema: 'model-answer-output.schema.json',
+    task: jobTask,
+    descriptorSha256,
+    idempotencyKey: digest({
+      campaignId: authorization.campaignId,
+      jobId,
+      descriptorSha256,
+    }),
+    modelRuntime: structuredClone(task.runtime),
+    limits: { timeoutSeconds, maxOutputBytes },
+    canonicalStateAuthority: false,
+    truthBoundary: 'Detached retention worker may produce candidate evidence only; it cannot grade, sign, launch later stages, or mutate canonical state.',
+  }, signingSecret);
+  const plan = sign({
+    schemaVersion: PHD_DETACHED_JOB_PLAN_SCHEMA,
+    campaignId: authorization.campaignId,
+    subjectId: authorization.subjectId,
+    campaignDigest: authorization.campaignDigest,
+    deployment: structuredClone(executionDeployment),
+    frozenAt: task.notBefore,
+    expiresAt: task.expiresAt,
+    jobs: [job],
+    descriptorSetSha256: digest([{
+      jobId: job.jobId,
+      descriptorSha256: job.descriptorSha256,
+      idempotencyKey: job.idempotencyKey,
+    }]),
+    protectedAuthorityTasks: [],
+    resumePolicy: {
+      idempotentByJobIdAndDescriptorDigest: true,
+      idempotentByJobIdAndPromptDigest: true,
+      terminalArtifactsImmutable: true,
+      retryIdentityField: 'idempotencyKey',
+      crashRecovery: 'rerun_missing_jobs_only_then_reharvest',
+      partialApplyAllowed: false,
+    },
+    truthBoundary: 'This signed plan authorizes only the exact released retention window. It cannot launch or satisfy later qualification stages.',
+  }, signingSecret);
+  const verification = verifyDetachedQualificationJobPlan(plan, signingSecret, {
+    expectedCampaignId: authorization.campaignId,
+    expectedDeployment: executionDeployment,
+    now: task.notBefore,
+  });
+  if (!verification.ok) {
+    throw new Error(
+      `constructed retention execution plan is invalid: ${verification.errors.join('; ')}`,
+    );
+  }
+  return plan;
+}
+
 export function buildDetachedQualificationJobs({
   campaign,
   descriptors,
@@ -3586,8 +3704,10 @@ function detachedJobErrors(job, plan, signingSecret) {
       || !/^[A-Za-z0-9._-]+[.]schema[.]json$/.test(String(job.outputSchema || ''))
       || (job.task !== null && !isRecord(job.task))
       || (job.deployment?.executionClosure?.immutable === true
-        && job.deployment?.schemaVersion
-          !== APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA)
+        && ![
+          APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+          MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+        ].includes(job.deployment?.schemaVersion))
   )) {
     errors.push('detached job model runtime is invalid');
   }
@@ -3652,6 +3772,68 @@ function detachedJobErrors(job, plan, signingSecret) {
       || job.descriptorSha256 !== expectedDescriptorSha256
       || job.idempotencyKey !== expectedIdempotencyKey) {
     errors.push('detached job descriptor or idempotency binding is invalid');
+  }
+  return errors;
+}
+
+function retentionOnlyProductionPlanErrors(plan, signingSecret) {
+  if (plan?.deployment?.schemaVersion
+      !== MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) return [];
+  const errors = [];
+  if (!Array.isArray(plan.jobs) || plan.jobs.length !== 1
+      || !Array.isArray(plan.protectedAuthorityTasks)
+      || plan.protectedAuthorityTasks.length !== 0) {
+    return ['model-only deployment authorizes exactly one retention job and no protected authority tasks'];
+  }
+  const job = plan.jobs[0];
+  if (!exactKeys(job?.task, ['schemaVersion', 'signedTask', 'release'])
+      || job.task.schemaVersion !== PHD_RETENTION_JOB_TASK_SCHEMA) {
+    return ['model-only retention job task fields are invalid'];
+  }
+  const task = job.task.signedTask;
+  const release = job.task.release;
+  const authorization = validateRetentionExecutionAuthorization({
+    task,
+    release,
+    signingSecret,
+  });
+  errors.push(...authorization.errors.map((error) => (
+    `model-only retention authorization: ${error}`
+  )));
+  try {
+    assertModelQualificationDeployment(plan.deployment, task?.deployment);
+  } catch (error) {
+    errors.push(`model-only retention deployment: ${error.message}`);
+  }
+  const expectedPromptBytes = (() => {
+    try {
+      return Buffer.from(buildRetentionWorkerPrompt(release), 'utf8');
+    } catch {
+      return null;
+    }
+  })();
+  if (job.role !== 'retention'
+      || job.executor !== 'model_no_tools'
+      || job.jobId !== task?.taskId
+      || job.sessionId !== `${task?.taskId}.model`
+      || job.campaignId !== task?.assessmentCampaign?.campaignId
+      || job.campaignDigest !== task?.assessmentCampaign?.campaignDigest
+      || plan.campaignId !== task?.assessmentCampaign?.campaignId
+      || plan.campaignDigest !== task?.assessmentCampaign?.campaignDigest
+      || plan.subjectId !== task?.subjectId
+      || plan.frozenAt !== task?.notBefore
+      || plan.expiresAt !== task?.expiresAt
+      || job.notBefore !== task?.notBefore
+      || job.expiresAt !== task?.expiresAt
+      || !Array.isArray(job.dependencies) || job.dependencies.length !== 0
+      || job.outputSchema !== 'model-answer-output.schema.json'
+      || canonicalJson(job.modelRuntime) !== canonicalJson(task?.runtime)
+      || expectedPromptBytes === null
+      || job.promptBase64 !== expectedPromptBytes?.toString('base64')
+      || job.promptSha256 !== (expectedPromptBytes === null
+        ? null
+        : sha256Text(expectedPromptBytes))) {
+    errors.push('model-only plan differs from the exact signed retention task and release');
   }
   return errors;
 }
@@ -3781,6 +3963,7 @@ export function verifyDetachedQualificationJobPlan(plan, signingSecret, {
       protectedAuthorityTasks: plan.protectedAuthorityTasks,
     }));
   }
+  errors.push(...retentionOnlyProductionPlanErrors(plan, signingSecret));
   if (!exactKeys(plan.resumePolicy, [
     'idempotentByJobIdAndDescriptorDigest', 'idempotentByJobIdAndPromptDigest',
     'terminalArtifactsImmutable', 'retryIdentityField', 'crashRecovery',

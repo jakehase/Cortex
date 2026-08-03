@@ -29,7 +29,11 @@ import {
   observeExecutableIdentity,
   validateExecutionEvidenceCore,
 } from '../src/execution-evidence.mjs';
-import { deploymentBindingDigest } from '../src/deployment-identity.mjs';
+import {
+  bindApprovedModelExecutable,
+  deploymentBindingDigest,
+  sourceDeploymentBinding,
+} from '../src/deployment-identity.mjs';
 import {
   RESEARCH_REPRODUCTION_REQUEST_SCHEMA,
   serializeResearchReproductionAuthorityRequest,
@@ -47,6 +51,7 @@ import {
   verifyTrustedExecutionEvidence,
 } from '../src/phd-trust.mjs';
 import {
+  cycle10QualificationDeployment,
   cycle8KernelEvidence,
   cycle7ApprovedResearchRuntimeBinding,
 } from './research-runtime-fixture.mjs';
@@ -2338,6 +2343,67 @@ test('production control boundary rejects fixture and substituted deployment bun
   });
   assert.equal(deploymentValidation.ok, false);
   assert.match(deploymentValidation.errors.join('\n'), /differs from exact committed deployment/);
+});
+
+test('production control permits model-only v4 only across retention lifecycle commands', () => {
+  const runtime = loadCanonicalPhdProgram({
+    sourceCommit: 'a'.repeat(40),
+    sourceTree: 'b'.repeat(40),
+    allowWorkingTreeFixtures: true,
+  });
+  const fullDeployment = cycle10QualificationDeployment(runtime.deployment);
+  const sourceDeployment = sourceDeploymentBinding(fullDeployment);
+  const exactProgram = {
+    ...runtime,
+    sourceMode: 'exact_git_blobs',
+    deployment: sourceDeployment,
+  };
+  const modelDeployment = bindApprovedModelExecutable(
+    sourceDeployment,
+    fullDeployment.approvedModelExecutable,
+  );
+  for (const command of [
+    'retention-task',
+    'retention-release',
+    'retention-jobs-build',
+    'retention-grade',
+    'retention-status',
+    'retention-wait-build',
+    'retention-wait-persist',
+    'retention-wait-install',
+    'retention-wait-reconcile',
+    'retention-resume',
+  ]) {
+    const validation = validateProductionControlBundle({
+      canonicalProgram: exactProgram,
+      command,
+      bundle: {
+        expectedDeployment: modelDeployment,
+        deployment: sourceDeployment,
+        ...(command === 'retention-task'
+          || command === 'retention-release'
+          || command === 'retention-grade'
+          || command === 'retention-status'
+          || command === 'retention-resume'
+          ? { policy: runtime.retentionPolicy }
+          : {}),
+      },
+    });
+    assert.doesNotMatch(
+      validation.errors.join('; '),
+      /qualification deployment is invalid|expectedDeployment differs|deployment differs from exact committed program/,
+      command,
+    );
+  }
+  const nonRetention = validateProductionControlBundle({
+    canonicalProgram: exactProgram,
+    command: 'jobs-build',
+    bundle: { expectedDeployment: modelDeployment },
+  });
+  assert.match(
+    nonRetention.errors.join('; '),
+    /qualification deployment is invalid/,
+  );
 });
 
 test('production control policy routing is command-specific and alias-free', () => {

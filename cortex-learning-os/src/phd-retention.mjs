@@ -4,7 +4,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
-import { assertDeploymentBinding, deploymentBindingDigest, validateDeploymentBinding } from './deployment-identity.mjs';
+import {
+  assertDeploymentBinding,
+  assertModelQualificationDeployment,
+  assertQualificationDeployment,
+  APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+  deploymentBindingDigest,
+  FROZEN_DEPLOYMENT_BINDING_SCHEMA,
+  MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+  sourceDeploymentBinding,
+  validateDeploymentBinding,
+} from './deployment-identity.mjs';
 import {
   executionSourceSha256,
   validateExecutionEvidenceRecord,
@@ -38,6 +48,44 @@ import {
 import { assertRetentionResumeBindings } from './retention-resume-binding.mjs';
 
 export const RETENTION_TASK_SCHEMA = 'cortex.learning_os.retention_window_task.v2';
+export const RETENTION_RELEASE_SCHEMA = 'cortex.learning_os.retention_window_release.v1';
+export const RETENTION_JOB_TASK_SCHEMA =
+  'cortex.learning_os.phd_retention_job_task.v1';
+
+function assertRetentionExecutionDeployment(executionDeployment, sourceDeployment) {
+  if (executionDeployment?.schemaVersion
+      === MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) {
+    return assertModelQualificationDeployment(executionDeployment, sourceDeployment);
+  }
+  if (executionDeployment?.schemaVersion
+      === APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) {
+    return assertQualificationDeployment(executionDeployment, sourceDeployment);
+  }
+  return assertDeploymentBinding(executionDeployment, sourceDeployment, {
+    requiredContentIds: [
+      'graph', 'rubric', 'blueprint', 'acquisition-policy',
+      'retention-policy', 'trust-policy',
+    ],
+  });
+}
+
+function retentionJobTaskRecord({ task, release, executionDeployment }) {
+  if (executionDeployment?.schemaVersion
+      === MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA) {
+    return {
+      schemaVersion: RETENTION_JOB_TASK_SCHEMA,
+      signedTask: task,
+      release,
+    };
+  }
+  return {
+    schemaVersion: 'cortex.learning_os.retention_job_task.v1',
+    signedTask: task,
+    release,
+    taskSha256: digestRecord(task),
+    releaseSha256: digestRecord(release),
+  };
+}
 export const RETENTION_EVIDENCE_SCHEMA = 'cortex.learning_os.retention_window_evidence.v2';
 export const RETENTION_STATUS_SCHEMA = 'cortex.learning_os.retention_status.v2';
 export const RETENTION_WAIT_SCHEMA = 'cortex.learning_os.retention_wait.v4';
@@ -594,7 +642,7 @@ function assertTask(task, { policy, deployment, trustPolicy, signingSecret, fixt
 
 function retentionReleaseRecord({ task, bank, releasedAt, fixtureOnly }) {
   return {
-    schemaVersion: 'cortex.learning_os.retention_window_release.v1',
+    schemaVersion: RETENTION_RELEASE_SCHEMA,
     taskId: task.taskId,
     subjectId: task.subjectId,
     windowIndex: task.windowIndex,
@@ -616,9 +664,115 @@ function retentionReleaseRecord({ task, bank, releasedAt, fixtureOnly }) {
   };
 }
 
+export function validateRetentionExecutionAuthorization({
+  task,
+  release,
+  signingSecret,
+} = {}) {
+  const errors = [];
+  const taskKeys = [
+    'schemaVersion', 'taskId', 'subjectId', 'windowIndex', 'fixtureOnly',
+    'declaredUnseen', 'deployment', 'deploymentDigest', 'programDigests',
+    'policyId', 'policyDigest', 'acquisitionBinding', 'issuedAt', 'notBefore',
+    'expiresAt', 'promptCommitmentDigest', 'sealedItemBankDigest',
+    'assessmentBankRecordDigest', 'assessmentBankId', 'assessmentCampaign',
+    'items', 'previousWindowDigest', 'runtime', 'trustPolicyDigest',
+    'truthBoundary', 'controlPlaneSignature',
+  ];
+  const releaseKeys = [
+    'schemaVersion', 'taskId', 'subjectId', 'windowIndex', 'fixtureOnly',
+    'releasedAt', 'taskDigest', 'promptCommitmentDigest', 'items',
+    'truthBoundary',
+  ];
+  if (!exactKeys(task, taskKeys)
+      || task?.schemaVersion !== RETENTION_TASK_SCHEMA
+      || !verifySignature(task, signingSecret)) {
+    return { ok: false, errors: ['retention execution task signature or fields are invalid'] };
+  }
+  const deployment = validateDeploymentBinding(task.deployment);
+  errors.push(...deployment.errors.map((error) => `retention execution deployment: ${error}`));
+  const issuedAtMs = Date.parse(String(task.issuedAt || ''));
+  const notBeforeMs = Date.parse(String(task.notBefore || ''));
+  const expiresAtMs = Date.parse(String(task.expiresAt || ''));
+  const releasedAtMs = Date.parse(String(release?.releasedAt || ''));
+  const exactTimestamp = (value, milliseconds) => Number.isFinite(milliseconds)
+    && new Date(milliseconds).toISOString() === value;
+  if (!IDENTIFIER.test(String(task.taskId || ''))
+      || !IDENTIFIER.test(String(task.subjectId || ''))
+      || !Number.isInteger(task.windowIndex) || task.windowIndex < 1
+      || task.fixtureOnly !== false
+      || task.declaredUnseen !== true
+      || !deployment.ok
+      || task.deployment?.schemaVersion !== FROZEN_DEPLOYMENT_BINDING_SCHEMA
+      || task.deployment?.executionClosure?.immutable !== true
+      || task.deploymentDigest !== (deployment.ok
+        ? deploymentBindingDigest(task.deployment)
+        : null)
+      || !DIGEST.test(String(task.policyDigest || ''))
+      || !DIGEST.test(String(task.promptCommitmentDigest || ''))
+      || !DIGEST.test(String(task.sealedItemBankDigest || ''))
+      || !DIGEST.test(String(task.assessmentBankRecordDigest || ''))
+      || !DIGEST.test(String(task.trustPolicyDigest || ''))
+      || !exactKeys(task.assessmentCampaign, ['campaignId', 'campaignDigest'])
+      || !IDENTIFIER.test(String(task.assessmentCampaign?.campaignId || ''))
+      || !DIGEST.test(String(task.assessmentCampaign?.campaignDigest || ''))
+      || task.taskId !== `${task.assessmentCampaign?.campaignId}.retention.${task.windowIndex}`
+      || !exactTimestamp(task.issuedAt, issuedAtMs)
+      || !exactTimestamp(task.notBefore, notBeforeMs)
+      || !exactTimestamp(task.expiresAt, expiresAtMs)
+      || notBeforeMs < issuedAtMs
+      || expiresAtMs - notBeforeMs !== DAY_MS
+      || !exactKeys(task.runtime, ['provider', 'model', 'thinking', 'sandbox', 'toolsAllowed'])
+      || task.runtime?.provider !== 'openai-codex'
+      || typeof task.runtime?.model !== 'string' || task.runtime.model.length < 1
+      || task.runtime?.thinking !== 'xhigh'
+      || task.runtime?.sandbox !== 'read-only'
+      || task.runtime?.toolsAllowed !== false
+      || (task.previousWindowDigest !== null
+        && !DIGEST.test(String(task.previousWindowDigest || '')))
+      || !Array.isArray(task.items) || task.items.length < 1
+      || new Set(task.items.map((item) => item?.itemId)).size !== task.items.length) {
+    errors.push('retention execution task identity, timing, runtime, or item set is invalid');
+  }
+  if (!exactKeys(release, releaseKeys)
+      || release?.schemaVersion !== RETENTION_RELEASE_SCHEMA
+      || release.fixtureOnly !== false
+      || release.taskId !== task.taskId
+      || release.subjectId !== task.subjectId
+      || release.windowIndex !== task.windowIndex
+      || release.taskDigest !== digestRecord(task)
+      || release.promptCommitmentDigest !== task.promptCommitmentDigest
+      || !exactTimestamp(release.releasedAt, releasedAtMs)
+      || releasedAtMs < notBeforeMs || releasedAtMs > expiresAtMs
+      || !Array.isArray(release.items)
+      || release.items.length !== task.items.length
+      || new Set(release.items.map((item) => item?.itemId)).size !== release.items.length) {
+    errors.push('retention execution release identity, timing, or item set is invalid');
+  } else {
+    for (const [index, releasedItem] of release.items.entries()) {
+      const descriptor = task.items[index];
+      if (!exactKeys(releasedItem, ['itemId', 'prompt', 'answerFormat'])
+          || releasedItem.itemId !== descriptor?.itemId
+          || typeof releasedItem.prompt !== 'string' || releasedItem.prompt.length < 1
+          || sha256Text(releasedItem.prompt) !== descriptor?.promptSha256) {
+        errors.push(`retention execution release item ${index + 1} differs from the signed task`);
+      }
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    campaignId: task.assessmentCampaign?.campaignId || null,
+    campaignDigest: task.assessmentCampaign?.campaignDigest || null,
+    subjectId: task.subjectId,
+    taskDigest: digestRecord(task),
+    releaseDigest: isRecord(release) ? digestRecord(release) : null,
+  };
+}
+
 export function buildRetentionWorkerPrompt(release) {
   assertFixtureOnlyBoolean(release?.fixtureOnly, 'retention release fixtureOnly');
-  if (release?.schemaVersion !== 'cortex.learning_os.retention_window_release.v1') {
+  if (release?.schemaVersion !== RETENTION_RELEASE_SCHEMA) {
     throw new Error('retention worker prompt requires an exact candidate release');
   }
   return [
@@ -700,6 +854,7 @@ export function gradeRetentionWindow({
   attempt,
   policy,
   deployment,
+  executionDeployment = null,
   trustPolicy,
   signingSecret,
   now,
@@ -710,6 +865,13 @@ export function gradeRetentionWindow({
 } = {}) {
   assertFixtureOnlyBoolean(fixtureOnly);
   assertTask(task, { policy, deployment, trustPolicy, signingSecret, fixtureOnly });
+  const trustedExecutionDeployment = executionDeployment || deployment;
+  if (!fixtureOnly) {
+    assertRetentionExecutionDeployment(
+      trustedExecutionDeployment,
+      task.deployment,
+    );
+  }
   assertGraphRubricBytes(graph, rubric, task.programDigests);
   if (!isRecord(attempt) || attempt.taskId !== task.taskId || attempt.subjectId !== task.subjectId) {
     throw new Error('retention attempt task or subject mismatch');
@@ -808,21 +970,19 @@ export function gradeRetentionWindow({
           candidateSessionId: attempt.sessionId,
           candidateSha256: sha256Bytes(rawOutput),
           taskId: task.taskId,
-          taskSha256: digestRecord({
-            schemaVersion: 'cortex.learning_os.retention_job_task.v1',
-            signedTask: task,
+          taskSha256: digestRecord(retentionJobTaskRecord({
+            task,
             release,
-            taskSha256: digestRecord(task),
-            releaseSha256: digestRecord(release),
-          }),
-          deploymentSha256: task.deploymentDigest,
-          sourceSha256: executionSourceSha256(task.deployment),
+            executionDeployment: trustedExecutionDeployment,
+          })),
+          deploymentSha256: deploymentBindingDigest(trustedExecutionDeployment),
+          sourceSha256: executionSourceSha256(trustedExecutionDeployment),
         },
         startedAt: attempt.startedAt,
         completedAt: attempt.completedAt,
         notBefore: task.notBefore,
         notAfter: task.expiresAt,
-        approvedExecutable: deployment.approvedModelExecutable,
+        approvedExecutable: trustedExecutionDeployment.approvedModelExecutable,
         command: harvestedWorkerCall.executionEvidenceCore?.command,
         observedEnvironment: harvestedWorkerCall.executionEvidenceCore?.environment?.observed,
       },
@@ -1026,6 +1186,7 @@ function productionWindowEvidenceErrors({
   subjectId,
   policy,
   deployment,
+  executionDeployment = null,
   trustPolicy,
   campaignBinding,
   acquisitionBinding,
@@ -1037,6 +1198,7 @@ function productionWindowEvidenceErrors({
 } = {}) {
   const errors = [];
   const label = `window ${index + 1}`;
+  const trustedExecutionDeployment = executionDeployment || deployment;
   if (!exactKeys(window, RETENTION_EVIDENCE_FIELDS)
       || window?.schemaVersion !== RETENTION_EVIDENCE_SCHEMA
       || !validSignatureEnvelope(window?.controlPlaneSignature)
@@ -1061,14 +1223,11 @@ function productionWindowEvidenceErrors({
   try {
     assertDeploymentBinding(window.deployment, deployment, {
       requiredContentIds: [
-        'graph',
-        'rubric',
-        'blueprint',
-        'acquisition-policy',
-        'retention-policy',
-        'trust-policy',
+        'graph', 'rubric', 'blueprint', 'acquisition-policy',
+        'retention-policy', 'trust-policy',
       ],
     });
+    assertRetentionExecutionDeployment(trustedExecutionDeployment, deployment);
   } catch (error) {
     errors.push(`${label} ${error.message}`);
   }
@@ -1220,13 +1379,11 @@ function productionWindowEvidenceErrors({
   } catch (error) {
     errors.push(`${label} signed bank release materialization failed: ${error.message}`);
   }
-  const exactJobTask = release ? {
-    schemaVersion: 'cortex.learning_os.retention_job_task.v1',
-    signedTask: window.task,
+  const exactJobTask = release ? retentionJobTaskRecord({
+    task: window.task,
     release,
-    taskSha256: digestRecord(window.task),
-    releaseSha256: digestRecord(release),
-  } : null;
+    executionDeployment: trustedExecutionDeployment,
+  }) : null;
   let trusted = {
     ok: false,
     errors: ['exact raw execution bytes are invalid'],
@@ -1258,14 +1415,14 @@ function productionWindowEvidenceErrors({
           jobId: `${campaignBinding.campaignId}.retention.${index + 1}`,
           campaignId: campaignBinding.campaignId,
           campaignSha256: campaignBinding.campaignDigest,
-          deploymentSha256: deploymentBindingDigest(deployment),
-          sourceSha256: executionSourceSha256(deployment),
+          deploymentSha256: deploymentBindingDigest(trustedExecutionDeployment),
+          sourceSha256: executionSourceSha256(trustedExecutionDeployment),
         },
         startedAt: window.startedAt,
         completedAt: window.completedAt,
         notBefore: window.notBefore,
         notAfter: window.expiresAt,
-        approvedExecutable: deployment.approvedModelExecutable,
+        approvedExecutable: trustedExecutionDeployment.approvedModelExecutable,
         command: harvestedWorkerCall?.executionEvidenceCore?.command,
         observedEnvironment: harvestedWorkerCall?.executionEvidenceCore?.environment?.observed,
       },
@@ -1358,6 +1515,7 @@ export function evaluateRetentionStatus({
   rubric = null,
   policy,
   deployment,
+  executionDeployment = null,
   trustPolicy = null,
   campaignBinding = null,
   acquisitionBinding,
@@ -1368,6 +1526,7 @@ export function evaluateRetentionStatus({
   harvestedModelCallsByJob = null,
 } = {}) {
   assertFixtureOnlyBoolean(fixtureOnly);
+  const trustedExecutionDeployment = executionDeployment || deployment;
   const policyValidation = validateRetentionPolicy(policy, { fixtureOnly });
   if (!policyValidation.ok) throw new Error(`invalid retention policy: ${policyValidation.errors.join('; ')}`);
   if (!fixtureOnly
@@ -1381,6 +1540,7 @@ export function evaluateRetentionStatus({
     throw new Error('invalid retention acquisition binding');
   }
   if (!fixtureOnly) {
+    assertRetentionExecutionDeployment(trustedExecutionDeployment, deployment);
     const trustValidation = validatePhdTrustPolicy(trustPolicy, { requireProduction: true });
     if (!trustValidation.ok
         || sha256Text(canonicalJson(trustPolicy)) !== deployment?.contentDigests?.['trust-policy']) {
@@ -1428,6 +1588,7 @@ export function evaluateRetentionStatus({
         subjectId,
         policy,
         deployment,
+        executionDeployment: trustedExecutionDeployment,
         trustPolicy,
         campaignBinding,
         acquisitionBinding,
@@ -1508,7 +1669,7 @@ export function evaluateRetentionStatus({
     })),
     nextEligibleAt,
     errors,
-    deploymentDigest: deploymentBindingDigest(deployment),
+    deploymentDigest: deploymentBindingDigest(trustedExecutionDeployment),
     acquisitionStateDigest: acquisitionBinding.stateDigest,
     retainedMasteryQualified: status === 'retained_mastery_qualified',
     truthBoundary: status === 'retained_mastery_qualified'
@@ -2894,7 +3055,9 @@ export function buildRetentionWaitContract({
     || !verifySignature(task, signingSecret)
     || task.fixtureOnly !== false
     || task.subjectId !== status.subjectId
-    || task.deploymentDigest !== status.deploymentDigest
+    || !isRecord(expectedDeployment)
+    || canonicalJson(task.deployment)
+      !== canonicalJson(sourceDeploymentBinding(expectedDeployment))
     || task.acquisitionBinding?.stateDigest !== status.acquisitionStateDigest
     || canonicalJson(task.assessmentCampaign)
       !== canonicalJson(status.campaignBinding)

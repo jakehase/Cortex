@@ -1,7 +1,7 @@
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import {
-  APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   deploymentBindingDigest,
+  isModelExecutableDeploymentBinding,
 } from './deployment-identity.mjs';
 import {
   executionSourceSha256,
@@ -83,8 +83,7 @@ export function validatePhdModelCallTerminal({
     return { ok: false, errors: [error.message] };
   }
   const expectedRequestedCommand = [call.command, ...(call.args || [])];
-  const descriptorExecution = job.deployment?.schemaVersion
-    === APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA;
+  const descriptorExecution = isModelExecutableDeploymentBinding(job.deployment);
   const expectedExecutedCommand = descriptorExecution
     ? ['/proc/self/fd/3', ...(call.args || [])]
     : expectedRequestedCommand;

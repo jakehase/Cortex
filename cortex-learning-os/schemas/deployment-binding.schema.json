@@ -4,7 +4,8 @@
   "oneOf": [
     { "$ref": "#/$defs/v1" },
     { "$ref": "#/$defs/v2" },
-    { "$ref": "#/$defs/v3" }
+    { "$ref": "#/$defs/v3" },
+    { "$ref": "#/$defs/v4" }
   ],
   "$defs": {
     "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
@@ -71,6 +72,35 @@
         },
         "approvedModelExecutable": { "$ref": "approved-model-executable.schema.json" },
         "approvedResearchRuntime": { "$ref": "approved-research-runtime.schema.json" },
+        "contentDigests": { "$ref": "#/$defs/contentDigests" }
+      }
+    },
+    "v4": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "sourceCommit", "sourceTree", "productTree",
+        "runtimeSha256", "closureSha256", "executionClosure",
+        "approvedModelExecutable", "contentDigests"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.deployment_binding.v4" },
+        "sourceCommit": { "$ref": "#/$defs/commit" },
+        "sourceTree": { "$ref": "#/$defs/commit" },
+        "productTree": { "$ref": "#/$defs/commit" },
+        "runtimeSha256": { "$ref": "#/$defs/digest" },
+        "closureSha256": { "$ref": "#/$defs/digest" },
+        "executionClosure": {
+          "allOf": [
+            { "$ref": "execution-closure.schema.json" },
+            {
+              "type": "object",
+              "required": ["immutable"],
+              "properties": { "immutable": { "const": true } }
+            }
+          ]
+        },
+        "approvedModelExecutable": { "$ref": "approved-model-executable.schema.json" },
         "contentDigests": { "$ref": "#/$defs/contentDigests" }
       }
     }

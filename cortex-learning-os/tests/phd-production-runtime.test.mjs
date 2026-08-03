@@ -15,6 +15,7 @@ import {
   buildCandidateExamRelease,
   buildCanonicalQualificationJobs,
   buildDetachedQualificationJobs,
+  buildDetachedRetentionQualificationPlan,
   buildExamJobDescriptors,
   buildProofCandidateJobDescriptors,
   buildSealedQualificationBanks,
@@ -34,10 +35,13 @@ import { sha256File, sha256Text } from '../src/hash.mjs';
 import { buildProofRuntimeAttestationPayload } from '../src/lean-proof-preflight.mjs';
 import { observeApprovedResearchDaemon } from '../src/approved-research-runtime.mjs';
 import {
+  bindApprovedModelExecutable,
   deploymentBindingDigest,
+  MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   sourceDeploymentBinding,
 } from '../src/deployment-identity.mjs';
 import { loadCanonicalPhdProgram } from '../src/phd-program-runtime.mjs';
+import { verifyQualificationLaunchPlan } from '../src/phd-qualification-launch.mjs';
 import { buildLayeredPhdStatus } from '../src/phd-status.mjs';
 import { createMasteryState, signMasteryState } from '../src/mastery-state.mjs';
 import {
@@ -65,10 +69,12 @@ import {
   evaluateRetentionStatus,
   gradeRetentionWindow,
   releaseRetentionWindow,
+  validateRetentionExecutionAuthorization,
   validateRetentionPolicy,
 } from '../src/phd-retention.mjs';
 
 const secret = 'phd-production-runtime-test-secret-000000000000000000';
+const closRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const sourceCommit = 'a'.repeat(40);
 const sourceTree = 'b'.repeat(40);
 const runtime = loadCanonicalPhdProgram({
@@ -409,6 +415,141 @@ test('layered status never promotes unsigned acquisition, retention, or campaign
   });
   assert.equal(staleSignedClaim.program.status, 'structurally_valid_production_blocked');
   assert.equal(staleSignedClaim.phd_math_qualified, false);
+});
+
+test('retention-only production plan binds one signed release to a model-only deployment', () => {
+  const fullDeployment = cycle10QualificationDeployment(runtime.deployment);
+  const sourceDeployment = sourceDeploymentBinding(fullDeployment);
+  const executionDeployment = bindApprovedModelExecutable(
+    sourceDeployment,
+    fullDeployment.approvedModelExecutable,
+  );
+  assert.equal(
+    executionDeployment.schemaVersion,
+    MODEL_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
+  );
+  assert.equal(Object.hasOwn(executionDeployment, 'approvedResearchRuntime'), false);
+  const campaignId = 'retention-only-production-test';
+  const prompts = ['State the exact first result.', 'State the exact second result.'];
+  const unsignedTask = {
+    schemaVersion: 'cortex.learning_os.retention_window_task.v2',
+    taskId: `${campaignId}.retention.1`,
+    subjectId: 'candidate-retention-only',
+    windowIndex: 1,
+    fixtureOnly: false,
+    declaredUnseen: true,
+    deployment: sourceDeployment,
+    deploymentDigest: deploymentBindingDigest(sourceDeployment),
+    programDigests: {},
+    policyId: 'retention-policy-production-test',
+    policyDigest: '1'.repeat(64),
+    acquisitionBinding: {},
+    issuedAt: '2026-08-03T15:00:00.000Z',
+    notBefore: '2026-08-03T15:01:00.000Z',
+    expiresAt: '2026-08-04T15:01:00.000Z',
+    promptCommitmentDigest: '2'.repeat(64),
+    sealedItemBankDigest: '3'.repeat(64),
+    assessmentBankRecordDigest: '4'.repeat(64),
+    assessmentBankId: 'retention-bank-1',
+    assessmentCampaign: {
+      campaignId,
+      campaignDigest: '5'.repeat(64),
+    },
+    items: prompts.map((prompt, index) => ({
+      itemId: `retention-item-${index + 1}`,
+      promptSha256: sha256Text(prompt),
+    })),
+    previousWindowDigest: null,
+    runtime: {
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      thinking: 'xhigh',
+      sandbox: 'read-only',
+      toolsAllowed: false,
+    },
+    trustPolicyDigest: '6'.repeat(64),
+    truthBoundary: 'This signed task authorizes one declared-unseen retention assessment only.',
+  };
+  const task = resignWorkerJob(unsignedTask);
+  const release = {
+    schemaVersion: 'cortex.learning_os.retention_window_release.v1',
+    taskId: task.taskId,
+    subjectId: task.subjectId,
+    windowIndex: task.windowIndex,
+    fixtureOnly: false,
+    releasedAt: task.notBefore,
+    taskDigest: sha256Text(canonicalJson(task)),
+    promptCommitmentDigest: task.promptCommitmentDigest,
+    items: prompts.map((prompt, index) => ({
+      itemId: `retention-item-${index + 1}`,
+      prompt,
+      answerFormat: { type: 'string' },
+    })),
+    truthBoundary: 'Candidate-visible release bytes omit checkers and answers.',
+  };
+  const authorization = validateRetentionExecutionAuthorization({
+    task,
+    release,
+    signingSecret: secret,
+  });
+  assert.equal(authorization.ok, true, authorization.errors.join('; '));
+  const plan = buildDetachedRetentionQualificationPlan({
+    task,
+    release,
+    executionDeployment,
+    signingSecret: secret,
+  });
+  assert.equal(plan.jobs.length, 1);
+  assert.equal(plan.jobs[0].role, 'retention');
+  assert.equal(plan.jobs[0].jobId, task.taskId);
+  assert.equal(plan.jobs[0].outputSchema, 'model-answer-output.schema.json');
+  assert.equal(fs.existsSync(path.join(closRoot, 'schemas', plan.jobs[0].outputSchema)), true);
+  assert.deepEqual(plan.protectedAuthorityTasks, []);
+  const launchVerification = verifyQualificationLaunchPlan({
+    plan,
+    signingSecret: secret,
+    expectedSubjectId: task.subjectId,
+    expectedCampaignId: campaignId,
+    expectedDeployment: executionDeployment,
+    expectedJobCount: 1,
+    now: task.notBefore,
+  });
+  assert.deepEqual(launchVerification.approvedResearchRuntime, null);
+  assert.deepEqual(
+    launchVerification.approvedModelExecutable,
+    executionDeployment.approvedModelExecutable,
+  );
+  const verified = verifyDetachedQualificationJobPlan(plan, secret, {
+    expectedCampaignId: campaignId,
+    expectedDeployment: executionDeployment,
+    now: task.notBefore,
+  });
+  assert.equal(verified.ok, true, verified.errors.join('; '));
+
+  const changedRelease = structuredClone(release);
+  changedRelease.items[0].prompt += ' changed';
+  assert.throws(() => buildDetachedRetentionQualificationPlan({
+    task,
+    release: changedRelease,
+    executionDeployment,
+    signingSecret: secret,
+  }), /release item 1 differs from the signed task/);
+
+  const widened = structuredClone(plan);
+  widened.jobs[0].role = 'exam';
+  widened.jobs[0] = resealDetachedJob(widened.jobs[0]);
+  const resealedWidened = resealDetachedPlan(widened);
+  const rejected = verifyDetachedQualificationJobPlan(resealedWidened, secret, {
+    now: task.notBefore,
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.errors.join('; '), /model-only plan differs from the exact signed retention task and release/);
+  assert.throws(() => buildDetachedRetentionQualificationPlan({
+    task,
+    release,
+    executionDeployment: fullDeployment,
+    signingSecret: secret,
+  }), /model qualification deployment/);
 });
 
 test('retention signs an unseen first window, emits a durable wait, and blocks inadequate disjoint second coverage', () => {

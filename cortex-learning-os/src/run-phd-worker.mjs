@@ -11,9 +11,9 @@ import {
   openApprovedModelExecutable,
 } from './approved-model-executable.mjs';
 import {
-  APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA,
   deploymentBindingDigest,
   isFrozenDeploymentBinding,
+  isModelExecutableDeploymentBinding,
   validateDeploymentBinding,
 } from './deployment-identity.mjs';
 import {
@@ -845,8 +845,7 @@ try {
       PATH: process.env.PATH,
       CLOS_QUALIFICATION_SESSION_ID: job.sessionId,
     };
-    const productionExecutable = job.deployment?.schemaVersion
-      === APPROVED_EXECUTABLE_DEPLOYMENT_BINDING_SCHEMA;
+    const productionExecutable = isModelExecutableDeploymentBinding(job.deployment);
     if (productionExecutable && codexCommandOverride !== null) {
       throw new Error('production worker rejects --codex-command executable overrides');
     }
