@@ -87,11 +87,32 @@ function safeOutputAncestor(stat, filesystemUid, ownerUid) {
       || (stickyWorldWritable && stat.uid === filesystemUid));
 }
 
+function outputTraversalRoot(resolved) {
+  const descriptorRoot = /^\/proc\/self\/fd\/([1-9][0-9]*)(?:\/(.*))?$/.exec(resolved);
+  if (descriptorRoot) {
+    const descriptor = Number(descriptorRoot[1]);
+    if (!Number.isSafeInteger(descriptor)) {
+      throw new Error('qualification publication descriptor root is invalid');
+    }
+    const root = `/proc/self/fd/${descriptor}`;
+    return {
+      root,
+      rootOpenPath: `${root}/.`,
+      components: (descriptorRoot[2] || '').split(path.sep).filter(Boolean),
+    };
+  }
+  const root = path.parse(resolved).root;
+  return {
+    root,
+    rootOpenPath: root,
+    components: resolved.slice(root.length).split(path.sep).filter(Boolean),
+  };
+}
+
 function openOwnerOnlyOutputParent(parentPath, owner, { create = false } = {}) {
   const resolved = path.resolve(parentPath);
-  const root = path.parse(resolved).root;
-  const components = resolved.slice(root.length).split(path.sep).filter(Boolean);
-  let descriptor = fs.openSync(root, DIRECTORY_FLAGS);
+  const { root, rootOpenPath, components } = outputTraversalRoot(resolved);
+  let descriptor = fs.openSync(rootOpenPath, DIRECTORY_FLAGS);
   let traversed = root;
   const chain = [];
   try {
@@ -164,6 +185,7 @@ function openOwnerOnlyOutputParent(parentPath, owner, { create = false } = {}) {
       identity: chain.at(-1).identity,
       path: resolved,
       root,
+      rootOpenPath,
     };
   } catch (error) {
     if (!chain.some((entry) => entry.descriptor === descriptor)) {
@@ -187,7 +209,7 @@ function closeOutputParent(handle) {
 }
 
 function assertNamedOutputParent(handle, owner) {
-  let descriptor = fs.openSync(handle.root, DIRECTORY_FLAGS);
+  let descriptor = fs.openSync(handle.rootOpenPath, DIRECTORY_FLAGS);
   let traversed = handle.root;
   try {
     for (let index = 0; index < handle.chain.length; index += 1) {

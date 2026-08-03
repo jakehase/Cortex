@@ -11127,6 +11127,46 @@ test('authenticated plan snapshot preserves the exact HMAC plan bytes', () => {
   }
 });
 
+test('authenticated plan snapshot accepts an inherited descriptor-root capability', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-plan-descriptor-root-'));
+  let descriptor;
+  try {
+    fs.chmodSync(root, 0o700);
+    const authority = path.join(root, 'authority');
+    fs.mkdirSync(authority, { mode: 0o700 });
+    descriptor = fs.openSync(
+      root,
+      fs.constants.O_RDONLY
+        | (fs.constants.O_DIRECTORY || 0)
+        | (fs.constants.O_NOFOLLOW || 0),
+    );
+    const plan = qualificationPlan();
+    const planBytes = Buffer.from(`${JSON.stringify(plan, null, 2)}\n`, 'utf8');
+    const now = '2026-07-28T10:00:00.000Z';
+    const verification = verifyQualificationLaunchPlan({
+      plan,
+      signingSecret: secret,
+      now,
+    });
+    const out = `/proc/self/fd/${descriptor}/authority/plan.v2.json`;
+    const snapshot = snapshotAuthenticatedQualificationPlan({
+      plan,
+      planBytes,
+      signingSecret: secret,
+      expectedPlanDigest: verification.planDigest,
+      expectedCampaignId: plan.campaignId,
+      out,
+      now,
+    });
+    assert.equal(snapshot.planDigest, verification.planDigest);
+    assert.equal(snapshot.snapshotFileSha256, sha256Bytes(planBytes));
+    assert.deepEqual(fs.readFileSync(path.join(authority, 'plan.v2.json')), planBytes);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('authenticated job materialization is plan-digest-bound and preserves the job HMAC', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-job-materialize-'));
   try {
