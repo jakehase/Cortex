@@ -65,13 +65,22 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
             policy = root / "policy.json"
             capsule = root / "capsule.json"
             assessment_bank = root / "assessment-bank.json"
+            approved_model_executable_binding = (
+                root / "approved-model-executable-binding.json"
+            )
             repo_root = root / "repo"
             launcher.write_text("#!/bin/sh\n", encoding="utf-8")
             launcher.chmod(0o700)
             acquisition.write_text("{}\n", encoding="utf-8")
             source.write_text("a" * 40 + "\n", encoding="utf-8")
             repo_root.mkdir()
-            for target in (graph, policy, capsule, assessment_bank):
+            for target in (
+                graph,
+                policy,
+                capsule,
+                assessment_bank,
+                approved_model_executable_binding,
+            ):
                 target.write_text("{}\n", encoding="utf-8")
             base = dict(
                 continuation_id="math-acceleration-20260727T180000Z-abc123",
@@ -83,6 +92,7 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
                 policy=policy,
                 capsule=capsule,
                 assessment_bank=assessment_bank,
+                approved_model_executable_binding=approved_model_executable_binding,
                 remote_graph="/remote/graph.json",
                 remote_policy="/remote/policy.json",
                 remote_capsule="/remote/capsule.json",

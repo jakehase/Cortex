@@ -266,7 +266,8 @@ class DurableQualificationPublicationTests(unittest.TestCase):
                 return
             swapped = True
             movable.rename(displaced)
-            (movable / "source").mkdir(parents=True, mode=0o700)
+            movable.mkdir(mode=0o700)
+            (movable / "source").mkdir(mode=0o700)
             (movable / "destination").mkdir(mode=0o700)
 
         with self.assertRaisesRegex(
