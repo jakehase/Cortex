@@ -250,7 +250,8 @@ class DurableQualificationPublicationTests(unittest.TestCase):
         movable = self.root / "movable"
         movable_source = movable / "source"
         movable_destination = movable / "destination"
-        movable_source.mkdir(parents=True, mode=0o700)
+        movable.mkdir(mode=0o700)
+        movable_source.mkdir(mode=0o700)
         movable_destination.mkdir(mode=0o700)
         movable_stage = movable_source / "artifact.stage"
         movable_final = movable_destination / "artifact.final"
