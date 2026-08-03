@@ -26,6 +26,7 @@ import {
 } from './phd-campaign.mjs';
 import {
   assertRetentionResumeProcessIdentity,
+  atomicWriteRetentionRelease,
   buildRetentionWaitContract,
   buildRetentionWindowTask,
   evaluateRetentionStatus,
@@ -342,7 +343,10 @@ try {
     writeNew(value('--out'), result, signingSecret);
   } else if (command === 'retention-release') {
     result = releaseRetentionWindow({ ...bundle, signingSecret });
-    writeNew(value('--out'), result, signingSecret);
+    atomicWriteRetentionRelease(value('--out'), result, {
+      task: bundle.task,
+      signingSecret,
+    });
   } else if (command === 'retention-grade') {
     result = gradeRetentionWindow({
       ...bundle,

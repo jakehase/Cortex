@@ -63,6 +63,7 @@ import {
 } from './research-runtime-fixture.mjs';
 import {
   assertRetentionResumeRuntimeIdentity,
+  atomicWriteRetentionRelease,
   buildRetentionWaitContract,
   buildRetentionWorkerPrompt,
   buildRetentionWindowTask,
@@ -528,6 +529,10 @@ test('retention-only production plan binds one signed release to a model-only de
 
   const changedRelease = structuredClone(release);
   changedRelease.items[0].prompt += ' changed';
+  assert.throws(() => atomicWriteRetentionRelease('/tmp/never-published.json', changedRelease, {
+    task,
+    signingSecret: secret,
+  }), /unauthorized retention release/);
   assert.throws(() => buildDetachedRetentionQualificationPlan({
     task,
     release: changedRelease,

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
+import { atomicWriteAuthenticatedJson } from './authenticated-file-publication.mjs';
 import {
   assertDeploymentBinding,
   assertModelQualificationDeployment,
@@ -768,6 +769,23 @@ export function validateRetentionExecutionAuthorization({
     taskDigest: digestRecord(task),
     releaseDigest: isRecord(release) ? digestRecord(release) : null,
   };
+}
+
+export function atomicWriteRetentionRelease(targetPath, release, {
+  task,
+  signingSecret,
+} = {}) {
+  const expected = canonicalJson(release);
+  const authenticate = (candidate) => canonicalJson(candidate) === expected
+    && validateRetentionExecutionAuthorization({
+      task,
+      release: candidate,
+      signingSecret,
+    }).ok;
+  if (!authenticate(release)) {
+    throw new Error('refusing to publish an unauthorized retention release');
+  }
+  return atomicWriteAuthenticatedJson(targetPath, release, { authenticate });
 }
 
 export function buildRetentionWorkerPrompt(release) {
