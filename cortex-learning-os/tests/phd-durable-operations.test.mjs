@@ -11730,6 +11730,56 @@ test('shell launcher cannot reach remote dispatch or job extraction before plan 
   );
 });
 
+test('production launch requires an exact zero-provider topology rehearsal and one-attempt receipt', () => {
+  const launcher = fs.readFileSync(
+    path.join(closRoot, 'scripts', 'launch-phd-qualification.sh'),
+    'utf8',
+  );
+  const transaction = fs.readFileSync(
+    path.join(closRoot, 'scripts', 'phd-launch-transaction.py'),
+    'utf8',
+  );
+  const remoteCanary = fs.readFileSync(
+    path.join(closRoot, 'scripts', 'phd-launch-rehearsal-worker.py'),
+    'utf8',
+  );
+  const inventory = fs.readFileSync(
+    path.join(closRoot, 'scripts', 'phd-remote-job-inventory.py'),
+    'utf8',
+  );
+
+  assert.match(launcher, /real launch requires an exact signed production rehearsal receipt/);
+  assert.match(launcher, /verify-rehearsal/);
+  assert.match(launcher, /begin-attempt/);
+  assert.match(launcher, /trap finish_launch_attempt EXIT/);
+  assert.match(launcher, /finish-attempt/);
+  assert.match(launcher, /LAUNCH_PHASE="remote_job_inventory"/);
+  assert.match(launcher, /if \[\[ "\$REHEARSAL" == true \]\]; then[\s\S]+run-rehearsal-suite/);
+  assert.ok(
+    launcher.indexOf('run-rehearsal-suite') < launcher.indexOf('LAUNCH_PHASE="worker_dispatch"'),
+    'zero-provider rehearsal must branch before real worker dispatch',
+  );
+  assert.doesNotMatch(launcher, /ssh[^\n]+find "\$REMOTE_JOB_ROOT"/);
+  assert.match(launcher, /python3 "\$REMOTE_INVENTORY" "\$REMOTE_JOB_ROOT" metadata/);
+  assert.match(inventory, /entry[.]stat\(follow_symlinks=False\)/);
+  assert.match(inventory, /pwd[.]getpwuid/);
+  assert.match(inventory, /grp[.]getgrgid/);
+
+  assert.match(transaction, /EXPECTED_INJECTED_EXIT = 42/);
+  assert.match(transaction, /DETECTION_LIMIT_SECONDS = 30[.]0/);
+  assert.match(transaction, /run_trial\(args, kind="failure", index=1/);
+  assert.match(transaction, /run_trial\(args, kind="success", index=1/);
+  assert.match(transaction, /run_trial\(args, kind="success", index=2/);
+  assert.match(transaction, /"successTrialCount": 2/);
+  assert.match(transaction, /launch circuit breaker is open for this exact plan/);
+  assert.match(transaction, /os[.]O_EXCL/);
+  assert.match(transaction, /"providerCallsObserved": 0/);
+  assert.match(transaction, /"modelExecutableInvoked": False/);
+  assert.doesNotMatch(remoteCanary, /openai|codex|oracle|provider\//i);
+  assert.match(remoteCanary, /runuser/);
+  assert.match(remoteCanary, /worker_running/);
+});
+
 test('local qualification state rejects writable ancestors and survives an ancestor name swap', {
   skip: !initialRootAuthorityAvailable(),
 }, () => {

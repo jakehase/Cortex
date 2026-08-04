@@ -48,6 +48,7 @@
     "phd:jobs:build": "node src/phd-qualification-control.mjs jobs-build",
     "phd:jobs:verify": "node src/phd-qualification-launch.mjs verify-plan",
     "phd:job:materialize": "node src/phd-qualification-launch.mjs materialize-job",
+    "phd:launch:rehearse": "bash scripts/rehearse-phd-qualification-launch.sh",
     "phd:exam:assemble": "node src/phd-qualification-control.mjs exam-assemble",
     "phd:research:assemble": "node src/phd-qualification-control.mjs research-assemble",
     "phd:research:reproduce": "node src/frozen-research-reproduction.mjs",

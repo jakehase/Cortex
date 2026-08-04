@@ -21,6 +21,12 @@ EXPECTED_DEPLOYMENT_DIGEST=""
 EXPECTED_KEY_ID=""
 NOTIFY=true
 ARCHIVAL_ONLY=false
+REHEARSAL=false
+REHEARSAL_ID=""
+REHEARSAL_RECEIPT=""
+REHEARSAL_RECEIPT_OUT=""
+PRODUCTION_STATE_ROOT=""
+PRODUCTION_REMOTE_STATE_ROOT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +43,12 @@ while [[ $# -gt 0 ]]; do
     --expected-deployment-digest) EXPECTED_DEPLOYMENT_DIGEST="${2:-}"; shift 2 ;;
     --expected-key-id) EXPECTED_KEY_ID="${2:-}"; shift 2 ;;
     --archival-only) ARCHIVAL_ONLY=true; shift ;;
+    --rehearsal) REHEARSAL=true; shift ;;
+    --rehearsal-id) REHEARSAL_ID="${2:-}"; shift 2 ;;
+    --rehearsal-receipt) REHEARSAL_RECEIPT="${2:-}"; shift 2 ;;
+    --rehearsal-receipt-out) REHEARSAL_RECEIPT_OUT="${2:-}"; shift 2 ;;
+    --production-state-root) PRODUCTION_STATE_ROOT="${2:-}"; shift 2 ;;
+    --production-remote-state-root) PRODUCTION_REMOTE_STATE_ROOT="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -54,6 +66,24 @@ done
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ && "$REMOTE_STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ \
   && "$LOCAL_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe repository or state path" >&2; exit 2; }
 [[ "$STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe state root" >&2; exit 2; }
+if [[ "$REHEARSAL" == true ]]; then
+  [[ "$ARCHIVAL_ONLY" == false && "$REHEARSAL_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$ \
+    && "$REHEARSAL_RECEIPT_OUT" =~ ^/[A-Za-z0-9._/-]+$ \
+    && "$PRODUCTION_STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ \
+    && "$PRODUCTION_REMOTE_STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] \
+    || { echo "rehearsal requires safe, explicit production roots, ID, and receipt output" >&2; exit 2; }
+  [[ -z "$REHEARSAL_RECEIPT" ]] \
+    || { echo "rehearsal cannot consume its own receipt" >&2; exit 2; }
+  NOTIFY=false
+else
+  PRODUCTION_STATE_ROOT="$STATE_ROOT"
+  PRODUCTION_REMOTE_STATE_ROOT="$REMOTE_STATE_ROOT"
+  if [[ "$ARCHIVAL_ONLY" == false ]]; then
+    [[ "$REHEARSAL_RECEIPT" =~ ^/[A-Za-z0-9._/-]+$ \
+      && -f "$REHEARSAL_RECEIPT" && ! -L "$REHEARSAL_RECEIPT" ]] \
+      || { echo "real launch requires an exact signed production rehearsal receipt" >&2; exit 3; }
+  fi
+fi
 [[ "${CLOS_LOCAL_STATE_ROOT_PATH:-}" == "$STATE_ROOT"
   && "${CLOS_LOCAL_STATE_ROOT_FD:-}" == 9
   && -d "/proc/self/fd/$CLOS_LOCAL_STATE_ROOT_FD" ]] \
@@ -83,8 +113,15 @@ fi
 
 VERIFIER="$LOCAL_REPO/cortex-learning-os/src/phd-qualification-launch.mjs"
 DURABLE_PUBLISHER="$SCRIPT_DIR/durable-qualification-publication.py"
+TRANSACTION_HELPER="$SCRIPT_DIR/phd-launch-transaction.py"
+REMOTE_INVENTORY_HELPER="$SCRIPT_DIR/phd-remote-job-inventory.py"
+REHEARSAL_WORKER="$SCRIPT_DIR/phd-launch-rehearsal-worker.py"
 [[ -f "$DURABLE_PUBLISHER" && ! -L "$DURABLE_PUBLISHER" ]] \
   || { echo "durable qualification publisher is absent or unsafe" >&2; exit 3; }
+for REQUIRED_HELPER in "$TRANSACTION_HELPER" "$REMOTE_INVENTORY_HELPER" "$REHEARSAL_WORKER"; do
+  [[ -f "$REQUIRED_HELPER" && ! -L "$REQUIRED_HELPER" ]] \
+    || { echo "qualification launch transaction helper is absent or unsafe" >&2; exit 3; }
+done
 durable_digest_local() {
   python3 "$DURABLE_PUBLISHER" digest "$1" "$2"
 }
@@ -165,6 +202,7 @@ if [[ -n "$APPROVED_RESEARCH_PATH" ]]; then
     || { echo "authenticated plan binds an invalid immutable research runtime" >&2; exit 2; }
 fi
 [[ "$JOB_COUNT" =~ ^[1-9][0-9]?$ && "$JOB_COUNT" -le 64 ]] || { echo "invalid authenticated job count" >&2; exit 2; }
+LAUNCH_PHASE="source_identity_verification"
 if [[ "$ARCHIVAL_ONLY" == false ]]; then
   [[ "$(git -C "$LOCAL_REPO" rev-parse HEAD)" == "$SOURCE_COMMIT" ]] || { echo "local commit drift" >&2; exit 3; }
   [[ "$(git -C "$LOCAL_REPO" rev-parse "HEAD^{tree}")" == "$SOURCE_TREE" ]] || { echo "local tree drift" >&2; exit 3; }
@@ -177,6 +215,59 @@ if [[ "$ARCHIVAL_ONLY" == false ]]; then
   [[ "$REMOTE_HEAD" == "$SOURCE_COMMIT" && "$REMOTE_TREE" == "$SOURCE_TREE" && "$REMOTE_PRODUCT_TREE" == "$PRODUCT_TREE" && -z "$REMOTE_DIRTY" ]] || { echo "Hetzner source or execution closure drift" >&2; exit 3; }
 fi
 
+TRANSACTION_COMMON_ARGS=(
+  --subject-id "$SUBJECT_ID"
+  --campaign-id "$CAMPAIGN_ID"
+  --campaign-digest "$CAMPAIGN_DIGEST"
+  --plan-digest "$PLAN_DIGEST"
+  --deployment-digest "$DEPLOYMENT_DIGEST"
+  --source-commit "$SOURCE_COMMIT"
+  --source-tree "$SOURCE_TREE"
+  --product-tree "$PRODUCT_TREE"
+  --ssh-host "$SSH_HOST"
+  --state-root "$PRODUCTION_STATE_ROOT"
+  --remote-state-root "$PRODUCTION_REMOTE_STATE_ROOT"
+)
+ATTEMPT_STARTED=false
+ATTEMPT_ID=""
+ATTEMPT_FILE=""
+LAUNCH_PHASE="source_identity_verified"
+finish_launch_attempt() {
+  local ORIGINAL_STATUS=$?
+  local TERMINAL_STATUS="$ORIGINAL_STATUS"
+  trap - EXIT
+  if [[ "$ATTEMPT_STARTED" == true ]]; then
+    if ! python3 "$TRANSACTION_HELPER" finish-attempt \
+      --secret "$QUALIFICATION_SECRET_STABLE_PATH" \
+      --attempt-file "$ATTEMPT_FILE" --attempt-id "$ATTEMPT_ID" \
+      --phase "$LAUNCH_PHASE" --exit-code "$ORIGINAL_STATUS"; then
+      echo "qualification launch terminal receipt could not be persisted" >&2
+      TERMINAL_STATUS=3
+    fi
+  fi
+  exit "$TERMINAL_STATUS"
+}
+if [[ "$ARCHIVAL_ONLY" == false && "$REHEARSAL" == false ]]; then
+  python3 "$TRANSACTION_HELPER" verify-rehearsal \
+    "${TRANSACTION_COMMON_ARGS[@]}" \
+    --secret "$QUALIFICATION_SECRET_STABLE_PATH" \
+    --receipt "$REHEARSAL_RECEIPT" \
+    --local-helper "$TRANSACTION_HELPER" \
+    --launcher "$SCRIPT_PATH" \
+    --inventory-helper "$REMOTE_INVENTORY_HELPER" \
+    --remote-worker-local-copy "$REHEARSAL_WORKER" >/dev/null
+  REHEARSAL_RECEIPT_SHA256="$(sha256sum "$REHEARSAL_RECEIPT" | awk '{print $1}')"
+  ATTEMPT_FILE="$STATE_ROOT_STABLE/launch-attempts/$CAMPAIGN_ID/$PLAN_DIGEST/attempt.json"
+  ATTEMPT_ID="$(python3 "$TRANSACTION_HELPER" begin-attempt \
+    "${TRANSACTION_COMMON_ARGS[@]}" \
+    --secret "$QUALIFICATION_SECRET_STABLE_PATH" \
+    --attempt-file "$ATTEMPT_FILE" \
+    --rehearsal-receipt-sha256 "$REHEARSAL_RECEIPT_SHA256")"
+  ATTEMPT_STARTED=true
+  trap finish_launch_attempt EXIT
+fi
+
+LAUNCH_PHASE="local_campaign_preparation"
 CAMPAIGN_ROOT="$STATE_ROOT/campaigns/$CAMPAIGN_ID"
 CAMPAIGN_ROOT_STABLE="$STATE_ROOT_STABLE/campaigns/$CAMPAIGN_ID"
 LOCAL_ARTIFACT_ROOT="$CAMPAIGN_ROOT/artifacts"
@@ -340,6 +431,7 @@ node "$LOCAL_FROZEN_ROOT/cortex-learning-os/src/phd-qualification-launch.mjs" "$
   --expected-key-id "$EXPECTED_KEY_ID" --expected-plan-digest "$PLAN_DIGEST" \
   --checkout-root "$LOCAL_FROZEN_ROOT" >/dev/null
 
+LAUNCH_PHASE="remote_campaign_preparation"
 if [[ "$ARCHIVAL_ONLY" == false ]]; then
   ssh -o BatchMode=yes "$SSH_HOST" \
     install -d -m 755 -o root -g root \
@@ -500,6 +592,7 @@ durable_publish_remote immutable-tree "$REMOTE_FROZEN_STAGE" "$REMOTE_FROZEN_ROO
   && ssh -o BatchMode=yes "$SSH_HOST" test ! -L "$REMOTE_FROZEN_ROOT" \
   || { echo "remote frozen checkout is unsafe or mutable by the worker" >&2; exit 3; }
 REMOTE_PLAN_STAGE="$REMOTE_STAGING_ROOT/plan.v2.json"
+LAUNCH_PHASE="remote_plan_publication"
 if ! ssh -o BatchMode=yes "$SSH_HOST" test -e "$REMOTE_AUTHENTICATED_PLAN" \
     && ! ssh -o BatchMode=yes "$SSH_HOST" test -e "$REMOTE_PLAN_STAGE" \
     && [[ "$ARCHIVAL_ONLY" == false ]]; then
@@ -532,6 +625,7 @@ if [[ "$ARCHIVAL_ONLY" == false ]]; then
     --expected-plan-digest "$PLAN_DIGEST" >/dev/null
 fi
 
+LAUNCH_PHASE="authenticated_job_publication"
 while IFS= read -r JOB_ID; do
   LOCAL_JOB_STAGE="$LOCAL_STAGING_ROOT/$JOB_ID.json"
   LOCAL_JOB="$LOCAL_JOB_ROOT/$JOB_ID.json"
@@ -589,11 +683,37 @@ while IFS= read -r JOB_ID; do
 done < <(node -e 'const v=JSON.parse(process.argv[1]);for(const id of v.jobIds)console.log(id)' "$VERIFIED_PLAN")
 
 EXPECTED_JOB_FILES="$(node -e 'const v=JSON.parse(process.argv[1]);for(const id of [...v.jobIds].sort())console.log(`${id}.json`)' "$VERIFIED_PLAN")"
-OBSERVED_JOB_FILES="$(ssh -o BatchMode=yes "$SSH_HOST" find "$REMOTE_JOB_ROOT" -mindepth 1 -maxdepth 1 -printf '%f\\n' | sort)"
+REMOTE_INVENTORY="$REMOTE_FROZEN_ROOT/cortex-learning-os/scripts/phd-remote-job-inventory.py"
+LAUNCH_PHASE="remote_job_inventory"
+OBSERVED_JOB_FILES="$(ssh -o BatchMode=yes "$SSH_HOST" python3 "$REMOTE_INVENTORY" "$REMOTE_JOB_ROOT" files)"
 [[ "$OBSERVED_JOB_FILES" == "$EXPECTED_JOB_FILES" ]] || { echo "remote authenticated job set is partial, injected, or stale" >&2; exit 3; }
 EXPECTED_JOB_METADATA="$(node -e 'const v=JSON.parse(process.argv[1]);for(const id of [...v.jobIds].sort())console.log(`${id}.json root jake 440`)' "$VERIFIED_PLAN")"
-OBSERVED_JOB_METADATA="$(ssh -o BatchMode=yes "$SSH_HOST" find "$REMOTE_JOB_ROOT" -mindepth 1 -maxdepth 1 -type f -printf '%f %u %g %m\\n' | sort)"
+OBSERVED_JOB_METADATA="$(ssh -o BatchMode=yes "$SSH_HOST" python3 "$REMOTE_INVENTORY" "$REMOTE_JOB_ROOT" metadata)"
 [[ "$OBSERVED_JOB_METADATA" == "$EXPECTED_JOB_METADATA" ]] || { echo "remote authenticated job ownership, mode, type, or exact set mismatch" >&2; exit 3; }
+
+if [[ "$REHEARSAL" == true ]]; then
+  LAUNCH_PHASE="zero_provider_rehearsal"
+  REHEARSAL_JOB_ID="$(node -e 'const v=JSON.parse(process.argv[1]);process.stdout.write(v.jobIds[0])' "$VERIFIED_PLAN")"
+  REHEARSAL_LOCAL_JOB="$LOCAL_JOB_ROOT/$REHEARSAL_JOB_ID.json"
+  REHEARSAL_REMOTE_JOB="$REMOTE_JOB_ROOT/$REHEARSAL_JOB_ID.json"
+  REHEARSAL_JOB_SHA256="$(sha256sum "$REHEARSAL_LOCAL_JOB" | awk '{print $1}')"
+  python3 "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/phd-launch-transaction.py" \
+    run-rehearsal-suite "${TRANSACTION_COMMON_ARGS[@]}" \
+    --secret "$QUALIFICATION_SECRET_STABLE_PATH" \
+    --rehearsal-id "$REHEARSAL_ID" \
+    --remote-job "$REHEARSAL_REMOTE_JOB" \
+    --expected-job-sha256 "$REHEARSAL_JOB_SHA256" \
+    --remote-proof-root "$REMOTE_ARTIFACT_ROOT/launch-rehearsal" \
+    --remote-worker "$REMOTE_FROZEN_ROOT/cortex-learning-os/scripts/phd-launch-rehearsal-worker.py" \
+    --remote-worker-local-copy "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/phd-launch-rehearsal-worker.py" \
+    --local-evidence-root "$LOCAL_ARTIFACT_ROOT_STABLE/launch-rehearsal" \
+    --local-helper "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/phd-launch-transaction.py" \
+    --launcher "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/launch-phd-qualification.sh" \
+    --inventory-helper "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/phd-remote-job-inventory.py" \
+    --receipt-out "$REHEARSAL_RECEIPT_OUT"
+  printf '%s\n' "$REHEARSAL_RECEIPT_OUT"
+  exit 0
+fi
 
 content_identity_sha256() {
   local VALUE
@@ -693,6 +813,7 @@ if actual != expected:
 PY
 }
 
+LAUNCH_PHASE="worker_dispatch"
 while IFS= read -r JOB_ID; do
   LOCAL_JOB="$LOCAL_JOB_ROOT/$JOB_ID.json"
   REMOTE_JOB="$REMOTE_JOB_ROOT/$JOB_ID.json"
@@ -770,6 +891,7 @@ HARVEST_COMMAND_BASE=(
     --state-file "$STATE_FILE_STABLE" \
     --campaign-lock "$CAMPAIGN_HARVEST_LOCK_STABLE"
 )
+LAUNCH_PHASE="harvester_dispatch"
 HARVEST_COMMAND=("${HARVEST_COMMAND_BASE[@]}")
 HARVEST_COMMAND_SHA="$(command_identity_sha256 "${HARVEST_COMMAND[@]}")"
 HARVEST_BINDING="$(content_identity_sha256 \
@@ -874,6 +996,7 @@ PY
   [[ "$HARVEST_STATE_ADVANCED" == true ]] \
     || { echo "qualification harvester did not durably advance campaign state" >&2; exit 3; }
 fi
+LAUNCH_PHASE="signed_running_state_observed"
 if [[ "$NOTIFY" == true ]]; then
   NOTIFY_COMMAND=(
     /usr/bin/python3 "$LOCAL_FROZEN_ROOT_STABLE/cortex-learning-os/scripts/detached_job_notifier.py"
@@ -896,4 +1019,5 @@ if [[ "$NOTIFY" == true ]]; then
       "${NOTIFY_COMMAND[@]}"
   fi
 fi
+LAUNCH_PHASE="launch_transaction_completed"
 printf '%s\n' "$STATE_FILE_STABLE"
