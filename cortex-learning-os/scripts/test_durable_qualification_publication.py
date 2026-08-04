@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import os
 import pathlib
@@ -319,6 +320,73 @@ class DurableQualificationPublicationTests(unittest.TestCase):
             )
         finally:
             os.close(descriptor)
+
+    def test_explicit_read_only_group_contract_is_exact_and_descriptor_pinned(self):
+        alternate_groups = [
+            group for group in os.getgroups() if group != os.getegid()
+        ]
+        alternate_gid = alternate_groups[0] if alternate_groups else 100
+        staging = self.source / "remote-job.stage"
+        final = self.destination / "remote-job.final"
+        payload = b"authenticated:remote-worker-job\n"
+        staging.write_bytes(payload)
+        staging.chmod(0o440)
+        os.chown(staging, os.geteuid(), alternate_gid)
+        digest = hashlib.sha256(payload).hexdigest()
+
+        with self.assertRaisesRegex(
+            publication.PublicationError,
+            "file is unsafe",
+        ):
+            publication.publish(
+                str(staging),
+                str(final),
+                "file",
+                digest,
+            )
+
+        result = publication.publish(
+            str(staging),
+            str(final),
+            "file",
+            digest,
+            expected_file_metadata=(os.geteuid(), alternate_gid, 0o440),
+        )
+        self.assertEqual(result["status"], "published")
+        observed = final.stat()
+        self.assertEqual(observed.st_uid, os.geteuid())
+        self.assertEqual(observed.st_gid, alternate_gid)
+        self.assertEqual(observed.st_mode & 0o777, 0o440)
+        self.assertEqual(final.read_bytes(), payload)
+
+        with self.assertRaisesRegex(
+            publication.PublicationError,
+            "file is unsafe",
+        ):
+            publication.publish(
+                str(staging),
+                str(final),
+                "file",
+                digest,
+                expected_file_metadata=(os.geteuid(), os.getegid(), 0o440),
+            )
+        for weakened in [
+            (os.geteuid() + 1, alternate_gid, 0o440),
+            (os.geteuid(), alternate_gid, 0o460),
+            (os.geteuid(), alternate_gid, 0o040),
+        ]:
+            with self.subTest(weakened=weakened):
+                with self.assertRaisesRegex(
+                    publication.PublicationError,
+                    "weakens publisher ownership or write protection",
+                ):
+                    publication.publish(
+                        str(staging),
+                        str(final),
+                        "file",
+                        digest,
+                        expected_file_metadata=weakened,
+                    )
 
 
 if __name__ == "__main__":

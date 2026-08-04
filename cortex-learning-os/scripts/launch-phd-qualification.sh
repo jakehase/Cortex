@@ -95,7 +95,13 @@ durable_digest_remote() {
   ssh -o BatchMode=yes "$SSH_HOST" python3 - digest "$1" "$2" < "$DURABLE_PUBLISHER"
 }
 durable_publish_remote() {
-  ssh -o BatchMode=yes "$SSH_HOST" python3 - publish "$1" "$2" "$3" "$4" \
+  local KIND="$1"
+  local STAGING="$2"
+  local FINAL="$3"
+  local EXPECTED_DIGEST="$4"
+  shift 4
+  ssh -o BatchMode=yes "$SSH_HOST" python3 - publish \
+    "$KIND" "$STAGING" "$FINAL" "$EXPECTED_DIGEST" "$@" \
     < "$DURABLE_PUBLISHER" >/dev/null
 }
 PLAN_VERIFICATION_COMMAND="verify-plan"
@@ -375,6 +381,9 @@ fi
 [[ "$(ssh -o BatchMode=yes "$SSH_HOST" stat -c '%U:%G:%a' "$REMOTE_STAGING_ROOT")" == "root:jake:750" ]] \
   && ssh -o BatchMode=yes "$SSH_HOST" test ! -L "$REMOTE_STAGING_ROOT" \
   || { echo "remote staging root ownership, mode, or type mismatch" >&2; exit 3; }
+REMOTE_WORKER_GID="$(ssh -o BatchMode=yes "$SSH_HOST" id -g jake)"
+[[ "$REMOTE_WORKER_GID" =~ ^[0-9]{1,10}$ ]] \
+  || { echo "remote worker group identity is invalid" >&2; exit 3; }
 [[ "$(ssh -o BatchMode=yes "$SSH_HOST" stat -c '%U:%G:%a' "$REMOTE_ARTIFACT_STAGING_ROOT")" == "root:jake:710" ]] \
   && ssh -o BatchMode=yes "$SSH_HOST" test ! -L "$REMOTE_ARTIFACT_STAGING_ROOT" \
   || { echo "remote artifact staging root ownership, mode, or type mismatch" >&2; exit 3; }
@@ -572,7 +581,8 @@ while IFS= read -r JOB_ID; do
     echo "remote archived job is absent; archival-only resume cannot materialize it" >&2
     exit 3
   fi
-  durable_publish_remote file "$REMOTE_JOB_TEMP" "$REMOTE_JOB" "$JOB_FILE_SHA256"
+  durable_publish_remote file "$REMOTE_JOB_TEMP" "$REMOTE_JOB" \
+    "$JOB_FILE_SHA256" 0 "$REMOTE_WORKER_GID" 0440
   [[ "$(ssh -o BatchMode=yes "$SSH_HOST" sha256sum "$REMOTE_JOB" | awk '{print $1}')" \
     == "$JOB_FILE_SHA256" ]] \
     || { echo "remote published job differs from authenticated bytes" >&2; exit 3; }

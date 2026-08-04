@@ -26,6 +26,32 @@ class PublicationError(RuntimeError):
     """The publication cannot be safely completed or adopted."""
 
 
+def _validate_file_metadata_contract(
+    value: Optional[tuple[int, int, int]],
+) -> None:
+    if value is None:
+        return
+    if (
+        not isinstance(value, tuple)
+        or len(value) != 3
+        or any(not isinstance(item, int) or isinstance(item, bool) for item in value)
+    ):
+        raise PublicationError("explicit file metadata contract is invalid")
+    expected_uid, expected_gid, expected_mode = value
+    if (
+        expected_uid != EXPECTED_UID
+        or expected_gid < 0
+        or expected_gid > 2**32 - 1
+        or expected_mode < 0
+        or expected_mode > 0o777
+        or expected_mode & 0o022
+        or not expected_mode & 0o400
+    ):
+        raise PublicationError(
+            "explicit file metadata weakens publisher ownership or write protection"
+        )
+
+
 def _assert_safe_path(value: str, label: str) -> pathlib.Path:
     if not isinstance(value, str) or not SAFE_ABSOLUTE_PATH.fullmatch(value):
         raise PublicationError(f"{label} must be a safe absolute path")
@@ -180,7 +206,12 @@ def _stable_stat_identity(observed: os.stat_result) -> tuple:
     )
 
 
-def _file_identity(target: pathlib.Path, *, synchronize: bool) -> tuple:
+def _file_identity(
+    target: pathlib.Path,
+    *,
+    synchronize: bool,
+    expected_metadata: Optional[tuple[int, int, int]] = None,
+) -> tuple:
     descriptor = os.open(
         target,
         os.O_RDONLY
@@ -191,11 +222,19 @@ def _file_identity(target: pathlib.Path, *, synchronize: bool) -> tuple:
     named_descriptor = None
     try:
         before = os.fstat(descriptor)
+        expected_uid = EXPECTED_UID
+        expected_gid = EXPECTED_GID
+        expected_mode = None
+        if expected_metadata is not None:
+            expected_uid, expected_gid, expected_mode = expected_metadata
+        observed_mode = stat.S_IMODE(before.st_mode)
         if (not stat.S_ISREG(before.st_mode)
                 or before.st_nlink != 1
-                or before.st_uid != EXPECTED_UID
-                or before.st_gid != EXPECTED_GID
-                or before.st_mode & 0o022):
+                or before.st_uid != expected_uid
+                or before.st_gid != expected_gid
+                or before.st_mode & 0o022
+                or (expected_mode is not None
+                    and observed_mode != expected_mode)):
             raise PublicationError(
                 f"qualification publication file is unsafe: {target}"
             )
@@ -395,10 +434,20 @@ def publication_identity(
     kind: str,
     *,
     synchronize: bool = False,
+    expected_file_metadata: Optional[tuple[int, int, int]] = None,
 ) -> tuple:
     resolved = pathlib.Path(target)
     if kind == "file":
-        return _file_identity(resolved, synchronize=synchronize)
+        _validate_file_metadata_contract(expected_file_metadata)
+        return _file_identity(
+            resolved,
+            synchronize=synchronize,
+            expected_metadata=expected_file_metadata,
+        )
+    if expected_file_metadata is not None:
+        raise PublicationError(
+            "an explicit file metadata contract requires file publication"
+        )
     if kind == "immutable-tree":
         digest, _directories = _walk_immutable_tree(
             resolved,
@@ -489,6 +538,7 @@ def publish(
     expected_digest: str,
     *,
     crash_injector: Optional[Callable[[str], None]] = None,
+    expected_file_metadata: Optional[tuple[int, int, int]] = None,
 ) -> dict:
     staging = _assert_safe_path(staging_value, "staging path")
     final = _assert_safe_path(final_value, "final path")
@@ -520,6 +570,7 @@ def publish(
                 staging_view,
                 kind,
                 synchronize=True,
+                expected_file_metadata=expected_file_metadata,
             )
             if staging_identity[-1] != expected_digest:
                 raise PublicationError(
@@ -531,6 +582,7 @@ def publish(
                 final_view,
                 kind,
                 synchronize=True,
+                expected_file_metadata=expected_file_metadata,
             )
             if final_identity[-1] != expected_digest:
                 raise PublicationError(
@@ -571,6 +623,7 @@ def publish(
                 final_view,
                 kind,
                 synchronize=True,
+                expected_file_metadata=expected_file_metadata,
             )
             if final_identity != staging_identity:
                 raise PublicationError(
@@ -598,7 +651,11 @@ def publish(
         if crash_injector is not None:
             crash_injector("after_source_parent_fsync")
         _fsync_pinned_directory(final_parent, final.parent)
-        final_identity = publication_identity(final_view, kind)
+        final_identity = publication_identity(
+            final_view,
+            kind,
+            expected_file_metadata=expected_file_metadata,
+        )
         if final_identity != staging_identity:
             raise PublicationError(
                 "published qualification material changed across rename"
@@ -634,12 +691,49 @@ def _main(argv: list[str]) -> int:
         target = _assert_safe_path(argv[3], "digest path")
         sys.stdout.write(f"{publication_digest(target, argv[2])}\n")
         return 0
-    if command == "publish" and len(argv) == 6:
-        result = publish(argv[3], argv[4], argv[2], argv[5])
+    if command == "publish" and len(argv) in {6, 9}:
+        expected_file_metadata = None
+        if len(argv) == 9:
+            if argv[2] != "file":
+                raise PublicationError(
+                    "an explicit file metadata contract requires file publication"
+                )
+            if (
+                not re.fullmatch(r"0|[1-9][0-9]{0,9}", argv[6])
+                or not re.fullmatch(r"0|[1-9][0-9]{0,9}", argv[7])
+                or not re.fullmatch(r"0[0-7]{3}", argv[8])
+            ):
+                raise PublicationError(
+                    "explicit file uid, gid, or mode is invalid"
+                )
+            expected_uid = int(argv[6], 10)
+            expected_gid = int(argv[7], 10)
+            expected_mode = int(argv[8], 8)
+            if (
+                expected_uid != EXPECTED_UID
+                or expected_mode & 0o022
+                or not expected_mode & 0o400
+            ):
+                raise PublicationError(
+                    "explicit file metadata weakens publisher ownership or write protection"
+                )
+            expected_file_metadata = (
+                expected_uid,
+                expected_gid,
+                expected_mode,
+            )
+        result = publish(
+            argv[3],
+            argv[4],
+            argv[2],
+            argv[5],
+            expected_file_metadata=expected_file_metadata,
+        )
         sys.stdout.write(f"{json.dumps(result, sort_keys=True)}\n")
         return 0
     raise PublicationError(
-        "expected digest KIND PATH or publish KIND STAGING FINAL DIGEST"
+        "expected digest KIND PATH or publish KIND STAGING FINAL DIGEST "
+        "[EXPECTED_UID EXPECTED_GID EXPECTED_MODE]"
     )
 
 

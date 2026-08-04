@@ -11721,8 +11721,9 @@ test('shell launcher cannot reach remote dispatch or job extraction before plan 
   );
   assert.match(
     launcher,
-    /durable_publish_remote file "\$REMOTE_JOB_TEMP" "\$REMOTE_JOB"/,
+    /durable_publish_remote file "\$REMOTE_JOB_TEMP" "\$REMOTE_JOB"[\s\\]+"\$JOB_FILE_SHA256" 0 "\$REMOTE_WORKER_GID" 0440/,
   );
+  assert.match(launcher, /REMOTE_WORKER_GID="\$\(ssh[^\n]+id -g jake\)"/);
   assert.doesNotMatch(
     launcher,
     /mv -- "\$(?:LOCAL_FROZEN|REMOTE_FROZEN|REMOTE_PLAN|LOCAL_JOB|REMOTE_JOB)/,
