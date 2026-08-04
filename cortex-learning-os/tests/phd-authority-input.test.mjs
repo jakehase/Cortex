@@ -79,6 +79,60 @@ test('authority JSON reader returns one descriptor-bound in-memory snapshot', ()
   });
 });
 
+test('authority JSON reader accepts an inherited descriptor-root capability', () => {
+  withRoot('descriptor-root', (root) => {
+    const authority = path.join(root, 'authority');
+    fs.mkdirSync(authority, { mode: 0o700 });
+    const target = path.join(authority, 'plan.json');
+    writeJson(target, { identity: 'descriptor-root' });
+    const descriptor = fs.openSync(
+      root,
+      fs.constants.O_RDONLY
+        | (fs.constants.O_DIRECTORY || 0)
+        | (fs.constants.O_NOFOLLOW || 0),
+    );
+    try {
+      const loaded = readAuthorityJson(
+        `/proc/self/fd/${descriptor}/authority/plan.json`,
+        'descriptor-root fixture plan',
+      );
+      assert.deepEqual(loaded.record, { identity: 'descriptor-root' });
+      assert.deepEqual(loaded.consumed, { identity: 'descriptor-root' });
+      assert.equal(loaded.consumedUnderPinnedDescriptor, true);
+      assert.equal(loaded.identity.nlink, 1);
+      assert.equal(loaded.identity.mode, '0600');
+
+      const inheritedTarget = '/proc/self/fd/3/authority/plan.json';
+      const inherited = spawnSync(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        [
+          "import { readAuthorityJson } from './src/authority-input.mjs';",
+          'const loaded = readAuthorityJson(process.argv[1], \'inherited descriptor-root fixture plan\');',
+          'process.stdout.write(`${JSON.stringify(loaded.record)}\\n`);',
+        ].join(''),
+        inheritedTarget,
+      ], {
+        cwd: closRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe', descriptor],
+        timeout: 10_000,
+      });
+      assert.equal(
+        inherited.status,
+        0,
+        inherited.stderr || inherited.error?.message,
+      );
+      assert.deepEqual(
+        JSON.parse(inherited.stdout),
+        { identity: 'descriptor-root' },
+      );
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  });
+});
+
 test('authority JSON and secret decisions reject final substitution after synchronous consumption', () => {
   withRoot('protected-consumer', (root) => {
     const target = path.join(root, 'plan.json');

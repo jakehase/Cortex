@@ -137,15 +137,36 @@ function safeAncestor(stat, filesystemUid, expectedUid) {
       || (stickyWorldWritable && stat.uid === filesystemUid));
 }
 
+function authorityTraversalRoot(parentPath) {
+  const descriptorRoot = /^\/proc\/self\/fd\/([1-9][0-9]*)(?:\/(.*))?$/.exec(parentPath);
+  if (descriptorRoot) {
+    const descriptor = Number(descriptorRoot[1]);
+    if (!Number.isSafeInteger(descriptor)) {
+      throw new Error('authority input descriptor root is invalid');
+    }
+    const root = `/proc/self/fd/${descriptor}`;
+    return {
+      root,
+      rootOpenPath: `${root}/.`,
+      components: (descriptorRoot[2] || '').split(path.sep).filter(Boolean),
+    };
+  }
+  const root = path.parse(parentPath).root;
+  return {
+    root,
+    rootOpenPath: root,
+    components: parentPath.slice(root.length).split(path.sep).filter(Boolean),
+  };
+}
+
 function openAuthorityParent(targetPath, expectedUid) {
   if (process.platform !== 'linux' || !fs.existsSync('/proc/self/fd')) {
     throw new Error('authority input requires Linux descriptor-relative traversal');
   }
   const resolved = path.resolve(targetPath);
   const parentPath = path.dirname(resolved);
-  const root = path.parse(parentPath).root;
-  const components = parentPath.slice(root.length).split(path.sep).filter(Boolean);
-  let descriptor = fs.openSync(root, DIRECTORY_FLAGS);
+  const { root, rootOpenPath, components } = authorityTraversalRoot(parentPath);
+  let descriptor = fs.openSync(rootOpenPath, DIRECTORY_FLAGS);
   const chain = [];
   let traversed = root;
   try {
@@ -189,6 +210,7 @@ function openAuthorityParent(targetPath, expectedUid) {
       path: parentPath,
       resolved,
       root,
+      rootOpenPath,
     };
   } catch (error) {
     if (!chain.some((entry) => entry.descriptor === descriptor)) {
@@ -200,7 +222,7 @@ function openAuthorityParent(targetPath, expectedUid) {
 }
 
 function assertNamedAuthorityParentChain(parent, expectedUid) {
-  let descriptor = fs.openSync(parent.root, DIRECTORY_FLAGS);
+  let descriptor = fs.openSync(parent.rootOpenPath, DIRECTORY_FLAGS);
   let traversed = parent.root;
   try {
     for (let index = 0; index < parent.chain.length; index += 1) {
