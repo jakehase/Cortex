@@ -11666,7 +11666,7 @@ test('shell launcher cannot reach remote dispatch or job extraction before plan 
   for (const remoteOperation of [
     'REMOTE_HEAD="$(ssh',
     'scp -q "$LOCAL_JOB"',
-    'ssh "$SSH_HOST" systemd-run',
+    'ssh_remote_argv systemd-run',
   ]) {
     assert.ok(
       launcher.indexOf(remoteOperation) > verification,
@@ -11724,6 +11724,27 @@ test('shell launcher cannot reach remote dispatch or job extraction before plan 
     /durable_publish_remote file "\$REMOTE_JOB_TEMP" "\$REMOTE_JOB"[\s\\]+"\$JOB_FILE_SHA256" 0 "\$REMOTE_WORKER_GID" 0440/,
   );
   assert.match(launcher, /REMOTE_WORKER_GID="\$\(ssh[^\n]+id -g jake\)"/);
+  assert.match(
+    launcher,
+    /ssh_remote_argv\(\) \{[\s\S]+printf -v REMOTE_COMMAND '%q ' "\$@"[\s\S]+ssh -o BatchMode=yes "\$SSH_HOST" "\$\{REMOTE_COMMAND% \}"/,
+  );
+  assert.match(
+    launcher,
+    /ssh_remote_argv systemd-run[\s\S]+--description="Cortex Learning OS qualification worker \$WORKER_BINDING"/,
+  );
+  assert.doesNotMatch(launcher, /ssh "\$SSH_HOST" systemd-run/);
+  const spacedRemoteCommand = spawnSync('/bin/bash', ['-c', `
+    set -Eeuo pipefail
+    remote_command=''
+    printf -v remote_command '%q ' "$@"
+    /bin/bash -c "\${remote_command% }"
+  `, 'ssh-argv-regression', '/usr/bin/printf', '%s\\n',
+  'Cortex Learning OS qualification worker abc123'], { encoding: 'utf8' });
+  assert.equal(spacedRemoteCommand.status, 0, spacedRemoteCommand.stderr);
+  assert.equal(
+    spacedRemoteCommand.stdout,
+    'Cortex Learning OS qualification worker abc123\n',
+  );
   assert.doesNotMatch(
     launcher,
     /mv -- "\$(?:LOCAL_FROZEN|REMOTE_FROZEN|REMOTE_PLAN|LOCAL_JOB|REMOTE_JOB)/,

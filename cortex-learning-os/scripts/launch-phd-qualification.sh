@@ -141,6 +141,11 @@ durable_publish_remote() {
     "$KIND" "$STAGING" "$FINAL" "$EXPECTED_DIGEST" "$@" \
     < "$DURABLE_PUBLISHER" >/dev/null
 }
+ssh_remote_argv() {
+  local REMOTE_COMMAND
+  printf -v REMOTE_COMMAND '%q ' "$@"
+  ssh -o BatchMode=yes "$SSH_HOST" "${REMOTE_COMMAND% }"
+}
 PLAN_VERIFICATION_COMMAND="verify-plan"
 if [[ "$ARCHIVAL_ONLY" == true ]]; then
   PLAN_VERIFICATION_COMMAND="verify-harvest-plan"
@@ -856,7 +861,7 @@ while IFS= read -r JOB_ID; do
     continue
   fi
   ssh -o BatchMode=yes "$SSH_HOST" systemctl reset-failed "$WORKER_UNIT" >/dev/null 2>&1 || true
-  ssh "$SSH_HOST" systemd-run --unit="$WORKER_UNIT" --collect --quiet \
+  ssh_remote_argv systemd-run --unit="$WORKER_UNIT" --collect --quiet \
     --description="Cortex Learning OS qualification worker $WORKER_BINDING" \
     --property=User=root --property=Group=root \
     --property="Environment=CLOS_UNIT_BINDING_SHA256=$WORKER_BINDING" \
