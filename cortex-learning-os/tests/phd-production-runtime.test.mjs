@@ -1795,7 +1795,7 @@ test('canonical jobs build through detached artifacts and harvest into unsigned 
       'else',
       '  printf \'%s\' "$research" > "$last"',
       'fi',
-      'printf \'%s\\n\' \'{"type":"thread.started","thread_id":"provider-session-fixture","request_id":"provider-request-fixture"}\'',
+      'printf \'%s\\n\' \'{"type":"thread.started","thread_id":"provider-session-fixture"}\'',
       'printf \'%s\\n\' \'{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}\'',
       '',
     ].join('\n'), { mode: 0o700 });
@@ -1893,7 +1893,18 @@ test('canonical jobs build through detached artifacts and harvest into unsigned 
     };
 
     const researchJob = plan.jobs.find((job) => job.role === 'research_candidate');
-    runJob(researchJob);
+    const researchRoot = runJob(researchJob);
+    const requestIdOptionalCall = JSON.parse(fs.readFileSync(
+      path.join(researchRoot, 'model-call.json'),
+      'utf8',
+    ));
+    assert.equal(requestIdOptionalCall.providerRequestId, null);
+    assert.equal(requestIdOptionalCall.providerSessionId, 'provider-session-fixture');
+    assert.equal(requestIdOptionalCall.executionEvidenceCore.model.providerRequestId, null);
+    assert.equal(
+      requestIdOptionalCall.provenanceStatus,
+      'awaiting_trusted_runner_attestation',
+    );
     const failedExamRoot = runJob(plan.jobs.find((job) => job.role === 'exam'), {
       expectedStatus: 4,
       codexCommand: mechanicallyInvalidCodex,
@@ -1966,7 +1977,6 @@ test('canonical jobs build through detached artifacts and harvest into unsigned 
     assert.equal(replayRequest.replayAuthorityAttestation, null);
     assert.equal(replayRequest.taskBytesSha256, proofJob.task.taskBytesSha256);
 
-    const researchRoot = path.join(artifactRoot, researchJob.jobId);
     const storedResearchJob = JSON.parse(fs.readFileSync(
       path.join(researchRoot, 'job.json'),
       'utf8',

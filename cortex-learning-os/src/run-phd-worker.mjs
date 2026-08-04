@@ -893,11 +893,16 @@ try {
     const providerRequestId = observedIdentity(events, ['request_id', 'requestId', 'response_id', 'responseId']);
     const providerSessionId = observedIdentity(events, ['session_id', 'sessionId', 'thread_id', 'threadId']);
     const outputBytes = fs.existsSync(lastMessage) ? fs.readFileSync(lastMessage) : Buffer.alloc(0);
+    // Codex JSONL guarantees an observed ephemeral thread/session identity but
+    // does not guarantee a distinct provider request id. The canonical
+    // execution-evidence schema therefore permits a null providerRequestId;
+    // keep the observed session id, positive usage, and exact raw ledger as
+    // the fail-closed identity/evidence requirements.
     let mechanicallyValid = !result.error && result.status === 0 && tools.length === 0
       && interval.valid
       && positiveUsage(providerUsage) && outputBytes.length > 0
       && outputBytes.length <= job.limits.maxOutputBytes
-      && providerRequestId !== null && providerSessionId !== null;
+      && providerSessionId !== null;
     let postprocessError = null;
     durableExclusiveWrite(path.join(artifactRoot, 'raw-events.ndjson'), rawEventLedgerBytes);
     const rawStderrBytes = Buffer.from(result.stderr || '', 'utf8');
