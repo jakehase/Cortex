@@ -1,0 +1,19 @@
+[Unit]
+Description=Bounded read-only OpenClaw session inventory
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+StateDirectory=cortex-monitors
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/cortex-monitors
+ExecStart=/usr/bin/python3 /root/clawd/scripts/openclaw_session_hygiene.py inventory --session-dir /root/.openclaw/agents/main/sessions --max-files 2000 --max-seconds 10 --output /var/lib/cortex-monitors/openclaw-session-inventory-latest.json
+TimeoutStartSec=20
+MemoryMax=192M
+CPUQuota=25%
+TasksMax=32

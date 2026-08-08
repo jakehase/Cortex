@@ -6,14 +6,50 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
+    "anyOf": [
+      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
+      {
+        "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
+        "properties": {
+          "allowUnsignedLocalDevelopment": { "const": true },
+          "tenantId": { "const": "cortex-local" },
+          "workspaceId": { "const": "default" }
+        }
+      }
+    ],
     "properties": {
       "baseUrl": { "type": "string" },
+      "writeToken": { "type": "string", "minLength": 1 },
+      "writeTokenHeader": { "type": "string", "minLength": 1 },
       "searchPath": { "type": "string" },
       "storePath": { "type": "string" },
+      "assurancePath": { "type": "string" },
       "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
       "retryCount": { "type": "number", "minimum": 0, "maximum": 5 },
       "retryBackoffMs": { "type": "number", "minimum": 50, "maximum": 5000 },
       "enabledWriteThrough": { "type": "boolean" },
+      "enabledCodecContinuity": { "type": "boolean" },
+      "codecEventsPath": { "type": "string" },
+      "maxResponseBytes": { "type": "number", "minimum": 1024, "maximum": 16777216 },
+      "lifecycleMaxInFlight": { "type": "number", "minimum": 1, "maximum": 4096 },
+      "lifecycleMaxPending": { "type": "number", "minimum": 1, "maximum": 16384 },
+      "lifecycleSpoolMaxRecords": { "type": "number", "minimum": 1, "maximum": 65536 },
+      "lifecycleReplayInitialDelayMs": { "type": "number", "minimum": 1, "maximum": 600000 },
+      "lifecycleReplayRetryMs": { "type": "number", "minimum": 1, "maximum": 600000 },
+      "lifecycleReplaySuccessDelayMs": { "type": "number", "minimum": 1, "maximum": 600000 },
+      "recentOutputMaxChars": { "type": "number", "minimum": 1, "maximum": 65536 },
+      "stateDir": { "type": "string", "minLength": 1 },
+      "tenantId": { "type": "string", "minLength": 1 },
+      "workspaceId": { "type": "string", "minLength": 1 },
+      "agentId": { "type": "string", "minLength": 1 },
+      "userId": { "type": "string", "minLength": 1 },
+      "preferConfiguredUserId": { "type": "boolean" },
+      "channelId": { "type": "string", "minLength": 1 },
+      "sessionId": { "type": "string", "minLength": 1 },
+      "scopeCredentialId": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$" },
+      "scopeHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
+      "allowUnsignedLocalDevelopment": { "type": "boolean" },
+      "sessionIdentityHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "durableCandidatePenalty": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -32,15 +68,30 @@
   "uiHints": {
     "baseUrl": {
       "label": "Cortex Base URL",
-      "placeholder": "http://127.0.0.1:18888"
+      "placeholder": "http://127.0.0.1:8888"
+    },
+    "writeToken": {
+      "label": "Cortex write token",
+      "sensitive": true,
+      "advanced": true
+    },
+    "writeTokenHeader": {
+      "label": "Cortex write token header",
+      "placeholder": "x-cortex-write-token",
+      "advanced": true
     },
     "searchPath": {
       "label": "Search Path",
       "placeholder": "/knowledge/search"
     },
     "storePath": {
-      "label": "Store Path",
-      "placeholder": "/l22/store"
+      "label": "Assurance Commit Path",
+      "placeholder": "/nexus/commit"
+    },
+    "assurancePath": {
+      "label": "Assurance Receipt Path",
+      "placeholder": "/nexus/assurance/receipt",
+      "advanced": true
     },
     "timeoutMs": {
       "label": "HTTP Timeout (ms)",
@@ -58,9 +109,34 @@
       "advanced": true
     },
     "enabledWriteThrough": {
-      "label": "Enable write-through capture",
+      "label": "Enable assurance-gated write-through",
       "advanced": true,
-      "help": "Off by default. When implemented, lifecycle hooks could POST captured memories to Cortex."
+      "help": "Opt in after configuring tenant/workspace scope and Nexus assurance. Candidates are committed only when the assurance gate confirms durable storage."
+    },
+    "enabledCodecContinuity": {
+      "label": "Enable Codec continuity persistence",
+      "advanced": true,
+      "help": "Enabled by default. Configure principal-scoped credentials and the shared session identity secret before production use."
+    },
+    "scopeCredentialId": {
+      "label": "Memory scope credential ID",
+      "advanced": true
+    },
+    "scopeHmacSecret": {
+      "label": "Credential-specific scope HMAC secret",
+      "sensitive": true,
+      "advanced": true
+    },
+    "allowUnsignedLocalDevelopment": {
+      "label": "Allow unsigned local development",
+      "advanced": true,
+      "help": "Unsafe local-development escape hatch for only the default cortex-local/default scope. Defaults off; never enable in production."
+    },
+    "sessionIdentityHmacSecret": {
+      "label": "Shared session identity HMAC secret",
+      "sensitive": true,
+      "advanced": true,
+      "help": "Explicitly provision the exact same secret in cortex-memory-bridge and cortex-route-gate. It has no built-in default."
     },
     "curatedBoost": {
       "label": "Curated Result Boost",

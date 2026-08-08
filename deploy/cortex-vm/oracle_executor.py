@@ -16,6 +16,11 @@ CT101_KEY = os.getenv("CT101_KEY", "/opt/cortex-oracle-bridge/ct101_exec_key")
 CT101_WORKDIR = os.getenv("CT101_WORKDIR", "/root/clawd/deploy/oracle-workspace-lite")
 TIMEOUT = int(os.getenv("ORACLE_EXECUTOR_TIMEOUT", "60"))
 AGENT_ID = os.getenv("ORACLE_EXECUTOR_AGENT", "oracle").strip() or "oracle"
+THINKING = os.getenv("ORACLE_EXECUTOR_THINKING", "xhigh").strip().lower() or "xhigh"
+if THINKING != "xhigh":
+    raise RuntimeError("ORACLE_EXECUTOR_THINKING must remain xhigh")
+EXPECTED_MODEL = os.getenv("ORACLE_EXECUTOR_EXPECTED_MODEL", "").strip()
+LAST_EXECUTION_IDENTITY = {"model": None, "provider": None, "observedAt": None}
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
@@ -94,19 +99,24 @@ def _extract_json_payload(raw: str):
         raise ValueError('empty response')
     decoder = json.JSONDecoder()
     try:
-        return decoder.decode(cleaned)
+        candidate = decoder.decode(cleaned)
+        payloads = candidate.get('result', {}).get('payloads') or candidate.get('payloads') if isinstance(candidate, dict) else None
+        if payloads:
+            return candidate
     except Exception:
         pass
     starts = [idx for idx, ch in enumerate(cleaned) if ch == '{']
     for start in starts:
         try:
-            obj, end = decoder.raw_decode(cleaned[start:])
+            obj, _end = decoder.raw_decode(cleaned[start:])
         except Exception:
             continue
-        if cleaned[start + end:].strip():
+        if not isinstance(obj, dict):
             continue
-        return obj
-    raise ValueError('no JSON object found in stdout')
+        payloads = obj.get('result', {}).get('payloads') or obj.get('payloads')
+        if payloads:
+            return obj
+    raise ValueError('no response JSON object found in process output')
 
 def _maybe_cleanup_remote_sessions():
     global LAST_CLEANUP_AT
@@ -135,6 +145,16 @@ def health():
         "mode": "ssh-ct101-openclaw",
         "ct101": CT101_HOST,
         "agentId": AGENT_ID,
+        "thinking": THINKING,
+        "modelIdentity": {
+            "expected": EXPECTED_MODEL or None,
+            "expectedSource": "env:ORACLE_EXECUTOR_EXPECTED_MODEL" if EXPECTED_MODEL else "unconfigured",
+            "actualIdentityRequiredPerInvocation": True,
+            "expectedMatchRequired": bool(EXPECTED_MODEL),
+            "lastObserved": dict(LAST_EXECUTION_IDENTITY),
+        },
+        "healthScope": "configuration_and_last_observation_only",
+        "providerCallMadeByHealth": False,
         "localExecution": LOCAL_EXECUTION,
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
@@ -175,7 +195,7 @@ def invoke(req: InvokeRequest):
         f"cd {CT101_WORKDIR} && "
         f"{reset_cmd}"
         f"openclaw agent {local_flag}--agent {json.dumps(AGENT_ID)} --session-id {session_id} --message {json.dumps(bridged_prompt)} "
-        f"--thinking off --timeout {TIMEOUT} --json"
+        f"--thinking {THINKING} --timeout {TIMEOUT} --json"
     )
     cmd = [
         'ssh', '-i', CT101_KEY, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
@@ -191,7 +211,7 @@ def invoke(req: InvokeRequest):
         raise HTTPException(status_code=503, detail=(r.stderr or r.stdout or 'executor failed')[:1200])
 
     try:
-        data = _extract_json_payload(r.stdout)
+        data = _extract_json_payload('\n'.join(part for part in [r.stdout, r.stderr] if part))
         payloads = data.get('result', {}).get('payloads') or data.get('payloads') or []
         text = ''
         if payloads and isinstance(payloads[0], dict):
@@ -200,12 +220,24 @@ def invoke(req: InvokeRequest):
             raise ValueError('empty response')
         meta = data.get('result', {}).get('meta') or data.get('meta') or {}
         agent_meta = meta.get('agentMeta') or {}
+        actual_model = str(agent_meta.get('model') or '').strip()
+        actual_provider = str(agent_meta.get('provider') or '').strip()
+        if not actual_model or not actual_provider:
+            raise ValueError('provider/model identity missing from successful executor payload')
+        if EXPECTED_MODEL and actual_model != EXPECTED_MODEL:
+            raise ValueError(f'executor model mismatch: expected={EXPECTED_MODEL!r} observed={actual_model!r}')
+        global LAST_EXECUTION_IDENTITY
+        LAST_EXECUTION_IDENTITY = {
+            "model": actual_model,
+            "provider": actual_provider,
+            "observedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
         cleaned = _maybe_cleanup_remote_sessions()
         return {
             'ok': True,
             'response': text,
-            'model': agent_meta.get('model') or 'openclaw-gateway-agent',
-            'provider': agent_meta.get('provider') or 'openclaw',
+            'model': actual_model,
+            'provider': actual_provider,
             'sessionId': agent_meta.get('sessionId') or session_id,
             'cleanupRemoved': len(cleaned),
         }

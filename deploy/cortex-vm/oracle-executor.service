@@ -20,6 +20,11 @@ Environment=CT101_KEY=/opt/cortex-oracle-bridge/ct101_exec_key
 Environment=CT101_WORKDIR=/root/clawd/deploy/oracle-workspace-lite
 Environment=ORACLE_EXECUTOR_TIMEOUT=60
 Environment=ORACLE_EXECUTOR_AGENT=oracle
+# Optional expected-model pin. When configured, every successful invocation must
+# report the same model or the executor fails closed. Keep values in the host-only
+# environment file; never commit credentials here.
+EnvironmentFile=-/etc/cortex/oracle-executor.env
+Environment=ORACLE_EXECUTOR_THINKING=xhigh
 Environment=ORACLE_EXECUTOR_LOCAL=true
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY=agent:oracle:main

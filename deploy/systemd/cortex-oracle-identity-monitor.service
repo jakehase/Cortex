@@ -1,0 +1,20 @@
+[Unit]
+Description=Read-only Cortex Oracle identity recurrence monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+StateDirectory=cortex-monitors
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/cortex-monitors
+ExecStart=/usr/bin/python3 /root/clawd/scripts/oracle_identity_monitor.py --oracle-url http://127.0.0.1:8000/oracle/status --output /var/lib/cortex-monitors/oracle-identity-latest.json
+TimeoutStartSec=15
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=32

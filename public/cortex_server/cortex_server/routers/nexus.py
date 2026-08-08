@@ -3,14 +3,17 @@ Nexus Router - Semantic Orchestration using L5 Oracle
 
 Replaces keyword matching with true semantic understanding.
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
+import base64
 import os
 import json
 import hashlib
+import hmac
 import re
+import secrets
 import threading
 import time
 from collections import deque
@@ -40,8 +43,18 @@ from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_p
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
+from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
+from cortex_server.runtime.assurance_receipt_ledger import (
+    AssuranceReceiptLedgerUnavailable,
+    assurance_receipt_status,
+    consumed_assurance_receipt_result,
+    finalize_assurance_receipt,
+    recover_assurance_receipt,
+    release_assurance_receipt,
+    reserve_assurance_receipt,
+)
 
 router = APIRouter()
 
@@ -158,6 +171,43 @@ _LATENCY_GOVERNOR = LatencyBudgetGovernor()
 _OUTCOME_TUNER = OutcomeTuner()
 NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
+_ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
+_ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
+_MEMORY_COMMIT_ACK_VERSION = "nexus.memory-commit-ack.v1"
+_CODEC_WRITE_ACK_VERSION = "nexus.codec-write-ack.v1"
+_ASSURANCE_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+_ASSURANCE_MAX_VERIFY_KEYS = 16
+_ASSURANCE_MAX_KEY_EPOCH = 4_102_444_800
+_ASSURANCE_RECEIPT_TTL_SECONDS = max(
+    30,
+    min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900),
+)
+_ASSURANCE_RECEIPT_STATE_PATH = Path(
+    os.getenv(
+        "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
+        "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+    )
+)
+_ASSURANCE_RESERVED_METADATA = {
+    "assurance",
+    "assurance_receipt",
+    "cognitive_quality",
+    "levels_used",
+    "query",
+    "risk_flags",
+    "source",
+    "tenant_id",
+    "workspace_id",
+    "agent_id",
+    "user_id",
+    "channel_id",
+    "session_id",
+    "scope_credential_id",
+    "storage_workspace_id",
+    "idempotency_key",
+    "receipt_id",
+    "world_grounding",
+}
 
 
 def _context_for_disk() -> Dict[str, Any]:
@@ -2716,6 +2766,317 @@ def _generate_fastlane_answer(query: str, qtype: str, template: Dict[str, Any], 
     return answer
 
 
+def _normalized_commit_levels(levels: List[int]) -> List[int]:
+    normalized: List[int] = []
+    for value in levels or []:
+        try:
+            level = int(value)
+        except (TypeError, ValueError):
+            continue
+        if level in LEVEL_MAP and level not in normalized:
+            normalized.append(level)
+    return sorted(normalized)
+
+
+def _bounded_scope_value(value: str, default: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return default
+    if len(normalized) > 128 or not re.fullmatch(r"[A-Za-z0-9_.:@/-]+", normalized):
+        raise HTTPException(status_code=400, detail="invalid assurance scope")
+    return normalized
+
+
+def _production_memory_scope_mode() -> bool:
+    environment = os.getenv(
+        "CORTEX_ENV",
+        os.getenv("CORTEX_ENVIRONMENT", "development"),
+    ).strip().lower()
+    strict = os.getenv("CORTEX_MEMORY_SCOPE_STRICT", "").strip().lower()
+    return environment in {"production", "prod", "staging"} or strict in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _authenticated_nexus_principal(
+    request: Optional[Request],
+) -> AuthenticatedMemoryPrincipal:
+    headers = request.headers if request is not None else {}
+    header_names = {
+        "tenant_id": "x-cortex-tenant-id",
+        "workspace_id": "x-cortex-workspace-id",
+        "agent_id": "x-cortex-agent-id",
+        "user_id": "x-cortex-user-id",
+        "channel_id": "x-cortex-channel-id",
+        "session_id": "x-cortex-session-id",
+    }
+    has_identity = any(
+        str(headers.get(name, "") or "").strip()
+        for name in (
+            *header_names.values(),
+            "x-cortex-scope-credential-id",
+            "x-cortex-scope-signature",
+        )
+    )
+    raw_scope: Optional[Dict[str, str]] = None
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    if has_identity:
+        missing = [
+            field
+            for field, name in header_names.items()
+            if not str(headers.get(name, "") or "").strip()
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=403,
+                detail=f"full authenticated principal scope is required: {', '.join(missing)}",
+            )
+        raw_scope = {
+            field: _bounded_scope_value(headers.get(name, ""), "")
+            for field, name in header_names.items()
+        }
+        tenant_id = raw_scope["tenant_id"]
+        workspace_id = raw_scope["workspace_id"]
+    try:
+        return authenticate_memory_principal(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            scope=raw_scope,
+            credential_id=headers.get("x-cortex-scope-credential-id", ""),
+            signature=headers.get("x-cortex-scope-signature", ""),
+            production=_production_memory_scope_mode(),
+        )
+    except MemoryScopeAuthError as exc:
+        status_code = 503 if "not configured" in str(exc) else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+def _assurance_scope(request: Optional[Request]) -> Dict[str, str]:
+    authorization = (
+        getattr(
+            getattr(request, "state", None),
+            "cortex_write_authorization",
+            "",
+        )
+        if request is not None
+        else ""
+    )
+    principal = _authenticated_nexus_principal(request)
+    return {
+        **principal.storage_metadata,
+        "authorization": _bounded_scope_value(authorization, "request_boundary"),
+    }
+
+
+def _content_hash(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + ("=" * (-len(value) % 4)))
+
+
+def _assurance_keyring() -> tuple[str, bytes, Dict[str, Dict[str, Any]]]:
+    configured = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY", "").strip()
+    key_id = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "").strip()
+    if not configured:
+        if _production_memory_scope_mode():
+            raise RuntimeError("production requires NEXUS_ASSURANCE_SIGNING_KEY")
+        configured_key = _ASSURANCE_EPHEMERAL_SIGNING_KEY
+        key_id = key_id or "ephemeral-process"
+    else:
+        configured_key = configured.encode("utf-8")
+        key_id = key_id or "current"
+    if not _ASSURANCE_KEY_ID_PATTERN.fullmatch(key_id):
+        raise RuntimeError("NEXUS_ASSURANCE_SIGNING_KEY_ID must be a bounded opaque identifier")
+    if _production_memory_scope_mode() and len(configured_key) < 32:
+        raise RuntimeError("production assurance signing key must contain at least 32 bytes")
+
+    activated_raw = os.getenv("NEXUS_ASSURANCE_SIGNING_KEY_ACTIVATED_AT", "0").strip()
+    if not activated_raw.isdecimal() or int(activated_raw) > _ASSURANCE_MAX_KEY_EPOCH:
+        raise RuntimeError(
+            "NEXUS_ASSURANCE_SIGNING_KEY_ACTIVATED_AT must be a non-negative epoch"
+        )
+    verify_keys: Dict[str, Dict[str, Any]] = {
+        key_id: {
+            "secret": configured_key,
+            "activated_at": int(activated_raw),
+            "retired_at": None,
+        }
+    }
+    raw_previous = os.getenv("NEXUS_ASSURANCE_VERIFY_KEYS", "").strip() or "{}"
+    try:
+        previous_keys = json.loads(raw_previous)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("NEXUS_ASSURANCE_VERIFY_KEYS must be a JSON key-id object") from exc
+    if not isinstance(previous_keys, dict) or len(previous_keys) > _ASSURANCE_MAX_VERIFY_KEYS:
+        raise RuntimeError(
+            f"NEXUS_ASSURANCE_VERIFY_KEYS must contain at most {_ASSURANCE_MAX_VERIFY_KEYS} keys"
+        )
+    for previous_id, record in previous_keys.items():
+        normalized_id = str(previous_id or "").strip()
+        if not _ASSURANCE_KEY_ID_PATTERN.fullmatch(normalized_id):
+            raise RuntimeError("assurance verification key ID is invalid")
+        if not isinstance(record, dict) or set(record) != {
+            "secret", "activated_at", "retired_at",
+        }:
+            raise RuntimeError(
+                "historical assurance verification keys require secret, activated_at, and retired_at"
+            )
+        secret = str(record.get("secret") or "").strip().encode("utf-8")
+        activated_at = record.get("activated_at")
+        retired_at = record.get("retired_at")
+        if (
+            not secret
+            or isinstance(activated_at, bool)
+            or isinstance(retired_at, bool)
+            or not isinstance(activated_at, int)
+            or not isinstance(retired_at, int)
+            or activated_at < 0
+            or retired_at <= activated_at
+            or retired_at > _ASSURANCE_MAX_KEY_EPOCH
+        ):
+            raise RuntimeError("historical assurance verification key configuration is invalid")
+        if _production_memory_scope_mode() and len(secret) < 32:
+            raise RuntimeError("production assurance verification keys must contain at least 32 bytes")
+        verify_keys[normalized_id] = {
+            "secret": secret,
+            "activated_at": activated_at,
+            "retired_at": retired_at,
+        }
+
+    reserved_secrets = {
+        value.encode("utf-8")
+        for name in (
+            "CORTEX_WRITE_TOKEN",
+            "CORTEX_ADMIN_TOKEN",
+            "CORTEX_OPENCLAW_SCOPE_HMAC_SECRET",
+            "CORTEX_OPENCLAW_SESSION_HMAC_SECRET",
+        )
+        for value in (os.getenv(name, "").strip(),)
+        if value
+    }
+    raw_credentials = os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()
+    if raw_credentials:
+        try:
+            configured_credentials = json.loads(raw_credentials)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("memory scope credentials are malformed") from exc
+        if isinstance(configured_credentials, dict):
+            reserved_secrets.update(
+                str(value.get("secret") or "").strip().encode("utf-8")
+                for value in configured_credentials.values()
+                if isinstance(value, dict) and str(value.get("secret") or "").strip()
+            )
+    if any(hmac.compare_digest(configured_key, secret) for secret in reserved_secrets):
+        raise RuntimeError("assurance signing key must be server-only and distinct from request credentials")
+    return key_id, configured_key, verify_keys
+
+
+def _encode_assurance_receipt(payload: Dict[str, Any]) -> str:
+    key_id, signing_key, _verify_keys = _assurance_keyring()
+    signed_payload = {**dict(payload), "signing_key_id": key_id}
+    body = json.dumps(
+        signed_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    signature = hmac.new(signing_key, body, hashlib.sha256).digest()
+    return f"{_b64url_encode(body)}.{_b64url_encode(signature)}"
+
+
+def _decode_assurance_receipt(receipt: str) -> Dict[str, Any]:
+    try:
+        body_part, signature_part = str(receipt or "").split(".", 1)
+        body = _b64url_decode(body_part)
+        supplied = _b64url_decode(signature_part)
+        payload = json.loads(body.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("invalid_payload")
+        _current_id, _current_key, verify_keys = _assurance_keyring()
+        issued_at = int(payload.get("issued_at", -1))
+        key_id = str(payload.get("signing_key_id") or "").strip()
+        verification = verify_keys.get(key_id)
+        if verification is None:
+            raise ValueError("unknown_signing_key")
+        if not hmac.compare_digest(
+            supplied,
+            hmac.new(verification["secret"], body, hashlib.sha256).digest(),
+        ):
+            raise ValueError("signature_mismatch")
+        retired_at = verification.get("retired_at")
+        if issued_at < int(verification["activated_at"]) or (
+            retired_at is not None and issued_at > int(retired_at)
+        ):
+            raise ValueError("signing_key_outside_issuance_window")
+        return payload
+    except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc) in {
+            "signature_mismatch",
+            "unknown_signing_key",
+            "invalid_payload",
+            "signing_key_outside_issuance_window",
+        }:
+            raise
+        raise ValueError("malformed_receipt") from exc
+
+
+def _server_commit_assurance(query: str, response: str) -> Dict[str, Any]:
+    query = str(query or "").strip()
+    response = str(response or "").strip()
+    checks = fast_verify(response, classify_qtype(query), query)
+    validator_pass = bool(
+        query
+        and response
+        and checks.get("required_fields_ok", False)
+        and not checks.get("contradiction_detected", False)
+        and not checks.get("overclaim_detected", False)
+        and int(checks.get("missing_constraints_count", 0)) == 0
+        and not checks.get("shallow_confidence_risk", False)
+    )
+    validator_result = {
+        "pass": validator_pass,
+        "checks": checks,
+        "source": "nexus.commit.server_validator",
+    }
+    validator_summary = build_validator_summary(
+        checks=checks,
+        validator_result=validator_result,
+        cognitive_quality={},
+        execution_transaction={"status": "completed"},
+    )
+    risk_flags = _detect_risk_flags(f"{query}\n{response}")
+    world_grounding = gather_live_evidence(
+        query,
+        max_sources=3,
+        notary_packets=1,
+        enabled=os.getenv(
+            "NEXUS_COMMIT_WORLD_GROUNDING_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"},
+    )
+    memory_decision = build_memory_commit_decision(
+        query=query,
+        response=response,
+        risk_flags=risk_flags,
+        validator_summary=validator_summary,
+        world_grounding=world_grounding,
+    )
+    return {
+        "risk_flags": risk_flags,
+        "validator_result": validator_result,
+        "validator_summary": validator_summary,
+        "world_grounding": world_grounding,
+        "memory_decision": memory_decision,
+    }
+
+
 
 class AutoIndexRequest(BaseModel):
     query: str
@@ -2727,6 +3088,90 @@ class InteractionData(BaseModel):
     response: str
     levels_used: List[int] = []
     metadata: Dict[str, Any] = {}
+    assurance_receipt: str = ""
+
+
+class AssuranceReceiptRequest(BaseModel):
+    query: str
+    response: str
+    levels_used: List[int] = []
+
+
+def _issue_assurance_receipt(
+    interaction: AssuranceReceiptRequest,
+    request: Optional[Request],
+) -> Dict[str, Any]:
+    assurance = _server_commit_assurance(interaction.query, interaction.response)
+    if not bool((assurance.get("memory_decision") or {}).get("eligible")):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "interaction_not_eligible_for_commit",
+                "reasons": list(
+                    (assurance.get("memory_decision") or {}).get("reasons") or []
+                ),
+            },
+        )
+    issued_at = int(time.time())
+    payload = {
+        "version": _ASSURANCE_RECEIPT_VERSION,
+        "jti": secrets.token_hex(16),
+        "issued_at": issued_at,
+        "expires_at": issued_at + _ASSURANCE_RECEIPT_TTL_SECONDS,
+        "query_hash": _content_hash(interaction.query),
+        "response_hash": _content_hash(interaction.response),
+        "levels_used": _normalized_commit_levels(interaction.levels_used),
+        "scope": _assurance_scope(request),
+        "risk_flags": list(assurance.get("risk_flags") or []),
+        "validator_pass": bool(
+            (assurance.get("validator_summary") or {}).get("pass")
+        ),
+    }
+    return {
+        "receipt": _encode_assurance_receipt(payload),
+        "payload": payload,
+        "assurance": assurance,
+    }
+
+
+def _verify_assurance_receipt(
+    interaction: InteractionData,
+    request: Optional[Request],
+) -> Dict[str, Any]:
+    """Verify immutable receipt bindings without admitting a new write."""
+
+    payload = _decode_assurance_receipt(interaction.assurance_receipt)
+    now = int(time.time())
+    if payload.get("version") != _ASSURANCE_RECEIPT_VERSION:
+        raise ValueError("unsupported_receipt_version")
+    issued_at = int(payload.get("issued_at", 0))
+    expires_at = int(payload.get("expires_at", 0))
+    if (
+        issued_at > now + 5
+        or expires_at <= issued_at
+        or expires_at - issued_at > _ASSURANCE_RECEIPT_TTL_SECONDS
+    ):
+        raise ValueError("expired_receipt")
+    if not hmac.compare_digest(
+        str(payload.get("query_hash") or ""),
+        _content_hash(interaction.query),
+    ):
+        raise ValueError("query_binding_mismatch")
+    if not hmac.compare_digest(
+        str(payload.get("response_hash") or ""),
+        _content_hash(interaction.response),
+    ):
+        raise ValueError("response_binding_mismatch")
+    if payload.get("levels_used") != _normalized_commit_levels(
+        interaction.levels_used
+    ):
+        raise ValueError("levels_binding_mismatch")
+    if payload.get("scope") != _assurance_scope(request):
+        raise ValueError("scope_binding_mismatch")
+    jti = str(payload.get("jti") or "")
+    if not re.fullmatch(r"[0-9a-f]{32}", jti):
+        raise ValueError("missing_receipt_id")
+    return payload
 
 
 class PolicyReplayRequest(BaseModel):
@@ -2750,6 +3195,7 @@ class CodecEventsRequest(BaseModel):
     session_key: str = ""
     events: List[Dict[str, Any]] = Field(default_factory=list)
     max_chars: int = 420
+    acknowledgement_only: bool = False
 
 
 def analyze_intent_with_oracle(query: str) -> Dict[str, Any]:
@@ -2977,19 +3423,43 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
     state = await run_in_threadpool(update_codec_state_for_session, resolved_session_key, events)
+    durable_write = state.get("durable_write", {}) if isinstance(state.get("durable_write"), dict) else {}
+    # Always acknowledge the exact low-latency state mutation, even when the
+    # optional L22 snapshot path is disabled. Prefer the canonical durable
+    # fingerprint when present; otherwise hash the bounded state returned by
+    # the write function without its transport-only durable_write envelope.
+    codec_state = {key: value for key, value in state.items() if key != "durable_write"}
+    state_fingerprint = str(durable_write.get("fingerprint") or hashlib.sha256(
+        json.dumps(codec_state, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest())
+    acknowledgement = {
+        "version": _CODEC_WRITE_ACK_VERSION,
+        "status": "accepted",
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+    }
+    if durable_write.get("status") is not None:
+        acknowledgement["durable_write_status"] = str(durable_write.get("status"))
+    if durable_write.get("id") is not None:
+        acknowledgement["durable_record_id"] = str(durable_write.get("id"))
+    response = {
+        "success": True,
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+        "acknowledgement": acknowledgement,
+        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
+    }
+    if payload.acknowledgement_only:
+        return response
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
         max_chars=max(120, min(int(payload.max_chars), 2400)),
     )
-    return {
-        "success": True,
-        "session_key": resolved_session_key,
-        "event_count": len(events),
-        "state_fingerprint": state.get("durable_write", {}).get("fingerprint"),
-        "codec": packet,
-        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
-    }
+    response["codec"] = packet
+    return response
 
 
 @router.get("/codec/benchmark")
@@ -3773,8 +4243,32 @@ async def outcome_feedback(payload: OutcomeFeedbackRequest):
 
 @router.get("/orchestrate")
 @router.post("/orchestrate")
-async def orchestrate_query(query: str, request: Request = None, codec_probe: bool = False):
+async def orchestrate_query(
+    query: Optional[str] = None,
+    request: Request = None,
+    codec_probe: bool = False,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+):
     """Semantic query orchestration with Q&A fastlane option."""
+    body_query = payload.get("query") if payload is not None else None
+    if body_query is not None and not isinstance(body_query, str):
+        raise HTTPException(status_code=422, detail="JSON body query must be a string")
+    if query is not None and body_query is not None and query != body_query:
+        raise HTTPException(status_code=400, detail="query parameter and JSON body disagree")
+    query = str(query if query is not None else body_query or "").strip()
+    if not query:
+        raise HTTPException(status_code=422, detail="query is required")
+    if len(query) > 1_048_576:
+        raise HTTPException(status_code=422, detail="query exceeds maximum length")
+    if request is not None and any(
+        str(request.headers.get(name, "") or "").strip()
+        for name in (
+            "x-cortex-tenant-id",
+            "x-cortex-scope-credential-id",
+            "x-cortex-scope-signature",
+        )
+    ):
+        _authenticated_nexus_principal(request)
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     session_key = _codec_session_key(request)
@@ -4621,75 +5115,332 @@ async def replay_level_policy(payload: PolicyReplayRequest):
     }
 
 
-@router.post("/commit")
-async def commit_memory(interaction: InteractionData):
-    """Commit memory through the canonical L22 durable store with assurance gating."""
-    metadata = dict(interaction.metadata or {})
-    risk_flags = metadata.get("risk_flags") if isinstance(metadata.get("risk_flags"), list) else _detect_risk_flags(interaction.query)
-    validator_result = metadata.get("validator_result") if isinstance(metadata.get("validator_result"), dict) else {"pass": True, "checks": {}}
-    checks = validator_result.get("checks") if isinstance(validator_result.get("checks"), dict) else {}
-    validator_summary = build_validator_summary(
-        checks=checks,
-        validator_result=validator_result,
-        cognitive_quality=metadata.get("cognitive_quality") if isinstance(metadata.get("cognitive_quality"), dict) else {},
-        execution_transaction={"status": "completed"},
-    )
-    memory_decision = build_memory_commit_decision(
-        query=interaction.query,
-        response=interaction.response,
-        risk_flags=risk_flags,
-        validator_summary=validator_summary,
-        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
-    )
+@router.post("/assurance/receipt")
+async def issue_commit_assurance_receipt(
+    interaction: AssuranceReceiptRequest,
+    request: Request,
+):
+    """Validate an interaction and issue a short-lived, principal-bound receipt."""
 
-    durable_write = None
-    if memory_decision.get("eligible"):
-        try:
-            from cortex_server.routers.l22 import store_memory_record
-
-            durable_write = store_memory_record(
-                content=interaction.response,
-                memory_type="memory",
-                tags=["nexus_commit", "durable_memory"],
-                metadata={
-                    "query": interaction.query,
-                    "levels_used": interaction.levels_used,
-                    "source": "nexus.commit",
-                    "assurance": {
-                        "validator_pass": bool(validator_summary.get("pass")),
-                        "validator_reason_codes": validator_summary.get("reason_codes", []),
-                        "risk_flags": risk_flags,
-                    },
-                    **metadata,
-                },
-            )
-            ROUTE_HEALTH.record_success("l22")
-        except Exception as exc:
-            durable_write = {"status": "write_failed", "error": str(exc)}
-            ROUTE_HEALTH.record_failure("l22", error=str(exc))
-    else:
-        durable_write = {"status": "skipped", "reason": "assurance_gate"}
-
-    memory_decision = build_memory_commit_decision(
-        query=interaction.query,
-        response=interaction.response,
-        risk_flags=risk_flags,
-        validator_summary=validator_summary,
-        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
-        durable_store_result=durable_write,
-    )
-
-    assurance = {
-        "version": "nexus.assurance.v1",
-        "verdict": "pass" if memory_decision.get("eligible") and durable_write and durable_write.get("status") == "stored" else ("degraded" if memory_decision.get("eligible") else "warn"),
-        "memory_commit": memory_decision,
-        "validators": validator_summary,
-        "route_health": {"version": "route_health.v1", "dependencies": {"l22": ROUTE_HEALTH.snapshot("l22")}},
+    issued = _issue_assurance_receipt(interaction, request)
+    return {
+        "success": True,
+        "receipt": issued["receipt"],
+        "expires_at": issued["payload"]["expires_at"],
+        "assurance": {
+            "version": _ASSURANCE_RECEIPT_VERSION,
+            "risk_flags": issued["assurance"]["risk_flags"],
+            "validators": issued["assurance"]["validator_summary"],
+            "memory_commit": issued["assurance"]["memory_decision"],
+        },
     }
 
-    return {
-        "success": bool(memory_decision.get("eligible")) and durable_write and durable_write.get("status") == "stored",
-        "committed": bool(durable_write and durable_write.get("status") == "stored"),
+
+@router.post("/commit")
+async def commit_memory(interaction: InteractionData, request: Request):
+    """Commit memory only with a valid server-issued, interaction-bound receipt."""
+
+    try:
+        receipt_payload = _verify_assurance_receipt(interaction, request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "valid_server_assurance_receipt_required",
+                "reason": str(exc),
+            },
+        ) from exc
+
+    scope = _assurance_scope(request)
+    receipt_jti = str(receipt_payload["jti"])
+    receipt_expired = int(receipt_payload["expires_at"]) <= int(time.time())
+    try:
+        prior_result = consumed_assurance_receipt_result(
+            _ASSURANCE_RECEIPT_STATE_PATH,
+            scope=scope,
+            jti=receipt_jti,
+        )
+    except AssuranceReceiptLedgerUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "assurance_receipt_ledger_unavailable",
+                "reason": str(exc),
+            },
+        ) from exc
+    if prior_result is not None:
+        return prior_result
+
+    recovery_required = False
+    expired_recovery_state_missing = False
+    if receipt_expired:
+        try:
+            receipt_status = assurance_receipt_status(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                scope=scope,
+                jti=receipt_jti,
+            )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "assurance_receipt_ledger_unavailable",
+                    "reason": str(exc),
+                },
+            ) from exc
+        recovery_required = True
+        expired_recovery_state_missing = receipt_status != "reserved"
+
+    server_assurance = _server_commit_assurance(
+        interaction.query,
+        interaction.response,
+    )
+    risk_flags = list(server_assurance.get("risk_flags") or [])
+    validator_summary = dict(server_assurance.get("validator_summary") or {})
+    world_grounding = dict(server_assurance.get("world_grounding") or {})
+    memory_decision = dict(server_assurance.get("memory_decision") or {})
+    if (
+        receipt_payload.get("risk_flags") != risk_flags
+        or not bool(receipt_payload.get("validator_pass"))
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "assurance_receipt_state_mismatch"},
+        )
+    if not bool(memory_decision.get("eligible")):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "interaction_no_longer_eligible_for_commit",
+                "reasons": list(memory_decision.get("reasons") or []),
+            },
+        )
+
+    supplied_metadata = dict(interaction.metadata or {})
+    forbidden_identity_fields = {
+        field
+        for field in ("idempotency_key", "receipt_id")
+        if field in supplied_metadata
+    }
+    if forbidden_identity_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "signed_receipt_identity_override_forbidden",
+                "fields": sorted(forbidden_identity_fields),
+            },
+        )
+    caller_metadata = {
+        str(key): value
+        for key, value in supplied_metadata.items()
+        if str(key) not in _ASSURANCE_RESERVED_METADATA
+    }
+
+    receipt_reservation = None
+    if not recovery_required:
+        try:
+            receipt_reservation = reserve_assurance_receipt(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                scope=scope,
+                jti=receipt_jti,
+                expires_at=int(receipt_payload["expires_at"]),
+            )
+        except ValueError as exc:
+            if str(exc) == "receipt_already_consumed":
+                try:
+                    prior_result = consumed_assurance_receipt_result(
+                        _ASSURANCE_RECEIPT_STATE_PATH,
+                        scope=scope,
+                        jti=receipt_jti,
+                    )
+                except AssuranceReceiptLedgerUnavailable as replay_exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "error": "assurance_receipt_ledger_unavailable",
+                            "reason": str(replay_exc),
+                        },
+                    ) from replay_exc
+                if prior_result is not None:
+                    return prior_result
+            if str(exc) == "receipt_commit_in_progress":
+                recovery_required = True
+            else:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "valid_server_assurance_receipt_required",
+                        "reason": str(exc),
+                    },
+                ) from exc
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "assurance_receipt_ledger_unavailable",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    durable_write: Optional[Dict[str, Any]] = None
+    try:
+        from cortex_server.routers.l22 import (
+            lookup_idempotent_memory_record,
+            store_memory_record,
+        )
+
+        l22_request = dict(
+            content=interaction.response,
+            memory_type="memory",
+            tags=["nexus_commit", "durable_memory"],
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["storage_workspace_id"],
+            idempotency_key=receipt_jti,
+            metadata={
+                **caller_metadata,
+                "query": interaction.query,
+                "levels_used": _normalized_commit_levels(
+                    interaction.levels_used
+                ),
+                "source": "nexus.commit",
+                "tenant_id": scope["tenant_id"],
+                "workspace_id": scope["workspace_id"],
+                "storage_workspace_id": scope["storage_workspace_id"],
+                "agent_id": scope["agent_id"],
+                "user_id": scope["user_id"],
+                "channel_id": scope["channel_id"],
+                "session_id": scope["session_id"],
+                "scope_credential_id": scope["scope_credential_id"],
+                "assurance": {
+                    "receipt_version": _ASSURANCE_RECEIPT_VERSION,
+                    "receipt_id": receipt_jti,
+                    "validator_pass": bool(validator_summary.get("pass")),
+                    "validator_reason_codes": validator_summary.get(
+                        "reason_codes",
+                        [],
+                    ),
+                    "risk_flags": risk_flags,
+                    "scope": scope,
+                },
+            },
+        )
+        if recovery_required:
+            durable_write = lookup_idempotent_memory_record(**l22_request)
+            if durable_write is None:
+                if expired_recovery_state_missing:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "error": "assurance_receipt_expired_without_commit",
+                            "reason": "expired_receipt",
+                        },
+                    )
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "error": "assurance_receipt_commit_in_progress",
+                        "reason": "receipt_commit_in_progress",
+                    },
+                )
+        else:
+            durable_write = store_memory_record(**l22_request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        durable_write = {"status": "write_failed", "error": str(exc)}
+        ROUTE_HEALTH.record_failure("l22", error=str(exc))
+
+    durable_status = str((durable_write or {}).get("status") or "")
+    if durable_status in {"stored", "stored_below_threshold"} and recovery_required:
+        try:
+            receipt_reservation = recover_assurance_receipt(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                scope=scope,
+                jti=receipt_jti,
+                restore_expires_at=(
+                    int(receipt_payload["expires_at"])
+                    if expired_recovery_state_missing
+                    else None
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "assurance_receipt_commit_in_progress",
+                    "reason": str(exc),
+                },
+            ) from exc
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "assurance_receipt_recovery_failed",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    if durable_status in {"stored", "stored_below_threshold"}:
+        ROUTE_HEALTH.record_success("l22")
+    else:
+        try:
+            if receipt_reservation is not None:
+                release_assurance_receipt(
+                    _ASSURANCE_RECEIPT_STATE_PATH,
+                    receipt_reservation,
+                )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "assurance_receipt_release_failed",
+                    "reason": str(exc),
+                },
+            ) from exc
+
+    memory_decision = build_memory_commit_decision(
+        query=interaction.query,
+        response=interaction.response,
+        risk_flags=risk_flags,
+        validator_summary=validator_summary,
+        world_grounding=world_grounding,
+        durable_store_result=durable_write,
+    )
+    assurance = {
+        "version": "nexus.assurance.v1",
+        "verdict": (
+            "pass"
+            if memory_decision.get("eligible")
+            and durable_status == "stored"
+            else ("degraded" if memory_decision.get("eligible") else "warn")
+        ),
+        "memory_commit": memory_decision,
+        "validators": validator_summary,
+        "receipt": {
+            "version": _ASSURANCE_RECEIPT_VERSION,
+            "id": receipt_jti,
+            "scope": scope,
+        },
+        "route_health": {
+            "version": "route_health.v1",
+            "dependencies": {"l22": ROUTE_HEALTH.snapshot("l22")},
+        },
+    }
+    commit_result = {
+        "success": bool(memory_decision.get("eligible"))
+        and durable_status == "stored",
+        "committed": durable_status == "stored",
+        "acknowledgement": {
+            "version": _MEMORY_COMMIT_ACK_VERSION,
+            "status": "committed" if durable_status == "stored" else "not_committed",
+            "receipt_id": receipt_jti,
+            "memory_id": (durable_write or {}).get("id"),
+            "idempotent_replay": bool((durable_write or {}).get("idempotent_replay")),
+            "retrieval": {
+                "path": "/knowledge/search",
+                "identifier_field": "id",
+            },
+        },
         "levels": [7, 22],
         "query_preview": interaction.query[:50] if interaction.query else "",
         "durable_write": durable_write,
@@ -4703,6 +5454,29 @@ async def commit_memory(interaction: InteractionData):
             "memory_write_eligible": bool(memory_decision.get("eligible")),
         },
     }
+
+    if durable_status in {"stored", "stored_below_threshold"}:
+        if receipt_reservation is None:
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_reservation_missing"},
+            )
+        try:
+            finalize_assurance_receipt(
+                _ASSURANCE_RECEIPT_STATE_PATH,
+                receipt_reservation,
+                result=commit_result,
+            )
+        except AssuranceReceiptLedgerUnavailable as exc:
+            ROUTE_HEALTH.record_failure("l22", error=str(exc))
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "assurance_receipt_finalization_failed",
+                    "reason": str(exc),
+                },
+            ) from exc
+    return commit_result
 
 
 @router.post("/index")

@@ -1,0 +1,23 @@
+{
+  "listeners": [
+    {
+      "id": "cortex-loopback",
+      "protocol": "tcp",
+      "port": 8000,
+      "processRegex": "python.*",
+      "allowedBinds": ["127.0.0.1", "::1"],
+      "required": true,
+      "rationale": "Cortex control-plane API is loopback-only"
+    }
+  ],
+  "requireAllListenersClassified": true,
+  "paths": [
+    {
+      "path": "/etc/cortex/cortex.env",
+      "required": true,
+      "allowedModes": ["0600", "0640"],
+      "allowedOwners": ["root"]
+    }
+  ],
+  "classifications": []
+}

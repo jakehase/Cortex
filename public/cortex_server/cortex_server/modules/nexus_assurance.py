@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -43,6 +44,39 @@ def _reversibility_tier(risk_flags: List[str], routing_method: str, query: str =
     if any(x in q for x in ["delete", "migrate", "cutover", "deploy", "rollback"]):
         return "moderate"
     return "easy"
+
+
+def _declared_constraint_labels(query: str) -> List[str]:
+    """Return coarse explicit constraints that must be validated against an answer."""
+    q = str(query or "").lower()
+    patterns = (
+        ("budget", r"\b(?:under|within|on)\s+(?:a\s+)?budget\b|\bbudget(?:ed)?\s*(?:of|at|:)?\s*\$?\d"),
+        ("minimum_count", r"\bat\s+least\s+\d+\b"),
+        ("maximum_count", r"\b(?:at\s+most|no\s+more\s+than)\s+\d+\b"),
+        ("deadline", r"\b(?:by|before|no\s+later\s+than)\s+(?:\d{4}-\d{2}-\d{2}|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:today|tomorrow))\b"),
+        ("required_condition", r"\b(?:must|required|requirement)\b"),
+    )
+    return [label for label, pattern in patterns if re.search(pattern, q)]
+
+
+def _augment_unanswered_constraints(
+    *, query: str, checks: Optional[Dict[str, Any]], fastlane: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Fail closed when explicit query constraints have no answer to validate."""
+    normalized = dict(checks or {})
+    answer = str((fastlane or {}).get("answer") or "").strip()
+    if answer:
+        return normalized
+    declared = _declared_constraint_labels(query)
+    if not declared:
+        return normalized
+    existing = [str(item) for item in (normalized.get("missing_constraints") or []) if str(item)]
+    missing = list(dict.fromkeys([*existing, *declared]))
+    normalized["missing_constraints"] = missing
+    normalized["missing_constraints_count"] = max(
+        int(normalized.get("missing_constraints_count", 0)), len(missing)
+    )
+    return normalized
 
 
 def build_validator_summary(
@@ -175,6 +209,7 @@ def build_orchestration_assurance(
     routing_markers = routing_markers or {}
     latency_budget = latency_budget or {}
     recommended_levels = recommended_levels or []
+    checks = _augment_unanswered_constraints(query=query, checks=checks, fastlane=fastlane)
 
     validator_summary = build_validator_summary(
         checks=checks,

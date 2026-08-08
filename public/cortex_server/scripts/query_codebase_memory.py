@@ -111,6 +111,20 @@ def impact(conn: sqlite3.Connection, query: str = "", node_id: str = "", edge_ty
     return results
 
 
+
+
+def query_gate(conn: sqlite3.Connection, required: List[str], forbidden: List[str]) -> Dict[str, Any]:
+    """Run positive and negative controls against the same immutable graph."""
+    checks: List[Dict[str, Any]] = []
+    for query in required:
+        matches = search(conn, query, limit=5)
+        checks.append({"query": query, "kind": "required", "passed": bool(matches), "matchCount": len(matches)})
+    for query in forbidden:
+        matches = search(conn, query, limit=5)
+        checks.append({"query": query, "kind": "forbidden", "passed": not matches, "matchCount": len(matches)})
+    failed = [item for item in checks if not item["passed"]]
+    return {"ok": not failed, "checks": checks, "failed": failed}
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(DEFAULT_DB), help="structural graph SQLite DB")
@@ -122,20 +136,31 @@ def main() -> None:
     parser.add_argument("--edge-type", default="", help="optional edge type, e.g. IMPORTS, CALLS, CONTAINS")
     parser.add_argument("--direction", default="both", choices=["in", "out", "both"], help="impact edge direction")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--require-query", action="append", default=[], help="positive-control query that must match")
+    parser.add_argument("--forbid-query", action="append", default=[], help="negative-control query that must not match")
     args = parser.parse_args()
 
     db = Path(args.db)
     conn = connect_ro(db)
-    if args.health:
-        s = stats(conn)
-        s.update({"ok": s["nodeCount"] > 0 and s["edgeCount"] > 0, "dbPath": str(db.resolve())})
-        print(json.dumps(s, indent=2))
-        return
-    if args.impact:
-        payload = {"query": args.query, "nodeId": args.node_id, "results": impact(conn, query=args.query, node_id=args.node_id, edge_type=args.edge_type, direction=args.direction, limit=args.limit)}
-    else:
-        payload = {"query": args.query, "nodeType": args.node_type, "results": search(conn, args.query, node_type=args.node_type, limit=args.limit)}
-    print(json.dumps(payload, indent=2))
+    exit_code = 0
+    try:
+        if args.require_query or args.forbid_query:
+            payload = query_gate(conn, args.require_query, args.forbid_query)
+            payload.update({"dbPath": str(db.resolve()), "health": stats(conn)})
+            exit_code = 0 if payload["ok"] else 2
+        elif args.health:
+            payload = stats(conn)
+            payload.update({"ok": payload["nodeCount"] > 0 and payload["edgeCount"] > 0, "dbPath": str(db.resolve())})
+            exit_code = 0 if payload["ok"] else 2
+        elif args.impact:
+            payload = {"query": args.query, "nodeId": args.node_id, "results": impact(conn, query=args.query, node_id=args.node_id, edge_type=args.edge_type, direction=args.direction, limit=args.limit)}
+        else:
+            payload = {"query": args.query, "nodeType": args.node_type, "results": search(conn, args.query, node_type=args.node_type, limit=args.limit)}
+        print(json.dumps(payload, indent=2))
+    finally:
+        conn.close()
+    if exit_code:
+        raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
