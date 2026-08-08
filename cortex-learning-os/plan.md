@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Plan owner: Jake + Cortex
 - Created: `2026-07-07`
-- Last updated: `2026-07-26`
-- Status: `active`
-- Fidelity target: `production_slice_live_scoped_math`
-- Primary stop condition: `live_plugin_registry_canaries_remote_launcher_and_canonical_sync_green_or_blocker`
+- Last updated: `2026-08-08`
+- Status: `active_applied_math_transfer_qualification`
+- Fidelity target: `parity_for_scope_representative_applied_math_transfer`
+- Primary stop condition: `paired_canary_then_retention_integration_transfer_gates_green_or_precise_blocker`
 - Status file: `STATUS.md`
 - Decisions log: `DECISIONS.md`
 - Plan index entry: `/root/clawd/docs/PLAN_INDEX.md`
@@ -496,6 +496,58 @@ bounded_acquisition_retention_and_fresh_session_generalization_for_one_seeded_no
 Truth boundary:
 
 - This is one bounded retrieval-mediated result for one seeded invented microtheory. It is not broad mathematical mastery, human-like or time-durable learning, autonomous self-improvement, or model-weight change.
+
+### Wave 5.7 — Applied mathematics transfer qualification
+
+Goal:
+
+- Determine whether a frozen, independently authored retrieval treatment derived from a representative subset of the acquired PhD-trajectory concepts causes measurable improvement on unseen coding, systems-reasoning, and machine-checked formal-problem tasks.
+
+Anchor and target:
+
+- Exact source commit: `55ca78a723f678c1c8bb17ae90e73649075156e9`.
+- Isolated branch: `feat/cortex-learning-os-applied-math-transfer-20260808`.
+- Isolated worktree: `/root/clawd/worktrees/cortex-learning-os-applied-math-transfer-20260808`.
+- Contract: `docs/applied-math-transfer-contract.md`.
+- Policy: `policies/applied-math-transfer-v1.json`.
+- Surface matrix: `benchmarks/applied-math-transfer-v1/surface-matrix.json`.
+
+Execution order:
+
+1. Freeze claim, concepts, author separation, task interfaces, thresholds, invalid-trial rules, semantic negatives, and non-claims before any scored model call.
+2. Prove one paired canary end to end: independent task and pack authors, immutable digests, fresh model sessions, no tools, candidate code extraction, deterministic hidden tests, manifest replay, and a second-process verification.
+3. Treat the canary as implementation/provenance proof only; it cannot establish statistical transfer.
+4. Repair the trusted-runner attestation path and independently test the authenticated bundle. The August 5 retention answers may remain raw `19/19` evidence, but they cannot receive retained-mastery credit because the recorded `runnerAttestation` is null and authenticated replay failed.
+5. Scale only after the canary is green: no more than 40 frozen transfer tasks and 80 paired trials across direct, compositional, systems, formal, semantic-negative, and ordinary-coding regression surfaces.
+6. Run the scored campaign detached on Hetzner, with control-plane supervision, immutable returned artifacts, and independent replay.
+7. Require a disjoint post-restart/time-separated window using the identical treatment digest before any retained-transfer claim.
+8. Produce routing eligibility separately from activation. No production answer-path change occurs in this phase.
+
+Acceptance gates:
+
+```text
+mechanical = every scheduled call is unique, fresh-session, xhigh, no-tools, positive-runtime, provider-observed, and manifest-bound
+retention = authenticated replay passes in two disjoint windows and the exact treatment digest survives restart unchanged
+integration = each accepted compositional task exercises at least two declared mathematical concepts and passes a deterministic hidden verifier
+transfer = >=30 valid paired transfer tasks, candidate accuracy >=0.875, no-pack accuracy >=0.75, accuracy lift >=0.125, pack-only wins > no-pack-only wins, exact two-sided McNemar p <=0.05
+regression = zero invalid trials, zero semantic-negative injections, and no ordinary-coding accuracy regression
+provenance = pack author cannot access scored tasks; task author cannot access the pack; both outputs are hashed before integration
+```
+
+Stop condition:
+
+```text
+bounded_retained_integrated_applied_math_transfer_verified_for_declared_surfaces
+or
+precise_fail_closed_blocker_or_honest_threshold_no_go
+```
+
+Truth boundary:
+
+- A pass supports only retrieval-mediated applied transfer for the frozen concept bundle, task matrix, model, runtime, and dates.
+- It does not prove that all 264 concepts are retained, that model weights changed, that Cortex has human-equivalent mathematical understanding, that Lean/formal-theorem competence exists, or that open-ended research ability exists.
+- A canary pass proves only harness/provenance viability. A completed benchmark below thresholds is an honest no-go, not permission to alter items or append outcome-selected trials.
+- Production routing requires a separate inspected configuration change and explicit operator approval after eligibility is proven.
 
 ### Wave 6 — Quant Truth Lab extension
 

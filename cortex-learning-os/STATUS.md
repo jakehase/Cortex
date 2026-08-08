@@ -5,12 +5,16 @@
 - Project slug: `cortex-learning-os`
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
-- Last updated: `2026-08-02`
-- Status: `retained_phd_source_trust_roots_active_pending_exact_external_evidence`
-- Current fidelity: `production_trust_roots_configured_no_live_qualification`
+- Last updated: `2026-08-08`
+- Status: `applied_math_transfer_contract_frozen_canary_pending`
+- Current fidelity: `representative_subset_contract_only_no_transfer_qualification`
 - Package version: `1.0.0`
 
 ## Current checkpoint
+
+**Applied-mathematics transfer proof phase started from exact source `55ca78a723f678c1c8bb17ae90e73649075156e9`:** a leakage-resistant v1 contract, policy, 40-task surface matrix, author-separation interface, canary-first implementation task, and exact retention blocker record are frozen on isolated branch `feat/cortex-learning-os-applied-math-transfer-20260808`. No model call, task bank, treatment pack, transfer grade, registry mutation, or routing change has occurred. The next accepted transaction is one independently authored paired code canary with hidden deterministic tests and second-process replay. The full program remains capped at 40 tasks / 80 scored calls and cannot start unless that canary is green.
+
+The August 5 retention outputs compare `19/19` deterministically but remain unqualified: raw model records have `runnerAttestation: null`, authenticated grade application failed with `retention trusted raw execution failed: trusted execution attestation signature mismatch; answer/output binding mismatch`, and canonical state mutation remained false. This phase forbids retrospective attestation and requires a prospective trusted-runner repair plus two disjoint authenticated windows before any retained-transfer claim.
 
 **Retained/PhD production boundary repaired, with all live claims still
 blocked:** the canonical source defaults now point to the 264-node PhD

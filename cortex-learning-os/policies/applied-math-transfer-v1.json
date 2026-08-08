@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "cortex.learning_os.applied_math_transfer_policy.v1",
+  "policyId": "clos-applied-math-transfer-20260808-v1",
+  "status": "preregistered_candidate",
+  "claimType": "bounded_retained_integrated_applied_math_transfer",
+  "source": {
+    "commit": "55ca78a723f678c1c8bb17ae90e73649075156e9",
+    "curriculumId": "math-phd-trajectory-v1",
+    "conceptCountInCurriculum": 264,
+    "conceptCountInTreatment": 12
+  },
+  "runtime": {
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "xhigh",
+    "tools": false,
+    "network": false,
+    "freshSessionPerCall": true,
+    "maxProfilesPerRun": 1,
+    "maxTasks": 40,
+    "maxTrials": 80,
+    "maxTreatmentWords": 1800,
+    "maxCandidateTokens": 12000,
+    "maxCallSeconds": 900,
+    "maxVerifierSeconds": 20,
+    "maxCandidateBytes": 100000
+  },
+  "program": {
+    "canaryPairs": 1,
+    "transferFamilies": 10,
+    "variantsPerTransferFamily": 3,
+    "transferPairs": 30,
+    "regressionFamilies": 5,
+    "variantsPerRegressionFamily": 2,
+    "regressionPairs": 10,
+    "scoredCalls": 80,
+    "retentionWindows": 2,
+    "minimumWindowSeparationHours": 24
+  },
+  "validity": {
+    "invalidTrialTolerance": 0,
+    "requireUniquePlannedSessionId": true,
+    "requireNonNullWorkerCommand": true,
+    "requirePositiveImplementationRuntime": true,
+    "requireProviderObservedUsage": true,
+    "requirePromptOutputBinding": true,
+    "requireRawEventLedger": true,
+    "requireTrustedRunnerAttestation": true,
+    "requireZeroToolEvents": true,
+    "requireManifestCoverage": true,
+    "requireIndependentReplay": true,
+    "allowOutcomeDrivenReruns": false,
+    "allowRetrospectiveAttestation": false
+  },
+  "thresholds": {
+    "transferValidPairs": 30,
+    "candidateAccuracyMin": 0.875,
+    "noPackAccuracyMin": 0.75,
+    "accuracyLiftMin": 0.125,
+    "packOnlyWinsMustExceedNoPackOnlyWins": true,
+    "exactMcNemarPMax": 0.05,
+    "nonWorseFamilyCountMin": 8,
+    "domainNonRegressionRequired": true,
+    "compositionalCandidateAccuracyMin": 0.8,
+    "ordinaryCodingCandidateAccuracyMustBeAtLeastNoPack": true,
+    "semanticNegativeInjectionCountMax": 0,
+    "securityRegressionCountMax": 0,
+    "determinismRegressionCountMax": 0
+  },
+  "retention": {
+    "exactTreatmentDigestAcrossWindows": true,
+    "disjointTaskBanks": true,
+    "cleanRunnerRestart": true,
+    "authenticatedReplayBothWindows": true,
+    "canonicalMutationOnFailure": false
+  },
+  "routing": {
+    "benchmarkMayEmitEligibility": true,
+    "activationAllowed": false,
+    "maximumEligibleMode": "shadow_candidate",
+    "separateOperatorApprovalRequired": true
+  },
+  "truthBoundary": {
+    "all264RetainedClaimAllowed": false,
+    "modelWeightChangeClaimAllowed": false,
+    "humanEquivalentUnderstandingClaimAllowed": false,
+    "leanQualificationClaimAllowed": false,
+    "researchQualificationClaimAllowed": false,
+    "productionActivationClaimAllowed": false
+  }
+}

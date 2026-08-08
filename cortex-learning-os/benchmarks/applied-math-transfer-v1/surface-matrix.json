@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "cortex.learning_os.applied_math_transfer_surface_matrix.v1",
+  "matrixId": "clos-applied-math-transfer-surfaces-20260808-v1",
+  "status": "frozen_before_author_outputs",
+  "transferFamilies": [
+    {
+      "familyId": "stable-mergeable-moments",
+      "domain": "coding",
+      "kind": "compositional",
+      "conceptIds": ["numerical-analysis-floating-point-error", "numerical-analysis-conditioning"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_numeric",
+      "canary": true
+    },
+    {
+      "familyId": "capacitated-assignment-repair",
+      "domain": "coding",
+      "kind": "compositional",
+      "conceptIds": ["graph-theory-matchings-flows", "combinatorics-matroids"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_exact",
+      "canary": false
+    },
+    {
+      "familyId": "replicated-shard-clock",
+      "domain": "systems",
+      "kind": "compositional",
+      "conceptIds": ["number-theory-chinese-remainder", "proof-invariants-and-extremal-principles"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_exact",
+      "canary": false
+    },
+    {
+      "familyId": "absorbing-retry-budget",
+      "domain": "systems",
+      "kind": "compositional",
+      "conceptIds": ["stochastic-processes-markov-chains", "differential-equations-stability-lyapunov"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_numeric",
+      "canary": false
+    },
+    {
+      "familyId": "constrained-resource-allocation",
+      "domain": "coding",
+      "kind": "direct",
+      "conceptIds": ["optimization-duality-kkt"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_numeric",
+      "canary": false
+    },
+    {
+      "familyId": "ill-conditioned-least-squares",
+      "domain": "coding",
+      "kind": "compositional",
+      "conceptIds": ["linear-algebra-matrix-decompositions", "numerical-analysis-conditioning"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_numeric",
+      "canary": false
+    },
+    {
+      "familyId": "streaming-causal-rollout",
+      "domain": "systems",
+      "kind": "direct",
+      "conceptIds": ["statistics-causal-identification"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_statistical",
+      "canary": false
+    },
+    {
+      "familyId": "formal-state-machine-invariant",
+      "domain": "formal",
+      "kind": "compositional",
+      "conceptIds": ["proof-invariants-and-extremal-principles", "proof-counterexample-construction"],
+      "variants": 3,
+      "verifierClass": "bounded_exhaustive_model_check",
+      "canary": false
+    },
+    {
+      "familyId": "iterative-solver-controller",
+      "domain": "systems",
+      "kind": "compositional",
+      "conceptIds": ["numerical-analysis-conditioning", "differential-equations-stability-lyapunov"],
+      "variants": 3,
+      "verifierClass": "hidden_executable_numeric",
+      "canary": false
+    },
+    {
+      "familyId": "adversarial-proof-obligation",
+      "domain": "formal",
+      "kind": "direct",
+      "conceptIds": ["proof-counterexample-construction"],
+      "variants": 3,
+      "verifierClass": "bounded_exhaustive_counterexample_check",
+      "canary": false
+    }
+  ],
+  "regressionFamilies": [
+    {"familyId": "json-shape-normalization", "domain": "coding", "variants": 2, "treatmentEligible": false},
+    {"familyId": "unicode-tokenization", "domain": "coding", "variants": 2, "treatmentEligible": false},
+    {"familyId": "bounded-cache-api", "domain": "systems", "variants": 2, "treatmentEligible": false},
+    {"familyId": "timestamp-window-parsing", "domain": "systems", "variants": 2, "treatmentEligible": false},
+    {"familyId": "permission-rule-evaluation", "domain": "formal", "variants": 2, "treatmentEligible": false}
+  ],
+  "counts": {
+    "transferFamilies": 10,
+    "transferPairs": 30,
+    "regressionFamilies": 5,
+    "regressionPairs": 10,
+    "totalTasks": 40,
+    "totalScoredCalls": 80
+  }
+}
