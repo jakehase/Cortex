@@ -12,6 +12,7 @@ import { buildAcquisitionStatus } from '../src/acquisition-status.mjs';
 import { policyDigest } from '../src/adaptive-policy.mjs';
 import { buildAdditiveMasteryMigration } from '../src/additive-mastery-migration.mjs';
 import { buildDeploymentBinding, deploymentBindingDigest } from '../src/deployment-identity.mjs';
+import { validateGeneratedExerciseCoverage } from '../src/generated-exercises.mjs';
 import { currentCommittedIdentity } from '../src/git-product-source.mjs';
 import { sha256Text } from '../src/hash.mjs';
 import { readMasterySecret, verifyMasteryState } from '../src/mastery-state.mjs';
@@ -106,6 +107,7 @@ test('continuous math wave-1 source, additive migration, validity bank, and oper
   const policy = read('policies/adaptive-math-phd-v1.json');
   const program = validatePhdProgram({ graph: targetGraph, rubric, blueprint, legacyGraph });
   assert.deepEqual(program.errors, []);
+  assert.deepEqual(validateGeneratedExerciseCoverage(targetGraph).missing, []);
   assert.equal(targetGraph.version, '1.1.0');
   assert.equal(targetGraph.concepts.length, 288);
   assert.equal(rubric.conceptMappings.length, 288);

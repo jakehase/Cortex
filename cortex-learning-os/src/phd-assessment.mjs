@@ -9,7 +9,7 @@ import {
   verifyAuthorityAttestation,
 } from './phd-trust.mjs';
 
-export const PHD_ASSESSMENT_GENERATOR_VERSION = '1.1.0-fixture-drill';
+export const PHD_ASSESSMENT_GENERATOR_VERSION = '1.2.0-fixture-drill';
 export const INDEPENDENT_ASSESSMENT_ITEM_SCHEMA = 'cortex.learning_os.independent_assessment_item.v1';
 export const INDEPENDENT_ASSESSMENT_BANK_SCHEMA = 'cortex.learning_os.independent_assessment_bank.v1';
 export const INDEPENDENT_CHECKER_RUNTIME = 'cortex.learning_os.deterministic_checker.v1';
@@ -567,6 +567,12 @@ const PREFIX_TRACKS = [
   [/^(combinatorics-|graph-theory-)/, 'combinatorics-graph-theory'],
   [/^number-theory-/, 'number-theory'],
   [/^(logic-|set-theory-)/, 'logic-set-theory'],
+  [/^information-theory-/, 'information-theory'],
+  [/^control-/, 'control-decision-systems'],
+  [/^(learning-theory-|probabilistic-inference-|optimal-transport-)/, 'mathematical-learning-inference'],
+  [/^optimization-(conic-semidefinite|robust-distributional|proximal-splitting|decomposition-distributed)$/, 'advanced-convex-optimization'],
+  [/^algebraic-geometry-/, 'algebraic-geometry'],
+  [/^(operator-theory-|operator-algebras-|noncommutative-algebra-)/, 'operator-noncommutative-algebra'],
   [/^(numerical-analysis-|optimization-)/, 'numerical-analysis-optimization'],
   [/^research-practice-/, 'research-practice'],
 ];
@@ -700,6 +706,36 @@ const TRACK_SURFACES = {
   'numerical-analysis-optimization': (key) => {
     const scalar = integer(key, 0, 2, 12);
     return exact(`For the scalar problem f(x)=${scalar}x, compute the relative condition number |x f'(x)/f(x)| at any nonzero x.`, 1, { scalar });
+  },
+  'information-theory': (key) => {
+    const alphabetSize = [2, 4, 8, 16][hashInt(key, 0, 4)];
+    return exact(`A source is uniform on an alphabet of size ${alphabetSize}. Compute its Shannon entropy in bits.`, Math.log2(alphabetSize), { alphabetSize });
+  },
+  'control-decision-systems': (key) => {
+    const firstEigenvalue = integer(key, 0, 1, 5);
+    const separation = integer(key, 1, 1, 5);
+    const secondEigenvalue = firstEigenvalue + separation;
+    return exact(`For A=diag(${firstEigenvalue},${secondEigenvalue}) and B=(1,1)^T, compute the rank of the controllability matrix [B,AB].`, 2, { firstEigenvalue, secondEigenvalue });
+  },
+  'mathematical-learning-inference': (key) => {
+    const firstLoss = integer(key, 0, 0, 8);
+    const secondLoss = integer(key, 1, 0, 8);
+    const thirdLoss = integer(key, 2, 0, 8);
+    return exact(`A hypothesis has sample losses ${firstLoss}, ${secondLoss}, and ${thirdLoss}. Compute its empirical risk using the arithmetic mean.`, (firstLoss + secondLoss + thirdLoss) / 3, { firstLoss, secondLoss, thirdLoss });
+  },
+  'advanced-convex-optimization': (key) => {
+    const threshold = integer(key, 0, 1, 5);
+    const input = threshold + integer(key, 1, 1, 7);
+    return exact(`Compute the scalar proximal operator of ${threshold}|x| at input ${input}; equivalently apply soft-thresholding.`, input - threshold, { input, threshold });
+  },
+  'algebraic-geometry': (key) => {
+    const ambientDimension = integer(key, 0, 2, 9);
+    return exact(`A nonzero nonunit polynomial cuts out a hypersurface in affine ${ambientDimension}-space over a field. Give its expected codimension.`, 1, { ambientDimension });
+  },
+  'operator-noncommutative-algebra': (key) => {
+    const first = integer(key, 0, 1, 8);
+    const second = first + integer(key, 1, 1, 8);
+    return exact(`A self-adjoint operator on a two-dimensional Hilbert space is diagonal with eigenvalues -${first} and ${second}. Compute its operator norm.`, Math.max(first, second), { first, second });
   },
   'research-practice': (key) => {
     const variant = hashInt(key, 0, 2);
