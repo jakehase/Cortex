@@ -277,6 +277,13 @@ for (const bank of banks.filter((row) => row.summary.validForCurrentDeployment))
   }
 }
 
+const expectedConceptCount = program.graph.concepts.length;
+const graphConceptIds = new Set(program.graph.concepts.map((concept) => concept.conceptId));
+const transferRegistrySurfaceValid = transferRegistry.entries.length === transferEntriesByConcept.size
+  && transferRegistry.entries.every((entry) => Array.isArray(entry.conceptIds)
+    && entry.conceptIds.length === 1
+    && graphConceptIds.has(entry.conceptIds[0]));
+
 const matrixRows = program.graph.concepts.map((concept, index) => {
   const mapping = mappingByConcept.get(concept.conceptId);
   const state = mastery.concepts?.[concept.conceptId] || null;
@@ -306,7 +313,11 @@ const matrixRows = program.graph.concepts.map((concept, index) => {
       runId: state?.lastRunId || null,
       currentDeploymentAssessmentItems: acquisitionItems.length,
     },
-    validity: { state: 'not_started', evidenceDigest: null },
+    validity: {
+      state: 'not_started',
+      evidenceDigest: null,
+      currentDeploymentAssessmentItems: (currentValidBankConcepts.get(`validity:${concept.conceptId}`) || []).length,
+    },
     retention: {
       r7: 'not_started',
       r30: 'not_started',
@@ -386,24 +397,27 @@ const retentionFiles = Object.fromEntries(Object.entries(retentionPaths).map(([k
 const readinessBlockers = [];
 if (!program.ok || !program.productionTrustReady) readinessBlockers.push('canonical_program_or_production_trust_not_ready');
 if (!masteryVerification.ok) readinessBlockers.push('signed_mastery_state_invalid');
-if (matrixRows.length !== 264) readinessBlockers.push('curriculum_surface_matrix_not_264');
+if (matrixRows.length !== expectedConceptCount) readinessBlockers.push('curriculum_surface_matrix_count_mismatch');
 if (!pluginComparison.exact) readinessBlockers.push('live_plugin_source_drift');
 if (remoteReadiness.checked && !remoteReadiness.ready) readinessBlockers.push('remote_execution_boundary_not_ready');
-if ((acquisitionStatus?.frontier?.count || 0) === 0) readinessBlockers.push('current_264_concept_curriculum_frontier_exhausted');
-if (!banks.some((row) => row.summary.purpose === 'acquisition' && row.summary.validForCurrentDeployment)) {
+if ((acquisitionStatus?.frontier?.count || 0) === 0) readinessBlockers.push('current_curriculum_frontier_exhausted');
+if ((acquisitionStatus?.frontier?.count || 0) > 0
+    && !banks.some((row) => row.summary.purpose === 'acquisition' && row.summary.validForCurrentDeployment)) {
   readinessBlockers.push('current_deployment_independent_acquisition_bank_missing');
+}
+if (!banks.some((row) => row.summary.purpose === 'validity' && row.summary.validForCurrentDeployment)) {
+  readinessBlockers.push('current_deployment_independent_validity_bank_missing');
 }
 if (!banks.some((row) => row.summary.purpose === 'retention' && row.summary.validForCurrentDeployment)) {
   readinessBlockers.push('current_deployment_independent_retention_banks_missing');
 }
-readinessBlockers.push('independent_validity_bank_not_implemented');
 if (utilityCohort.length === 0) readinessBlockers.push('no_matched_everyday_activation_evidence_since_telemetry_window');
 
 const integrityBlockers = [];
 if (!masteryVerification.ok) integrityBlockers.push(...masteryVerification.errors.map((error) => `mastery:${error}`));
-if (matrixRows.length !== 264) integrityBlockers.push(`matrix:expected_264_observed_${matrixRows.length}`);
-if (transferRegistry.entries.length !== 264 || transferEntriesByConcept.size !== 264) {
-  integrityBlockers.push(`transfer_registry:expected_264_entries_and_concepts_observed_${transferRegistry.entries.length}_${transferEntriesByConcept.size}`);
+if (matrixRows.length !== expectedConceptCount) integrityBlockers.push(`matrix:expected_${expectedConceptCount}_observed_${matrixRows.length}`);
+if (!transferRegistrySurfaceValid) {
+  integrityBlockers.push(`transfer_registry:invalid_subset_entries_${transferRegistry.entries.length}_concepts_${transferEntriesByConcept.size}`);
 }
 if (!pluginComparison.exact) integrityBlockers.push('live_plugin:source_drift');
 
@@ -472,6 +486,7 @@ const bankInventory = {
   currentDeploymentDigest,
   bankCount: banks.length,
   validAcquisitionBankCount: banks.filter((row) => row.summary.purpose === 'acquisition' && row.summary.validForCurrentDeployment).length,
+  validValidityBankCount: banks.filter((row) => row.summary.purpose === 'validity' && row.summary.validForCurrentDeployment).length,
   validRetentionBankCount: banks.filter((row) => row.summary.purpose === 'retention' && row.summary.validForCurrentDeployment).length,
   banks: banks.map((row) => row.summary),
 };
@@ -491,13 +506,13 @@ const cohortPlan = {
     status: acquisitionCohort.length ? 'selected' : 'frontier_exhausted',
     conceptCount: acquisitionCohort.length,
     concepts: acquisitionCohort.map(({ conceptId, title, stage, approximateDifficulty, tracks, prerequisites }) => ({ conceptId, title, stage, approximateDifficulty, tracks, prerequisites })),
-    blocker: acquisitionCohort.length ? null : 'No unassessed prerequisite-ready concept remains in the current 264-node curriculum; source-grounded graph expansion is required for additional new-math acquisition.',
+    blocker: acquisitionCohort.length ? null : `No assessed-bank-backed prerequisite-ready concept remains in the current ${expectedConceptCount}-node curriculum.`,
   },
   validity: {
     status: validityCohort.length ? 'selected_bank_required' : 'not_selectable',
     conceptCount: validityCohort.length,
     concepts: validityCohort.map(({ conceptId, title, stage, approximateDifficulty, tracks }) => ({ conceptId, title, stage, approximateDifficulty, tracks })),
-    blocker: 'A disjoint independently authored validity bank does not yet exist.',
+    blocker: bankInventory.validValidityBankCount > 0 ? null : 'A disjoint independently authored validity bank does not yet exist for the current deployment.',
   },
   retention: {
     status: 'selected_bank_required',
@@ -519,17 +534,17 @@ const truthConflicts = {
   conflicts: [
     {
       id: 'acquired-once-vs-retention',
-      observed: `${aggregate.acquiredOnce}/264 signed acquired-once records and ${aggregate.retentionR7}/264 R7 retention confirmations`,
+      observed: `${aggregate.acquiredOnce}/${expectedConceptCount} signed acquired-once records and ${aggregate.retentionR7}/${expectedConceptCount} R7 retention confirmations`,
       resolution: 'Keep acquisition and retention in separate ledgers; do not call acquired-once retained.',
     },
     {
       id: 'operator-availability-vs-utility',
-      observed: `${aggregate.operatorAvailable}/264 operator-available profiles and ${aggregate.utilityQualified}/264 utility-qualified profiles`,
+      observed: `${aggregate.operatorAvailable}/${expectedConceptCount} operator-available profiles and ${aggregate.utilityQualified}/${expectedConceptCount} utility-qualified profiles`,
       resolution: 'Preserve operator availability label; require paired utility evidence for stronger ranking.',
     },
     {
       id: 'historical-bank-vs-current-deployment',
-      observed: `${banks.length} live bank file(s), ${bankInventory.validAcquisitionBankCount} acquisition and ${bankInventory.validRetentionBankCount} retention bank(s) valid for current deployment digest`,
+      observed: `${banks.length} live bank file(s), ${bankInventory.validAcquisitionBankCount} acquisition, ${bankInventory.validValidityBankCount} validity, and ${bankInventory.validRetentionBankCount} retention bank(s) valid for current deployment digest`,
       resolution: 'Do not reuse stale deployment-bound banks as current evidence; commission/rebind only through independent author/reviewer authority.',
     },
   ],
@@ -541,8 +556,8 @@ const thresholdEvaluation = {
     canonicalProgramValid: program.ok,
     productionTrustReady: program.productionTrustReady,
     signedMasteryValid: masteryVerification.ok,
-    exact264RowMatrix: matrixRows.length === 264,
-    signed264EntryTransferRegistry: transferRegistry.entries.length === 264 && transferEntriesByConcept.size === 264,
+    exactDeclaredRowMatrix: matrixRows.length === expectedConceptCount,
+    signedTransferRegistryIsValidGraphSubset: transferRegistrySurfaceValid,
     livePluginMatchesSource: pluginComparison.exact,
     remoteExecutionBoundaryReady: remoteReadiness.ready === true,
     providerModelCallsZero: true,
@@ -559,8 +574,8 @@ const blockerReport = {
   integrityBlockers,
   readinessBlockers,
   nextActions: [
-    'Create a source-grounded curriculum expansion proposal because the current 264-node acquisition frontier is exhausted.',
-    'Commission independently authored and reviewed validity and retention banks bound to the exact current deployment.',
+    'Create another source-grounded curriculum expansion only when the current declared frontier is exhausted.',
+    'Commission independently authored and reviewed acquisition, validity, and retention banks bound to the exact current deployment.',
     'Preserve the existing acquired-once ledger; do not rerun the same bank merely to produce a new deployment binding.',
     'Collect content-free matched activations before selecting everyday utility task families.',
   ],

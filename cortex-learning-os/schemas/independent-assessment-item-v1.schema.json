@@ -36,7 +36,7 @@
       "const": "independently_authored_concept_specific"
     },
     "assessmentRole": {
-      "enum": ["acquisition", "correction", "promotion-transfer", "retention"]
+      "enum": ["acquisition", "correction", "promotion-transfer", "validity-direct", "validity-compositional", "retention"]
     },
     "content": {
       "type": "object",

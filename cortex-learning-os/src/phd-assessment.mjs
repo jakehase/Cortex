@@ -16,7 +16,14 @@ export const INDEPENDENT_CHECKER_RUNTIME = 'cortex.learning_os.deterministic_che
 
 const DIGEST = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
-const ASSESSMENT_ROLES = new Set(['acquisition', 'correction', 'promotion-transfer', 'retention']);
+const ASSESSMENT_ROLES = new Set([
+  'acquisition',
+  'correction',
+  'promotion-transfer',
+  'validity-direct',
+  'validity-compositional',
+  'retention',
+]);
 const CHECKER_FIELDS = Object.freeze({
   exact_number: ['expected', 'mode'],
   exact_integer_string: ['expected', 'mode'],
@@ -338,7 +345,7 @@ function validateIndependentAssessmentBankInternal(bank, options = {}) {
         ? 'independently_authored_concept_specific'
         : 'controlled_fixture_only')
       || !IDENTIFIER.test(String(bank.bankId || ''))
-      || !['acquisition', 'retention'].includes(bank.purpose)
+      || !['acquisition', 'validity', 'retention'].includes(bank.purpose)
       || !Array.isArray(bank.items) || bank.items.length < 1 || bank.items.length > 100_000) {
     errors.push('independent assessment bank identity, purpose, or item set is invalid');
   }
@@ -356,9 +363,13 @@ function validateIndependentAssessmentBankInternal(bank, options = {}) {
       campaignBinding: bank.bindings?.campaign,
     });
     errors.push(...validation.errors.map((error) => `${String(item?.itemId || 'unknown')}: ${error}`));
+    const roleMatchesPurpose = bank.purpose === 'acquisition'
+      ? ['acquisition', 'correction', 'promotion-transfer'].includes(item?.assessmentRole)
+      : bank.purpose === 'validity'
+        ? ['validity-direct', 'validity-compositional'].includes(item?.assessmentRole)
+        : item?.assessmentRole === 'retention';
     if (canonicalJson(item?.bindings) !== canonicalJson(bank.bindings)
-        || (bank.purpose === 'retention' && item?.assessmentRole !== 'retention')
-        || (bank.purpose === 'acquisition' && item?.assessmentRole === 'retention')
+        || !roleMatchesPurpose
         || itemIds.has(item?.itemId) || itemDigests.has(item?.contentDigest)) {
       errors.push(`invalid, duplicate, or wrong-purpose bank item: ${String(item?.itemId || 'unknown')}`);
     }

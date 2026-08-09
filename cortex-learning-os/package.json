@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,6 +21,10 @@
     "train:math:stress": "node src/run-learning-smoke.mjs --runner codex --exam exams/math-foundations/exact-arithmetic-stress.exam.json",
     "train:adaptive": "node src/run-adaptive-curriculum.mjs",
     "math:phase0:audit": "node src/continuous-math-phase0-audit.mjs",
+    "math:bank:spec": "node src/continuous-math-bank-spec.mjs",
+    "math:bank:assemble": "node src/continuous-math-bank-assemble.mjs",
+    "math:bank:sign": "node src/continuous-math-bank-sign.mjs",
+    "math:bank:validate": "node src/continuous-math-bank-validate.mjs",
     "live:init": "node src/live-control.mjs init",
     "live:status": "node src/live-control.mjs status",
     "live:verify": "node src/live-control.mjs verify",

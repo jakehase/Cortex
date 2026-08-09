@@ -110,7 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--launcher", default="/root/clawd/cortex-learning-os/scripts/launch-parallel-adaptive-wave.sh", type=Path)
     parser.add_argument("--acquisition-state", default="/root/.openclaw/cortex-learning-os/mastery.json", type=Path)
     parser.add_argument("--source-marker", default="/root/clawd/CORTEX_LEARNING_OS_SOURCE_COMMIT", type=Path)
+    parser.add_argument("--source-ref", default="refs/heads/main")
     parser.add_argument("--repo-root", default="/root/clawd", type=Path)
+    parser.add_argument("--remote-repo", default="/home/jake/clawd-remote")
     parser.add_argument("--graph", default="/root/clawd/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json", type=Path)
     parser.add_argument("--policy", default="/root/clawd/cortex-learning-os/policies/adaptive-math-phd-v1.json", type=Path)
     parser.add_argument("--capsule", default="/root/clawd/cortex-learning-os/capsules/math-foundations/capsule.json", type=Path)
@@ -146,6 +148,10 @@ def validate(args: argparse.Namespace) -> None:
     for remote_path in (args.remote_graph, args.remote_policy, args.remote_capsule):
         if not re.fullmatch(r"/[A-Za-z0-9._/-]+", remote_path):
             raise ParallelContinuationError("unsafe remote adaptive input path")
+    if not re.fullmatch(r"/[A-Za-z0-9._/-]+", args.remote_repo) or ".." in args.remote_repo:
+        raise ParallelContinuationError("remote repository path is unsafe")
+    if not re.fullmatch(r"refs/heads/[A-Za-z0-9._/-]+", args.source_ref) or ".." in args.source_ref:
+        raise ParallelContinuationError("source ref is unsafe")
     if not 1 <= args.concurrency <= 8:
         raise ParallelContinuationError("concurrency must be 1..8")
     if not 1 <= args.max_waves <= 100:
@@ -255,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
             or state.get("capsule") != str(args.capsule)
             or state.get("assessmentBank") != str(args.assessment_bank)
             or state.get("assessmentBankSha256") != assessment_bank_sha256
+            or state.get("sourceRef") != args.source_ref
+            or state.get("remoteRepo") != args.remote_repo
             or state.get("remoteGraph") != args.remote_graph
             or state.get("remotePolicy") != args.remote_policy
             or state.get("remoteCapsule") != args.remote_capsule
@@ -271,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
             "status": "running",
             "reason": "parallel acquisition continuation is active",
             "sourceCommit": committed_source,
+            "sourceRef": args.source_ref,
+            "remoteRepo": args.remote_repo,
             "startedAt": now,
             "updatedAt": now,
             "initialAcquisitionRevision": revision,
@@ -338,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
                 command = [
                     str(args.launcher),
                     "--concurrency", str(concurrency),
+                    "--source-ref", args.source_ref,
+                    "--remote-repo", args.remote_repo,
                     "--graph", str(args.graph),
                     "--policy", str(args.policy),
                     "--capsule", str(args.capsule),

@@ -10,6 +10,7 @@ REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
 REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
 REMOTE_EXECUTION_PRIVATE_KEY="/home/jake/.config/cortex-learning-os/authorities/execution.private.pem"
+SOURCE_REF="refs/heads/main"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 EXPIRES_SECONDS=14400
 DRY_RUN=false
@@ -37,6 +38,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --remote-execution-private-key) REMOTE_EXECUTION_PRIVATE_KEY="${2:-}"; shift 2 ;;
+    --source-ref) SOURCE_REF="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --expires-seconds) EXPIRES_SECONDS="${2:-}"; shift 2 ;;
     --graph) LOCAL_GRAPH="${2:-}"; shift 2 ;;
@@ -58,6 +60,7 @@ done
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable" >&2; exit 2; }
 [[ "$REMOTE_EXECUTION_PRIVATE_KEY" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote execution private key" >&2; exit 2; }
+[[ "$SOURCE_REF" =~ ^refs/heads/[A-Za-z0-9._/-]+$ && "$SOURCE_REF" != *..* ]] || { echo "unsafe source ref" >&2; exit 2; }
 [[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
 [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
 [[ "$APPROVED_MODEL_EXECUTABLE_BINDING" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--approved-model-executable-binding requires a safe absolute path" >&2; exit 2; }
@@ -86,8 +89,8 @@ fi
 SOURCE_TREE="$(git -C "$LOCAL_REPO" rev-parse "$SOURCE_COMMIT^{tree}")"
 CHECKED_OUT_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
 [[ "$CHECKED_OUT_COMMIT" == "$SOURCE_COMMIT" ]] || { echo "checked-out source differs from canonical marker" >&2; exit 3; }
-ORIGIN_MAIN="$(git -C "$LOCAL_REPO" ls-remote origin refs/heads/main | awk '{print $1}')"
-[[ "$SOURCE_COMMIT" == "$ORIGIN_MAIN" ]] || { echo "canonical source is not origin/main" >&2; exit 3; }
+ORIGIN_SOURCE="$(git -C "$LOCAL_REPO" ls-remote origin "$SOURCE_REF" | awk '{print $1}')"
+[[ "$SOURCE_COMMIT" == "$ORIGIN_SOURCE" ]] || { echo "canonical source is not the exact pushed source ref" >&2; exit 3; }
 REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
 REMOTE_TREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse "$REMOTE_COMMIT^{tree}" | tr -d '[:space:]')"
 REMOTE_HEAD="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse HEAD | tr -d '[:space:]')"

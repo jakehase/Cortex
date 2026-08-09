@@ -1,15 +1,15 @@
 {
   "schemaVersion": "cortex.learning_os.phd_competency_rubric.v1",
   "rubricId": "math-phd-competency-v1",
-  "version": "1.0.0",
-  "effectiveAt": "2026-07-27T00:00:00.000Z",
+  "version": "1.1.0",
+  "effectiveAt": "2026-08-09T04:35:00.000Z",
   "curriculum": {
     "curriculumId": "math-phd-trajectory-v1",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "qualifyingBlueprint": {
     "blueprintId": "math-phd-qualifying-v1",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "stages": [
     {
@@ -197,6 +197,42 @@
       "title": "Mathematical research practice",
       "description": "Corpus discipline, reproducibility, formalization, review, and bounded research.",
       "minimumMappedConcepts": 5
+    },
+    {
+      "trackId": "information-theory",
+      "title": "Information Theory",
+      "description": "Entropy, coding, channels, and operational information limits.",
+      "minimumMappedConcepts": 4
+    },
+    {
+      "trackId": "control-decision-systems",
+      "title": "Control and Sequential Decision Systems",
+      "description": "State-space control, estimation, and sequential decisions under uncertainty.",
+      "minimumMappedConcepts": 4
+    },
+    {
+      "trackId": "mathematical-learning-inference",
+      "title": "Mathematical Learning and Inference",
+      "description": "Generalization, kernels, probabilistic inference, and transport methods.",
+      "minimumMappedConcepts": 4
+    },
+    {
+      "trackId": "advanced-convex-optimization",
+      "title": "Advanced Convex Optimization",
+      "description": "Conic, robust, proximal, and distributed optimization methods.",
+      "minimumMappedConcepts": 4
+    },
+    {
+      "trackId": "algebraic-geometry",
+      "title": "Algebraic Geometry",
+      "description": "Varieties, schemes, sheaves, divisors, and cohomological geometry.",
+      "minimumMappedConcepts": 4
+    },
+    {
+      "trackId": "operator-noncommutative-algebra",
+      "title": "Operator and Noncommutative Algebra",
+      "description": "Operator spectra, operator algebras, and noncommutative module structure.",
+      "minimumMappedConcepts": 4
     }
   ],
   "conceptMappings": [
@@ -2373,6 +2409,198 @@
         "statistics"
       ],
       "requiredForQualification": false
+    },
+    {
+      "conceptId": "information-theory-entropy-divergence",
+      "stage": "specialization",
+      "tracks": [
+        "information-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "information-theory-source-coding",
+      "stage": "specialization",
+      "tracks": [
+        "information-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "information-theory-channel-capacity",
+      "stage": "specialization",
+      "tracks": [
+        "information-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "information-theory-rate-distortion-testing",
+      "stage": "qualifying",
+      "tracks": [
+        "information-theory"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "control-state-space-reachability",
+      "stage": "specialization",
+      "tracks": [
+        "control-decision-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "control-lqr-riccati",
+      "stage": "specialization",
+      "tracks": [
+        "control-decision-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "control-estimation-kalman",
+      "stage": "specialization",
+      "tracks": [
+        "control-decision-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "control-dynamic-programming-stochastic",
+      "stage": "qualifying",
+      "tracks": [
+        "control-decision-systems"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "learning-theory-risk-generalization",
+      "stage": "specialization",
+      "tracks": [
+        "mathematical-learning-inference"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "learning-theory-kernels-regularization",
+      "stage": "specialization",
+      "tracks": [
+        "mathematical-learning-inference"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "probabilistic-inference-variational",
+      "stage": "qualifying",
+      "tracks": [
+        "mathematical-learning-inference"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimal-transport-couplings-sinkhorn",
+      "stage": "qualifying",
+      "tracks": [
+        "mathematical-learning-inference"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimization-conic-semidefinite",
+      "stage": "specialization",
+      "tracks": [
+        "advanced-convex-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimization-robust-distributional",
+      "stage": "qualifying",
+      "tracks": [
+        "advanced-convex-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimization-proximal-splitting",
+      "stage": "specialization",
+      "tracks": [
+        "advanced-convex-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "optimization-decomposition-distributed",
+      "stage": "qualifying",
+      "tracks": [
+        "advanced-convex-optimization"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-geometry-affine-varieties",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-geometry-schemes-sheaves",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-geometry-divisors-line-bundles",
+      "stage": "qualifying",
+      "tracks": [
+        "algebraic-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "algebraic-geometry-cohomology-riemann-roch",
+      "stage": "qualifying",
+      "tracks": [
+        "algebraic-geometry"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "operator-theory-unbounded-spectral",
+      "stage": "specialization",
+      "tracks": [
+        "operator-noncommutative-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "operator-algebras-cstar-gelfand",
+      "stage": "specialization",
+      "tracks": [
+        "operator-noncommutative-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "operator-algebras-von-neumann",
+      "stage": "qualifying",
+      "tracks": [
+        "operator-noncommutative-algebra"
+      ],
+      "requiredForQualification": false
+    },
+    {
+      "conceptId": "noncommutative-algebra-morita",
+      "stage": "qualifying",
+      "tracks": [
+        "operator-noncommutative-algebra"
+      ],
+      "requiredForQualification": false
     }
   ],
   "formalProofObligations": [
@@ -2507,5 +2735,5 @@
     "noveltyPolicy": "record_separately_never_infer_global_novelty",
     "courseCoverageAloneCanSatisfy": false
   },
-  "truthBoundary": "Course or acquisition coverage is curriculum breadth evidence only. phd_math_qualified requires every declared gate; it does not confer a degree, alter model weights, or establish unrestricted research novelty."
+  "truthBoundary": "The v1.1 rubric maps the 24 expansion concepts as non-required specialization/qualifying frontier work. Existing qualification requirements remain unchanged; mapping is not evidence of acquisition or competence."
 }

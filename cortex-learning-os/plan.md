@@ -5,10 +5,10 @@
 - Project slug: `cortex-learning-os`
 - Plan owner: Jake + Cortex
 - Created: `2026-07-07`
-- Last updated: `2026-08-08`
-- Status: `active_applied_math_transfer_qualification`
-- Fidelity target: `parity_for_scope_representative_applied_math_transfer`
-- Primary stop condition: `paired_canary_then_retention_integration_transfer_gates_green_or_precise_blocker`
+- Last updated: `2026-08-09`
+- Status: `active_continuous_math_expansion_wave1`
+- Fidelity target: `production_additive_curriculum_and_independent_evidence`
+- Primary stop condition: `wave1_acquired_once_with_future_validity_retention_frozen_or_precise_blocker`
 - Status file: `STATUS.md`
 - Decisions log: `DECISIONS.md`
 - Plan index entry: `/root/clawd/docs/PLAN_INDEX.md`

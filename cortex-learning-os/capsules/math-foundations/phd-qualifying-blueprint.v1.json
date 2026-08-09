@@ -1,14 +1,14 @@
 {
   "schemaVersion": "cortex.learning_os.phd_qualifying_blueprint.v1",
   "blueprintId": "math-phd-qualifying-v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "curriculum": {
     "curriculumId": "math-phd-trajectory-v1",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "rubric": {
     "rubricId": "math-phd-competency-v1",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "unseenExamProtocol": {
     "itemBankSealedBeforeAttempt": true,
@@ -123,7 +123,13 @@
       "combinatorics-graph-theory",
       "number-theory",
       "logic-set-theory",
-      "numerical-analysis-optimization"
+      "numerical-analysis-optimization",
+      "information-theory",
+      "control-decision-systems",
+      "mathematical-learning-inference",
+      "advanced-convex-optimization",
+      "algebraic-geometry",
+      "operator-noncommutative-algebra"
     ],
     "minimumDeclaredTracks": 1,
     "durationMinutes": 240,
@@ -163,5 +169,5 @@
     ],
     "globalNoveltyInferenceForbidden": true
   },
-  "truthBoundary": "These examinations and gates qualify declared evidence; they are not spaced review. Passing supports only the rubric claim after every independent prerequisite gate also passes."
+  "truthBoundary": "The v1.1 blueprint keeps all prior required qualifying gates and only admits the six expansion tracks as optional specialization declarations. It proves no new qualification evidence."
 }

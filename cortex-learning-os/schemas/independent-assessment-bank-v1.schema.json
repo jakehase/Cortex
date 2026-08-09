@@ -28,7 +28,7 @@
     "assessmentClass": {
       "const": "independently_authored_concept_specific"
     },
-    "purpose": { "enum": ["acquisition", "retention"] },
+    "purpose": { "enum": ["acquisition", "validity", "retention"] },
     "bindings": {
       "$ref": "independent-assessment-item-v1.schema.json#/$defs/bindings"
     },

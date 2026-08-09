@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.continuous_math_bank_reviewer_output.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["batchId", "accepted", "reviews", "batchIssues"],
+  "properties": {
+    "batchId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "accepted": { "type": "boolean" },
+    "reviews": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemKey", "accepted", "recomputedExpectedJson", "issues", "reviewRationale"],
+        "properties": {
+          "itemKey": { "type": "string", "minLength": 1, "maxLength": 320 },
+          "accepted": { "type": "boolean" },
+          "recomputedExpectedJson": { "type": "string", "minLength": 1, "maxLength": 12000 },
+          "issues": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+          "reviewRationale": { "type": "string", "minLength": 5, "maxLength": 4000 }
+        }
+      }
+    },
+    "batchIssues": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 2000 } }
+  }
+}
