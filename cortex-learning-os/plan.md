@@ -567,6 +567,8 @@ Implementation sequence and acceptance:
 2. Implement catalog loading, deterministic full-spectrum routing, bounded context generation, 264-entry registry support, and selected-only telemetry. Acceptance: the diff touches all listed product surfaces.
 3. Run exactly one focused end-to-end smoke command against a temporary signed registry. It must prove: catalog count `264`; one cross-domain systems request selects expected advanced concepts; only signed operator entries are rendered; context stays within the configured bound.
 4. If that one smoke passes, commit and push exact source, back up live plugin/config/registry, install the exact product files and all 264 signed profiles, raise the bounded context limit only if required, and restart the gateway once.
+   - Legacy transition rule added after the first guarded apply blocked at `2026-08-08 21:33 CDT`: verify the old registry envelope with its existing HMAC before new matcher semantics are applied; remove only superseded `operator_direct` entries; preserve compatible independently qualified entries; then atomically sign the 264-profile replacement. Never bypass signature verification or silently retain an entry that the new catalog cannot validate.
+   - Run exactly one focused migration smoke for this fix using an eight-profile signed temporary registry followed by the 264-profile installer. This is the one test for the migration fix, not a new campaign.
 5. Record live registry revision, exact hashes, active gateway state, and the completed 264-row surface matrix. These are deployment-state observations, not extra tests.
 
 Evidence and replay:

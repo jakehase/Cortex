@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import {
   TRANSFER_ENTRY_SCHEMA,
+  TRANSFER_REGISTRY_SCHEMA,
   atomicWriteSignedTransferRegistry,
   initializeTransferRegistry,
-  loadSignedTransferRegistry,
   readTransferRegistrySecret,
 } from '../../plugins/cortex-learning-os-live/transfer-registry.mjs';
 
@@ -39,6 +40,32 @@ function stable(value) {
 
 function digest(value) {
   return sha256(JSON.stringify(stable(value)));
+}
+
+function loadSignedRegistryEnvelopeForMigration(registryPath, secret) {
+  const stat = fs.lstatSync(registryPath);
+  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0
+      || typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new Error('transfer registry migration source must be an owner-only regular file');
+  }
+  const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+  if (registry?.schemaVersion !== TRANSFER_REGISTRY_SCHEMA
+      || !Number.isSafeInteger(registry?.revision) || registry.revision < 0
+      || !Array.isArray(registry?.entries) || registry.entries.length > 320
+      || registry?.signature?.algorithm !== 'hmac-sha256'
+      || typeof registry?.signature?.keyId !== 'string'
+      || typeof registry?.signature?.digest !== 'string' || !/^[0-9a-f]{64}$/.test(registry.signature.digest)) {
+    throw new Error('transfer registry migration source has an invalid envelope');
+  }
+  const expectedKeyId = sha256(secret).slice(0, 16);
+  if (registry.signature.keyId !== expectedKeyId) throw new Error('transfer registry migration keyId mismatch');
+  const { signature, ...payload } = registry;
+  const expected = crypto.createHmac('sha256', secret).update(canonicalJson(payload)).digest();
+  const actual = Buffer.from(signature.digest, 'hex');
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+    throw new Error('transfer registry migration signature mismatch');
+  }
+  return registry;
 }
 
 function parseArgs(argv) {
@@ -158,12 +185,18 @@ export function installOperatorEntries({ registryPath, secretPath, agentId = 'ma
   const sourceDigest = sha256(Buffer.concat(productSources));
   const planDigest = sha256(planSource);
 
-  initializeTransferRegistry({ registryPath, secretPath, now });
+  if (!fs.existsSync(registryPath)) initializeTransferRegistry({ registryPath, secretPath, now });
   const secret = readTransferRegistrySecret(secretPath);
-  const current = loadSignedTransferRegistry(registryPath, secret, { allowExpiredEntries: true });
+  const current = loadSignedRegistryEnvelopeForMigration(registryPath, secret);
   const entries = buildOperatorEntries({ now, allowedAgentIds: [agentId], sourceDigest, planDigest });
   const replaced = new Set(entries.map((entry) => entry.profileId));
-  const preserved = current.entries.filter((entry) => entry.activationBasis !== 'operator_direct' && !replaced.has(entry.profileId));
+  const independentEntries = current.entries.filter((entry) => entry.activationBasis !== 'operator_direct');
+  const incompatibleIndependent = independentEntries.filter((entry) => !replaced.has(entry.profileId));
+  if (incompatibleIndependent.length) {
+    throw new Error(`refusing to discard incompatible independently qualified profiles: ${incompatibleIndependent.map((entry) => entry.profileId).join(', ')}`);
+  }
+  const preserved = independentEntries.filter((entry) => replaced.has(entry.profileId));
+  const replacedLegacyOperatorCount = current.entries.length - independentEntries.length;
   const next = {
     schemaVersion: current.schemaVersion,
     revision: current.revision + 1,
@@ -180,6 +213,7 @@ export function installOperatorEntries({ registryPath, secretPath, agentId = 'ma
     catalogSourceDigest: CATALOG.source.sha256,
     installedProfileCount: entries.length,
     installedProfileIds: entries.map((entry) => entry.profileId).sort(),
+    replacedLegacyOperatorCount,
     sourceDigest,
     planDigest,
   };
