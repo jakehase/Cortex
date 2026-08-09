@@ -6,8 +6,8 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-08-08`
-- Status: `full_spectrum_phd_math_transfer_deployed`
-- Current fidelity: `264_operator_configured_concept_surfaces_mechanically_verified_no_phd_equivalence_claim`
+- Status: `continuous_math_phase0_complete_readiness_blocked`
+- Current fidelity: `exact_live_state_audited_264_acquired_once_zero_validity_retention_utility_claims`
 - Package version: `1.2.0`
 
 ## Current checkpoint
@@ -20,7 +20,9 @@ Runtime source commit `d8f90f520d0b592cd1ce1601af0aafbe1afd21af` plus migration 
 
 Truth boundary: “full spectrum” here means every declared curriculum concept is available to the bounded active retrieval/router layer with concept-specific context and verification guidance. It does not mean model-weight learning, durable retained mastery, empirical transfer benefit, human or PhD equivalence, proof-kernel qualification, or autonomous research ability. The August 5 retention outputs remain unqualified and the stopped 40-task/80-call harness remains historical only.
 
-**Next planned program — continue learning with four separate evidence lanes:** Jake scratched the external PhD-equivalence study plan on `2026-08-08` and redirected the project to ongoing mathematics acquisition, disjoint near-term validity, genuine elapsed-time R7/R30/R90 retention, and privacy-safe paired everyday Cortex utility. The replacement plan is `docs/continuous-math-learning-validity-retention-everyday-plan.md` and Wave 5.9 of `plan.md`. Its first milestone is a no-model-call/no-mutation live truth audit and exact 264-row evidence matrix. No new learning, validity, retention, or utility run has started from this planning change.
+**Continuous-math Phase 0 is mechanically green and the next evidence run is precisely blocked:** implementation commit `529b5c9c3` added the read-only audit path. Its one focused live smoke, `phase0-20260809T041854Z`, verified the exact committed program, production trust, signed mastery, the 264-row matrix, the signed 264-entry operator registry, exact deployed plugin source, Hetzner/Codex readiness, zero provider calls, and zero canonical mutations. The authoritative artifact root is `/root/clawd/artifacts/cortex-learning-os-continuous-math/phase0-20260809T041854Z`.
+
+Observed state is `264/264 acquired_once`, `0` unassessed/learning, `0` validity-confirmed, `0` R7/R30/R90 retention-confirmed, `0` utility-qualified, and `264` operator-available. The current 264-node acquisition frontier is exhausted. A diverse 24-concept validity cohort and 19-concept retention subset were selected across undergraduate through research-practice levels, but execution is blocked because no disjoint validity bank or current-deployment retention bank exists. The one live acquisition bank is independently authored/reviewed but bound to an earlier deployment digest, so it cannot be reused as current evidence. Additional new-math acquisition also requires a source-grounded curriculum expansion. No learning/validity/retention model run was launched.
 
 **Retained/PhD production boundary repaired, with all live claims still
 blocked:** the canonical source defaults now point to the 264-node PhD

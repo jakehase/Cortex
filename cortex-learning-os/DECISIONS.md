@@ -376,3 +376,13 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - First milestone: Run a no-model-call/no-mutation Phase-0 audit of exact live states, banks, execution readiness, and the full 264-row evidence matrix; then select the next prerequisite-ready cohort from observed state.
 - Evidence plan: `docs/continuous-math-learning-validity-retention-everyday-plan.md`; canonical roadmap Wave 5.9.
 - Boundary: This decision is planning, not proof of new acquisition, validity, retention, usefulness, or model-weight learning.
+
+## 2026-08-08 — Complete continuous-math Phase 0 and stop before ungrounded execution
+
+- Decision: Implement and run the read-only Phase-0 audit before making any model call or learning-state change. The canonical command is `npm run math:phase0:audit`; implementation commit is `529b5c9c3`.
+- Observed result: focused live run `phase0-20260809T041854Z` is mechanically green for exact source/program trust, signed mastery, exact 264-row matrix, signed 264-entry operator registry, deployed-source match, remote execution readiness, zero provider calls, and zero canonical mutations.
+- Exact truth layers: `264/264 acquired_once`; `0` unassessed/learning; `0` validity-confirmed; `0` R7/R30/R90 retention-confirmed; `0` utility-qualified; `264` operator-available.
+- Stop decision: Do not launch another acquisition run against the exhausted 264-node frontier and do not reuse the older deployment-bound acquisition bank. New acquisition requires source-grounded curriculum expansion plus a freshly bound independent bank. Validity and retention require their own disjoint independently authored/reviewed banks.
+- Selected next evidence surfaces: a diverse 24-concept validity cohort and 19-concept retention subset spanning undergraduate, proof-foundation, graduate, qualifying, specialization, and research-practice levels are recorded in `cohort-plan.json`.
+- Artifact root: `/root/clawd/artifacts/cortex-learning-os-continuous-math/phase0-20260809T041854Z`.
+- Boundary: Phase-0 green proves the audit path works and exposes real readiness blockers. It is not new learning, validity, retention, utility, or model-weight evidence.
