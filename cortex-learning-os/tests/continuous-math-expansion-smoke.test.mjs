@@ -152,7 +152,11 @@ test('continuous math wave-1 source, additive migration, validity bank, and oper
     authorities: [author.policyRecord, reviewer.policyRecord],
     truthBoundary: 'Ephemeral keys validate validity-purpose mechanics only.',
   };
-  const deployment = buildDeploymentBinding({ sourceCommit: '1'.repeat(40), sourceTree: '2'.repeat(40), artifacts: { targetGraph, rubric, trustPolicy } });
+  const deployment = buildDeploymentBinding({
+    sourceCommit: '1'.repeat(40),
+    sourceTree: '2'.repeat(40),
+    artifacts: { graph: targetGraph, rubric, 'trust-policy': trustPolicy },
+  });
   const campaign = { campaignId: 'controlled-validity-fixture', campaignDigest: '3'.repeat(64) };
   const items = [
     fixtureItem({ role: 'validity-direct', suffix: 'direct', graph: targetGraph, rubric, trustPolicy, deployment, campaign, author, reviewer }),
