@@ -218,7 +218,7 @@ def main() -> int:
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
             "sudo", "-u", "jake", "--", remote_codex, "--version",
         ], timeout=30, log_root=logs, label="remote-codex-version").strip()
-        remote_codex_auth = run([
+        run([
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
             "sudo", "-u", "jake", "--", remote_codex, "login", "status",
         ], timeout=30, log_root=logs, label="remote-codex-auth").strip()
@@ -227,7 +227,7 @@ def main() -> int:
             "resolvedPath": remote_codex,
             "sha256": remote_codex_sha256,
             "version": remote_codex_version,
-            "authenticationStatus": remote_codex_auth,
+            "authenticationStatus": "verified",
             "verifiedAt": now(),
         }
         atomic(args.artifact_root / "remote-codex-attestation.json", remote_codex_attestation)

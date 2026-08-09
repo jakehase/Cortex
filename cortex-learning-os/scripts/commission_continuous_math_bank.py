@@ -113,7 +113,10 @@ def validate_author(payload: dict[str, Any], batch_id: str, concepts: list[dict[
         concept, blueprint = expected[row["itemKey"]]
         if row.get("conceptId") != concept["conceptId"] or row.get("assessmentRole") != blueprint["assessmentRole"] or row.get("variant") != blueprint["variant"]:
             raise ValueError(f"{row.get('itemKey')}: item identity mismatch")
-        if set(row.get("outcomeCoverage") or []) != set(concept["outcomes"]):
+        outcome_coverage = row.get("outcomeCoverage") or []
+        if len(outcome_coverage) != len(set(outcome_coverage)):
+            raise ValueError(f"{row['itemKey']}: duplicate outcome coverage")
+        if set(outcome_coverage) != set(concept["outcomes"]):
             raise ValueError(f"{row['itemKey']}: outcome coverage mismatch")
         normalized = " ".join(row["prompt"].split()).casefold()
         if normalized in prompts:
@@ -162,7 +165,9 @@ def run_model(args: argparse.Namespace, state_path: Path, *, role: str, attempt_
     with prompt_path.open("rb") as stdin, events_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
         result = subprocess.run(command, stdin=stdin, stdout=stdout, stderr=stderr, timeout=args.call_timeout, check=False, env={**os.environ, "HOME": str(args.home)})
     if result.returncode != 0:
-        detail = stderr_path.read_text(encoding="utf-8", errors="replace")[-2000:]
+        stderr_detail = stderr_path.read_text(encoding="utf-8", errors="replace")[-1000:]
+        event_detail = events_path.read_text(encoding="utf-8", errors="replace")[-3000:]
+        detail = f"stderr:\n{stderr_detail}\nprovider-events:\n{event_detail}"
         raise RuntimeError(f"{role} provider call failed with exit {result.returncode}: {detail}")
     provenance = validate_events(events_path)
     payload = read_json(output_path)

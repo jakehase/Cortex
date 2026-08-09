@@ -96,6 +96,8 @@ function fixtureItem({ role, suffix, graph, rubric, trustPolicy, deployment, cam
 test('continuous math wave-1 source, additive migration, validity bank, and operator subset are coherent', () => {
   const pipelineSource = fs.readFileSync(path.join(root, 'scripts/run_continuous_math_wave1_pipeline.py'), 'utf8');
   const supervisorSource = fs.readFileSync(path.join(root, 'scripts/supervise_continuous_math_commissioning.py'), 'utf8');
+  const authorOutputSchema = read('schemas/continuous-math-bank-author-output.schema.json');
+  assert.equal(JSON.stringify(authorOutputSchema).includes('uniqueItems'), false);
   assert.match(pipelineSource, /"readlink", "-f", "--", args\.remote_codex/);
   assert.match(pipelineSource, /"systemctl", "show", f"\{unit\}\.service"/);
   assert.match(pipelineSource, /remote commissioning unit terminated before publishing durable state/);
