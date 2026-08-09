@@ -2,10 +2,52 @@ const MATCHERS = Object.freeze({
   'code-exact-integer-multiplication-v1': {
     profileId: 'exact-multiplication',
     conceptIds: ['number-fractions'],
+    decisionId: 'exact-multiplication',
   },
   'code-polynomial-factoring-v1': {
     profileId: 'algebra-factoring',
     conceptIds: ['algebra-factoring'],
+    decisionId: 'algebra-factoring',
+  },
+  'code-numerical-stability-v1': {
+    profileId: 'numerical-stability',
+    conceptIds: ['numerical-analysis-floating-point-error', 'numerical-analysis-conditioning'],
+    decisionId: 'numerical-stability',
+  },
+  'code-network-flow-matching-v1': {
+    profileId: 'network-flow-matching',
+    conceptIds: ['graph-theory-matchings-flows', 'combinatorics-matroids'],
+    decisionId: 'network-flow-matching',
+  },
+  'code-matrix-conditioning-v1': {
+    profileId: 'matrix-conditioning',
+    conceptIds: ['linear-algebra-matrix-decompositions', 'numerical-analysis-conditioning'],
+    decisionId: 'matrix-conditioning',
+  },
+  'code-constrained-optimization-v1': {
+    profileId: 'constrained-optimization',
+    conceptIds: ['optimization-duality-kkt'],
+    decisionId: 'constrained-optimization',
+  },
+  'code-stochastic-reliability-v1': {
+    profileId: 'stochastic-reliability',
+    conceptIds: ['stochastic-processes-markov-chains', 'differential-equations-stability-lyapunov'],
+    decisionId: 'stochastic-reliability',
+  },
+  'code-state-invariants-v1': {
+    profileId: 'state-invariants',
+    conceptIds: ['proof-invariants-and-extremal-principles', 'proof-counterexample-construction'],
+    decisionId: 'state-invariants',
+  },
+  'code-causal-analysis-v1': {
+    profileId: 'causal-analysis',
+    conceptIds: ['statistics-causal-identification'],
+    decisionId: 'causal-analysis',
+  },
+  'code-modular-reconstruction-v1': {
+    profileId: 'modular-reconstruction',
+    conceptIds: ['number-theory-chinese-remainder'],
+    decisionId: 'modular-reconstruction',
   },
 });
 
@@ -16,7 +58,7 @@ function normalizedText(value) {
 }
 
 function softwareContext(text) {
-  return /\b(?:code|coding|software|program|programming|implement|implementation|algorithm|function|method|class|module|plugin|library|api|typescript|javascript|python|rust|java|kotlin|swift|c\+\+|c#|golang|bigint|input|output|return value|unit test|property test)\b/.test(text)
+  return /\b(?:code|coding|software|program|programming|implement|implementation|algorithm|function|method|class|module|plugin|library|api|typescript|javascript|python|rust|java|kotlin|swift|c\+\+|c#|golang|bigint|input|output|return value|unit test|property test|system|service|scheduler|queue|database|distributed|protocol|worker|runtime)\b/.test(text)
     || /```|=>|function\s+\w+|def\s+\w+|fn\s+\w+/.test(text);
 }
 
@@ -68,6 +110,77 @@ function factoringDecision(text) {
   };
 }
 
+function scopedDecision(text, descriptor) {
+  const matched = descriptor.positive.test(text);
+  const negatives = descriptor.negative ? descriptor.negative(text) : [];
+  const applicable = matched && negatives.length === 0;
+  return {
+    applicable,
+    reasonCodes: applicable
+      ? [descriptor.reasonCode]
+      : [matched ? 'negative-gate-observed' : `${descriptor.reasonCode}-not-observed`],
+    observedAssumptionCodes: matched ? [...descriptor.assumptions] : [],
+    negativeGateCodes: negatives,
+  };
+}
+
+const SCOPED_DECISIONS = Object.freeze({
+  'numerical-stability': {
+    positive: /\b(?:floating[- ]point|numerical stability|catastrophic cancellation|rounding error|condition number|log[- ]sum[- ]exp|underflow|stable (?:variance|summation)|online variance|welford)\b/,
+    reasonCode: 'software-numerical-stability-observed',
+    assumptions: ['finite-precision-arithmetic', 'numerical-accuracy-matters'],
+    negative: () => [],
+  },
+  'network-flow-matching': {
+    positive: /\b(?:max(?:imum)? flow|min(?:imum)? cut|bipartite match(?:ing)?|capacitated assignment|residual graph|augmenting path)\b/,
+    reasonCode: 'software-flow-or-matching-observed',
+    assumptions: ['graph-capacities-or-matching-constraints'],
+    negative: (text) => /\b(?:css flow|workflow|cash flow|traffic flow only)\b/.test(text) ? ['non-graph-flow'] : [],
+  },
+  'matrix-conditioning': {
+    positive: /\b(?:least squares|linear system|matrix decomposition|\bqr\b|\bsvd\b|ill[- ]conditioned|condition number|pseudoinverse)\b/,
+    reasonCode: 'software-matrix-conditioning-observed',
+    assumptions: ['matrix-computation', 'stability-or-rank-matters'],
+    negative: () => [],
+  },
+  'constrained-optimization': {
+    positive: /\b(?:convex optimization|kkt|karush[- ]kuhn[- ]tucker|lagrange multiplier|primal[- ]dual|constrained (?:optimization|resource allocation)|duality gap)\b/,
+    reasonCode: 'software-constrained-optimization-observed',
+    assumptions: ['explicit-objective-and-constraints'],
+    negative: (text) => /\b(?:seo optimization|compiler optimization only)\b/.test(text) ? ['non-mathematical-optimization'] : [],
+  },
+  'stochastic-reliability': {
+    positive: /\b(?:markov chain|transition matrix|stationary distribution|steady[- ]state probability|queueing|stochastic process|retry (?:policy|budget)|failure transition)\b/,
+    reasonCode: 'software-stochastic-reliability-observed',
+    assumptions: ['state-transition-model'],
+    negative: () => [],
+  },
+  'state-invariants': {
+    positive: /\b(?:inductive invariant|state machine invariant|protocol invariant|safety property|model check(?:ing)?|counterexample trace|lease safety)\b/,
+    reasonCode: 'software-state-invariant-observed',
+    assumptions: ['explicit-state-and-transition-rules'],
+    negative: () => [],
+  },
+  'causal-analysis': {
+    positive: /\b(?:causal (?:effect|inference|identification)|confounder|backdoor criterion|propensity score|instrumental variable|difference[- ]in[- ]differences|treatment effect)\b/,
+    reasonCode: 'software-causal-analysis-observed',
+    assumptions: ['observational-or-experimental-data'],
+    negative: () => [],
+  },
+  'modular-reconstruction': {
+    positive: /\b(?:chinese remainder|\bcrt\b|modular congruence|coprime moduli|residue system)\b/,
+    reasonCode: 'software-modular-reconstruction-observed',
+    assumptions: ['integer-congruence-system'],
+    negative: (text) => /\b(?:crt monitor|cathode ray)\b/.test(text) ? ['display-crt'] : [],
+  },
+});
+
+function decide(decisionId, text) {
+  if (decisionId === 'exact-multiplication') return exactMultiplicationDecision(text);
+  if (decisionId === 'algebra-factoring') return factoringDecision(text);
+  return scopedDecision(text, SCOPED_DECISIONS[decisionId]);
+}
+
 export function routeCodingTransfer(query, {
   allowedProfileIds = Object.values(MATCHERS).map((row) => row.profileId),
   selectionMode = 'shadow',
@@ -90,9 +203,7 @@ export function routeCodingTransfer(query, {
   }
   for (const [matcherId, descriptor] of Object.entries(MATCHERS)) {
     if (!allowed.has(descriptor.profileId)) continue;
-    const decision = matcherId === 'code-exact-integer-multiplication-v1'
-      ? exactMultiplicationDecision(text)
-      : factoringDecision(text);
+    const decision = decide(descriptor.decisionId, text);
     decisions.push({
       profileId: descriptor.profileId,
       conceptIds: [...descriptor.conceptIds],

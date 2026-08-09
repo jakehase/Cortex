@@ -346,3 +346,13 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Evidence: `docs/applied-math-transfer-contract.md`; `policies/applied-math-transfer-v1.json`; `benchmarks/applied-math-transfer-v1/`.
 - Supersedes: Chat-only intent to use PhD mathematics broadly in coding without an empirical transfer contract; prior bounded transfer results remain immutable.
 - Follow-up: Implement and independently replay the one-pair canary; scale only if it is green.
+
+## 2026-08-08 — Supersede transfer qualification with direct implementation and one smoke
+
+- Decision: Stop the 40-task/80-call benchmark, canary, and review path. Use Jake's new standing workflow: plan the change, make it, run exactly one focused smoke test, then apply/deploy it.
+- Implementation: Add eight scoped applied-mathematics coding profiles to the canonical transfer bridge: numerical stability, network flow/matching, matrix conditioning, constrained optimization, stochastic reliability, state invariants/counterexamples, causal analysis, and modular reconstruction. Add an owner-only signed-registry installer that records them honestly as `operator_enabled` with `activationBasis=operator_direct` rather than independently qualified.
+- One test: A single focused temporary-registry smoke selected only `numerical-stability` for a stable online-variance coding request, loaded the signed operator entry, and rendered `1625` characters of active context. Result: `ok=true`, registry revision `1`.
+- Historical artifacts: Preserve preregistration commit `b9f6bfa282eb2c1dd7d77fe0fe1114c494b2cc85` and detached implementation worker `clos-applied-math-impl-20260808T235336Z`, but do not merge or run their expanded test/canary harness by default.
+- Boundary: The one smoke proves mechanical routing/context behavior only. It does not prove retained mastery, broad transfer efficacy, regression freedom, model-weight change, PhD equivalence, Lean qualification, or research ability.
+- Supersedes: The immediately preceding applied-mathematics transfer-qualification decision's execution/follow-up. Its artifact history remains valid; its campaign is not active.
+- Follow-up: Commit/persist the direct source, back up current live plugin/registry/config, install the profiles, and restart the gateway once.

@@ -1,6 +1,6 @@
 {
   "name": "cortex-learning-os",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -74,6 +74,7 @@
     "transfer:registry": "node src/transfer-control.mjs registry",
     "transfer:registry:enable": "node src/transfer-control.mjs registry-enable",
     "transfer:registry:disable": "node src/transfer-control.mjs registry-disable",
+    "transfer:operator-install": "node src/install-applied-math-direct.mjs",
     "experiment:ab": "node src/run-ab-experiment.mjs",
     "experiment:ab:plan": "node src/run-ab-experiment.mjs --plan-only",
     "validate:go-no-go": "node src/run-go-no-go-validation.mjs",

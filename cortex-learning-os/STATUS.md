@@ -6,15 +6,17 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-08-08`
-- Status: `applied_math_transfer_contract_frozen_canary_pending`
-- Current fidelity: `representative_subset_contract_only_no_transfer_qualification`
-- Package version: `1.0.0`
+- Status: `direct_applied_math_transfer_smoke_green_deployment_pending`
+- Current fidelity: `operator_configured_profiles_mechanically_verified_no_broad_efficacy_claim`
+- Package version: `1.1.0`
 
 ## Current checkpoint
 
-**Applied-mathematics transfer proof phase started from exact source `55ca78a723f678c1c8bb17ae90e73649075156e9`:** a leakage-resistant v1 contract, policy, 40-task surface matrix, author-separation interface, canary-first implementation task, and exact retention blocker record are frozen on isolated branch `feat/cortex-learning-os-applied-math-transfer-20260808`. No model call, task bank, treatment pack, transfer grade, registry mutation, or routing change has occurred. The next accepted transaction is one independently authored paired code canary with hidden deterministic tests and second-process replay. The full program remains capped at 40 tasks / 80 scored calls and cannot start unless that canary is green.
+**Direct applied-mathematics implementation supersedes the benchmark path:** Jake stopped further test campaigns, canaries, and review rounds on `2026-08-08`. The canonical transfer bridge now has source changes for eight operator-configured profiles: numerical stability, network flow/matching, matrix conditioning, constrained optimization, stochastic reliability, state invariants, causal analysis, and modular reconstruction. A signed-registry installer records these entries as `operator_enabled` with `activationBasis=operator_direct`; it does not mislabel them independently qualified.
 
-The August 5 retention outputs compare `19/19` deterministically but remain unqualified: raw model records have `runnerAttestation: null`, authenticated grade application failed with `retention trusted raw execution failed: trusted execution attestation signature mismatch; answer/output binding mismatch`, and canonical state mutation remained false. This phase forbids retrospective attestation and requires a prospective trusted-runner repair plus two disjoint authenticated windows before any retained-transfer claim.
+Exactly one focused smoke command passed for the intended path: a numerical-stability coding request selected only `numerical-stability`, loaded one signed operator entry, and rendered bounded active context (`1625` characters). This supports mechanical operation only. Deployment to the live plugin/registry and gateway restart remain the next action at this checkpoint. The detached 40-task/80-call harness output is retained as a historical artifact and will not be merged or executed by default.
+
+The August 5 retention outputs still compare `19/19` deterministically but remain unqualified because `runnerAttestation` was null and authenticated application failed. Direct implementation does not convert that evidence into retained mastery, PhD qualification, or model-weight learning.
 
 **Retained/PhD production boundary repaired, with all live claims still
 blocked:** the canonical source defaults now point to the 264-node PhD

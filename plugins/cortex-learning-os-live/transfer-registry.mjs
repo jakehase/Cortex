@@ -14,7 +14,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const REGISTRY_KEYS = new Set(['schemaVersion', 'revision', 'updatedAt', 'enabled', 'entries', 'signature']);
 const ENTRY_KEYS = new Set([
   'schemaVersion', 'entryId', 'profileId', 'profileVersion', 'conceptIds', 'matcherId',
-  'enabled', 'qualificationState', 'qualificationRunId', 'artifactManifestDigest',
+  'enabled', 'qualificationState', 'activationBasis', 'qualificationRunId', 'artifactManifestDigest',
   'evidenceDigest', 'profileDigest', 'qualifiedAt', 'expiresAt', 'allowedAgentIds', 'context',
 ]);
 const CONTEXT_KEYS = new Set([
@@ -62,7 +62,11 @@ export function validateTransferEntry(entry, { now = Date.now(), allowExpired = 
   if (!stringList(entry.conceptIds, { max: 8, itemMax: 128, pattern: /^[a-z0-9][a-z0-9-]*$/ })
       || matcher && canonicalJson(entry.conceptIds) !== canonicalJson(matcher.conceptIds)) errors.push('invalid conceptIds');
   if (typeof entry.enabled !== 'boolean') errors.push('invalid entry enabled flag');
-  if (entry.qualificationState !== 'qualified') errors.push('entry is not qualified');
+  const activationBasis = entry.activationBasis || (entry.qualificationState === 'qualified' ? 'independent_qualification' : '');
+  if (!['qualified', 'operator_enabled'].includes(entry.qualificationState)) errors.push('entry is not active');
+  if (entry.qualificationState === 'qualified' && activationBasis !== 'independent_qualification') errors.push('qualified entry requires independent_qualification activationBasis');
+  if (entry.qualificationState === 'operator_enabled' && activationBasis !== 'operator_direct') errors.push('operator entry requires operator_direct activationBasis');
+  if (entry.activationBasis !== undefined && !['independent_qualification', 'operator_direct'].includes(entry.activationBasis)) errors.push('invalid activationBasis');
   if (!text(entry.qualificationRunId, 160, ID)) errors.push('invalid qualificationRunId');
   for (const field of ['artifactManifestDigest', 'evidenceDigest', 'profileDigest']) {
     if (!text(entry[field], 64, DIGEST)) errors.push(`invalid ${field}`);
@@ -201,7 +205,7 @@ export function selectQualifiedTransferEntries(registry, route, { agentId, now =
   if (!registry?.enabled || !route?.applicable) return [];
   const applicable = new Set(route.selections.map((row) => row.profileId));
   return registry.entries
-    .filter((entry) => entry.enabled && entry.qualificationState === 'qualified')
+    .filter((entry) => entry.enabled && ['qualified', 'operator_enabled'].includes(entry.qualificationState))
     .filter((entry) => Date.parse(entry.expiresAt) > now)
     .filter((entry) => entry.allowedAgentIds.includes(agentId))
     .filter((entry) => applicable.has(entry.profileId))
@@ -211,17 +215,19 @@ export function selectQualifiedTransferEntries(registry, route, { agentId, now =
 
 export function renderTransferContext(entries, route, { maxChars = 6000 } = {}) {
   if (!entries.length) return '';
+  const hasOperatorEntry = entries.some((entry) => entry.qualificationState === 'operator_enabled');
   const lines = [
     'CORTEX_LEARNING_OS_CODING_TRANSFER',
-    'mode: active_independently_qualified_transfer',
-    'Implement independently and verify with the stated deterministic oracle.',
-    'Do not infer broader capability, mathematical mastery, or empirical benefit from this bounded context.',
+    `mode: ${hasOperatorEntry ? 'active_operator_configured_transfer' : 'active_independently_qualified_transfer'}`,
+    'Use the scoped mathematical guidance only when its observed assumptions hold.',
+    'Verify the implementation; do not infer broader mastery or empirical benefit from this context.',
   ];
   for (const entry of entries) {
     const decision = route.selections.find((row) => row.profileId === entry.profileId);
     lines.push(`profile_id: ${entry.profileId}`);
     lines.push(`concept_ids: ${entry.conceptIds.join(', ')}`);
     lines.push(`matcher_id: ${entry.matcherId}`);
+    lines.push(`activation_basis: ${entry.activationBasis || 'independent_qualification'}`);
     lines.push(`applicability_reason: ${decision.applicabilityReasonCodes.join(', ')}; ${entry.context.applicabilityReason}`);
     lines.push(`observed_assumptions: ${decision.observedAssumptionCodes.join(', ')}`);
     for (const assumption of entry.context.assumptions) lines.push(`assumption_${assumption.code}: ${assumption.description}`);
