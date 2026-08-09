@@ -366,3 +366,13 @@ Append-only durable decisions for the project. Keep current state in `STATUS.md`
 - Applied: Runtime source `d8f90f520d0b592cd1ce1601af0aafbe1afd21af` and migration fix `0a8e4177e3ee947b6a7a952def91aa96d37d9ed9` are pushed. The canonical plugin path matches the committed product source; live registry revision `2` contains 264 enabled operator-direct entries covering 264 unique concepts; configured context capacity is `8000`; and the gateway restarted active.
 - Boundary: “Full spectrum” is exact curriculum-surface availability through bounded retrieval guidance. It does not prove empirical improvement, retention, model-weight learning, PhD equivalence, proof qualification, or autonomous research ability. Operator activation must not be relabeled independent qualification.
 - Supersedes: The eight-profile scope in the immediately preceding direct-implementation decision. Its smoke and deployment remain immutable historical checkpoints.
+
+## 2026-08-08 — Supersede external PhD-equivalence study with continuous evidence-bearing math learning
+
+- Decision: Scratch `clos-phd-equivalence-usefulness-v1` as the active direction. Preserve its branch/commit only as immutable planning history; do not merge it, contact evaluators, recruit participants, spend funds, or launch its scored program.
+- Replacement objective: Continue through the existing 264-concept trajectory while running four separate evidence lanes: prerequisite-aware acquisition, disjoint near-term validity, real elapsed-time R7/R30/R90 retention, and paired everyday Cortex utility qualification.
+- Architecture: Extend the existing `adaptive-math-phd-v1` acquisition path, signed independent assessment-bank trust, `phd-retention-v1` machinery, detached Hetzner worker/control-plane harvester boundary, and signed live transfer registry. Do not build a parallel learning engine or reinterpret `acquired` as retained.
+- Everyday boundary: Current 264 profiles remain honestly `operator_available`. Content-free telemetry may identify high-frequency candidates, but only privacy-safe paired treatment/control evidence may grant `utility_qualified` or `everyday_preferred` status. Raw conversations and user corrections cannot directly mutate lessons or signed state.
+- First milestone: Run a no-model-call/no-mutation Phase-0 audit of exact live states, banks, execution readiness, and the full 264-row evidence matrix; then select the next prerequisite-ready cohort from observed state.
+- Evidence plan: `docs/continuous-math-learning-validity-retention-everyday-plan.md`; canonical roadmap Wave 5.9.
+- Boundary: This decision is planning, not proof of new acquisition, validity, retention, usefulness, or model-weight learning.

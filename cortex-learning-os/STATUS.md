@@ -20,6 +20,8 @@ Runtime source commit `d8f90f520d0b592cd1ce1601af0aafbe1afd21af` plus migration 
 
 Truth boundary: “full spectrum” here means every declared curriculum concept is available to the bounded active retrieval/router layer with concept-specific context and verification guidance. It does not mean model-weight learning, durable retained mastery, empirical transfer benefit, human or PhD equivalence, proof-kernel qualification, or autonomous research ability. The August 5 retention outputs remain unqualified and the stopped 40-task/80-call harness remains historical only.
 
+**Next planned program — continue learning with four separate evidence lanes:** Jake scratched the external PhD-equivalence study plan on `2026-08-08` and redirected the project to ongoing mathematics acquisition, disjoint near-term validity, genuine elapsed-time R7/R30/R90 retention, and privacy-safe paired everyday Cortex utility. The replacement plan is `docs/continuous-math-learning-validity-retention-everyday-plan.md` and Wave 5.9 of `plan.md`. Its first milestone is a no-model-call/no-mutation live truth audit and exact 264-row evidence matrix. No new learning, validity, retention, or utility run has started from this planning change.
+
 **Retained/PhD production boundary repaired, with all live claims still
 blocked:** the canonical source defaults now point to the 264-node PhD
 trajectory and acquisition-only policy. Exact program inputs are loaded from

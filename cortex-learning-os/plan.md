@@ -607,6 +607,74 @@ Truth boundary:
 - Completion means all 264 canonical concepts are available through the active signed retrieval/context path with deterministic matching and bounded guidance.
 - It does not establish retained mastery, universal relevance, empirical answer improvement, formal theorem-proving qualification, independent research ability, human PhD equivalence, or model-weight change.
 
+### Wave 5.9 — Continuous math learning, validity, retention, and everyday Cortex use
+
+Reply anchor and supersession:
+
+- Anchor: Jake's `2026-08-08 22:54 CDT` instruction to scratch the external PhD-equivalence plan, continue learning more mathematics, test validity and retention at the same time, and determine how to use the result in everyday Cortex.
+- The `clos-phd-equivalence-usefulness-v1` plan and branch remain historical Git evidence only. They are not active, are not merged into this branch, and authorize no evaluator outreach, spending, recruitment, or scored program.
+- Active branch/worktree: `feat/cortex-learning-os-continuous-math-evidence-20260808` at `/root/clawd/worktrees/cortex-learning-os-applied-math-transfer-20260808`.
+- Full operating contract: [`docs/continuous-math-learning-validity-retention-everyday-plan.md`](docs/continuous-math-learning-validity-retention-everyday-plan.md).
+
+Objective and fidelity:
+
+- Extend the existing 264-concept acquisition, retention, and signed transfer paths into one ongoing evidence loop.
+- “Learning” means signed covered-once evidence, independently verified corrections/lessons, time-separated retention, and measured task utility. It does not mean model-weight training.
+- This wave is planning only until implementation touches the declared product surfaces and Phase-0 live audit artifacts exist.
+
+Four independent lanes:
+
+1. **Acquisition:** continue prerequisite-aware concept coverage with independently authored signed assessment items; promote a lesson only after genuine failure and paired fresh-session lift.
+2. **Validity:** within 24–72 hours, test newly acquired/corrected concepts on disjoint direct and compositional/proof/error-diagnosis families.
+3. **Retention:** use the existing production retention path for real R7 windows, then disjoint R30/R90 windows; acquisition continues while clocks run.
+4. **Everyday utility:** retain honest `operator_available` status for current profiles, collect content-free activation evidence, run paired utility qualification on privacy-safe task families, and mark only passing profiles `utility_qualified`/`everyday_preferred`.
+
+Architecture and ownership:
+
+- Extend `adaptive-math-phd-v1`, `phd-retention-v1`, existing assessment-bank trust, control-plane replay/signing, detached Hetzner workers, and the signed live transfer registry. Do not build a parallel learner.
+- Keep acquisition, validity, retention, and utility in separate ledgers with a 264-row evidence matrix and exact negative space.
+- The learner cannot author or grade its own evidence. Source/lesson author, assessment author/reviewer, worker, grader, harvester, and utility auditor remain capability-separated.
+- Raw private chats, client data, credentials, and personal information are never learning artifacts. Everyday corrections create quarantined gap candidates only; trusted state changes still require independent evidence.
+
+Implementation sequence:
+
+1. Phase 0: inspect live signed acquisition/lesson/retention/transfer states, banks, exact source, Hetzner readiness, and notifier; create the 264-row evidence matrix with no model call or state mutation.
+2. Select up to 24 prerequisite-ready concepts across at least six tracks for the first cohort, based on observed live state rather than memory.
+3. Continue acquisition one detached child at a time through the existing signed bank/worker/harvester path.
+4. Schedule disjoint validity packs 24–72 hours later and preserve failures as correction candidates.
+5. Freeze genuine R7/R30/R90 retention commitments and execute only after real elapsed time.
+6. Use content-free everyday telemetry to choose 4–8 high-frequency utility families; calibrate disjoint tasks, then run frozen fresh-session treatment/control pairs.
+7. Feed verified gaps—not raw conversations—back into the next acquisition cohort. Expand beyond the 264 frontier only through source-grounded, reviewed DAG additions.
+8. For implementation changes, follow plan → change → one focused smoke → apply. Assessment runs are evidence collection, not a broad software test campaign.
+
+Evidence and artifacts:
+
+- Future root: `/root/clawd/artifacts/cortex-learning-os-continuous-math/<campaign-id>/`.
+- Required state layers: catalog availability, acquired once, validity confirmed, R7/R30/R90 retention, runtime activation, causal utility, and model-weight learning (unclaimed).
+- Required artifacts include source/live-state freezes, bank inventory, cohort plan, separate lane states, provider ledger, manifests, integrity and threshold reports, truth conflicts, completion/blocker reports, and next-wave plan.
+- Progress is reported as exact counts such as `acquiredOnce`, `validityConfirmed`, `retentionR7`, and `utilityQualified`; never as a vibe-based percentage.
+
+Execution boundary and continuation:
+
+- Heavy model execution belongs on Hetzner; local control plane freezes plans, verifies/signs state, consumes artifacts, and notifies.
+- Preserve existing bounds: one active child, at most 100 sessions and 24 hours per continuation, four hours per child, stop on first blocker/non-advance/source drift/frontier/budget exhaustion.
+- One bounded wave ending does not complete the objective. Generate the next grounded wave from evidence-matrix gaps, due retention windows, and everyday utility candidates.
+
+Immediate milestone and stop condition:
+
+```text
+phase_0_live_truth_audit_complete
+and exact_264_row_evidence_matrix_written
+and next_prerequisite_ready_cohort_identified
+and no_model_call_or_state_mutation_performed
+or precise_readiness_blocker_reported
+```
+
+Truth boundary:
+
+- This wave creates the route to continued learning and evidence; the plan itself proves nothing.
+- Profile availability is not acquisition, acquisition is not validity, validity is not retention, activation is not utility, and none implies model-weight learning.
+
 ### Wave 6 — Quant Truth Lab extension
 
 Goal:
