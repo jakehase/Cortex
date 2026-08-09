@@ -18,6 +18,7 @@ from typing import Any
 SCHEMA = "cortex.learning_os.continuous_math_wave1_pipeline.v1"
 SOURCE_REF_RE = re.compile(r"^refs/heads/[A-Za-z0-9._/-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+REMOTE_CODEX_RE = re.compile(r"^/home/jake/\.local/[A-Za-z0-9._/@+-]+$")
 PURPOSES = ("acquisition", "validity", "retention")
 
 
@@ -97,6 +98,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--source-ref", default="refs/heads/feat/cortex-learning-os-continuous-math-evidence-20260808")
     result.add_argument("--remote-host", default="root@37.27.129.239")
     result.add_argument("--remote-repo", default="/home/jake/clawd-remote", type=Path)
+    result.add_argument("--remote-codex", default="/home/jake/.local/bin/codex")
     result.add_argument("--state-root", default="/root/.openclaw/cortex-learning-os", type=Path)
     result.add_argument("--commission-wall-seconds", default=21600, type=int)
     result.add_argument("--acquisition-wall-seconds", default=21600, type=int)
@@ -112,6 +114,8 @@ def main() -> int:
         raise RuntimeError("unsafe source ref")
     if not re.fullmatch(r"root@[A-Za-z0-9._:-]+", args.remote_host):
         raise RuntimeError("unsafe remote host")
+    if not REMOTE_CODEX_RE.fullmatch(args.remote_codex) or ".." in args.remote_codex:
+        raise RuntimeError("unsafe remote Codex path")
     if args.state_file.exists() or args.artifact_root.exists():
         raise RuntimeError("pipeline state/artifact root must be fresh")
     args.artifact_root.mkdir(parents=True, mode=0o700)
@@ -192,17 +196,66 @@ def main() -> int:
         run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
              "chown", "-R", "jake:jake", remote_root], timeout=60)
 
+        remote_codex = run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+            "readlink", "-f", "--", args.remote_codex,
+        ], timeout=30, log_root=logs, label="remote-codex-resolve").strip()
+        if not REMOTE_CODEX_RE.fullmatch(remote_codex) or ".." in remote_codex:
+            raise RuntimeError("remote Codex resolved outside the approved local installation root")
+        run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+             "test", "-f", remote_codex], timeout=30, log_root=logs, label="remote-codex-regular-file")
+        run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+             "test", "!", "-L", remote_codex], timeout=30, log_root=logs, label="remote-codex-not-symlink")
+        run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+             "test", "-x", remote_codex], timeout=30, log_root=logs, label="remote-codex-executable")
+        remote_codex_sha256 = run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+            "sha256sum", remote_codex,
+        ], timeout=120, log_root=logs, label="remote-codex-sha256").split()[0]
+        if not re.fullmatch(r"[0-9a-f]{64}", remote_codex_sha256):
+            raise RuntimeError("remote Codex digest is invalid")
+        remote_codex_version = run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+            "sudo", "-u", "jake", "--", remote_codex, "--version",
+        ], timeout=30, log_root=logs, label="remote-codex-version").strip()
+        remote_codex_auth = run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+            "sudo", "-u", "jake", "--", remote_codex, "login", "status",
+        ], timeout=30, log_root=logs, label="remote-codex-auth").strip()
+        remote_codex_attestation = {
+            "requestedPath": args.remote_codex,
+            "resolvedPath": remote_codex,
+            "sha256": remote_codex_sha256,
+            "version": remote_codex_version,
+            "authenticationStatus": remote_codex_auth,
+            "verifiedAt": now(),
+        }
+        atomic(args.artifact_root / "remote-codex-attestation.json", remote_codex_attestation)
+
         remote_state = f"{remote_root}/supervisor-state.json"
         unit = f"clos-{args.pipeline_id}-commission"
-        update("commissioning", "three role-isolated author/reviewer lanes are running on Hetzner", remoteCommissioningState=remote_state, remoteUnit=unit)
+        update(
+            "launching_commissioning",
+            "launching the role-isolated author/reviewer supervisor on Hetzner",
+            remoteCommissioningState=remote_state,
+            remoteUnit=unit,
+            remoteCodex=remote_codex_attestation,
+        )
         run([
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
-            "systemd-run", f"--unit={unit}", "--collect", "--quiet",
+            "systemd-run", f"--unit={unit}", "--quiet",
             "--property=User=jake", "--property=Group=jake", f"--working-directory={remote_clos}",
             "/usr/bin/python3", f"{remote_clos}/scripts/supervise_continuous_math_commissioning.py",
             "--root", remote_root, "--clos-root", remote_clos, "--spec-root", f"{remote_root}/specs",
-            "--codex", "/home/jake/.local/bin/codex", "--max-wall-seconds", str(args.commission_wall_seconds),
+            "--codex", remote_codex, "--max-wall-seconds", str(args.commission_wall_seconds),
         ], timeout=60, log_root=logs, label="remote-commission-launch")
+        update(
+            "commissioning",
+            "remote commissioning supervisor launched; awaiting its durable lane state",
+            remoteCommissioningState=remote_state,
+            remoteUnit=unit,
+            remoteCodex=remote_codex_attestation,
+        )
         deadline = time.monotonic() + args.commission_wall_seconds + 300
         remote_terminal: dict[str, Any] | None = None
         while time.monotonic() < deadline:
@@ -216,9 +269,33 @@ def main() -> int:
                     "acceptedItems": sum(int(row.get("acceptedItems", 0)) for row in remote_terminal.get("lanes", {}).values()),
                 }
                 state["updatedAt"] = now()
+                if remote_terminal.get("status") == "running":
+                    state["reason"] = "three role-isolated author/reviewer lanes are running on Hetzner"
                 atomic(args.state_file, state)
                 if remote_terminal.get("status") in {"completed", "blocked"}:
                     break
+            else:
+                unit_result = subprocess.run([
+                    "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", args.remote_host,
+                    "systemctl", "show", f"{unit}.service", "--no-pager",
+                    "--property=LoadState", "--property=ActiveState", "--property=SubState",
+                    "--property=Result", "--property=ExecMainStatus",
+                ], capture_output=True, text=True, timeout=30, check=False)
+                unit_state = {}
+                if unit_result.returncode == 0:
+                    unit_state = dict(
+                        line.split("=", 1)
+                        for line in unit_result.stdout.splitlines()
+                        if "=" in line
+                    )
+                if unit_result.returncode != 0 or unit_state.get("LoadState") != "loaded":
+                    raise RuntimeError("remote commissioning unit disappeared before publishing durable state")
+                if unit_state.get("ActiveState") in {"failed", "inactive"}:
+                    raise RuntimeError(
+                        "remote commissioning unit terminated before publishing durable state: "
+                        f"active={unit_state.get('ActiveState')} sub={unit_state.get('SubState')} "
+                        f"result={unit_state.get('Result')} exit={unit_state.get('ExecMainStatus')}"
+                    )
             time.sleep(15)
         if not remote_terminal or remote_terminal.get("status") != "completed":
             raise RuntimeError(f"remote commissioning blocked: {(remote_terminal or {}).get('blocker') or 'timeout'}")
@@ -303,7 +380,7 @@ def main() -> int:
             "--live-plugin-root", "/root/clawd/plugins/cortex-learning-os-live",
             "--remote-host", "jake@37.27.129.239",
             "--remote-root", remote_clos,
-            "--remote-codex", "/home/jake/.local/bin/codex",
+            "--remote-codex", remote_codex,
         ], cwd=args.repo_root, timeout=600, log_root=logs, label="post-bank-phase0"))
         if not audit.get("ok") or not audit.get("nextLearningExecutionReady"):
             raise RuntimeError(f"post-bank readiness audit blocked: {audit.get('readinessBlockers')}")

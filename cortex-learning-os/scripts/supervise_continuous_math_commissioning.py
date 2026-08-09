@@ -68,20 +68,12 @@ def main() -> int:
     state_path = args.root / "supervisor-state.json"
     if state_path.exists():
         raise RuntimeError("supervisor state already exists")
-    commissioner = args.clos_root / "scripts/commission_continuous_math_bank.py"
-    author_schema = args.clos_root / "schemas/continuous-math-bank-author-output.schema.json"
-    reviewer_schema = args.clos_root / "schemas/continuous-math-bank-reviewer-output.schema.json"
-    for target in (commissioner, author_schema, reviewer_schema, args.codex):
-        if not target.is_file() or target.is_symlink():
-            raise RuntimeError(f"required regular file is missing: {target}")
-    empty = args.root / "empty"
-    empty.mkdir(mode=0o700)
     lanes: dict[str, dict[str, Any]] = {}
     processes: dict[str, subprocess.Popen[bytes]] = {}
     started = now()
     state = {
         "schemaVersion": SCHEMA,
-        "status": "running",
+        "status": "preparing",
         "artifactRoot": str(args.root),
         "startedAt": started,
         "updatedAt": started,
@@ -91,6 +83,18 @@ def main() -> int:
     }
     atomic(state_path, state)
     try:
+        commissioner = args.clos_root / "scripts/commission_continuous_math_bank.py"
+        author_schema = args.clos_root / "schemas/continuous-math-bank-author-output.schema.json"
+        reviewer_schema = args.clos_root / "schemas/continuous-math-bank-reviewer-output.schema.json"
+        for target in (commissioner, author_schema, reviewer_schema, args.codex):
+            if target.is_symlink():
+                raise RuntimeError(f"required execution path must not be a symlink: {target}")
+            if not target.is_file():
+                raise RuntimeError(f"required regular file is missing: {target}")
+        empty = args.root / "empty"
+        empty.mkdir(mode=0o700)
+        state.update(status="running", updatedAt=now())
+        atomic(state_path, state)
         for purpose in PURPOSES:
             lane_root = args.root / purpose
             lane_root.mkdir(mode=0o700)

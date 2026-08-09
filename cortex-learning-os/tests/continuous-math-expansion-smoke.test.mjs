@@ -94,6 +94,14 @@ function fixtureItem({ role, suffix, graph, rubric, trustPolicy, deployment, cam
 }
 
 test('continuous math wave-1 source, additive migration, validity bank, and operator subset are coherent', () => {
+  const pipelineSource = fs.readFileSync(path.join(root, 'scripts/run_continuous_math_wave1_pipeline.py'), 'utf8');
+  const supervisorSource = fs.readFileSync(path.join(root, 'scripts/supervise_continuous_math_commissioning.py'), 'utf8');
+  assert.match(pipelineSource, /"readlink", "-f", "--", args\.remote_codex/);
+  assert.match(pipelineSource, /"systemctl", "show", f"\{unit\}\.service"/);
+  assert.match(pipelineSource, /remote commissioning unit terminated before publishing durable state/);
+  assert.doesNotMatch(pipelineSource, /"systemd-run", f"--unit=\{unit\}", "--collect"/);
+  assert.match(supervisorSource, /"status": "preparing"/);
+  assert.match(supervisorSource, /required execution path must not be a symlink/);
   execFileSync('python3', ['-c', 'import ast,sys; [ast.parse(open(p, encoding="utf-8").read(), filename=p) for p in sys.argv[1:]]',
     path.join(root, 'scripts/commission_continuous_math_bank.py'),
     path.join(root, 'scripts/supervise_continuous_math_commissioning.py'),
