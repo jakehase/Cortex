@@ -20,6 +20,7 @@
     "train:math:challenge": "node src/run-learning-smoke.mjs --runner codex --exam exams/math-foundations/reliability-challenge.exam.json",
     "train:math:stress": "node src/run-learning-smoke.mjs --runner codex --exam exams/math-foundations/exact-arithmetic-stress.exam.json",
     "train:adaptive": "node src/run-adaptive-curriculum.mjs",
+    "math:phase0:audit": "node src/continuous-math-phase0-audit.mjs",
     "live:init": "node src/live-control.mjs init",
     "live:status": "node src/live-control.mjs status",
     "live:verify": "node src/live-control.mjs verify",
