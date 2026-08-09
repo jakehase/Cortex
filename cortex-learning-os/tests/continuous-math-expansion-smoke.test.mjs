@@ -139,7 +139,7 @@ test('continuous math wave-1 source, additive migration, validity bank, and oper
   assert.ok(built.audit.addedConceptIds.every((conceptId) => built.targetState.concepts[conceptId].state === 'unassessed'));
   assert.deepEqual(Object.fromEntries(Object.entries(built.targetState.concepts).slice(0, 264)), sourceState.concepts);
   const status = buildAcquisitionStatus({ state: built.targetState, graph: targetGraph });
-  assert.equal(status.counts.unassessed, 24);
+  assert.equal(status.unassessed.count, 24);
   assert.ok(status.frontier.count > 0);
 
   const author = authority('fixture-continuous-author', 'bank_authoring');
