@@ -1,0 +1,4565 @@
+{
+  "schemaVersion": "cortex.learning_os.full_spectrum_transfer_surface_matrix.v1",
+  "matrixId": "full-spectrum-phd-math-transfer-v1",
+  "source": {
+    "curriculumId": "math-phd-trajectory-v1",
+    "curriculumVersion": "1.0.0",
+    "sha256": "7ad786eb5a5a4a3b0dc209c8fdc2b2e0b1f5593e3b470f691f88e2717a5bbc5c"
+  },
+  "total": 264,
+  "completed": 0,
+  "status": "implementation_in_progress",
+  "surfaces": [
+    {
+      "ordinal": 1,
+      "conceptId": "number-fractions",
+      "title": "Fractions and rational numbers",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 2,
+      "conceptId": "algebra-inverse-operations",
+      "title": "Inverse operations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 3,
+      "conceptId": "algebra-linear-equations",
+      "title": "Linear equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 4,
+      "conceptId": "algebra-factoring",
+      "title": "Polynomial factoring",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 5,
+      "conceptId": "algebra-quadratics",
+      "title": "Quadratic equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 6,
+      "conceptId": "algebra-absolute-value",
+      "title": "Absolute-value equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 7,
+      "conceptId": "functions-evaluation",
+      "title": "Function evaluation",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 8,
+      "conceptId": "functions-inverse",
+      "title": "Inverse functions",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 9,
+      "conceptId": "functions-transformations",
+      "title": "Function transformations",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 10,
+      "conceptId": "series-geometric",
+      "title": "Geometric series",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 11,
+      "conceptId": "probability-counting",
+      "title": "Counting outcomes",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 12,
+      "conceptId": "probability-binomial",
+      "title": "Binomial probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 13,
+      "conceptId": "probability-complements",
+      "title": "Complement rule",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 14,
+      "conceptId": "probability-conditional",
+      "title": "Conditional probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 15,
+      "conceptId": "probability-bayes",
+      "title": "Bayes rule and base rates",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 16,
+      "conceptId": "probability-independence",
+      "title": "Independence",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 17,
+      "conceptId": "probability-inclusion-exclusion",
+      "title": "Inclusion-exclusion",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 18,
+      "conceptId": "probability-waiting-time",
+      "title": "Pattern waiting times",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 19,
+      "conceptId": "probability-combinatorics",
+      "title": "Combinatorial probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 20,
+      "conceptId": "statistics-mean",
+      "title": "Arithmetic mean",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 21,
+      "conceptId": "statistics-weighted-mean",
+      "title": "Weighted mean",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 22,
+      "conceptId": "statistics-median",
+      "title": "Median and robust center",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 23,
+      "conceptId": "statistics-variance",
+      "title": "Variance",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 24,
+      "conceptId": "statistics-bernoulli",
+      "title": "Bernoulli moments",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 25,
+      "conceptId": "statistics-z-score",
+      "title": "Standardization",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 26,
+      "conceptId": "statistics-causation",
+      "title": "Association versus causation",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 27,
+      "conceptId": "calculus-derivative",
+      "title": "Derivatives",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 28,
+      "conceptId": "optimization-quadratic",
+      "title": "Quadratic optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 29,
+      "conceptId": "optimization-multivariate",
+      "title": "Multivariate optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 30,
+      "conceptId": "optimization-constraints",
+      "title": "Constrained optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 31,
+      "conceptId": "reasoning-percent-base",
+      "title": "Percent-change bases",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 32,
+      "conceptId": "reasoning-expected-value",
+      "title": "Expected value",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 33,
+      "conceptId": "reasoning-sample-space",
+      "title": "Sample-space conditioning",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 34,
+      "conceptId": "reasoning-self-overlap",
+      "title": "Sequence self-overlap",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 35,
+      "conceptId": "linear-algebra-determinant",
+      "title": "Determinants",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 36,
+      "conceptId": "reasoning-truth-boundary",
+      "title": "Capability truth boundaries",
+      "category": "error-analysis",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 37,
+      "conceptId": "algebra-polynomial-arithmetic",
+      "title": "Polynomial arithmetic",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 38,
+      "conceptId": "algebra-rational-expressions",
+      "title": "Rational expressions",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 39,
+      "conceptId": "algebra-complex-numbers",
+      "title": "Complex-number arithmetic",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 40,
+      "conceptId": "functions-composition",
+      "title": "Function composition",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 41,
+      "conceptId": "functions-polynomial-behavior",
+      "title": "Polynomial end behavior",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 42,
+      "conceptId": "precalculus-exponential-functions",
+      "title": "Exponential functions",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 43,
+      "conceptId": "precalculus-logarithms",
+      "title": "Logarithms",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 44,
+      "conceptId": "precalculus-unit-circle",
+      "title": "Unit-circle trigonometry",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 45,
+      "conceptId": "calculus-limits",
+      "title": "Polynomial limits",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 46,
+      "conceptId": "calculus-continuity",
+      "title": "Continuity and removable discontinuities",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 47,
+      "conceptId": "calculus-product-rule",
+      "title": "Product rule",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 48,
+      "conceptId": "calculus-chain-rule",
+      "title": "Chain rule",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 49,
+      "conceptId": "calculus-implicit-differentiation",
+      "title": "Implicit differentiation",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 50,
+      "conceptId": "calculus-antiderivatives",
+      "title": "Antiderivatives",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 51,
+      "conceptId": "calculus-definite-integrals",
+      "title": "Definite integrals",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 52,
+      "conceptId": "calculus-fundamental-theorem",
+      "title": "Fundamental theorem of calculus",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 53,
+      "conceptId": "calculus-substitution",
+      "title": "Integration by substitution",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 54,
+      "conceptId": "calculus-series-convergence",
+      "title": "Series convergence",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 55,
+      "conceptId": "linear-algebra-vectors",
+      "title": "Vector arithmetic",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 56,
+      "conceptId": "linear-algebra-dot-product",
+      "title": "Dot products",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 57,
+      "conceptId": "linear-algebra-matrix-multiplication",
+      "title": "Matrix multiplication",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 58,
+      "conceptId": "linear-algebra-linear-systems",
+      "title": "Linear systems in matrix form",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 59,
+      "conceptId": "linear-algebra-row-reduction",
+      "title": "Row reduction",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 60,
+      "conceptId": "linear-algebra-independence",
+      "title": "Linear independence",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 61,
+      "conceptId": "linear-algebra-eigenvalues",
+      "title": "Eigenvalues",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 62,
+      "conceptId": "linear-algebra-orthogonal-projection",
+      "title": "Orthogonal projection",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 63,
+      "conceptId": "probability-random-variables",
+      "title": "Discrete random variables",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 64,
+      "conceptId": "probability-expectation-linearity",
+      "title": "Linearity of expectation",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 65,
+      "conceptId": "probability-discrete-distributions",
+      "title": "Discrete distributions",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 66,
+      "conceptId": "statistics-covariance-correlation",
+      "title": "Covariance and correlation",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 67,
+      "conceptId": "statistics-sampling-distributions",
+      "title": "Sampling distributions",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 68,
+      "conceptId": "statistics-confidence-intervals",
+      "title": "Confidence intervals",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 69,
+      "conceptId": "statistics-hypothesis-tests",
+      "title": "Hypothesis testing",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 70,
+      "conceptId": "statistics-linear-regression",
+      "title": "Simple linear regression",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 71,
+      "conceptId": "discrete-logic",
+      "title": "Propositional logic",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 72,
+      "conceptId": "discrete-proof-induction",
+      "title": "Mathematical induction",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 73,
+      "conceptId": "discrete-sets-relations",
+      "title": "Sets and relations",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 74,
+      "conceptId": "discrete-graph-theory",
+      "title": "Graph theory foundations",
+      "category": "discrete-mathematics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 75,
+      "conceptId": "discrete-recurrences",
+      "title": "Recurrence relations",
+      "category": "discrete-mathematics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 76,
+      "conceptId": "number-theory-modular-arithmetic",
+      "title": "Modular arithmetic",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 77,
+      "conceptId": "number-theory-gcd",
+      "title": "Greatest common divisors",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 78,
+      "conceptId": "number-theory-prime-factorization",
+      "title": "Prime factorization",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 79,
+      "conceptId": "optimization-convexity",
+      "title": "Convexity",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 80,
+      "conceptId": "optimization-gradients",
+      "title": "Gradients",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 81,
+      "conceptId": "optimization-hessian",
+      "title": "Hessian matrices",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 82,
+      "conceptId": "optimization-lagrange-multipliers",
+      "title": "Lagrange multipliers",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 83,
+      "conceptId": "optimization-linear-programming",
+      "title": "Linear programming",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 84,
+      "conceptId": "optimization-gradient-descent",
+      "title": "Gradient descent",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 85,
+      "conceptId": "proof-quantifiers-and-scope",
+      "title": "Quantifiers, scope, and negation",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 86,
+      "conceptId": "graph-theory-matchings-flows",
+      "title": "Matchings, cuts, and network flows",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 87,
+      "conceptId": "number-theory-chinese-remainder",
+      "title": "Chinese remainder theorem",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 88,
+      "conceptId": "numerical-analysis-floating-point-error",
+      "title": "Floating-point error and stability",
+      "category": "numerical-analysis-optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 89,
+      "conceptId": "proof-direct-and-contrapositive",
+      "title": "Direct and contrapositive proof",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 90,
+      "conceptId": "proof-strong-and-structural-induction",
+      "title": "Strong and structural induction",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 91,
+      "conceptId": "proof-counterexample-construction",
+      "title": "Counterexample construction",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 92,
+      "conceptId": "topology-spaces-bases",
+      "title": "Topological spaces and bases",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 93,
+      "conceptId": "combinatorics-matroids",
+      "title": "Matroids and greedy structure",
+      "category": "combinatorics-graph-theory",
+      "stage": "specialization",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 94,
+      "conceptId": "logic-first-order-syntax-semantics",
+      "title": "First-order syntax and semantics",
+      "category": "logic-set-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 95,
+      "conceptId": "proof-contradiction-and-minimal-counterexample",
+      "title": "Contradiction and minimal-counterexample arguments",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 96,
+      "conceptId": "proof-equivalence-and-biconditionals",
+      "title": "Equivalence and biconditional proofs",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 97,
+      "conceptId": "proof-pigeonhole-and-double-counting",
+      "title": "Pigeonhole and double-counting proofs",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 98,
+      "conceptId": "topology-continuous-quotient-product-maps",
+      "title": "Continuous, quotient, and product maps",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 99,
+      "conceptId": "topology-separation-axioms",
+      "title": "Separation axioms",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 100,
+      "conceptId": "combinatorics-probabilistic-method",
+      "title": "The probabilistic method",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 101,
+      "conceptId": "set-theory-ordinals-transfinite",
+      "title": "Ordinals and transfinite recursion",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 102,
+      "conceptId": "proof-existence-and-uniqueness",
+      "title": "Existence and uniqueness proofs",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 103,
+      "conceptId": "proof-invariants-and-extremal-principles",
+      "title": "Invariants and extremal principles",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 104,
+      "conceptId": "linear-algebra-vector-spaces-subspaces",
+      "title": "Vector spaces and subspaces",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 105,
+      "conceptId": "real-analysis-completeness",
+      "title": "Completeness of the real numbers",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 106,
+      "conceptId": "abstract-algebra-groups-homomorphisms",
+      "title": "Groups and homomorphisms",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 107,
+      "conceptId": "topology-connectedness-paths",
+      "title": "Connectedness and path components",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 108,
+      "conceptId": "algebraic-topology-simplicial-cell-complexes",
+      "title": "Simplicial and cell complexes",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 109,
+      "conceptId": "combinatorics-bijections-generating-functions",
+      "title": "Bijections and generating functions",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 110,
+      "conceptId": "number-theory-diophantine-equations",
+      "title": "Diophantine equations",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 111,
+      "conceptId": "set-theory-cardinal-arithmetic",
+      "title": "Cardinal arithmetic and the continuum",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 112,
+      "conceptId": "proof-dependency-audit",
+      "title": "Proof dependency auditing",
+      "category": "proof-foundations",
+      "stage": "qualifying",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 113,
+      "conceptId": "linear-algebra-linear-maps-kernel-image",
+      "title": "Linear maps, kernels, and images",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 114,
+      "conceptId": "real-analysis-epsilon-delta-limits",
+      "title": "Epsilon-delta limits",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 115,
+      "conceptId": "abstract-algebra-group-actions",
+      "title": "Group actions and orbit-stabilizer",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 116,
+      "conceptId": "abstract-algebra-rings-ideals-quotients",
+      "title": "Rings, ideals, and quotient rings",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 117,
+      "conceptId": "topology-topological-manifolds",
+      "title": "Topological manifolds",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 118,
+      "conceptId": "algebraic-topology-homotopy-fundamental-group",
+      "title": "Homotopy and fundamental groups",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 119,
+      "conceptId": "measure-theory-sigma-algebras-measures",
+      "title": "Sigma algebras and measures",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 120,
+      "conceptId": "combinatorics-extremal-set-systems",
+      "title": "Extremal set systems",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 121,
+      "conceptId": "graph-theory-connectivity-planarity",
+      "title": "Graph connectivity and planarity",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 122,
+      "conceptId": "number-theory-quadratic-residues",
+      "title": "Quadratic residues and reciprocity",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 123,
+      "conceptId": "linear-algebra-basis-dimension",
+      "title": "Bases, dimension, and coordinates",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 124,
+      "conceptId": "real-analysis-cauchy-sequences",
+      "title": "Cauchy sequences and completeness criteria",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 125,
+      "conceptId": "real-analysis-mean-value-theorems",
+      "title": "Mean-value theorems and differentiability",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 126,
+      "conceptId": "abstract-algebra-sylow-theory",
+      "title": "Sylow theory",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 127,
+      "conceptId": "abstract-algebra-field-extensions",
+      "title": "Field extensions and minimal polynomials",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 128,
+      "conceptId": "algebraic-topology-covering-spaces",
+      "title": "Covering spaces and lifting",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 129,
+      "conceptId": "measure-theory-measurable-functions",
+      "title": "Measurable functions",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 130,
+      "conceptId": "combinatorics-posets-mobius",
+      "title": "Partially ordered sets and Mobius inversion",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 131,
+      "conceptId": "graph-theory-coloring-ramsey",
+      "title": "Graph coloring and Ramsey theory",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 132,
+      "conceptId": "logic-completeness-compactness",
+      "title": "Logical completeness and compactness",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 133,
+      "conceptId": "research-practice-literature-corpus",
+      "title": "Bounded literature-corpus protocol",
+      "category": "research-practice",
+      "stage": "graduate_core",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 134,
+      "conceptId": "linear-algebra-rank-nullity",
+      "title": "Rank-nullity theorem",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 135,
+      "conceptId": "real-analysis-continuity-compactness",
+      "title": "Continuity on compact sets",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 136,
+      "conceptId": "real-analysis-metric-spaces",
+      "title": "Metric spaces, completeness, and compactness",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 137,
+      "conceptId": "abstract-algebra-solvable-nilpotent-groups",
+      "title": "Solvable and nilpotent groups",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 138,
+      "conceptId": "abstract-algebra-galois-theory",
+      "title": "Galois theory",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 139,
+      "conceptId": "number-theory-arithmetic-functions",
+      "title": "Arithmetic functions and Dirichlet convolution",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 140,
+      "conceptId": "logic-computability-incompleteness",
+      "title": "Computability and incompleteness",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 141,
+      "conceptId": "logic-model-theory-types",
+      "title": "Model theory, types, and elementary extensions",
+      "category": "logic-set-theory",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 142,
+      "conceptId": "research-practice-conjecture-counterexample",
+      "title": "Conjecture refinement and counterexample search",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 143,
+      "conceptId": "research-practice-computational-reproducibility",
+      "title": "Reproducible mathematical computation",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 144,
+      "conceptId": "linear-algebra-quotients-and-duals",
+      "title": "Quotient spaces and duality",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 145,
+      "conceptId": "real-analysis-riemann-integration",
+      "title": "Riemann integration and Darboux sums",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 146,
+      "conceptId": "real-analysis-multivariable-differentiation",
+      "title": "Multivariable differentiation and inverse mappings",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 147,
+      "conceptId": "topology-compactness-local-compactness",
+      "title": "Compactness and local compactness",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 148,
+      "conceptId": "topology-nets-filters",
+      "title": "Nets, filters, and general convergence",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 149,
+      "conceptId": "differential-equations-ode-existence-uniqueness",
+      "title": "ODE existence and uniqueness",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 150,
+      "conceptId": "linear-algebra-canonical-forms",
+      "title": "Canonical forms of linear operators",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 151,
+      "conceptId": "linear-algebra-tensors-and-exterior-powers",
+      "title": "Tensors and exterior powers",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 152,
+      "conceptId": "real-analysis-uniform-convergence",
+      "title": "Uniform convergence of function sequences",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 153,
+      "conceptId": "complex-analysis-holomorphic-functions",
+      "title": "Holomorphic functions and Cauchy-Riemann equations",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 154,
+      "conceptId": "functional-analysis-normed-banach-spaces",
+      "title": "Normed and Banach spaces",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 155,
+      "conceptId": "topology-urysohn-tietze",
+      "title": "Urysohn lemma and Tietze extension",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 156,
+      "conceptId": "differential-geometry-smooth-manifolds-tangent",
+      "title": "Smooth manifolds and tangent bundles",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 157,
+      "conceptId": "measure-theory-lebesgue-integration",
+      "title": "Lebesgue integration and convergence theorems",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 158,
+      "conceptId": "numerical-analysis-quadrature-ode",
+      "title": "Numerical quadrature and ODE integration",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 159,
+      "conceptId": "linear-algebra-spectral-theorem",
+      "title": "Finite-dimensional spectral theorem",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 160,
+      "conceptId": "real-analysis-arzela-ascoli",
+      "title": "Arzela-Ascoli compactness",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 161,
+      "conceptId": "complex-analysis-contour-integration",
+      "title": "Contour integration",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 162,
+      "conceptId": "complex-analysis-mobius-conformal-maps",
+      "title": "Mobius transformations and conformal maps",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 163,
+      "conceptId": "functional-analysis-sobolev-spaces",
+      "title": "Sobolev spaces and weak derivatives",
+      "category": "functional-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis",
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 164,
+      "conceptId": "abstract-algebra-modules-structure",
+      "title": "Modules and finitely generated structure",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 165,
+      "conceptId": "topology-paracompact-partitions",
+      "title": "Paracompactness and partitions of unity",
+      "category": "topology",
+      "stage": "specialization",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 166,
+      "conceptId": "differential-geometry-differential-forms-stokes",
+      "title": "Differential forms and Stokes theorem",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 167,
+      "conceptId": "differential-geometry-lie-groups-algebras",
+      "title": "Lie groups and Lie algebras",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 168,
+      "conceptId": "differential-equations-linear-systems",
+      "title": "Linear ODE systems and fundamental matrices",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 169,
+      "conceptId": "measure-theory-product-fubini",
+      "title": "Product measures and Fubini-Tonelli",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 170,
+      "conceptId": "probability-measure-spaces-laws",
+      "title": "Probability spaces and distribution laws",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 171,
+      "conceptId": "numerical-analysis-interpolation-approximation",
+      "title": "Interpolation and approximation theory",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 172,
+      "conceptId": "linear-algebra-matrix-decompositions",
+      "title": "Matrix decompositions and operator norms",
+      "category": "advanced-linear-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 173,
+      "conceptId": "real-analysis-theorem-synthesis",
+      "title": "Real-analysis theorem synthesis",
+      "category": "real-analysis",
+      "stage": "qualifying",
+      "tracks": [
+        "real-analysis",
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 174,
+      "conceptId": "complex-analysis-cauchy-theory",
+      "title": "Cauchy theorem and integral formula",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 175,
+      "conceptId": "abstract-algebra-representation-theory",
+      "title": "Representations and characters of finite groups",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 176,
+      "conceptId": "abstract-algebra-category-functor-natural",
+      "title": "Categories, functors, and natural transformations",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 177,
+      "conceptId": "commutative-algebra-noetherian-modules",
+      "title": "Noetherian rings and modules",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 178,
+      "conceptId": "topology-theorem-synthesis",
+      "title": "General-topology theorem synthesis",
+      "category": "topology",
+      "stage": "qualifying",
+      "tracks": [
+        "topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 179,
+      "conceptId": "differential-geometry-vector-bundles",
+      "title": "Vector bundles and sections",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 180,
+      "conceptId": "differential-equations-stability-lyapunov",
+      "title": "Lyapunov stability",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 181,
+      "conceptId": "differential-equations-pde-classification",
+      "title": "Classification of second-order PDE",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 182,
+      "conceptId": "probability-convergence-laws-large-numbers",
+      "title": "Modes of convergence and laws of large numbers",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 183,
+      "conceptId": "stochastic-processes-markov-chains",
+      "title": "Markov chains and stationary distributions",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 184,
+      "conceptId": "statistics-decision-sufficiency",
+      "title": "Statistical decision theory and sufficiency",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 185,
+      "conceptId": "graph-theory-spectral-random-graphs",
+      "title": "Spectral and random graph methods",
+      "category": "combinatorics-graph-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 186,
+      "conceptId": "complex-analysis-laurent-residues",
+      "title": "Laurent series and residues",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 187,
+      "conceptId": "complex-analysis-maximum-open-mapping",
+      "title": "Maximum modulus and open mapping principles",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 188,
+      "conceptId": "functional-analysis-bounded-operators-duals",
+      "title": "Bounded operators and continuous duals",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 189,
+      "conceptId": "functional-analysis-baire-mapping-theorems",
+      "title": "Baire category and mapping theorems",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 190,
+      "conceptId": "abstract-algebra-homological-exactness",
+      "title": "Exact sequences and derived constructions",
+      "category": "abstract-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 191,
+      "conceptId": "abstract-algebra-structure-synthesis",
+      "title": "Algebraic structure synthesis",
+      "category": "abstract-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 192,
+      "conceptId": "commutative-algebra-localization",
+      "title": "Localization of rings and modules",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 193,
+      "conceptId": "commutative-algebra-grobner-bases",
+      "title": "Grobner bases and computational ideals",
+      "category": "commutative-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "commutative-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 194,
+      "conceptId": "differential-geometry-riemannian-metrics-connections",
+      "title": "Riemannian metrics and connections",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 195,
+      "conceptId": "differential-equations-flows-bifurcations",
+      "title": "Flows and local bifurcations",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 196,
+      "conceptId": "differential-equations-characteristics",
+      "title": "First-order PDE and characteristics",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 197,
+      "conceptId": "differential-equations-weak-solutions",
+      "title": "Weak solutions and variational formulations",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 198,
+      "conceptId": "statistics-likelihood-estimation",
+      "title": "Likelihood and M-estimation",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 199,
+      "conceptId": "statistics-neyman-pearson-testing",
+      "title": "Neyman-Pearson testing theory",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 200,
+      "conceptId": "numerical-analysis-conditioning",
+      "title": "Conditioning of mathematical problems",
+      "category": "numerical-analysis-optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 201,
+      "conceptId": "research-practice-proof-architecture",
+      "title": "Proof architecture and formal specifications",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "proof-foundations"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 202,
+      "conceptId": "complex-analysis-analytic-continuation",
+      "title": "Analytic continuation and identity principles",
+      "category": "complex-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 203,
+      "conceptId": "functional-analysis-hahn-banach",
+      "title": "Hahn-Banach extension theorem",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 204,
+      "conceptId": "functional-analysis-hilbert-riesz",
+      "title": "Hilbert spaces and Riesz representation",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 205,
+      "conceptId": "commutative-algebra-integral-dependence",
+      "title": "Integral dependence and normalization",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 206,
+      "conceptId": "commutative-algebra-primary-decomposition",
+      "title": "Primary decomposition",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 207,
+      "conceptId": "commutative-algebra-spectrum-dimension",
+      "title": "Prime spectra and Krull dimension",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 208,
+      "conceptId": "commutative-algebra-completions",
+      "title": "Adic filtrations and completions",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 209,
+      "conceptId": "algebraic-topology-singular-homology",
+      "title": "Singular homology and exact sequences",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 210,
+      "conceptId": "differential-geometry-geodesics-curvature",
+      "title": "Geodesics and curvature tensors",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 211,
+      "conceptId": "differential-equations-chaos-symbolic-dynamics",
+      "title": "Chaos and symbolic dynamics",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 212,
+      "conceptId": "statistics-nonparametric-methods",
+      "title": "Nonparametric estimation and testing",
+      "category": "statistics",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 213,
+      "conceptId": "combinatorics-analytic-asymptotics",
+      "title": "Analytic combinatorics and coefficient asymptotics",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 214,
+      "conceptId": "numerical-analysis-direct-linear-solvers",
+      "title": "Direct linear-system solvers",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 215,
+      "conceptId": "optimization-unconstrained-convex-algorithms",
+      "title": "Unconstrained convex algorithms",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 216,
+      "conceptId": "research-practice-seminar-exposition",
+      "title": "Research exposition and oral defense",
+      "category": "research-practice",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 217,
+      "conceptId": "complex-analysis-riemann-mapping",
+      "title": "Riemann mapping methods",
+      "category": "complex-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 218,
+      "conceptId": "functional-analysis-compact-spectral",
+      "title": "Compact operators and spectral theory",
+      "category": "functional-analysis",
+      "stage": "qualifying",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 219,
+      "conceptId": "functional-analysis-weak-topologies",
+      "title": "Weak topologies and Banach-Alaoglu compactness",
+      "category": "functional-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 220,
+      "conceptId": "harmonic-analysis-fourier-series",
+      "title": "Fourier series and orthogonal expansions",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 221,
+      "conceptId": "commutative-algebra-dedekind-domains",
+      "title": "Discrete valuations and Dedekind domains",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra",
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 222,
+      "conceptId": "algebraic-topology-excision-mayer-vietoris",
+      "title": "Excision and Mayer-Vietoris",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 223,
+      "conceptId": "algebraic-topology-cohomology-cup-products",
+      "title": "Cohomology and cup products",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 224,
+      "conceptId": "differential-equations-elliptic-variational",
+      "title": "Elliptic variational methods",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 225,
+      "conceptId": "measure-theory-radon-nikodym-conditional",
+      "title": "Radon-Nikodym derivatives and conditional expectation",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 226,
+      "conceptId": "number-theory-prime-distribution",
+      "title": "Prime distribution and zeta methods",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 227,
+      "conceptId": "number-theory-algebraic-number-fields",
+      "title": "Algebraic number fields",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 228,
+      "conceptId": "number-theory-p-adic-analysis",
+      "title": "p-adic numbers and local methods",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 229,
+      "conceptId": "set-theory-choice-equivalents",
+      "title": "Axiom of choice and equivalent principles",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 230,
+      "conceptId": "numerical-analysis-krylov-iterations",
+      "title": "Krylov and iterative linear solvers",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 231,
+      "conceptId": "optimization-duality-kkt",
+      "title": "Convex duality and KKT conditions",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 232,
+      "conceptId": "research-practice-peer-review-response",
+      "title": "Peer review and revision ledger",
+      "category": "research-practice",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 233,
+      "conceptId": "harmonic-analysis-fourier-transform",
+      "title": "Fourier transform on Schwartz space",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 234,
+      "conceptId": "algebraic-topology-degree-hurewicz",
+      "title": "Degree theory and the Hurewicz map",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 235,
+      "conceptId": "algebraic-topology-spectral-sequences",
+      "title": "Spectral-sequence convergence and filtrations",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 236,
+      "conceptId": "differential-geometry-de-rham-cohomology",
+      "title": "De Rham cohomology",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 237,
+      "conceptId": "differential-equations-parabolic-semigroups",
+      "title": "Parabolic equations and semigroups",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 238,
+      "conceptId": "stochastic-processes-martingales-stopping",
+      "title": "Martingales and stopping times",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 239,
+      "conceptId": "statistics-bayesian-inference",
+      "title": "Bayesian posterior inference",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 240,
+      "conceptId": "number-theory-ideal-class-groups",
+      "title": "Ideal factorization and class groups",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 241,
+      "conceptId": "number-theory-elliptic-curves",
+      "title": "Elliptic curves and rational points",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 242,
+      "conceptId": "set-theory-forcing-independence",
+      "title": "Forcing and independence",
+      "category": "logic-set-theory",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 243,
+      "conceptId": "numerical-analysis-finite-elements",
+      "title": "Finite-element approximation",
+      "category": "numerical-analysis-optimization",
+      "stage": "specialization",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 244,
+      "conceptId": "optimization-stochastic-large-scale",
+      "title": "Stochastic and large-scale optimization",
+      "category": "numerical-analysis-optimization",
+      "stage": "qualifying",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 245,
+      "conceptId": "research-practice-bounded-artifact",
+      "title": "Bounded mathematical research artifact",
+      "category": "research-practice",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 246,
+      "conceptId": "harmonic-analysis-convolution-approximation",
+      "title": "Convolution and approximate identities",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 247,
+      "conceptId": "harmonic-analysis-plancherel",
+      "title": "Plancherel and Fourier inversion",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 248,
+      "conceptId": "differential-geometry-gauss-bonnet",
+      "title": "Gauss-Bonnet theory",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 249,
+      "conceptId": "probability-characteristic-functions-clt",
+      "title": "Characteristic functions and central limit theory",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 250,
+      "conceptId": "number-theory-modular-forms-l-functions",
+      "title": "Modular forms and L-functions",
+      "category": "number-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "number-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 251,
+      "conceptId": "logic-foundations-theorem-synthesis",
+      "title": "Foundational theorem synthesis",
+      "category": "logic-set-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 252,
+      "conceptId": "research-practice-novelty-adjudication",
+      "title": "External novelty adjudication",
+      "category": "research-practice",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 253,
+      "conceptId": "harmonic-analysis-distributions",
+      "title": "Tempered distributions",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 254,
+      "conceptId": "harmonic-analysis-singular-integrals",
+      "title": "Singular integral operators",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 255,
+      "conceptId": "differential-geometry-theorem-synthesis",
+      "title": "Differential-geometry theorem synthesis",
+      "category": "differential-geometry",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 256,
+      "conceptId": "differential-equations-hyperbolic-energy",
+      "title": "Hyperbolic equations and energy methods",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 257,
+      "conceptId": "stochastic-processes-brownian-ito",
+      "title": "Brownian motion and Ito calculus",
+      "category": "measure-probability-stochastic",
+      "stage": "specialization",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 258,
+      "conceptId": "statistics-linear-models",
+      "title": "Linear models and projection geometry",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 259,
+      "conceptId": "statistics-asymptotic-empirical-processes",
+      "title": "Asymptotic statistics and empirical processes",
+      "category": "statistics",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 260,
+      "conceptId": "harmonic-analysis-wavelets-frequency-localization",
+      "title": "Wavelets and frequency localization",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 261,
+      "conceptId": "differential-equations-theorem-synthesis",
+      "title": "Differential-equations theorem synthesis",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 262,
+      "conceptId": "stochastic-processes-sde",
+      "title": "Stochastic differential equations",
+      "category": "measure-probability-stochastic",
+      "stage": "qualifying",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 263,
+      "conceptId": "statistics-generalized-linear-models",
+      "title": "Generalized linear models",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    },
+    {
+      "ordinal": 264,
+      "conceptId": "statistics-causal-identification",
+      "title": "Causal identification and semiparametric reasoning",
+      "category": "statistics",
+      "stage": "qualifying",
+      "tracks": [
+        "statistics"
+      ],
+      "status": "planned",
+      "productPaths": [
+        "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
+        "plugins/cortex-learning-os-live/transfer.mjs",
+        "plugins/cortex-learning-os-live/transfer-registry.mjs",
+        "plugins/cortex-learning-os-live/index.ts"
+      ]
+    }
+  ],
+  "truthBoundary": "A complete catalog supplies deterministic retrieval surfaces for all 264 declared concepts. It does not establish retention, efficacy, formal qualification, research ability, human PhD equivalence, or model-weight change."
+}

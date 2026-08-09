@@ -1,233 +1,248 @@
-const MATCHERS = Object.freeze({
-  'code-exact-integer-multiplication-v1': {
-    profileId: 'exact-multiplication',
-    conceptIds: ['number-fractions'],
-    decisionId: 'exact-multiplication',
-  },
-  'code-polynomial-factoring-v1': {
-    profileId: 'algebra-factoring',
-    conceptIds: ['algebra-factoring'],
-    decisionId: 'algebra-factoring',
-  },
-  'code-numerical-stability-v1': {
-    profileId: 'numerical-stability',
-    conceptIds: ['numerical-analysis-floating-point-error', 'numerical-analysis-conditioning'],
-    decisionId: 'numerical-stability',
-  },
-  'code-network-flow-matching-v1': {
-    profileId: 'network-flow-matching',
-    conceptIds: ['graph-theory-matchings-flows', 'combinatorics-matroids'],
-    decisionId: 'network-flow-matching',
-  },
-  'code-matrix-conditioning-v1': {
-    profileId: 'matrix-conditioning',
-    conceptIds: ['linear-algebra-matrix-decompositions', 'numerical-analysis-conditioning'],
-    decisionId: 'matrix-conditioning',
-  },
-  'code-constrained-optimization-v1': {
-    profileId: 'constrained-optimization',
-    conceptIds: ['optimization-duality-kkt'],
-    decisionId: 'constrained-optimization',
-  },
-  'code-stochastic-reliability-v1': {
-    profileId: 'stochastic-reliability',
-    conceptIds: ['stochastic-processes-markov-chains', 'differential-equations-stability-lyapunov'],
-    decisionId: 'stochastic-reliability',
-  },
-  'code-state-invariants-v1': {
-    profileId: 'state-invariants',
-    conceptIds: ['proof-invariants-and-extremal-principles', 'proof-counterexample-construction'],
-    decisionId: 'state-invariants',
-  },
-  'code-causal-analysis-v1': {
-    profileId: 'causal-analysis',
-    conceptIds: ['statistics-causal-identification'],
-    decisionId: 'causal-analysis',
-  },
-  'code-modular-reconstruction-v1': {
-    profileId: 'modular-reconstruction',
-    conceptIds: ['number-theory-chinese-remainder'],
-    decisionId: 'modular-reconstruction',
-  },
-});
+import fs from 'node:fs';
 
-export const TRANSFER_MATCHER_IDS = Object.freeze(Object.keys(MATCHERS));
+const CATALOG_PATH = new URL('./phd-math-transfer-catalog.v1.json', import.meta.url);
+const CATALOG = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+
+if (CATALOG?.schemaVersion !== 'cortex.learning_os.phd_math_transfer_catalog.v1'
+    || CATALOG?.conceptCount !== 264
+    || !Array.isArray(CATALOG?.concepts)
+    || CATALOG.concepts.length !== 264
+    || new Set(CATALOG.concepts.map((concept) => concept.conceptId)).size !== 264) {
+  throw new Error('full-spectrum PhD mathematics transfer catalog must contain exactly 264 unique concepts');
+}
+
+const STOP_WORDS = new Set([
+  'about', 'after', 'again', 'against', 'also', 'and', 'are', 'because', 'before', 'between', 'build', 'can', 'compute',
+  'construction', 'derive', 'for', 'from', 'give', 'has', 'have', 'into', 'its', 'mathematical', 'method', 'methods',
+  'one', 'only', 'over', 'problem', 'prove', 'show', 'software', 'some', 'such', 'system', 'that', 'the', 'their', 'theorem',
+  'theory', 'then', 'this', 'through', 'under', 'use', 'using', 'verify', 'when', 'where', 'which', 'with', 'without',
+]);
+
+const ACRONYMS = new Set(['banach', 'bayes', 'borel', 'brownian', 'cauchy', 'clt', 'crt', 'fft', 'fubini', 'galois', 'gcd', 'glm', 'groebner', 'grobner', 'hessian', 'hilbert', 'ito', 'kkt', 'krylov', 'lp', 'markov', 'mcmc', 'mobius', 'ode', 'pde', 'qr', 'ramsey', 'riemann', 'sde', 'svd']);
 
 function normalizedText(value) {
-  return String(value || '').normalize('NFKC').toLowerCase().replace(/[−–—]/g, '-').replace(/\s+/g, ' ').trim();
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[−–—]/g, '-')
+    .replace(/[^a-z0-9+#._:/-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokens(value) {
+  return normalizedText(value)
+    .replace(/[._:/-]+/g, ' ')
+    .split(' ')
+    .filter((token) => token && !STOP_WORDS.has(token) && (token.length >= 3 || ACRONYMS.has(token)));
+}
+
+function phrase(value) {
+  return normalizedText(value).replace(/[._:/-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function softwareContext(text) {
-  return /\b(?:code|coding|software|program|programming|implement|implementation|algorithm|function|method|class|module|plugin|library|api|typescript|javascript|python|rust|java|kotlin|swift|c\+\+|c#|golang|bigint|input|output|return value|unit test|property test|system|service|scheduler|queue|database|distributed|protocol|worker|runtime)\b/.test(text)
+  return /\b(?:api|algorithm|class|code|coding|compiler|database|distributed|function|implement|implementation|library|method|module|plugin|program|protocol|queue|runtime|scheduler|service|simulation|solver|typescript|javascript|python|rust|java|kotlin|swift|c\+\+|golang|worker)\b/.test(text)
     || /```|=>|function\s+\w+|def\s+\w+|fn\s+\w+/.test(text);
 }
 
-function exactMultiplicationDecision(text) {
+const APPLICATION_RULES = Object.freeze([
+  { id: 'exact-arithmetic', pattern: /\b(?:arbitrary precision|bigint|exact integer|integer overflow|rational arithmetic|decimal string multiplication)\b/, conceptIds: ['number-fractions', 'number-theory-modular-arithmetic', 'number-theory-chinese-remainder'] },
+  { id: 'symbolic-polynomial', pattern: /\b(?:symbolic polynomial|polynomial factor|polynomial roots?|groebner|computational ideal)\b/, conceptIds: ['algebra-factoring', 'algebra-polynomial-arithmetic', 'commutative-algebra-grobner-bases'] },
+  { id: 'numerical-stability', pattern: /\b(?:floating point|numerical stability|catastrophic cancellation|rounding error|underflow|condition number|stable summation|online variance|welford)\b/, conceptIds: ['numerical-analysis-floating-point-error', 'numerical-analysis-conditioning', 'statistics-variance'] },
+  { id: 'matrix-solver', pattern: /\b(?:least squares|linear solver|linear system|matrix decomposition|pseudoinverse|\bsvd\b|\bqr\b|ill conditioned|krylov)\b/, conceptIds: ['linear-algebra-matrix-decompositions', 'numerical-analysis-direct-linear-solvers', 'numerical-analysis-krylov-iterations'] },
+  { id: 'spectral-eigen', pattern: /\b(?:eigenvalue|eigenvector|spectral decomposition|principal component|\bpca\b)\b/, conceptIds: ['linear-algebra-eigenvalues', 'linear-algebra-spectral-theorem', 'functional-analysis-compact-spectral'] },
+  { id: 'graphics-geometry', pattern: /\b(?:3d graphics|rendering geometry|mesh processing|surface normal|tangent space|geodesic|curvature tensor)\b/, conceptIds: ['linear-algebra-vectors', 'differential-geometry-smooth-manifolds-tangent', 'differential-geometry-geodesics-curvature'] },
+  { id: 'network-flow', pattern: /\b(?:maximum flow|max flow|min cut|network flow|bipartite matching|capacitated assignment|augmenting path|residual graph)\b/, conceptIds: ['graph-theory-matchings-flows', 'combinatorics-matroids', 'optimization-linear-programming'] },
+  { id: 'graph-routing', pattern: /\b(?:graph traversal|connectivity|shortest path|planarity|graph partition|graph coloring|dependency graph)\b/, conceptIds: ['discrete-graph-theory', 'graph-theory-connectivity-planarity', 'graph-theory-coloring-ramsey'] },
+  { id: 'scheduling-allocation', pattern: /\b(?:job scheduling|resource allocation|constraint solver|allocation optimizer|assignment optimizer|packing problem)\b/, conceptIds: ['optimization-constraints', 'optimization-linear-programming', 'combinatorics-matroids'] },
+  { id: 'convex-optimization', pattern: /\b(?:convex optimization|primal dual|duality gap|lagrange multiplier|karush kuhn tucker|\bkkt\b)\b/, conceptIds: ['optimization-convexity', 'optimization-duality-kkt', 'optimization-lagrange-multipliers'] },
+  { id: 'gradient-optimization', pattern: /\b(?:gradient descent|stochastic gradient|optimizer convergence|hessian|second order optimizer)\b/, conceptIds: ['optimization-gradient-descent', 'optimization-hessian', 'optimization-stochastic-large-scale'] },
+  { id: 'probabilistic-system', pattern: /\b(?:probabilistic system|failure probability|conditional probability|bayesian update|base rate|randomized algorithm)\b/, conceptIds: ['probability-conditional', 'probability-bayes', 'probability-independence'] },
+  { id: 'markov-reliability', pattern: /\b(?:markov chain|transition matrix|stationary distribution|steady state probability|retry policy|failure transition)\b/, conceptIds: ['stochastic-processes-markov-chains', 'differential-equations-stability-lyapunov', 'probability-random-variables'] },
+  { id: 'queue-waiting', pattern: /\b(?:queueing|queueing model|arrival rate|service rate|waiting time distribution|backoff distribution)\b/, conceptIds: ['probability-waiting-time', 'stochastic-processes-markov-chains', 'probability-expectation-linearity'] },
+  { id: 'simulation-monte-carlo', pattern: /\b(?:monte carlo|stochastic simulation|importance sampling|variance reduction|random simulation)\b/, conceptIds: ['probability-expectation-linearity', 'statistics-variance', 'probability-convergence-laws-large-numbers'] },
+  { id: 'experiment-statistics', pattern: /\b(?:a\/b test|experiment analysis|confidence interval|hypothesis test|statistical significance|sample size)\b/, conceptIds: ['statistics-confidence-intervals', 'statistics-hypothesis-tests', 'statistics-sampling-distributions'] },
+  { id: 'regression-model', pattern: /\b(?:linear regression|generalized linear model|logistic regression|poisson regression|fisher scoring)\b/, conceptIds: ['statistics-linear-regression', 'statistics-linear-models', 'statistics-generalized-linear-models'] },
+  { id: 'robust-nonparametric', pattern: /\b(?:robust estimator|outlier resistant|nonparametric|kernel density|rank test)\b/, conceptIds: ['statistics-median', 'statistics-nonparametric-methods', 'statistics-decision-sufficiency'] },
+  { id: 'causal-inference', pattern: /\b(?:causal effect|causal inference|confounder|backdoor criterion|propensity score|instrumental variable|difference in differences|treatment effect)\b/, conceptIds: ['statistics-causation', 'statistics-causal-identification', 'measure-theory-radon-nikodym-conditional'] },
+  { id: 'signal-fourier', pattern: /\b(?:signal processing|fourier transform|fourier series|frequency domain|spectral filter|convolution filter|\bfft\b)\b/, conceptIds: ['harmonic-analysis-fourier-transform', 'harmonic-analysis-convolution-approximation', 'harmonic-analysis-plancherel'] },
+  { id: 'wavelet-localization', pattern: /\b(?:wavelet|time frequency|frequency localization|multiresolution)\b/, conceptIds: ['harmonic-analysis-wavelets-frequency-localization', 'harmonic-analysis-fourier-transform', 'functional-analysis-hilbert-riesz'] },
+  { id: 'image-pde', pattern: /\b(?:image denoising|image segmentation|diffusion equation|heat equation|variational image)\b/, conceptIds: ['differential-equations-parabolic-semigroups', 'differential-equations-weak-solutions', 'numerical-analysis-finite-elements'] },
+  { id: 'ode-simulation', pattern: /\b(?:ode solver|ordinary differential equation|time integration|runge kutta|dynamical simulation)\b/, conceptIds: ['differential-equations-ode-existence-uniqueness', 'numerical-analysis-quadrature-ode', 'differential-equations-stability-lyapunov'] },
+  { id: 'pde-solver', pattern: /\b(?:pde solver|partial differential equation|finite element|finite difference|weak formulation)\b/, conceptIds: ['differential-equations-pde-classification', 'differential-equations-weak-solutions', 'numerical-analysis-finite-elements'] },
+  { id: 'control-stability', pattern: /\b(?:control system|stability certificate|lyapunov function|bifurcation|state space model)\b/, conceptIds: ['differential-equations-stability-lyapunov', 'differential-equations-linear-systems', 'differential-equations-flows-bifurcations'] },
+  { id: 'state-invariant', pattern: /\b(?:state machine invariant|protocol invariant|inductive invariant|safety property|model checking|counterexample trace|lease safety)\b/, conceptIds: ['proof-invariants-and-extremal-principles', 'proof-counterexample-construction', 'logic-first-order-syntax-semantics'] },
+  { id: 'formal-specification', pattern: /\b(?:formal specification|proof obligation|precondition|postcondition|theorem prover|proof assistant|formal verification)\b/, conceptIds: ['research-practice-proof-architecture', 'proof-dependency-audit', 'logic-first-order-syntax-semantics'] },
+  { id: 'termination-recursion', pattern: /\b(?:termination proof|recursive algorithm|structural recursion|loop variant|well founded)\b/, conceptIds: ['proof-strong-and-structural-induction', 'discrete-recurrences', 'set-theory-ordinals-transfinite'] },
+  { id: 'concurrency-ordering', pattern: /\b(?:distributed consensus|partial order|happens before|event ordering|concurrent history|linearizability)\b/, conceptIds: ['discrete-sets-relations', 'combinatorics-posets-mobius', 'proof-invariants-and-extremal-principles'] },
+  { id: 'database-logic', pattern: /\b(?:relational database|query optimizer|database constraint|relational algebra|logical query|datalog)\b/, conceptIds: ['discrete-sets-relations', 'logic-first-order-syntax-semantics', 'proof-equivalence-and-biconditionals'] },
+  { id: 'type-category', pattern: /\b(?:type system|functor|natural transformation|category theory|compositional api|algebraic data type)\b/, conceptIds: ['abstract-algebra-category-functor-natural', 'functions-composition', 'proof-strong-and-structural-induction'] },
+  { id: 'crypto-number-theory', pattern: /\b(?:cryptography|public key|rsa|modular inverse|finite field|elliptic curve cryptography|discrete log)\b/, conceptIds: ['number-theory-modular-arithmetic', 'abstract-algebra-field-extensions', 'number-theory-elliptic-curves'] },
+  { id: 'crt-reconstruction', pattern: /\b(?:chinese remainder|modular reconstruction|coprime moduli|residue system|\bcrt\b)\b/, conceptIds: ['number-theory-chinese-remainder', 'number-theory-gcd', 'number-theory-modular-arithmetic'] },
+  { id: 'error-correcting-algebra', pattern: /\b(?:error correcting code|coding theory|finite field code|reed solomon)\b/, conceptIds: ['abstract-algebra-field-extensions', 'linear-algebra-vector-spaces-subspaces', 'number-theory-modular-arithmetic'] },
+  { id: 'topological-data', pattern: /\b(?:topological data analysis|persistent homology|simplicial complex|shape analysis)\b/, conceptIds: ['algebraic-topology-simplicial-cell-complexes', 'algebraic-topology-singular-homology', 'topology-spaces-bases'] },
+  { id: 'spatial-topology', pattern: /\b(?:spatial topology|connected component|manifold mesh|topological connectivity|homotopy path)\b/, conceptIds: ['topology-connectedness-paths', 'topology-topological-manifolds', 'algebraic-topology-homotopy-fundamental-group'] },
+  { id: 'asymptotic-analysis', pattern: /\b(?:asymptotic complexity|generating function|coefficient asymptotics|analytic combinatorics|recurrence asymptotics)\b/, conceptIds: ['combinatorics-analytic-asymptotics', 'combinatorics-bijections-generating-functions', 'discrete-recurrences'] },
+  { id: 'random-graph', pattern: /\b(?:random graph|spectral graph|graph embedding|community detection)\b/, conceptIds: ['graph-theory-spectral-random-graphs', 'linear-algebra-spectral-theorem', 'combinatorics-probabilistic-method'] },
+  { id: 'symbolic-dynamics', pattern: /\b(?:chaotic system|chaos detection|symbolic dynamics|sensitive dependence)\b/, conceptIds: ['differential-equations-chaos-symbolic-dynamics', 'differential-equations-flows-bifurcations', 'differential-equations-stability-lyapunov'] },
+  { id: 'stochastic-calculus', pattern: /\b(?:brownian motion|ito calculus|stochastic differential equation|stochastic process|option pricing sde)\b/, conceptIds: ['stochastic-processes-brownian-ito', 'stochastic-processes-sde', 'stochastic-processes-martingales-stopping'] },
+  { id: 'research-reproducibility', pattern: /\b(?:literature review|research corpus|reproducible computation|replication package|novelty check|peer review response)\b/, conceptIds: ['research-practice-literature-corpus', 'research-practice-computational-reproducibility', 'research-practice-novelty-adjudication'] },
+]);
+
+const CONCEPTS = CATALOG.concepts.map((concept) => ({
+  ...concept,
+  profileId: concept.conceptId,
+  matcherId: `phd-math-${concept.conceptId}-v1`,
+  titlePhrase: phrase(concept.title),
+  idPhrase: phrase(concept.conceptId),
+  termSet: new Set(tokens([concept.title, concept.conceptId, concept.category, ...concept.outcomes].join(' '))),
+}));
+const BY_ID = new Map(CONCEPTS.map((concept) => [concept.conceptId, concept]));
+for (const rule of APPLICATION_RULES) {
+  for (const conceptId of rule.conceptIds) if (!BY_ID.has(conceptId)) throw new Error(`unknown application-rule concept: ${conceptId}`);
+}
+
+const DOCUMENT_FREQUENCY = new Map();
+for (const concept of CONCEPTS) {
+  for (const token of concept.termSet) DOCUMENT_FREQUENCY.set(token, Number(DOCUMENT_FREQUENCY.get(token) || 0) + 1);
+}
+
+function lexicalScore(concept, text, queryTokens) {
+  let score = 0;
   const reasons = [];
-  const assumptions = [];
-  const negatives = [];
-  if (!/\b(?:integer|integers|whole number|signed number|decimal string|base-?10 digits?)\b/.test(text)) reasons.push('integer-domain-not-observed');
-  else assumptions.push('operands-are-integers');
-  if (!/\b(?:exact|exactly|lossless|without losing precision|no precision loss)\b/.test(text)) reasons.push('exact-result-not-observed');
-  else assumptions.push('exact-result-required');
-  if (!/\b(?:arbitrary precision|bigint|big integer|bignum|overflow[- ]safe|avoid overflow|beyond (?:number|max safe|64[- ]bit)|without (?:number|float))\b/.test(text)) reasons.push('overflow-safety-not-observed');
-  else assumptions.push('arbitrary-precision-or-overflow-safety-required');
-  if (!/\b(?:multiply|multiplication|product)\b/.test(text) && !/\w+\s*\*\s*\w+/.test(text)) reasons.push('multiplication-operation-not-observed');
-  if (/\b(?:float|floating point|double|decimal fraction|approximate|approximately|tolerance|interval|probabilistic)\b/.test(text)) negatives.push('floating-point-domain');
-  if (/\b(?:cryptograph|authentication|elliptic curve|finite field|modular multiplication|side channel|constant time)\b/.test(text)) negatives.push('cryptographic-primitive');
-  if (/\b(?:wraparound|wrapping|saturating|simd|hardware register|fixed-width semantics)\b/.test(text)) negatives.push('hardware-fixed-width-semantics-required');
-  const applicable = reasons.length === 0 && negatives.length === 0;
-  return {
-    applicable,
-    reasonCodes: applicable ? ['software-exact-integer-product-observed'] : [...reasons, ...(negatives.length ? ['negative-gate-observed'] : [])],
-    observedAssumptionCodes: assumptions,
-    negativeGateCodes: negatives,
-  };
+  if (text.includes(concept.conceptId)) {
+    score += 1000;
+    reasons.push('explicit-concept-id');
+  }
+  if (concept.titlePhrase.length >= 5 && text.includes(concept.titlePhrase)) {
+    score += 700;
+    reasons.push('exact-concept-title');
+  }
+  if (concept.idPhrase.length >= 5 && text.includes(concept.idPhrase)) {
+    score += 500;
+    reasons.push('concept-id-phrase');
+  }
+  const overlaps = [];
+  for (const token of queryTokens) {
+    if (!concept.termSet.has(token)) continue;
+    const frequency = Number(DOCUMENT_FREQUENCY.get(token) || CATALOG.conceptCount);
+    const weight = Math.max(4, Math.round(36 / Math.sqrt(frequency)));
+    score += weight;
+    overlaps.push({ token, weight, frequency });
+  }
+  const rare = overlaps.filter((item) => item.frequency <= 3 || ACRONYMS.has(item.token));
+  if (overlaps.length >= 2) {
+    score += 25;
+    reasons.push('distinctive-term-overlap');
+  } else if (rare.length === 1 && rare[0].token.length >= 6) {
+    score += 25;
+    reasons.push('rare-concept-term');
+  }
+  return { score, reasons, overlaps };
 }
 
-function factoringDecision(text) {
-  const reasons = [];
-  const assumptions = [];
-  const negatives = [];
-  if (/\b(?:multi[- ]factor authentication|two[- ]factor|2fa|authentication factor|identity factor|auth factor)\b/.test(text)) negatives.push('authentication-factor');
-  if (/\b(?:refactor|refactoring|code factor(?:ing)?|factor out (?:a )?(?:method|function|class|module))\b/.test(text)) negatives.push('software-refactor');
-  if (/\bfactorio\b/.test(text)) negatives.push('factorio');
-  if (/\b(?:business factor|risk factor|human factor|market factor|success factor|scaling factor|load factor|form factor|factor model)\b/.test(text)) negatives.push('business-factor');
-  if (/\b(?:floating point|approximate roots?|numerical root|newton(?:'s)? method|tolerance)\b/.test(text)) negatives.push('approximate-numerical-roots');
-  if (!/\b(?:polynomial|coefficient(?:s)?|quadratic|cubic)\b/.test(text)) reasons.push('polynomial-domain-not-observed');
-  else assumptions.push('univariate-polynomial');
-  if (!/\b(?:integer coefficients?|integer roots?|integral coefficients?|exact integer)\b/.test(text)) reasons.push('integer-coefficients-not-observed');
-  else assumptions.push('integer-coefficients');
-  if (!/\b(?:construct|expand|factor|factorization|integer roots?|evaluate|verify|zero)\b/.test(text)) reasons.push('polynomial-operation-not-observed');
-  else assumptions.push('exact-symbolic-semantics');
-  if (/\bfactor\b/.test(text) && reasons.includes('polynomial-domain-not-observed')) negatives.push('ambiguous-factor');
-  const applicable = reasons.length === 0 && negatives.length === 0;
-  return {
-    applicable,
-    reasonCodes: applicable ? ['software-integer-polynomial-operation-observed'] : [...reasons, ...(negatives.length ? ['negative-gate-observed'] : [])],
-    observedAssumptionCodes: assumptions,
-    negativeGateCodes: [...new Set(negatives)],
-  };
+function applicationScores(text) {
+  const scores = new Map();
+  for (const rule of APPLICATION_RULES) {
+    if (!rule.pattern.test(text)) continue;
+    rule.conceptIds.forEach((conceptId, index) => {
+      const row = scores.get(conceptId) || { score: 0, reasons: [], assumptions: [] };
+      row.score += 420 - (index * 45);
+      row.reasons.push(`application-${rule.id}`);
+      row.assumptions.push(`application-model-${rule.id}`);
+      scores.set(conceptId, row);
+    });
+  }
+  return scores;
 }
 
-function scopedDecision(text, descriptor) {
-  const matched = descriptor.positive.test(text);
-  const negatives = descriptor.negative ? descriptor.negative(text) : [];
-  const applicable = matched && negatives.length === 0;
-  return {
-    applicable,
-    reasonCodes: applicable
-      ? [descriptor.reasonCode]
-      : [matched ? 'negative-gate-observed' : `${descriptor.reasonCode}-not-observed`],
-    observedAssumptionCodes: matched ? [...descriptor.assumptions] : [],
-    negativeGateCodes: negatives,
-  };
+function mathCue(text) {
+  return /\b(?:algebra|analysis|calculus|causal|combinatorics|congruence|equation|geometry|graph|logic|math|mathematics|matrix|measure|optimization|probability|proof|statistics|stochastic|topology)\b/.test(text)
+    || /\b(?:banach|bayes|brownian|cauchy|clt|crt|fft|fubini|galois|gcd|glm|groebner|grobner|hilbert|ito|kkt|krylov|markov|mobius|ode|pde|ramsey|riemann|sde|svd)\b/.test(text);
 }
 
-const SCOPED_DECISIONS = Object.freeze({
-  'numerical-stability': {
-    positive: /\b(?:floating[- ]point|numerical stability|catastrophic cancellation|rounding error|condition number|log[- ]sum[- ]exp|underflow|stable (?:variance|summation)|online variance|welford)\b/,
-    reasonCode: 'software-numerical-stability-observed',
-    assumptions: ['finite-precision-arithmetic', 'numerical-accuracy-matters'],
-    negative: () => [],
-  },
-  'network-flow-matching': {
-    positive: /\b(?:max(?:imum)? flow|min(?:imum)? cut|bipartite match(?:ing)?|capacitated assignment|residual graph|augmenting path)\b/,
-    reasonCode: 'software-flow-or-matching-observed',
-    assumptions: ['graph-capacities-or-matching-constraints'],
-    negative: (text) => /\b(?:css flow|workflow|cash flow|traffic flow only)\b/.test(text) ? ['non-graph-flow'] : [],
-  },
-  'matrix-conditioning': {
-    positive: /\b(?:least squares|linear system|matrix decomposition|\bqr\b|\bsvd\b|ill[- ]conditioned|condition number|pseudoinverse)\b/,
-    reasonCode: 'software-matrix-conditioning-observed',
-    assumptions: ['matrix-computation', 'stability-or-rank-matters'],
-    negative: () => [],
-  },
-  'constrained-optimization': {
-    positive: /\b(?:convex optimization|kkt|karush[- ]kuhn[- ]tucker|lagrange multiplier|primal[- ]dual|constrained (?:optimization|resource allocation)|duality gap)\b/,
-    reasonCode: 'software-constrained-optimization-observed',
-    assumptions: ['explicit-objective-and-constraints'],
-    negative: (text) => /\b(?:seo optimization|compiler optimization only)\b/.test(text) ? ['non-mathematical-optimization'] : [],
-  },
-  'stochastic-reliability': {
-    positive: /\b(?:markov chain|transition matrix|stationary distribution|steady[- ]state probability|queueing|stochastic process|retry (?:policy|budget)|failure transition)\b/,
-    reasonCode: 'software-stochastic-reliability-observed',
-    assumptions: ['state-transition-model'],
-    negative: () => [],
-  },
-  'state-invariants': {
-    positive: /\b(?:inductive invariant|state machine invariant|protocol invariant|safety property|model check(?:ing)?|counterexample trace|lease safety)\b/,
-    reasonCode: 'software-state-invariant-observed',
-    assumptions: ['explicit-state-and-transition-rules'],
-    negative: () => [],
-  },
-  'causal-analysis': {
-    positive: /\b(?:causal (?:effect|inference|identification)|confounder|backdoor criterion|propensity score|instrumental variable|difference[- ]in[- ]differences|treatment effect)\b/,
-    reasonCode: 'software-causal-analysis-observed',
-    assumptions: ['observational-or-experimental-data'],
-    negative: () => [],
-  },
-  'modular-reconstruction': {
-    positive: /\b(?:chinese remainder|\bcrt\b|modular congruence|coprime moduli|residue system)\b/,
-    reasonCode: 'software-modular-reconstruction-observed',
-    assumptions: ['integer-congruence-system'],
-    negative: (text) => /\b(?:crt monitor|cathode ray)\b/.test(text) ? ['display-crt'] : [],
-  },
+export const TRANSFER_MATCHER_IDS = Object.freeze(CONCEPTS.map((concept) => concept.matcherId));
+export const TRANSFER_PROFILE_IDS = Object.freeze(CONCEPTS.map((concept) => concept.profileId));
+export const TRANSFER_CATALOG_METADATA = Object.freeze({
+  catalogId: CATALOG.catalogId,
+  conceptCount: CATALOG.conceptCount,
+  source: { ...CATALOG.source },
 });
 
-function decide(decisionId, text) {
-  if (decisionId === 'exact-multiplication') return exactMultiplicationDecision(text);
-  if (decisionId === 'algebra-factoring') return factoringDecision(text);
-  return scopedDecision(text, SCOPED_DECISIONS[decisionId]);
-}
-
-export function routeCodingTransfer(query, {
-  allowedProfileIds = Object.values(MATCHERS).map((row) => row.profileId),
+export function routeMathTransfer(query, {
+  allowedProfileIds = TRANSFER_PROFILE_IDS,
   selectionMode = 'shadow',
+  maxSelections = 3,
 } = {}) {
   const text = normalizedText(query);
   const allowed = new Set(Array.isArray(allowedProfileIds) ? allowedProfileIds : []);
-  const codeObserved = Boolean(text) && softwareContext(text);
-  const decisions = [];
-  if (!codeObserved) {
+  if (!text) {
     return {
-      schemaVersion: 'cortex.learning_os.transfer_route.v1',
+      schemaVersion: 'cortex.learning_os.transfer_route.v2',
       codingContext: false,
+      mathContext: false,
       selectionMode,
       answerInfluence: false,
       applicable: false,
       selections: [],
       evaluations: [],
-      reasonCodes: [text ? 'software-context-not-observed' : 'empty-request'],
+      reasonCodes: ['empty-request'],
+      catalogConceptCount: CATALOG.conceptCount,
     };
   }
-  for (const [matcherId, descriptor] of Object.entries(MATCHERS)) {
-    if (!allowed.has(descriptor.profileId)) continue;
-    const decision = decide(descriptor.decisionId, text);
-    decisions.push({
-      profileId: descriptor.profileId,
-      conceptIds: [...descriptor.conceptIds],
-      matcherId,
-      applicabilityReasonCodes: decision.reasonCodes,
-      observedAssumptionCodes: decision.observedAssumptionCodes,
-      negativeGateCodes: decision.negativeGateCodes,
-      applicable: decision.applicable,
+
+  const queryTokens = new Set(tokens(text));
+  const application = applicationScores(text);
+  const candidates = [];
+  for (const concept of CONCEPTS) {
+    if (!allowed.has(concept.profileId)) continue;
+    const lexical = lexicalScore(concept, text, queryTokens);
+    const applied = application.get(concept.conceptId) || { score: 0, reasons: [], assumptions: [] };
+    const score = lexical.score + applied.score;
+    const hasStrongLexical = lexical.reasons.some((reason) => ['explicit-concept-id', 'exact-concept-title', 'concept-id-phrase', 'distinctive-term-overlap', 'rare-concept-term'].includes(reason));
+    if (score < 70 || (!hasStrongLexical && applied.score === 0)) continue;
+    candidates.push({
+      profileId: concept.profileId,
+      conceptIds: [concept.conceptId],
+      matcherId: concept.matcherId,
+      applicabilityReasonCodes: [...new Set([...applied.reasons, ...lexical.reasons])],
+      observedAssumptionCodes: [...new Set([`stage-${concept.stage}`, ...applied.assumptions])],
+      negativeGateCodes: [],
+      applicable: true,
+      score,
+      ordinal: concept.ordinal,
     });
   }
-  const selections = decisions.filter((row) => row.applicable);
+  candidates.sort((left, right) => right.score - left.score || left.ordinal - right.ordinal);
+  const boundedMaximum = Math.max(1, Math.min(3, Math.trunc(Number(maxSelections) || 3)));
+  const selections = candidates.slice(0, boundedMaximum).map(({ ordinal, ...row }) => row);
+  const hasMathCue = mathCue(text) || application.size > 0 || selections.length > 0;
   return {
-    schemaVersion: 'cortex.learning_os.transfer_route.v1',
-    codingContext: true,
+    schemaVersion: 'cortex.learning_os.transfer_route.v2',
+    codingContext: softwareContext(text),
+    mathContext: hasMathCue,
     selectionMode,
     answerInfluence: false,
     applicable: selections.length > 0,
     selections,
-    evaluations: decisions,
-    reasonCodes: selections.length ? ['applicable-profile-selected'] : [...new Set(decisions.flatMap((row) => row.applicabilityReasonCodes))],
+    evaluations: selections,
+    reasonCodes: selections.length ? ['full-spectrum-concept-selected'] : [hasMathCue ? 'no-grounded-concept-match' : 'math-context-not-observed'],
+    catalogConceptCount: CATALOG.conceptCount,
   };
 }
 
+export const routeCodingTransfer = routeMathTransfer;
+
 export function matcherDescriptor(matcherId) {
-  const value = MATCHERS[matcherId];
-  return value ? { matcherId, profileId: value.profileId, conceptIds: [...value.conceptIds] } : null;
+  const concept = CONCEPTS.find((row) => row.matcherId === matcherId);
+  return concept ? { matcherId, profileId: concept.profileId, conceptIds: [concept.conceptId] } : null;
+}
+
+export function conceptDescriptor(conceptId) {
+  const concept = BY_ID.get(conceptId);
+  if (!concept) return null;
+  const { termSet, titlePhrase, idPhrase, profileId, matcherId, ...publicConcept } = concept;
+  return { ...publicConcept, profileId, matcherId };
 }

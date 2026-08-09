@@ -16,6 +16,16 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(PACKAGE_ROOT, '..');
 const PLUGIN_ROOT = path.join(REPO_ROOT, 'plugins', 'cortex-learning-os-live');
+const CATALOG_PATH = path.join(PLUGIN_ROOT, 'phd-math-transfer-catalog.v1.json');
+const CATALOG = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+
+if (CATALOG?.schemaVersion !== 'cortex.learning_os.phd_math_transfer_catalog.v1'
+    || CATALOG?.conceptCount !== 264
+    || !Array.isArray(CATALOG?.concepts)
+    || CATALOG.concepts.length !== 264
+    || new Set(CATALOG.concepts.map((concept) => concept.conceptId)).size !== 264) {
+  throw new Error('operator install requires the exact 264-concept full-spectrum catalog');
+}
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -51,160 +61,101 @@ function parseArgs(argv) {
   };
 }
 
-const PROFILES = Object.freeze([
-  {
-    profileId: 'numerical-stability', matcherId: 'code-numerical-stability-v1',
-    conceptIds: ['numerical-analysis-floating-point-error', 'numerical-analysis-conditioning'],
-    context: {
-      applicabilityReason: 'Finite-precision numerical code where conditioning or rounding can change results.',
-      assumptions: [{ code: 'finite-precision', description: 'The implementation uses finite-precision arithmetic and accuracy matters.' }],
-      contraindications: ['Do not replace an exact integer or symbolic requirement with floating-point arithmetic.'],
-      computationalFormulation: 'Choose a stable equivalent formulation; scale inputs and avoid subtracting nearly equal values.',
-      implementationPatterns: ['Use Welford or compensated updates for streaming moments.', 'Use log1p, expm1, or log-sum-exp near unstable boundaries.'],
-      verificationOracle: 'Compare against high-precision/reference values on extreme-scale inputs.',
-      complexityRisk: 'Prefer the stable linear-time formulation when available.',
-      numericalRisk: 'Track overflow, underflow, cancellation, and condition sensitivity.',
-      truthBoundary: 'Operator-configured guidance; mechanical routing only, not proven performance lift.',
-    },
-  },
-  {
-    profileId: 'network-flow-matching', matcherId: 'code-network-flow-matching-v1',
-    conceptIds: ['graph-theory-matchings-flows', 'combinatorics-matroids'],
-    context: {
-      applicabilityReason: 'Capacitated assignment, matching, max-flow, or min-cut software problem.',
-      assumptions: [{ code: 'graph-model', description: 'Entities and constraints can be represented as vertices, edges, and capacities.' }],
-      contraindications: ['Do not force unrelated workflow or traffic wording into a graph model.'],
-      computationalFormulation: 'Build a residual network; encode assignment as unit capacities when appropriate.',
-      implementationPatterns: ['Use augmenting paths or Dinic for integral capacities.', 'Recover assignments from saturated forward edges.'],
-      verificationOracle: 'Check capacity, conservation, assignment uniqueness, and matching cut/value.',
-      complexityRisk: 'Choose the algorithm from graph size and capacity structure.',
-      numericalRisk: 'Use exact integer capacities where the model is discrete.',
-      truthBoundary: 'Operator-configured guidance; validate the graph reduction for the actual API.',
-    },
-  },
-  {
-    profileId: 'matrix-conditioning', matcherId: 'code-matrix-conditioning-v1',
-    conceptIds: ['linear-algebra-matrix-decompositions', 'numerical-analysis-conditioning'],
-    context: {
-      applicabilityReason: 'Linear solve or least-squares code where rank and conditioning matter.',
-      assumptions: [{ code: 'matrix-problem', description: 'The task is a numeric matrix solve, decomposition, or least-squares fit.' }],
-      contraindications: ['Do not use matrix inversion when a direct solve suffices.'],
-      computationalFormulation: 'Solve with QR; use pivoting or SVD when rank deficiency is possible.',
-      implementationPatterns: ['Avoid normal equations for ill-conditioned least squares.', 'Scale columns and expose rank/tolerance decisions.'],
-      verificationOracle: 'Check residual, rank behavior, and sensitivity on perturbed inputs.',
-      complexityRisk: 'SVD is robust but costlier than QR.',
-      numericalRisk: 'Condition number amplifies input and rounding error.',
-      truthBoundary: 'Operator-configured guidance; library behavior and tolerances remain task-specific.',
-    },
-  },
-  {
-    profileId: 'constrained-optimization', matcherId: 'code-constrained-optimization-v1',
-    conceptIds: ['optimization-duality-kkt'],
-    context: {
-      applicabilityReason: 'Constrained convex optimization or resource-allocation implementation.',
-      assumptions: [{ code: 'convex-model', description: 'Objective, constraints, and variable domains are explicit; convexity is checked.' }],
-      contraindications: ['KKT conditions are not automatically sufficient for nonconvex problems.'],
-      computationalFormulation: 'Track primal feasibility, dual feasibility, stationarity, and complementarity.',
-      implementationPatterns: ['Use a primal-dual solver with explicit residuals.', 'Normalize variables and constraints before solving.'],
-      verificationOracle: 'Check constraint violations, objective, duality gap, and KKT residuals.',
-      complexityRisk: 'Solver choice depends on sparsity and constraint structure.',
-      numericalRisk: 'Poor scaling can create false convergence.',
-      truthBoundary: 'Operator-configured guidance; no global-optimum claim without assumptions.',
-    },
-  },
-  {
-    profileId: 'stochastic-reliability', matcherId: 'code-stochastic-reliability-v1',
-    conceptIds: ['stochastic-processes-markov-chains', 'differential-equations-stability-lyapunov'],
-    context: {
-      applicabilityReason: 'Retry, queue, failure, or steady-state behavior modeled by state transitions.',
-      assumptions: [{ code: 'transition-model', description: 'States and transition probabilities are explicit and probabilities are normalized.' }],
-      contraindications: ['Do not assume memorylessness when history affects transitions.'],
-      computationalFormulation: 'Construct the transition matrix and separate transient, recurrent, and absorbing behavior.',
-      implementationPatterns: ['Compute stationary behavior only after checking communicating classes.', 'Bound retries with an explicit absorbing failure/success state.'],
-      verificationOracle: 'Check row sums, reachability, absorption probability, and simulation agreement.',
-      complexityRisk: 'Exploit sparse transitions for large state spaces.',
-      numericalRisk: 'Iterative stationary solves need convergence and residual checks.',
-      truthBoundary: 'Operator-configured guidance; model validity is not established by code alone.',
-    },
-  },
-  {
-    profileId: 'state-invariants', matcherId: 'code-state-invariants-v1',
-    conceptIds: ['proof-invariants-and-extremal-principles', 'proof-counterexample-construction'],
-    context: {
-      applicabilityReason: 'State-machine or protocol safety implementation needing an inductive invariant.',
-      assumptions: [{ code: 'explicit-transitions', description: 'Initial states, transitions, and forbidden states are explicit.' }],
-      contraindications: ['A bounded search that finds no counterexample is not a general proof.'],
-      computationalFormulation: 'State the invariant; verify initialization, preservation, and implication of safety.',
-      implementationPatterns: ['Assert the invariant at transition boundaries.', 'Minimize counterexample traces before changing the design.'],
-      verificationOracle: 'Exhaust reachable small states and check base/step obligations.',
-      complexityRisk: 'State explosion requires symmetry, abstraction, or compositional invariants.',
-      numericalRisk: 'Use exact state predicates rather than tolerant equality.',
-      truthBoundary: 'Operator-configured guidance; no formal-proof claim without a trusted proof checker.',
-    },
-  },
-  {
-    profileId: 'causal-analysis', matcherId: 'code-causal-analysis-v1',
-    conceptIds: ['statistics-causal-identification'],
-    context: {
-      applicabilityReason: 'Software estimating a causal treatment effect rather than prediction alone.',
-      assumptions: [{ code: 'identification', description: 'Treatment, outcome, timing, and identification assumptions are explicit.' }],
-      contraindications: ['Prediction accuracy does not establish causal identification.'],
-      computationalFormulation: 'Encode the causal graph and adjustment set before choosing an estimator.',
-      implementationPatterns: ['Avoid conditioning on descendants or colliders.', 'Separate identification, estimation, and sensitivity analysis.'],
-      verificationOracle: 'Check temporal order, overlap, balance, placebo outcomes, and sensitivity.',
-      complexityRisk: 'Use cross-fitting when flexible nuisance models risk overfit.',
-      numericalRisk: 'Extreme propensity weights create unstable estimates.',
-      truthBoundary: 'Operator-configured guidance; causal conclusions remain assumption-dependent.',
-    },
-  },
-  {
-    profileId: 'modular-reconstruction', matcherId: 'code-modular-reconstruction-v1',
-    conceptIds: ['number-theory-chinese-remainder'],
-    context: {
-      applicabilityReason: 'Exact software reconstruction from congruences over coprime moduli.',
-      assumptions: [{ code: 'compatible-congruences', description: 'Residues are compatible and modulus conditions are checked.' }],
-      contraindications: ['Do not assume pairwise coprimality; use generalized CRT when gcds are nontrivial.'],
-      computationalFormulation: 'Combine congruences with extended-gcd inverses and normalize to the product modulus.',
-      implementationPatterns: ['Use arbitrary-precision integers.', 'Check compatibility before merging non-coprime moduli.'],
-      verificationOracle: 'Verify the result modulo every input modulus and normalize the representative.',
-      complexityRisk: 'Merge incrementally to limit intermediate work.',
-      numericalRisk: 'Floating-point arithmetic is invalid for exact congruences.',
-      truthBoundary: 'Operator-configured guidance; cryptographic constant-time needs are separate.',
-    },
-  },
-]);
+const CATEGORY_GUIDANCE = Object.freeze({
+  algebra: ['Translate constraints into exact identities and preserve equivalence under each transformation.', 'Substitute the result into the original relation and check excluded values.', 'Expression growth and coefficient blow-up can dominate symbolic work.', 'Prefer exact arithmetic when the domain is discrete or rational.'],
+  'algebra-precalculus': ['Normalize the expression, identify its domain, and preserve branch and singularity conditions.', 'Check algebraic identities at boundaries, poles, roots, and representative points.', 'Equivalent symbolic forms can have very different evaluation cost.', 'Guard cancellation, overflow, and branch-cut assumptions.'],
+  functions: ['Make domain, codomain, composition order, and invertibility conditions explicit.', 'Check the defining relation and round-trip properties on domain boundaries.', 'Repeated composition can amplify time and representation size.', 'Track discontinuities and loss of injectivity.'],
+  calculus: ['Identify regularity, limiting regime, and the valid differentiation or integration rule before computing.', 'Differentiate an antiderivative or compare limiting values and numerical quadrature.', 'Symbolic expansion and naive discretization can add avoidable cost.', 'Check singularities, cancellation, and discretization error.'],
+  'linear-algebra': ['Represent the task with vectors, linear maps, rank, and an appropriate factorization rather than explicit inversion.', 'Check residuals, dimensions, rank, and reconstruction identities.', 'Dense cubic work may be avoidable through sparsity or structure.', 'Conditioning can amplify data and rounding error.'],
+  'advanced-linear-algebra': ['Choose basis-free structure first, then coordinates or canonical forms suited to the operator.', 'Verify kernel/image, dimension, invariance, duality, or spectral identities.', 'Basis conversion and dense canonical forms can dominate cost.', 'Numerical eigenspaces need separation and conditioning checks.'],
+  probability: ['Define the sample space, conditioning event, dependence assumptions, and target random variable.', 'Check normalization and compare exact enumeration with simulation when useful.', 'State-space enumeration can grow combinatorially.', 'Rare-event estimates need uncertainty and variance controls.'],
+  'probability-statistics': ['State the sampling model, estimand, assumptions, and uncertainty measure before estimation.', 'Use calibration, resampling, or known-distribution checks appropriate to the estimator.', 'Resampling and large model matrices can be expensive.', 'Small samples and tail behavior can destabilize inference.'],
+  statistics: ['Separate estimand, identification, estimator, uncertainty, and decision threshold.', 'Check calibration, residuals, coverage, sensitivity, and held-out behavior as applicable.', 'High-dimensional fitting and resampling can dominate runtime.', 'Ill conditioning, separation, and extreme weights can destabilize estimates.'],
+  optimization: ['Write the objective, feasible set, variable domains, and optimality conditions explicitly.', 'Check feasibility, objective value, stationarity, and a bound or certificate.', 'Solver complexity depends on dimension, sparsity, and constraint structure.', 'Scaling and tolerance choices can create false convergence.'],
+  'numerical-analysis-optimization': ['Choose a stable formulation and expose approximation, conditioning, stopping, and error controls.', 'Compare residuals and error estimates against a trusted reference or refinement.', 'Accuracy requirements determine discretization and iteration cost.', 'Track truncation, rounding, conditioning, and convergence separately.'],
+  'discrete-mathematics': ['Model finite objects, relations, recurrences, or graph structure exactly.', 'Check invariants and exhaust small instances or compare with a closed form.', 'State spaces and combinatorial search can grow exponentially.', 'Use exact predicates and integer arithmetic.'],
+  'combinatorics-graph-theory': ['Identify the discrete structure and choose a bijection, invariant, extremal bound, flow, or generating function.', 'Check constructions, counts, conservation laws, and tight examples.', 'Enumeration and graph search can be exponential without structure.', 'Use exact discrete checks; randomized methods need probability bounds.'],
+  'number-theory': ['Reduce to exact divisibility, congruence, valuation, field, or arithmetic-function structure.', 'Verify every congruence, gcd, factorization, local condition, or rational point exactly.', 'Integer size and factorization complexity can dominate.', 'Floating-point arithmetic is invalid for exact arithmetic claims.'],
+  'proof-foundations': ['State definitions, quantifiers, dependencies, and the exact proposition before selecting a proof method.', 'Check base cases, implications, witnesses, and counterexamples against the literal claim.', 'Proof search can branch rapidly; isolate the smallest sufficient lemma set.', 'Do not replace logical validity with numerical plausibility.'],
+  'logic-set-theory': ['Fix syntax, semantics, axioms, model class, and metatheoretic assumptions.', 'Verify derivations or constructions against the declared formal system.', 'Model search and proof search may be undecidable or non-elementary.', 'Bounded checks are not general proofs.'],
+  topology: ['Work from open-set, continuity, compactness, connectedness, and separation definitions before using invariants.', 'Verify maps, covers, neighborhoods, and counterexamples against definitions.', 'Combinatorial representations can grow with cover or complex size.', 'Metric intuition may fail in general topological spaces.'],
+  'algebraic-topology': ['Choose a complex, filtration, homotopy, homology, or cohomology invariant suited to the space.', 'Check chain maps, boundaries, exactness, and invariant computations.', 'Boundary matrices and filtrations can become large.', 'Orientation, coefficient, and convergence choices affect results.'],
+  'abstract-algebra': ['Identify the algebraic objects, morphisms, invariants, quotients, and universal properties.', 'Check closure, homomorphism laws, kernels, images, and canonical maps.', 'Normal forms and representation computations can grow quickly.', 'Use exact symbolic operations and explicit field/ring assumptions.'],
+  'commutative-algebra': ['Translate geometry or equations into ideals, localizations, modules, spectra, or completions.', 'Check ideal membership, universal properties, dimensions, and decomposition identities.', 'Groebner and primary-decomposition procedures can be doubly exponential.', 'Coefficient domains and term orders must be explicit.'],
+  'real-analysis': ['State the ambient space, quantifiers, regularity, convergence mode, and compactness/completeness hypotheses.', 'Check epsilon bounds, dominating estimates, and counterexamples when hypotheses weaken.', 'Approximation and covering arguments may require explicit rates.', 'Pointwise evidence does not establish uniform or measure convergence.'],
+  'complex-analysis': ['Use holomorphic structure, contour geometry, singularities, and domain topology explicitly.', 'Check residues, contour orientation, analytic continuation, and boundary hypotheses.', 'Contour discretization and series truncation require error control.', 'Branch choices and near-singular evaluation can be unstable.'],
+  'functional-analysis': ['Specify the normed/topological spaces, operator domains, boundedness, compactness, and dual pairing.', 'Check norm estimates, convergence mode, adjoints, and representation identities.', 'Infinite-dimensional arguments need justified approximation schemes.', 'Finite discretizations may hide unbounded or noncompact behavior.'],
+  'harmonic-analysis': ['Choose physical/frequency representation, transform convention, localization, and function space.', 'Check inversion, Plancherel/energy identities, convolution, and scale behavior.', 'Transform and multiscale methods depend on sampling and sparsity.', 'Aliasing, leakage, truncation, and distributional inputs need explicit handling.'],
+  'differential-equations-dynamical-systems': ['State the equation class, domain, boundary/initial data, regularity, and stability notion.', 'Check residuals, conservation/energy estimates, convergence, and known solutions.', 'Grid size, stiffness, and nonlinear iteration drive cost.', 'Discretization can change stability, invariants, and qualitative behavior.'],
+  'measure-probability-stochastic': ['Fix measurable spaces, filtrations, laws, integrability, and conditioning assumptions.', 'Check measurability, normalization, martingale identities, moments, and limiting behavior.', 'Path simulation and high-dimensional integration can be expensive.', 'Tail events, stopping, and discretization require separate error analysis.'],
+  'differential-geometry': ['Specify the manifold, charts, tensors, metric/connection, and coordinate-invariant target.', 'Check coordinate transformations, tensor identities, curvature, and integral invariants.', 'Chart transitions and tensor operations scale with dimension.', 'Coordinate singularities are not geometric singularities.'],
+  'research-practice': ['Freeze the claim, corpus, assumptions, provenance, artifact boundary, and falsification conditions.', 'Require reproducible artifacts, dependency checks, contradiction search, and explicit non-claims.', 'Corpus and reproduction work should be bounded before execution.', 'Do not convert missing evidence into a positive claim.'],
+  'error-analysis': ['Identify the hidden denominator, sample space, overlap, or claim boundary before calculating.', 'Recompute from explicit definitions and test the common misleading alternative.', 'Prefer the simplest exact formulation that exposes the error.', 'Rounding can conceal a conceptual denominator or conditioning mistake.'],
+});
+
+function guidanceFor(category) {
+  return CATEGORY_GUIDANCE[category] || [
+    'State the mathematical objects, assumptions, target, and valid transformations explicitly.',
+    'Check the defining relations and a deterministic reference case.',
+    'Choose an implementation compatible with input size and structure.',
+    'Separate mathematical approximation from floating-point error.',
+  ];
+}
+
+function contextFor(concept) {
+  const [formulation, oracle, complexityRisk, numericalRisk] = guidanceFor(concept.category);
+  const outcome = String(concept.outcomes?.[0] || `Apply ${concept.title}.`);
+  const prerequisiteText = concept.prerequisites.length
+    ? `Check prerequisites: ${concept.prerequisites.slice(0, 4).join(', ')}.`
+    : 'No curriculum prerequisite is declared; still state task assumptions.';
+  return {
+    applicabilityReason: `${concept.title} (${concept.stage}); declared outcome: ${outcome}`.slice(0, 500),
+    assumptions: [{ code: `grounded-${concept.conceptId}`.slice(0, 128), description: 'The request contains a grounded concept-title, outcome, or curated application match.' }],
+    contraindications: ['Do not inject this concept from generic mathematical wording alone; reject it when its definitions or assumptions do not fit.'],
+    computationalFormulation: `${formulation} Target outcome: ${outcome}`.slice(0, 500),
+    implementationPatterns: [prerequisiteText.slice(0, 500), `Use the ${concept.category} structure explicitly; keep definitions and intermediate invariants inspectable.`],
+    verificationOracle: oracle.slice(0, 500),
+    complexityRisk: complexityRisk.slice(0, 500),
+    numericalRisk: numericalRisk.slice(0, 500),
+    truthBoundary: 'Operator-configured 264-concept retrieval guidance; verify the task result and do not infer retained mastery or PhD equivalence.',
+  };
+}
 
 export function buildOperatorEntries({ now, allowedAgentIds, sourceDigest, planDigest }) {
-  const qualifiedAt = new Date(now);
-  if (!Number.isFinite(qualifiedAt.getTime())) throw new Error('invalid --now');
-  const expiresAt = new Date(qualifiedAt.getTime() + 366 * 24 * 60 * 60 * 1000).toISOString();
-  return PROFILES.map((profile) => ({
-    schemaVersion: TRANSFER_ENTRY_SCHEMA,
-    entryId: `operator-applied-math-${profile.profileId}-v1`,
-    profileId: profile.profileId,
-    profileVersion: '1.0.0',
-    conceptIds: profile.conceptIds,
-    matcherId: profile.matcherId,
-    enabled: true,
-    qualificationState: 'operator_enabled',
-    activationBasis: 'operator_direct',
-    qualificationRunId: 'operator-direct-applied-math-20260808',
-    artifactManifestDigest: sourceDigest,
-    evidenceDigest: planDigest,
-    profileDigest: digest(profile),
-    qualifiedAt: qualifiedAt.toISOString(),
-    expiresAt,
-    allowedAgentIds,
-    context: profile.context,
-  }));
+  const activatedAt = new Date(now);
+  if (!Number.isFinite(activatedAt.getTime())) throw new Error('invalid --now');
+  const expiresAt = new Date(activatedAt.getTime() + 3653 * 24 * 60 * 60 * 1000).toISOString();
+  return CATALOG.concepts.map((concept) => {
+    const context = contextFor(concept);
+    const matcherId = `phd-math-${concept.conceptId}-v1`;
+    return {
+      schemaVersion: TRANSFER_ENTRY_SCHEMA,
+      entryId: `operator-phd-math-${concept.conceptId}-v1`,
+      profileId: concept.conceptId,
+      profileVersion: '1.0.0',
+      conceptIds: [concept.conceptId],
+      matcherId,
+      enabled: true,
+      qualificationState: 'operator_enabled',
+      activationBasis: 'operator_direct',
+      qualificationRunId: 'operator-direct-full-spectrum-20260808',
+      artifactManifestDigest: sourceDigest,
+      evidenceDigest: planDigest,
+      profileDigest: digest({ concept, context, matcherId }),
+      qualifiedAt: activatedAt.toISOString(),
+      expiresAt,
+      allowedAgentIds,
+      context,
+    };
+  });
 }
 
 export function installOperatorEntries({ registryPath, secretPath, agentId = 'main', now = new Date().toISOString() }) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(agentId)) throw new Error('invalid agent id');
-  const transferSource = fs.readFileSync(path.join(PLUGIN_ROOT, 'transfer.mjs'));
-  const registrySource = fs.readFileSync(path.join(PLUGIN_ROOT, 'transfer-registry.mjs'));
+  const productSources = ['transfer.mjs', 'transfer-registry.mjs', 'index.ts', 'phd-math-transfer-catalog.v1.json']
+    .map((name) => fs.readFileSync(path.join(PLUGIN_ROOT, name)));
   const planSource = fs.readFileSync(path.join(PACKAGE_ROOT, 'plan.md'));
-  const sourceDigest = sha256(Buffer.concat([transferSource, registrySource]));
+  const sourceDigest = sha256(Buffer.concat(productSources));
   const planDigest = sha256(planSource);
 
   initializeTransferRegistry({ registryPath, secretPath, now });
@@ -212,19 +163,22 @@ export function installOperatorEntries({ registryPath, secretPath, agentId = 'ma
   const current = loadSignedTransferRegistry(registryPath, secret, { allowExpiredEntries: true });
   const entries = buildOperatorEntries({ now, allowedAgentIds: [agentId], sourceDigest, planDigest });
   const replaced = new Set(entries.map((entry) => entry.profileId));
+  const preserved = current.entries.filter((entry) => entry.activationBasis !== 'operator_direct' && !replaced.has(entry.profileId));
   const next = {
     schemaVersion: current.schemaVersion,
     revision: current.revision + 1,
     updatedAt: now,
     enabled: true,
-    entries: [...current.entries.filter((entry) => !replaced.has(entry.profileId)), ...entries]
-      .sort((left, right) => left.profileId.localeCompare(right.profileId)),
+    entries: [...preserved, ...entries].sort((left, right) => left.profileId.localeCompare(right.profileId)),
   };
   const signed = atomicWriteSignedTransferRegistry(registryPath, next, secret);
   return {
     registryPath,
     revision: signed.revision,
     keyId: signed.signature.keyId,
+    catalogId: CATALOG.catalogId,
+    catalogSourceDigest: CATALOG.source.sha256,
+    installedProfileCount: entries.length,
     installedProfileIds: entries.map((entry) => entry.profileId).sort(),
     sourceDigest,
     planDigest,

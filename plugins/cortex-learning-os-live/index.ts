@@ -16,7 +16,7 @@ import {
   renderTransferContext,
   selectQualifiedTransferEntries,
 } from './transfer-registry.mjs';
-import { routeCodingTransfer } from './transfer.mjs';
+import { routeMathTransfer } from './transfer.mjs';
 
 function asBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
@@ -252,7 +252,7 @@ export default function register(api: any) {
     ? path.resolve(cfg.transferTelemetryPath)
     : path.join(path.dirname(transferRegistryPath), 'transfer-telemetry.json');
   const transferTelemetryMaxRecords = boundedNumber(cfg.transferTelemetryMaxRecords, 1_000, 10, 10_000);
-  const transferMaxContextChars = boundedNumber(cfg.transferMaxContextChars, 6_000, 1_024, 12_000);
+  const transferMaxContextChars = boundedNumber(cfg.transferMaxContextChars, 8_000, 1_024, 12_000);
   const allowedAgentIds = new Set(
     (Array.isArray(cfg.allowedAgentIds) ? cfg.allowedAgentIds : ['main'])
       .filter((value: unknown) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value as string))
@@ -386,8 +386,8 @@ export default function register(api: any) {
       try { appendTransferTelemetry(transferTelemetryPath, { ...baseRecord, outcome: 'no_match', reasonCodes: [reason] }, transferTelemetryMaxRecords); } catch {}
       return;
     }
-    const route = routeCodingTransfer(query, { selectionMode: transferMode });
-    const evaluated = route.evaluations || route.selections;
+    const route = routeMathTransfer(query, { selectionMode: transferMode, maxSelections: 3 });
+    const evaluated = route.selections;
     const routeRecord = {
       ...baseRecord,
       applicable: route.applicable,
@@ -445,7 +445,7 @@ export default function register(api: any) {
       appendTransferTelemetry(transferTelemetryPath, {
         ...registryRecord,
         outcome: 'applied',
-        reasonCodes: [...route.reasonCodes, 'active-qualified-transfer-applied'],
+        reasonCodes: [...route.reasonCodes, 'active-signed-transfer-applied'],
         answerInfluence: true,
       }, transferTelemetryMaxRecords);
     } catch (error) {

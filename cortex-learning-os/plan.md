@@ -532,6 +532,79 @@ Truth boundary:
 - The smoke supports only mechanical routing/context operation.
 - Do not claim scientific transfer benefit, retained mastery of all 264 concepts, model-weight change, PhD equivalence, Lean qualification, research ability, or regression freedom.
 
+### Wave 5.8 — Full-spectrum 264-concept PhD mathematics transfer
+
+Reply anchor and fidelity:
+
+- Anchor: Jake's `2026-08-08 20:43 CDT` instruction, “Continue it until its a full spectrum phd math transfer,” immediately following the deployed eight-profile v1.
+- Fidelity: full catalog coverage for the canonical 264-concept curriculum on the production answer path, not a statistical efficacy or human-equivalence claim.
+- Active branch/worktree: `feat/cortex-learning-os-applied-math-transfer-20260808` at `/root/clawd/worktrees/cortex-learning-os-applied-math-transfer-20260808`.
+
+Scope and product surfaces:
+
+- Every concept in `capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json` is represented by one immutable transfer profile with title, category, stage, tracks, prerequisites, declared outcome, retrieval terms, and bounded reasoning/verification context.
+- Automatic routing covers exact concept/title/outcome language plus common coding, systems, scientific-computing, data, reliability, cryptography, formal-reasoning, and research-practice application terms.
+- Product files: `plugins/cortex-learning-os-live/transfer.mjs`, `transfer-registry.mjs`, `index.ts`, `phd-math-transfer-catalog.v1.json`, and the signed-registry installer.
+- Machine-readable surface matrix: `surfaces/full-spectrum-phd-math-transfer-v1.json`.
+
+Non-goals:
+
+- No benchmark, canary, broad suite, empirical transfer study, model-weight training, canonical mastery mutation, Lean qualification, autonomous research claim, or production-provider change.
+- Do not claim a concept is relevant when the request has no grounded lexical/application match; fail closed rather than inject encyclopedic context.
+
+Architecture and ownership:
+
+1. Extend the existing signed transfer primitive; do not build a parallel retrieval system. The prior-art decision is `extend_existing` (the Cortex prior-art CLI hung during workspace scanning, so direct source inspection established the existing `transfer.mjs`/signed-registry/index hook as the reusable path).
+2. Build a deterministic catalog from the exact 264-node graph plus canonical rubric stage/track mappings.
+3. Route with bounded deterministic scoring: explicit concept IDs/titles first, curated application aliases second, distinctive title/outcome term overlap third. Return at most three concepts.
+4. Generate compact concept-specific context from declared outcomes, prerequisites, category method guidance, and explicit verification/truth boundaries.
+5. Install all 264 profiles as HMAC-signed `operator_enabled` / `operator_direct` entries for `main`; preserve fail-closed registry and context-size behavior.
+6. Control-plane implementation only; no heavy agent farm or remote execution is needed. Jake owns activation; the plugin owns deterministic selection; the registry owns authorization/integrity.
+
+Implementation sequence and acceptance:
+
+1. Freeze the exact source digest and 264-row surface matrix. Acceptance: unique concept IDs and source-bound rows exist.
+2. Implement catalog loading, deterministic full-spectrum routing, bounded context generation, 264-entry registry support, and selected-only telemetry. Acceptance: the diff touches all listed product surfaces.
+3. Run exactly one focused end-to-end smoke command against a temporary signed registry. It must prove: catalog count `264`; one cross-domain systems request selects expected advanced concepts; only signed operator entries are rendered; context stays within the configured bound.
+4. If that one smoke passes, commit and push exact source, back up live plugin/config/registry, install the exact product files and all 264 signed profiles, raise the bounded context limit only if required, and restart the gateway once.
+5. Record live registry revision, exact hashes, active gateway state, and the completed 264-row surface matrix. These are deployment-state observations, not extra tests.
+
+Evidence and replay:
+
+- Source catalog and surface matrix carry the exact curriculum SHA-256.
+- One focused smoke command is recorded in `artifacts/cortex-learning-os-applied-math-direct-20260808/full-spectrum/`.
+- Deployment backup and installed hashes live under the same artifact root.
+- No broad replay/test command is authorized by this wave.
+
+Risks and confusion prevention:
+
+- Lexical routing can miss paraphrases or overmatch generic terms; require distinctive evidence and keep at most three profiles.
+- Catalog coverage is not proof that all concepts improve answers. Say `full-spectrum catalog implemented`, not `PhD mastery proven`.
+- The 264-node graph includes foundational and research-practice concepts as well as graduate mathematics; preserve all rows rather than reporting only impressive topics.
+- One smoke establishes mechanical operation only and cannot justify regression or efficacy claims.
+
+Rough effort:
+
+- Implementation: one bounded local coding pass, approximately 8–15k source/catalog lines and under one hour of control-plane compute.
+- Validation: exactly one focused smoke, expected under one minute.
+- Deployment: one signed registry transaction and one gateway restart.
+
+Machine stop condition:
+
+```text
+surface_matrix.completed == 264
+and surface_matrix.total == 264
+and live_registry.active_operator_profiles == 264
+and focused_smoke.status == passed
+and installed_source_hashes_match_committed_source == true
+and gateway.state == active
+```
+
+Truth boundary:
+
+- Completion means all 264 canonical concepts are available through the active signed retrieval/context path with deterministic matching and bounded guidance.
+- It does not establish retained mastery, universal relevance, empirical answer improvement, formal theorem-proving qualification, independent research ability, human PhD equivalence, or model-weight change.
+
 ### Wave 6 — Quant Truth Lab extension
 
 Goal:

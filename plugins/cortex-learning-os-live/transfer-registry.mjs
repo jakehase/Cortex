@@ -111,7 +111,7 @@ export function verifyTransferRegistry(registry, secret, { now = Date.now(), all
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 0) errors.push('invalid transfer registry revision');
   if (!Number.isFinite(Date.parse(String(registry.updatedAt || '')))) errors.push('invalid transfer registry updatedAt');
   if (typeof registry.enabled !== 'boolean') errors.push('invalid transfer registry enabled flag');
-  if (!Array.isArray(registry.entries) || registry.entries.length > 100) errors.push('invalid transfer entries');
+  if (!Array.isArray(registry.entries) || registry.entries.length > 320) errors.push('invalid transfer entries');
   else {
     const ids = new Set();
     const profiles = new Set();
@@ -210,17 +210,17 @@ export function selectQualifiedTransferEntries(registry, route, { agentId, now =
     .filter((entry) => entry.allowedAgentIds.includes(agentId))
     .filter((entry) => applicable.has(entry.profileId))
     .sort((left, right) => left.profileId.localeCompare(right.profileId))
-    .slice(0, 2);
+    .slice(0, 3);
 }
 
 export function renderTransferContext(entries, route, { maxChars = 6000 } = {}) {
   if (!entries.length) return '';
   const hasOperatorEntry = entries.some((entry) => entry.qualificationState === 'operator_enabled');
   const lines = [
-    'CORTEX_LEARNING_OS_CODING_TRANSFER',
+    'CORTEX_LEARNING_OS_PHD_MATH_TRANSFER',
     `mode: ${hasOperatorEntry ? 'active_operator_configured_transfer' : 'active_independently_qualified_transfer'}`,
-    'Use the scoped mathematical guidance only when its observed assumptions hold.',
-    'Verify the implementation; do not infer broader mastery or empirical benefit from this context.',
+    'Use only the selected concepts whose observed assumptions hold; keep definitions, prerequisites, and boundaries explicit.',
+    'Verify the result; full catalog coverage does not establish retained mastery, empirical benefit, or PhD equivalence.',
   ];
   for (const entry of entries) {
     const decision = route.selections.find((row) => row.profileId === entry.profileId);
