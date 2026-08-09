@@ -7,8 +7,8 @@
     "sha256": "7ad786eb5a5a4a3b0dc209c8fdc2b2e0b1f5593e3b470f691f88e2717a5bbc5c"
   },
   "total": 264,
-  "completed": 0,
-  "status": "implementation_in_progress",
+  "completed": 264,
+  "status": "active_deployed",
   "surfaces": [
     {
       "ordinal": 1,
@@ -20,7 +20,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -38,7 +38,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -56,7 +56,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -74,7 +74,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -92,7 +92,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -110,7 +110,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -128,7 +128,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -146,7 +146,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -164,7 +164,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -182,7 +182,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -199,7 +199,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -216,7 +216,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -233,7 +233,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -250,7 +250,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -267,7 +267,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -284,7 +284,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -301,7 +301,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -318,7 +318,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -335,7 +335,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -352,7 +352,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -369,7 +369,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -386,7 +386,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -403,7 +403,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -420,7 +420,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -437,7 +437,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -454,7 +454,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -472,7 +472,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -490,7 +490,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -508,7 +508,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -526,7 +526,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -543,7 +543,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -560,7 +560,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -577,7 +577,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -594,7 +594,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -612,7 +612,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -630,7 +630,7 @@
         "proof-foundations",
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -648,7 +648,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -666,7 +666,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -684,7 +684,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -702,7 +702,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -720,7 +720,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -738,7 +738,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -756,7 +756,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -774,7 +774,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -792,7 +792,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -810,7 +810,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -828,7 +828,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -846,7 +846,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -864,7 +864,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -882,7 +882,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -900,7 +900,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -918,7 +918,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -936,7 +936,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -954,7 +954,7 @@
         "real-analysis",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -971,7 +971,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -988,7 +988,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1005,7 +1005,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1022,7 +1022,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1039,7 +1039,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1056,7 +1056,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1073,7 +1073,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1090,7 +1090,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1108,7 +1108,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1126,7 +1126,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1144,7 +1144,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1162,7 +1162,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1180,7 +1180,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1198,7 +1198,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1216,7 +1216,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1234,7 +1234,7 @@
         "statistics",
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1252,7 +1252,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1270,7 +1270,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1288,7 +1288,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1306,7 +1306,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1324,7 +1324,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1341,7 +1341,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1358,7 +1358,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1375,7 +1375,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1393,7 +1393,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1411,7 +1411,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1429,7 +1429,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1447,7 +1447,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1465,7 +1465,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1483,7 +1483,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1500,7 +1500,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1517,7 +1517,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1534,7 +1534,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1551,7 +1551,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1568,7 +1568,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1585,7 +1585,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1602,7 +1602,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1619,7 +1619,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1636,7 +1636,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1653,7 +1653,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1670,7 +1670,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1687,7 +1687,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1705,7 +1705,7 @@
         "proof-foundations",
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1722,7 +1722,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1739,7 +1739,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1756,7 +1756,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1773,7 +1773,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1790,7 +1790,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1807,7 +1807,7 @@
       "tracks": [
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1824,7 +1824,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1841,7 +1841,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1858,7 +1858,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1875,7 +1875,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1892,7 +1892,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1909,7 +1909,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1926,7 +1926,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1943,7 +1943,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1961,7 +1961,7 @@
         "proof-foundations",
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1978,7 +1978,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -1995,7 +1995,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2012,7 +2012,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2029,7 +2029,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2046,7 +2046,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2063,7 +2063,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2080,7 +2080,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2097,7 +2097,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2114,7 +2114,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2131,7 +2131,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2148,7 +2148,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2165,7 +2165,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2182,7 +2182,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2199,7 +2199,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2216,7 +2216,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2233,7 +2233,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2250,7 +2250,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2267,7 +2267,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2284,7 +2284,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2301,7 +2301,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2318,7 +2318,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2335,7 +2335,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2352,7 +2352,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2369,7 +2369,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2386,7 +2386,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2403,7 +2403,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2420,7 +2420,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2437,7 +2437,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2454,7 +2454,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2471,7 +2471,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2489,7 +2489,7 @@
         "research-practice",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2506,7 +2506,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2523,7 +2523,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2540,7 +2540,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2557,7 +2557,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2574,7 +2574,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2591,7 +2591,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2608,7 +2608,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2625,7 +2625,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2642,7 +2642,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2659,7 +2659,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2676,7 +2676,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2693,7 +2693,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2710,7 +2710,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2727,7 +2727,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2744,7 +2744,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2761,7 +2761,7 @@
       "tracks": [
         "advanced-linear-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2778,7 +2778,7 @@
       "tracks": [
         "real-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2795,7 +2795,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2812,7 +2812,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2830,7 +2830,7 @@
         "functional-analysis",
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2847,7 +2847,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2864,7 +2864,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2881,7 +2881,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2898,7 +2898,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2915,7 +2915,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2932,7 +2932,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2949,7 +2949,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2966,7 +2966,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -2984,7 +2984,7 @@
         "advanced-linear-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3002,7 +3002,7 @@
         "real-analysis",
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3019,7 +3019,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3036,7 +3036,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3053,7 +3053,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3070,7 +3070,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3087,7 +3087,7 @@
       "tracks": [
         "topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3104,7 +3104,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3121,7 +3121,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3138,7 +3138,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3155,7 +3155,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3172,7 +3172,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3189,7 +3189,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3206,7 +3206,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3223,7 +3223,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3240,7 +3240,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3257,7 +3257,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3274,7 +3274,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3291,7 +3291,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3308,7 +3308,7 @@
       "tracks": [
         "abstract-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3325,7 +3325,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3343,7 +3343,7 @@
         "commutative-algebra",
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3360,7 +3360,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3377,7 +3377,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3394,7 +3394,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3411,7 +3411,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3428,7 +3428,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3445,7 +3445,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3462,7 +3462,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3480,7 +3480,7 @@
         "research-practice",
         "proof-foundations"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3497,7 +3497,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3514,7 +3514,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3531,7 +3531,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3548,7 +3548,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3565,7 +3565,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3582,7 +3582,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3599,7 +3599,7 @@
       "tracks": [
         "commutative-algebra"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3616,7 +3616,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3633,7 +3633,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3650,7 +3650,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3667,7 +3667,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3684,7 +3684,7 @@
       "tracks": [
         "combinatorics-graph-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3701,7 +3701,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3718,7 +3718,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3735,7 +3735,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3752,7 +3752,7 @@
       "tracks": [
         "complex-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3769,7 +3769,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3786,7 +3786,7 @@
       "tracks": [
         "functional-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3803,7 +3803,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3821,7 +3821,7 @@
         "commutative-algebra",
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3838,7 +3838,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3855,7 +3855,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3872,7 +3872,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3889,7 +3889,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3906,7 +3906,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3923,7 +3923,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3940,7 +3940,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3957,7 +3957,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3974,7 +3974,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -3991,7 +3991,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4008,7 +4008,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4025,7 +4025,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4042,7 +4042,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4059,7 +4059,7 @@
       "tracks": [
         "algebraic-topology"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4076,7 +4076,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4093,7 +4093,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4110,7 +4110,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4127,7 +4127,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4144,7 +4144,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4161,7 +4161,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4178,7 +4178,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4195,7 +4195,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4212,7 +4212,7 @@
       "tracks": [
         "numerical-analysis-optimization"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4229,7 +4229,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4246,7 +4246,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4263,7 +4263,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4280,7 +4280,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4297,7 +4297,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4314,7 +4314,7 @@
       "tracks": [
         "number-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4331,7 +4331,7 @@
       "tracks": [
         "logic-set-theory"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4348,7 +4348,7 @@
       "tracks": [
         "research-practice"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4365,7 +4365,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4382,7 +4382,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4399,7 +4399,7 @@
       "tracks": [
         "differential-geometry"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4416,7 +4416,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4433,7 +4433,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4450,7 +4450,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4467,7 +4467,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4484,7 +4484,7 @@
       "tracks": [
         "harmonic-analysis"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4501,7 +4501,7 @@
       "tracks": [
         "differential-equations-dynamical-systems"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4518,7 +4518,7 @@
       "tracks": [
         "measure-probability-stochastic"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4535,7 +4535,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4552,7 +4552,7 @@
       "tracks": [
         "statistics"
       ],
-      "status": "planned",
+      "status": "active",
       "productPaths": [
         "plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json",
         "plugins/cortex-learning-os-live/transfer.mjs",
@@ -4561,5 +4561,12 @@
       ]
     }
   ],
-  "truthBoundary": "A complete catalog supplies deterministic retrieval surfaces for all 264 declared concepts. It does not establish retention, efficacy, formal qualification, research ability, human PhD equivalence, or model-weight change."
+  "truthBoundary": "A complete catalog supplies deterministic retrieval surfaces for all 264 declared concepts. It does not establish retention, efficacy, formal qualification, research ability, human PhD equivalence, or model-weight change.",
+  "deployment": {
+    "sourceCommit": "0a8e4177e3ee947b6a7a952def91aa96d37d9ed9",
+    "runtimeSourceCommit": "d8f90f520d0b592cd1ce1601af0aafbe1afd21af",
+    "registryRevision": 2,
+    "activeOperatorProfiles": 264,
+    "activatedAt": "2026-08-09T02:36:36.000Z"
+  }
 }

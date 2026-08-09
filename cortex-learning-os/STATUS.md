@@ -6,17 +6,19 @@
 - Canonical plan: `/root/clawd/cortex-learning-os/plan.md`
 - Decisions log: `/root/clawd/cortex-learning-os/DECISIONS.md`
 - Last updated: `2026-08-08`
-- Status: `direct_applied_math_transfer_deployed`
-- Current fidelity: `operator_configured_profiles_mechanically_verified_no_broad_efficacy_claim`
-- Package version: `1.1.0`
+- Status: `full_spectrum_phd_math_transfer_deployed`
+- Current fidelity: `264_operator_configured_concept_surfaces_mechanically_verified_no_phd_equivalence_claim`
+- Package version: `1.2.0`
 
 ## Current checkpoint
 
-**Direct applied-mathematics implementation supersedes the benchmark path:** Jake stopped further test campaigns, canaries, and review rounds on `2026-08-08`. The canonical transfer bridge now has source changes for eight operator-configured profiles: numerical stability, network flow/matching, matrix conditioning, constrained optimization, stochastic reliability, state invariants, causal analysis, and modular reconstruction. A signed-registry installer records these entries as `operator_enabled` with `activationBasis=operator_direct`; it does not mislabel them independently qualified.
+**Full-spectrum PhD mathematics transfer is implemented and live for the exact canonical curriculum surface:** Jake directed continuation from the earlier eight-profile v1 until the active transfer layer covered the entire declared PhD mathematics trajectory. The product now loads the source-bound `math-phd-trajectory-v1` catalog with exactly `264/264` unique concepts, generates one bounded signed operator profile per concept, routes through explicit concept identifiers/titles plus curated application families and deterministic lexical fallback, selects at most three profiles, and emits selected-only telemetry. Registry capacity is `320`; live context remains bounded at `8000` characters.
 
-Exactly one focused smoke command passed for the intended path: a numerical-stability coding request selected only `numerical-stability`, loaded one signed operator entry, and rendered bounded active context (`1625` characters). This supports mechanical operation only. Source commit `833acc3ded6d61592947341d4041073d133b7ce1` was pushed, the exact plugin source was installed on the canonical live path, eight HMAC-signed entries were applied at registry revision `1`, transfer context capacity was raised to `4000`, and the gateway restarted active with connectivity healthy. The detached 40-task/80-call harness output is retained as a historical artifact and will not be merged or executed by default.
+The standing workflow was followed without a test campaign or review round. The one focused full-spectrum smoke passed with `264` catalog concepts and `264` signed temporary profiles; an ill-conditioned sparse least-squares request selected matrix decompositions, direct linear solvers, and Krylov iterations and rendered `5656` characters. The first guarded live apply then exposed a legacy-registry migration incompatibility before restart and rolled back cleanly. The plan and installer were repaired to HMAC-verify the legacy envelope before semantic replacement, and the one focused migration smoke passed from `8` signed legacy profiles to `264` signed catalog profiles at revision `2`.
 
-The August 5 retention outputs still compare `19/19` deterministically but remain unqualified because `runnerAttestation` was null and authenticated application failed. Direct implementation does not convert that evidence into retained mastery, PhD qualification, or model-weight learning.
+Runtime source commit `d8f90f520d0b592cd1ce1601af0aafbe1afd21af` plus migration commit `0a8e4177e3ee947b6a7a952def91aa96d37d9ed9` are pushed. Exact product source is installed on the canonical plugin path. The live registry is HMAC-signed revision `2`, contains exactly `264` enabled `operator_direct` entries covering `264` unique concepts, and the gateway restarted with a new active process. The completed surface matrix is `surfaces/full-spectrum-phd-math-transfer-v1.json`; deployment artifacts are under `artifacts/cortex-learning-os-applied-math-direct-20260808/full-spectrum/`.
+
+Truth boundary: “full spectrum” here means every declared curriculum concept is available to the bounded active retrieval/router layer with concept-specific context and verification guidance. It does not mean model-weight learning, durable retained mastery, empirical transfer benefit, human or PhD equivalence, proof-kernel qualification, or autonomous research ability. The August 5 retention outputs remain unqualified and the stopped 40-task/80-call harness remains historical only.
 
 **Retained/PhD production boundary repaired, with all live claims still
 blocked:** the canonical source defaults now point to the 264-node PhD
