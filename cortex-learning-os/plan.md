@@ -607,6 +607,73 @@ Truth boundary:
 - Completion means all 264 canonical concepts are available through the active signed retrieval/context path with deterministic matching and bounded guidance.
 - It does not establish retained mastery, universal relevance, empirical answer improvement, formal theorem-proving qualification, independent research ability, human PhD equivalence, or model-weight change.
 
+### Wave 5.9 — Independent PhD-level capability and practical-utility qualification
+
+Reply anchor and status:
+
+- Anchor: Jake's `2026-08-08 22:36 CDT` instruction, “Okay, create a plan to set this in motion,” following the explicit distinction between 264-surface availability and proof of PhD-level capability/usefulness.
+- Active planning branch: `feat/cortex-learning-os-phd-equivalence-usefulness-20260808`.
+- Fidelity: external qualification plan only. No evaluator outreach, recruitment, procurement, sealed corpus, human study, model run, or scored evaluation is started by this wave.
+- Full operating contract: [`docs/phd-equivalence-usefulness-qualification-plan.md`](docs/phd-equivalence-usefulness-qualification-plan.md).
+
+Objective and claim boundary:
+
+1. Test whether a frozen Cortex system **with its declared retrieval/tools** performs non-inferiorly to a preregistered mathematics-PhD reference cohort on independently authored breadth, specialist-depth, oral-defense, proof-audit, and original-research assessments.
+2. Test whether enabling the 264-concept transfer layer causally improves independently accepted outcomes over the identical Cortex system with transfer disabled on real mathematical software/research tasks.
+3. Permit only versioned, scoped performance wording. Never claim Cortex literally holds a PhD or convert retrieval-mediated success into model-internal mastery.
+
+Architecture and ownership:
+
+- An independent evaluation chair owns the protocol and sealed corpus; an independent statistician owns power/randomization/analysis; external mathematicians author and blind-grade; separate research committees judge originality/correctness; an independent replication team controls the second corpus.
+- Builders may implement schemas, runners, replay, and reporting but may not see scored prompts, hidden tests, answers, oral follow-up banks, or grader identities before freeze.
+- The control plane owns commitments, artifact intake, auditing, and notification. Heavy scored execution belongs on Hetzner or evaluator infrastructure. Sealed material stays outside builder-accessible workspaces and is released just in time.
+- Human comparison requires consent, fair compensation, privacy controls, and an independent ethics/IRB determination before publication.
+
+Program sequence:
+
+1. Freeze exact claim, system/tool boundary, budget, governance, conflicts, and external-action approvals.
+2. Recruit the independent chair/statistician/panel only after explicit operator approval; design the 264-surface assessment map and sealed corpus.
+3. Run a disjoint **unscored** calibration pilot to set sample size, margins, difficulty, floor/ceiling controls, rater agreement, and invalid-run rules.
+4. Freeze the statistical plan before any scored response.
+5. Execute written breadth, matched specialist depth, blind oral defense, and proof/counterexample audit.
+6. Execute three sealed original-research projects with prior-art checks, independent reproduction, committee review, and oral defense.
+7. Run a paired blinded utility trial: transfer active versus identical transfer-disabled Cortex, plus separately reported human/tool baselines where powered.
+8. Require an institutionally independent replication on a disjoint corpus before allowing the strongest claim.
+9. Publish exact allowed/disallowed claims and requalification triggers.
+
+Evidence and artifacts:
+
+- Authoritative future root: `/root/clawd/artifacts/cortex-learning-os-phd-equivalence-usefulness/<run-id>/`.
+- Required layers remain separate: baseline readiness, mechanical green, valid human reference, written non-inferiority, specialist depth, oral defense, proof audit, research validation, utility causality, independent replication, and final claim allowance.
+- Required terminal files include `contract.json`, `system-freeze.json`, governance/corpus/randomization commitments, raw ledgers, layer-specific results, `integrity-report.json`, `threshold_evaluation.json`, `truth_conflicts.json`, `completion_summary.json`, and `blocker_report.json` when red.
+- No harness or artifact volume receives capability credit.
+
+Stop condition:
+
+```text
+mechanicalGreen
+and humanReferenceValid
+and writtenNonInferiorityPass
+and specialistDepthPass
+and oralDefensePass
+and proofAuditPass
+and researchValidationPass
+and utilityCausalPass
+and independentReplicationPass
+and truthConflicts == 0
+and claimAllowed
+```
+
+Immediate milestone:
+
+- Prepare the internal Phase-0 kickoff package: claim brief, independent-chair role/conflict policy, 264-domain matrix, human-study brief, analysis template, sealed-corpus custody protocol, runner/artifact schema skeleton, budget brief, and unsent outreach drafts.
+- External outreach, agreements, participant recruitment, spending, or scored execution require separate approval.
+
+Truth boundary:
+
+- This wave sets a rigorous route to evidence; planning does not prove capability or utility.
+- A red component downgrades the claim. No aggregate, favorable secondary metric, same-item rerun, or self-authored benchmark may hide it.
+
 ### Wave 6 — Quant Truth Lab extension
 
 Goal:
