@@ -39,6 +39,8 @@ done
 [[ -f "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" && ! -L "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" && -r "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" ]] || { echo "approved model executable binding must be a readable regular file" >&2; exit 2; }
 [[ -f "$EXECUTION_PRIVATE_KEY_PATH" && ! -L "$EXECUTION_PRIVATE_KEY_PATH" && -r "$EXECUTION_PRIVATE_KEY_PATH" ]] || { echo "execution private key must be a readable regular file" >&2; exit 2; }
 [[ "$(stat -c '%a' "$EXECUTION_PRIVATE_KEY_PATH")" == "600" ]] || { echo "execution private key must be owner-only" >&2; exit 2; }
+PLAN_THINKING="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.modelRuntime?.thinking||""))' "$PLAN_PATH")"
+[[ "$PLAN_THINKING" =~ ^(xhigh|ultra)$ ]] || { echo "child plan reasoning effort is unsupported" >&2; exit 2; }
 
 install -d -m 700 "$STATE_ROOT" "$LOG_ROOT" "$ARTIFACT_ROOT"
 
@@ -47,7 +49,7 @@ write_state() {
   local reason="${2:-}"
   local temporary="$STATE_FILE.tmp.$$"
   STATUS="$status" REASON="$reason" WAVE_ID="$WAVE_ID" RUN_ID="$RUN_ID" ARTIFACT_ROOT="$ARTIFACT_ROOT" \
-  EXPECTED_COMMIT="$EXPECTED_COMMIT" EXPECTED_TREE="$EXPECTED_TREE" python3 - "$temporary" <<'PY'
+  EXPECTED_COMMIT="$EXPECTED_COMMIT" EXPECTED_TREE="$EXPECTED_TREE" PLAN_THINKING="$PLAN_THINKING" python3 - "$temporary" <<'PY'
 import datetime
 import json
 import os
@@ -62,6 +64,7 @@ payload = {
     "artifactRoot": os.environ["ARTIFACT_ROOT"],
     "sourceCommit": os.environ["EXPECTED_COMMIT"],
     "sourceTree": os.environ["EXPECTED_TREE"],
+    "modelThinking": os.environ["PLAN_THINKING"],
     "placement": "hetzner",
     "updatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
 }

@@ -160,7 +160,7 @@
           "properties": {
             "provider": { "$ref": "#/$defs/identifier" },
             "model": { "type": "string", "minLength": 1, "maxLength": 256 },
-            "thinking": { "const": "xhigh" },
+            "thinking": { "enum": ["xhigh", "ultra"] },
             "sandbox": { "const": "read-only" },
             "toolsAllowed": { "const": false },
             "toolsUsed": { "type": "array", "maxItems": 0 },

@@ -97,6 +97,7 @@ function verifyRawModelProvenance(
       expected: {
         provider: expectedRuntime.provider,
         model: expectedRuntime.model,
+        thinking: expectedRuntime.thinking,
         role: `adaptive_${evidenceRole}`,
         plannedSessionId: answerSource.sessionId,
         promptSha256,

@@ -677,12 +677,14 @@ try {
       const out = value('--out');
       const concurrency = Number(value('--concurrency', '4'));
       const expiresAt = value('--expires-at');
+      const thinking = value('--thinking');
       if (!waveId || !seed || !out) throw new Error('--wave-id, --seed, and --out are required');
       const gitIdentity = currentGitIdentity();
       if (sourceCommit !== gitIdentity.commit || sourceTree !== gitIdentity.tree) {
         throw new Error('parallel wave source commit/tree is not the checked-out control plane');
       }
       const adaptive = adaptiveInputsAtPaths({ graphPath, policyPath, capsulePath });
+      const runtimeOverride = thinking ? { ...adaptive.policy.modelRuntime, thinking } : null;
       const canonicalProgram = loadCanonicalPhdProgram({
         sourceCommit: gitIdentity.commit,
         sourceTree: gitIdentity.tree,
@@ -705,6 +707,7 @@ try {
         seed,
         concurrency,
         signingSecret: adaptive.secret,
+        runtimeOverride,
         assessmentBank,
         assessmentTrustPolicy: canonicalProgram.trustPolicy,
         assessmentDeployment: canonicalProgram.deployment,
@@ -724,6 +727,7 @@ try {
         concurrency: wave.concurrency,
         selectedCount: wave.selected.length,
         mergeOrder: wave.mergeOrder,
+        thinking: runtimeOverride?.thinking || adaptive.policy.modelRuntime.thinking,
         frontierReached: wave.selected.length === 0,
         reviewSelectionEnabled: false,
         truthBoundary: wave.truthBoundary,

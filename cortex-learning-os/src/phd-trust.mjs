@@ -359,10 +359,11 @@ export function verifyTrustedExecutionEvidence({
   const model = core?.model;
   const bindings = core?.bindings;
   const processRecord = core?.process;
+  const expectedThinking = expected?.thinking || 'xhigh';
   if (core?.executionKind !== 'model'
       || model?.provider !== expected?.provider
       || model?.model !== expected?.model
-      || model?.thinking !== 'xhigh'
+      || model?.thinking !== expectedThinking
       || model?.sandbox !== 'read-only'
       || model?.toolsAllowed !== false
       || !Array.isArray(model?.toolsUsed) || model.toolsUsed.length !== 0

@@ -310,7 +310,7 @@ export function validateExecutionEvidenceCore(core) {
     ])
         || !IDENTIFIER.test(String(model?.provider || ''))
         || typeof model?.model !== 'string' || model.model.length < 1 || model.model.length > 256
-        || model.thinking !== 'xhigh'
+        || !['xhigh', 'ultra'].includes(model.thinking)
         || model.sandbox !== 'read-only'
         || model.toolsAllowed !== false
         || !Array.isArray(model.toolsUsed) || model.toolsUsed.length !== 0

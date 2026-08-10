@@ -23,6 +23,7 @@ REMOTE_POLICY="$REMOTE_CLOS/policies/adaptive-math-phd-v1.json"
 REMOTE_CAPSULE="$REMOTE_CLOS/capsules/math-foundations/capsule.json"
 ASSESSMENT_BANK=""
 APPROVED_MODEL_EXECUTABLE_BINDING=""
+THINKING="ultra"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --remote-capsule) REMOTE_CAPSULE="${2:-}"; shift 2 ;;
     --assessment-bank) ASSESSMENT_BANK="${2:-}"; shift 2 ;;
     --approved-model-executable-binding) APPROVED_MODEL_EXECUTABLE_BINDING="${2:-}"; shift 2 ;;
+    --thinking) THINKING="${2:-}"; shift 2 ;;
     --no-notify) NOTIFY=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -65,6 +67,7 @@ done
 [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
 [[ "$APPROVED_MODEL_EXECUTABLE_BINDING" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--approved-model-executable-binding requires a safe absolute path" >&2; exit 2; }
 [[ -f "$APPROVED_MODEL_EXECUTABLE_BINDING" && ! -L "$APPROVED_MODEL_EXECUTABLE_BINDING" && -r "$APPROVED_MODEL_EXECUTABLE_BINDING" ]] || { echo "approved model executable binding is unavailable" >&2; exit 2; }
+[[ "$THINKING" =~ ^(xhigh|ultra)$ ]] || { echo "--thinking must be xhigh or ultra" >&2; exit 2; }
 BOUND_CODEX_BIN="$(node -e 'const b=require(process.argv[1]);process.stdout.write(String(b.path||""))' "$APPROVED_MODEL_EXECUTABLE_BINDING")"
 [[ "$BOUND_CODEX_BIN" =~ ^/opt/cortex-learning-os/approved-model-executors/[0-9a-f]{64}/codex$ ]] || { echo "approved model executable binding path is invalid" >&2; exit 2; }
 REMOTE_CODEX_BIN="$BOUND_CODEX_BIN"
@@ -116,6 +119,7 @@ node "$LOCAL_CLOS/src/live-control.mjs" adaptive-wave-plan \
   --capsule "$LOCAL_CAPSULE" \
   --assessment-bank "$ASSESSMENT_BANK" \
   --approved-model-executable-binding "$APPROVED_MODEL_EXECUTABLE_BINDING" \
+  --thinking "$THINKING" \
   --out "$WAVE_PLAN" >/dev/null
 
 SELECTED_COUNT="$(node -e 'const w=require(process.argv[1]); process.stdout.write(String(w.selected.length))' "$WAVE_PLAN")"
@@ -126,11 +130,11 @@ mapfile -t RUN_IDS < <(node -e 'const w=require(process.argv[1]); for(const id o
 DISPATCH_RECEIPTS_FILE="$WAVE_ROOT/dispatch-receipts.json"
 
 emit_descriptor() {
-python3 - "$WAVE_ID" "$WAVE_PLAN" "$LOCAL_STATE" "$LOCAL_ARTIFACT_ROOT" "$SOURCE_COMMIT" "$SOURCE_TREE" "$CONCURRENCY" "$SELECTED_COUNT" "$MERGE_ORDER" "$DRY_RUN" "$DISPATCH_RECEIPTS_FILE" <<'PY'
+python3 - "$WAVE_ID" "$WAVE_PLAN" "$LOCAL_STATE" "$LOCAL_ARTIFACT_ROOT" "$SOURCE_COMMIT" "$SOURCE_TREE" "$CONCURRENCY" "$SELECTED_COUNT" "$MERGE_ORDER" "$DRY_RUN" "$DISPATCH_RECEIPTS_FILE" "$THINKING" <<'PY'
 import json
 from pathlib import Path
 import sys
-wave_id, wave, state, artifacts, commit, tree, concurrency, count, order, dry, receipts_path = sys.argv[1:]
+wave_id, wave, state, artifacts, commit, tree, concurrency, count, order, dry, receipts_path, thinking = sys.argv[1:]
 receipts = json.loads(Path(receipts_path).read_text(encoding="utf-8")) if Path(receipts_path).is_file() else []
 print(json.dumps({
     "ok": True,
@@ -141,6 +145,7 @@ print(json.dumps({
     "artifactRoot": artifacts,
     "sourceCommit": commit,
     "sourceTree": tree,
+    "thinking": thinking,
     "concurrency": int(concurrency),
     "selectedCount": int(count),
     "mergeOrder": order.split(",") if order else [],

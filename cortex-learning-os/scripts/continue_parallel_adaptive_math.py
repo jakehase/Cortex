@@ -97,6 +97,8 @@ def validate_dispatch_receipts(descriptor: dict[str, Any], selected_count: int) 
             raise ParallelContinuationError("launcher returned an unproved remote dispatch receipt")
         if receipt.get("sourceCommit") != descriptor.get("sourceCommit") or receipt.get("sourceTree") != descriptor.get("sourceTree"):
             raise ParallelContinuationError("launcher dispatch receipt source binding changed")
+        if receipt.get("modelThinking") != descriptor.get("thinking"):
+            raise ParallelContinuationError("launcher dispatch receipt reasoning binding changed")
         run_ids.append(run_id)
     if run_ids != merge_order or len(set(run_ids)) != selected_count:
         raise ParallelContinuationError("launcher dispatch receipts differ from deterministic merge order")
@@ -127,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-wall-seconds", type=float, default=86_400)
     parser.add_argument("--wave-timeout-seconds", type=float, default=14_400)
     parser.add_argument("--poll-seconds", type=float, default=15)
+    parser.add_argument("--thinking", choices=("xhigh", "ultra"), default="ultra")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -256,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             or state.get("maxWallSeconds") != args.max_wall_seconds
             or state.get("waveTimeoutSeconds") != args.wave_timeout_seconds
             or state.get("pollSeconds") != args.poll_seconds
+            or state.get("thinking") != args.thinking
             or state.get("graph") != str(args.graph)
             or state.get("policy") != str(args.policy)
             or state.get("capsule") != str(args.capsule)
@@ -291,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
             "maxWallSeconds": args.max_wall_seconds,
             "waveTimeoutSeconds": args.wave_timeout_seconds,
             "pollSeconds": args.poll_seconds,
+            "thinking": args.thinking,
             "graph": str(args.graph),
             "policy": str(args.policy),
             "capsule": str(args.capsule),
@@ -355,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
                     "--capsule", str(args.capsule),
                     "--assessment-bank", str(args.assessment_bank),
                     "--approved-model-executable-binding", str(args.approved_model_executable_binding),
+                    "--thinking", args.thinking,
                     "--remote-graph", args.remote_graph,
                     "--remote-policy", args.remote_policy,
                     "--remote-capsule", args.remote_capsule,
@@ -367,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise ParallelContinuationError("launcher source binding changed")
                 if descriptor.get("reviewSelectionEnabled") is not False:
                     raise ParallelContinuationError("launcher enabled forbidden review selection")
+                if descriptor.get("thinking") != args.thinking:
+                    raise ParallelContinuationError("launcher reasoning binding changed")
                 if descriptor.get("placement", {}).get("executionPlane") != "concurrent detached Hetzner Codex children":
                     raise ParallelContinuationError("launcher did not place all Codex children on Hetzner")
                 selected_count = descriptor.get("selectedCount")

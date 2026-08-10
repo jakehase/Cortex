@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { loadSignedTransferRegistry, readTransferRegistrySecret } from '../../plugins/cortex-learning-os-live/transfer-registry.mjs';
 import { buildAcquisitionStatus } from '../src/acquisition-status.mjs';
-import { policyDigest } from '../src/adaptive-policy.mjs';
+import { policyDigest, validateAdaptivePlanRuntime } from '../src/adaptive-policy.mjs';
 import { buildAdditiveMasteryMigration } from '../src/additive-mastery-migration.mjs';
 import { buildDeploymentBinding, deploymentBindingDigest } from '../src/deployment-identity.mjs';
 import { validateGeneratedExerciseCoverage } from '../src/generated-exercises.mjs';
@@ -96,6 +96,7 @@ function fixtureItem({ role, suffix, graph, rubric, trustPolicy, deployment, cam
 test('continuous math wave-1 source, additive migration, validity bank, and operator subset are coherent', () => {
   const pipelineSource = fs.readFileSync(path.join(root, 'scripts/run_continuous_math_wave1_pipeline.py'), 'utf8');
   const supervisorSource = fs.readFileSync(path.join(root, 'scripts/supervise_continuous_math_commissioning.py'), 'utf8');
+  const parallelLauncherSource = fs.readFileSync(path.join(root, 'scripts/launch-parallel-adaptive-wave.sh'), 'utf8');
   const authorOutputSchema = read('schemas/continuous-math-bank-author-output.schema.json');
   assert.equal(JSON.stringify(authorOutputSchema).includes('uniqueItems'), false);
   assert.match(pipelineSource, /"readlink", "-f", "--", args\.remote_codex/);
@@ -104,6 +105,8 @@ test('continuous math wave-1 source, additive migration, validity bank, and oper
   assert.doesNotMatch(pipelineSource, /"systemd-run", f"--unit=\{unit\}", "--collect"/);
   assert.match(supervisorSource, /"status": "preparing"/);
   assert.match(supervisorSource, /required execution path must not be a symlink/);
+  assert.match(parallelLauncherSource, /THINKING="ultra"/);
+  assert.match(parallelLauncherSource, /--thinking "\$THINKING"/);
   execFileSync('python3', ['-c', 'import ast,sys; [ast.parse(open(p, encoding="utf-8").read(), filename=p) for p in sys.argv[1:]]',
     path.join(root, 'scripts/commission_continuous_math_bank.py'),
     path.join(root, 'scripts/supervise_continuous_math_commissioning.py'),
@@ -115,6 +118,7 @@ test('continuous math wave-1 source, additive migration, validity bank, and oper
   const rubric = read('capsules/math-foundations/phd-competency-rubric.v1.json');
   const blueprint = read('capsules/math-foundations/phd-qualifying-blueprint.v1.json');
   const policy = read('policies/adaptive-math-phd-v1.json');
+  assert.equal(validateAdaptivePlanRuntime(policy, { ...policy.modelRuntime, thinking: 'ultra' }), true);
   const program = validatePhdProgram({ graph: targetGraph, rubric, blueprint, legacyGraph });
   assert.deepEqual(program.errors, []);
   assert.deepEqual(validateGeneratedExerciseCoverage(targetGraph).missing, []);

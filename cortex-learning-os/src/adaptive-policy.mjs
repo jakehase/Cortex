@@ -20,7 +20,7 @@ export const PHD_CURRICULUM_GRAPH_PATH = path.join(
 );
 export const DEFAULT_CURRICULUM_GRAPH_PATH = PHD_CURRICULUM_GRAPH_PATH;
 const RUNTIME_KEYS = ['model', 'provider', 'sandbox', 'thinking', 'toolsAllowed'];
-const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'];
 
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

@@ -28,6 +28,7 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
         descriptor = {
             "sourceCommit": "a" * 40,
             "sourceTree": "b" * 40,
+            "thinking": "ultra",
             "selectedCount": 4,
             "dispatchedCount": 4,
             "mergeOrder": run_ids,
@@ -38,6 +39,7 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
                     "placement": "hetzner",
                     "sourceCommit": "a" * 40,
                     "sourceTree": "b" * 40,
+                    "modelThinking": "ultra",
                 }
                 for run_id in run_ids
             ],
@@ -93,9 +95,12 @@ class ContinueParallelAdaptiveMathTests(unittest.TestCase):
                 capsule=capsule,
                 assessment_bank=assessment_bank,
                 approved_model_executable_binding=approved_model_executable_binding,
+                remote_repo="/remote/repo",
+                source_ref="refs/heads/main",
                 remote_graph="/remote/graph.json",
                 remote_policy="/remote/policy.json",
                 remote_capsule="/remote/capsule.json",
+                thinking="ultra",
                 concurrency=4,
                 max_waves=100,
                 max_sessions=800,

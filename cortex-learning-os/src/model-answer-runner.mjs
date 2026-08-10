@@ -119,7 +119,7 @@ export function runCodexExam({
   executionTrustPolicy = null,
   executionPrivateKeyPem = null,
 } = {}) {
-  if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
+  if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
   const prompt = buildExamPrompt({ exam, learningContext });
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-codex-exam-'));
   const lastMessagePath = path.join(temporaryRoot, 'last-message.json');
