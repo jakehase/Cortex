@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+CLOS_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+REPO_ROOT="$(cd -- "$CLOS_ROOT/.." && pwd -P)"
+
 WAVE_ID="${1:-}"
 RUN_ID="${2:-}"
 EXPECTED_COMMIT="${3:-}"
 EXPECTED_TREE="${4:-}"
 CODEX_BIN="${5:-/home/jake/.local/bin/codex}"
 PLAN_PATH="${6:-}"
-GRAPH_PATH="${7:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json}"
-POLICY_PATH="${8:-/home/jake/clawd-remote/cortex-learning-os/policies/adaptive-math-phd-v1.json}"
-CAPSULE_PATH="${9:-/home/jake/clawd-remote/cortex-learning-os/capsules/math-foundations/capsule.json}"
+GRAPH_PATH="${7:-$CLOS_ROOT/capsules/math-foundations/curriculum.phd-trajectory-v1.graph.json}"
+POLICY_PATH="${8:-$CLOS_ROOT/policies/adaptive-math-phd-v1.json}"
+CAPSULE_PATH="${9:-$CLOS_ROOT/capsules/math-foundations/capsule.json}"
 ASSESSMENT_BANK_PATH="${10:-}"
 APPROVED_MODEL_EXECUTABLE_BINDING_PATH="${11:-}"
 EXECUTION_PRIVATE_KEY_PATH="${12:-}"
-REPO_ROOT="/home/jake/clawd-remote"
-CLOS_ROOT="$REPO_ROOT/cortex-learning-os"
 STATE_ROOT="$REPO_ROOT/state/cortex-learning-os/waves/$WAVE_ID"
 ARTIFACT_ROOT="$CLOS_ROOT/artifacts/parallel-waves/$WAVE_ID/children/$RUN_ID"
 STATE_FILE="$STATE_ROOT/$RUN_ID.json"
