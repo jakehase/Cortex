@@ -10,6 +10,7 @@ REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
 REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
 REMOTE_EXECUTION_PRIVATE_KEY="/home/jake/.config/cortex-learning-os/authorities/execution.private.pem"
+REMOTE_RUNTIME_ROOT="/home/jake/.local/state/cortex-learning-os"
 SOURCE_REF="refs/heads/main"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 EXPIRES_SECONDS=14400
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --remote-execution-private-key) REMOTE_EXECUTION_PRIVATE_KEY="${2:-}"; shift 2 ;;
+    --remote-runtime-root) REMOTE_RUNTIME_ROOT="${2:-}"; shift 2 ;;
     --source-ref) SOURCE_REF="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --expires-seconds) EXPIRES_SECONDS="${2:-}"; shift 2 ;;
@@ -62,6 +64,7 @@ done
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable" >&2; exit 2; }
 [[ "$REMOTE_EXECUTION_PRIVATE_KEY" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote execution private key" >&2; exit 2; }
+[[ "$REMOTE_RUNTIME_ROOT" =~ ^/[A-Za-z0-9._/-]+$ && "$REMOTE_RUNTIME_ROOT" != "$REMOTE_REPO" && "$REMOTE_RUNTIME_ROOT" != "$REMOTE_REPO/"* ]] || { echo "remote runtime root must be a safe path outside the source checkout" >&2; exit 2; }
 [[ "$SOURCE_REF" =~ ^refs/heads/[A-Za-z0-9._/-]+$ && "$SOURCE_REF" != *..* ]] || { echo "unsafe source ref" >&2; exit 2; }
 [[ "$ASSESSMENT_BANK" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "--assessment-bank requires a safe absolute owner-only path" >&2; exit 2; }
 [[ -f "$ASSESSMENT_BANK" && ! -L "$ASSESSMENT_BANK" && -r "$ASSESSMENT_BANK" ]] || { echo "independent assessment bank is unavailable" >&2; exit 2; }
@@ -81,20 +84,17 @@ done
 WAVE_ID="math-wave-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 3)"
 WAVE_ROOT="$STATE_ROOT/waves/$WAVE_ID"
 WAVE_PLAN="$WAVE_ROOT/wave.json"
-LOCAL_ARTIFACT_ROOT="$LOCAL_REPO/artifacts/cortex-learning-os-waves/$WAVE_ID"
+LOCAL_ARTIFACT_ROOT="$STATE_ROOT/artifacts/cortex-learning-os-waves/$WAVE_ID"
 LOCAL_STATE="$WAVE_ROOT/state.json"
-if [[ -f "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" ]]; then
-  SOURCE_COMMIT="$(tr -d '[:space:]' < "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
-else
-  SOURCE_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
-fi
-[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid canonical source marker" >&2; exit 3; }
+SOURCE_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD^{commit})"
+[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid committed source identity" >&2; exit 3; }
 SOURCE_TREE="$(git -C "$LOCAL_REPO" rev-parse "$SOURCE_COMMIT^{tree}")"
 CHECKED_OUT_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
-[[ "$CHECKED_OUT_COMMIT" == "$SOURCE_COMMIT" ]] || { echo "checked-out source differs from canonical marker" >&2; exit 3; }
+[[ "$CHECKED_OUT_COMMIT" == "$SOURCE_COMMIT" ]] || { echo "checked-out source differs from committed source" >&2; exit 3; }
+[[ -z "$(git -C "$LOCAL_REPO" status --porcelain=v1 --untracked-files=all)" ]] || { echo "local execution source checkout is dirty" >&2; exit 3; }
 ORIGIN_SOURCE="$(git -C "$LOCAL_REPO" ls-remote origin "$SOURCE_REF" | awk '{print $1}')"
-[[ "$SOURCE_COMMIT" == "$ORIGIN_SOURCE" ]] || { echo "canonical source is not the exact pushed source ref" >&2; exit 3; }
-REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
+[[ "$SOURCE_COMMIT" == "$ORIGIN_SOURCE" ]] || { echo "committed source is not the exact pushed source ref" >&2; exit 3; }
+REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse HEAD^{commit} | tr -d '[:space:]')"
 REMOTE_TREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse "$REMOTE_COMMIT^{tree}" | tr -d '[:space:]')"
 REMOTE_HEAD="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- git -C "$REMOTE_REPO" rev-parse HEAD | tr -d '[:space:]')"
 [[ "$REMOTE_COMMIT" == "$SOURCE_COMMIT" && "$REMOTE_HEAD" == "$SOURCE_COMMIT" && "$REMOTE_TREE" == "$SOURCE_TREE" ]] || { echo "Hetzner source commit/tree mismatch" >&2; exit 4; }
@@ -167,7 +167,7 @@ if [[ "$DRY_RUN" == true || "$SELECTED_COUNT" == "0" ]]; then
   exit 0
 fi
 
-REMOTE_WAVE_ROOT="$REMOTE_REPO/state/cortex-learning-os/waves/$WAVE_ID"
+REMOTE_WAVE_ROOT="$REMOTE_RUNTIME_ROOT/waves/$WAVE_ID"
 REMOTE_PLAN_ROOT="$REMOTE_WAVE_ROOT/plans"
 REMOTE_ASSESSMENT_BANK="$REMOTE_WAVE_ROOT/assessment-bank.json"
 REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING="$REMOTE_WAVE_ROOT/approved-model-executable.json"
@@ -212,6 +212,7 @@ systemd-run \
     --wave "$WAVE_PLAN" \
     --ssh-host "$SSH_HOST" \
     --remote-repo "$REMOTE_REPO" \
+    --remote-runtime-root "$REMOTE_RUNTIME_ROOT" \
     --local-artifact-root "$LOCAL_ARTIFACT_ROOT" \
     --state-file "$LOCAL_STATE" \
     --state-root "$STATE_ROOT" \
@@ -240,7 +241,7 @@ for RUN_ID in "${RUN_IDS[@]}"; do
         "$WAVE_ID" "$RUN_ID" "$SOURCE_COMMIT" "$SOURCE_TREE" "$REMOTE_CODEX_BIN" "$REMOTE_CHILD_PLAN" \
         "$REMOTE_GRAPH" "$REMOTE_POLICY" "$REMOTE_CAPSULE" \
         "$REMOTE_ASSESSMENT_BANK" "$REMOTE_APPROVED_MODEL_EXECUTABLE_BINDING" \
-        "$REMOTE_EXECUTION_PRIVATE_KEY"
+        "$REMOTE_EXECUTION_PRIVATE_KEY" "$REMOTE_RUNTIME_ROOT"
 done
 
 # Do not report or account for dispatch until every detached worker has written

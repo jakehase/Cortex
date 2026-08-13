@@ -24,9 +24,10 @@ case "$MODE_ARG" in
 esac
 ROOT="/home/jake/clawd-remote/cortex-learning-os"
 REPO_ROOT="/home/jake/clawd-remote"
-STATE_DIR="/home/jake/clawd-remote/state/cortex-learning-os"
-LOG_DIR="/home/jake/clawd-remote/logs/cortex-learning-os"
-ARTIFACT_ROOT="$ROOT/artifacts/$RUN_ID"
+RUNTIME_ROOT="${7:-/home/jake/.local/state/cortex-learning-os}"
+STATE_DIR="$RUNTIME_ROOT/training/states"
+LOG_DIR="$RUNTIME_ROOT/training/logs"
+ARTIFACT_ROOT="$RUNTIME_ROOT/training/artifacts/$RUN_ID"
 STATE_FILE="$STATE_DIR/$RUN_ID.json"
 LOG_FILE="$LOG_DIR/$RUN_ID.log"
 LOCK_FILE="$STATE_DIR/math-training.lock"
@@ -34,6 +35,7 @@ LOCK_FILE="$STATE_DIR/math-training.lock"
 [[ "$RUN_ID" =~ ^math-training-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$ ]] || { echo "invalid run id" >&2; exit 2; }
 [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid expected commit" >&2; exit 2; }
 [[ "$CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid Codex executable path" >&2; exit 2; }
+[[ "$RUNTIME_ROOT" =~ ^/[A-Za-z0-9._/-]+$ && "$RUNTIME_ROOT" != "$REPO_ROOT" && "$RUNTIME_ROOT" != "$REPO_ROOT/"* ]] || { echo "runtime root must be outside the source checkout" >&2; exit 2; }
 case "$MODE" in
   adaptive)
     NPM_SCRIPT="train:adaptive"
@@ -102,7 +104,7 @@ write_state running "remote validation and Codex training are running"
   echo "exam=$EXAM_NAME"
   echo "expected_commit=$EXPECTED_COMMIT"
   echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
+  ACTUAL_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD^{commit})"
   echo "actual_commit=$ACTUAL_COMMIT"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]
   [[ -x "$CODEX_BIN" ]]

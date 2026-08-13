@@ -171,6 +171,74 @@ export function verifyAuthorityAttestation(attestation, {
   }
 }
 
+export function createAuthorityAttestation({
+  trustPolicy,
+  privateKeyPem,
+  capability,
+  attestationId,
+  payload,
+  schemaVersion = AUTHORITY_ATTESTATION_SCHEMA,
+} = {}) {
+  const trustValidation = validatePhdTrustPolicy(trustPolicy, {
+    requireProduction: true,
+  });
+  if (!trustValidation.ok) {
+    throw new Error(
+      `cannot sign under an invalid production trust policy: ${trustValidation.errors.join('; ')}`,
+    );
+  }
+  if (!IDENTIFIER.test(String(capability || ''))
+      || !IDENTIFIER.test(String(attestationId || ''))
+      || !isRecord(payload)) {
+    throw new Error('authority attestation capability, identity, or payload is invalid');
+  }
+  const authorities = trustPolicy.authorities.filter((authority) => (
+    authority.capabilities.length === 1
+      && authority.capabilities[0] === capability
+  ));
+  if (authorities.length !== 1) {
+    throw new Error(`production trust policy requires one dedicated ${capability} authority`);
+  }
+  const authority = authorities[0];
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  if (privateKey.asymmetricKeyType !== 'ed25519') {
+    throw new Error('authority attestation private key must be Ed25519');
+  }
+  const derivedPublicKey = crypto.createPublicKey(privateKey);
+  const derivedFingerprint = sha256Text(
+    derivedPublicKey.export({ format: 'der', type: 'spki' }),
+  );
+  if (derivedFingerprint !== authority.keyId) {
+    throw new Error(`${capability} authority private key does not match the production trust policy`);
+  }
+  const core = {
+    schemaVersion,
+    attestationId,
+    authorityId: authority.authorityId,
+    payload: structuredClone(payload),
+  };
+  const attestation = {
+    ...core,
+    signature: {
+      algorithm: 'ed25519',
+      keyId: authority.keyId,
+      valueBase64: crypto.sign(
+        null,
+        Buffer.from(canonicalJson(core), 'utf8'),
+        privateKey,
+      ).toString('base64'),
+    },
+  };
+  if (!verifyAuthorityAttestation(attestation, {
+    trustPolicy,
+    capability,
+    schemaVersion,
+  })) {
+    throw new Error(`${capability} authority attestation failed self-verification`);
+  }
+  return attestation;
+}
+
 export function createExecutionAttestation({
   trustPolicy,
   privateKeyPem,

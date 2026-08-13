@@ -9,6 +9,7 @@ EXAM=""
 SSH_HOST="root@37.27.129.239"
 REMOTE_REPO="/home/jake/clawd-remote"
 REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"
+REMOTE_RUNTIME_ROOT="/home/jake/.local/state/cortex-learning-os"
 REMOTE_CODEX_BIN="/home/jake/.local/bin/codex"
 STATE_ROOT="/root/.openclaw/cortex-learning-os"
 DRY_RUN=false
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --exam) MODE="legacy"; EXAM="${2:-}"; shift 2 ;;
     --ssh-host) SSH_HOST="${2:-}"; shift 2 ;;
     --remote-repo) REMOTE_REPO="${2:-}"; REMOTE_CLOS="$REMOTE_REPO/cortex-learning-os"; shift 2 ;;
+    --remote-runtime-root) REMOTE_RUNTIME_ROOT="${2:-}"; shift 2 ;;
     --remote-codex-bin) REMOTE_CODEX_BIN="${2:-}"; shift 2 ;;
     --state-root) STATE_ROOT="${2:-}"; shift 2 ;;
     --thinking) THINKING="${2:-}"; shift 2 ;;
@@ -46,6 +48,7 @@ if [[ "$MODE" == "adaptive" ]]; then
 fi
 [[ "$SSH_HOST" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9._:-]+$ ]] || { echo "unsafe SSH host" >&2; exit 2; }
 [[ "$REMOTE_REPO" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote repo path" >&2; exit 2; }
+[[ "$REMOTE_RUNTIME_ROOT" =~ ^/[A-Za-z0-9._/-]+$ && "$REMOTE_RUNTIME_ROOT" != "$REMOTE_REPO" && "$REMOTE_RUNTIME_ROOT" != "$REMOTE_REPO/"* ]] || { echo "remote runtime root must be outside the source checkout" >&2; exit 2; }
 [[ "$REMOTE_CODEX_BIN" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe remote Codex executable path" >&2; exit 2; }
 [[ "$STATE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "unsafe state root" >&2; exit 2; }
 [[ "$THINKING" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || { echo "unsupported reasoning effort" >&2; exit 2; }
@@ -55,19 +58,19 @@ SAFE_UNIT="clos-${RUN_ID//[^a-zA-Z0-9-]/-}"
 REMOTE_UNIT="${SAFE_UNIT}-worker"
 HARVEST_UNIT="${SAFE_UNIT}-harvest"
 NOTIFY_UNIT="${SAFE_UNIT}-notify"
-REMOTE_STATE="$REMOTE_REPO/state/cortex-learning-os/$RUN_ID.json"
+REMOTE_STATE_ROOT="$REMOTE_RUNTIME_ROOT/training/states"
+REMOTE_ARTIFACT_ROOT="$REMOTE_RUNTIME_ROOT/training/artifacts"
+REMOTE_PLAN_ROOT="$REMOTE_RUNTIME_ROOT/training/plans"
+REMOTE_STATE="$REMOTE_STATE_ROOT/$RUN_ID.json"
 LOCAL_PLAN="$STATE_ROOT/training/plans/$RUN_ID.json"
-REMOTE_PLAN="$REMOTE_REPO/state/cortex-learning-os/$RUN_ID.plan.json"
-REMOTE_ASSESSMENT_BANK="$REMOTE_REPO/state/cortex-learning-os/$RUN_ID.assessment-bank.json"
+REMOTE_PLAN="$REMOTE_PLAN_ROOT/$RUN_ID.plan.json"
+REMOTE_ASSESSMENT_BANK="$REMOTE_PLAN_ROOT/$RUN_ID.assessment-bank.json"
 
-if [[ -f "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" ]]; then
-  LOCAL_COMMIT="$(tr -d '[:space:]' < "$LOCAL_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
-else
-  LOCAL_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD)"
-fi
-[[ "$LOCAL_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "canonical source marker is invalid" >&2; exit 3; }
+LOCAL_COMMIT="$(git -C "$LOCAL_REPO" rev-parse HEAD^{commit})"
+[[ "$LOCAL_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "committed source identity is invalid" >&2; exit 3; }
+[[ -z "$(git -C "$LOCAL_REPO" status --porcelain=v1 --untracked-files=all)" ]] || { echo "local execution source checkout is dirty" >&2; exit 3; }
 REMOTE_MAIN="$(git -C "$LOCAL_REPO" ls-remote origin refs/heads/main | awk '{print $1}')"
-[[ "$LOCAL_COMMIT" == "$REMOTE_MAIN" ]] || { echo "canonical source marker is not origin/main" >&2; exit 3; }
+[[ "$LOCAL_COMMIT" == "$REMOTE_MAIN" ]] || { echo "committed source is not origin/main" >&2; exit 3; }
 node "$LOCAL_CLOS/src/live-control.mjs" verify --state-root "$STATE_ROOT" >/dev/null
 if [[ "$MODE" == "adaptive" ]]; then
   mkdir -p "$(dirname "$LOCAL_PLAN")"
@@ -80,8 +83,9 @@ if [[ "$MODE" == "adaptive" ]]; then
   node "$LOCAL_CLOS/src/live-control.mjs" adaptive-plan "${PLAN_ARGS[@]}" >/dev/null
 fi
 
-REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" cat "$REMOTE_REPO/CORTEX_LEARNING_OS_SOURCE_COMMIT" | tr -d '[:space:]')"
-[[ "$REMOTE_COMMIT" == "$LOCAL_COMMIT" ]] || { echo "remote source commit $REMOTE_COMMIT does not match canonical $LOCAL_COMMIT" >&2; exit 4; }
+REMOTE_COMMIT="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" git -C "$REMOTE_REPO" rev-parse HEAD^{commit} | tr -d '[:space:]')"
+REMOTE_STATUS="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" git -C "$REMOTE_REPO" status --porcelain=v1 --untracked-files=all)"
+[[ "$REMOTE_COMMIT" == "$LOCAL_COMMIT" && -z "$REMOTE_STATUS" ]] || { echo "remote source commit or checkout cleanliness differs from local committed source" >&2; exit 4; }
 ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" test -x "$REMOTE_CLOS/scripts/remote-math-training-worker.sh"
 REMOTE_CODEX_VERSION="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" sudo -u jake -- "$REMOTE_CODEX_BIN" --version | tr -d '\r' | head -n 1)"
 [[ "$REMOTE_CODEX_VERSION" == codex-cli\ * ]] || { echo "remote Codex preflight failed for $REMOTE_CODEX_BIN as user jake" >&2; exit 4; }
@@ -128,7 +132,10 @@ systemd-run \
   --working-directory="$LOCAL_REPO" \
   /usr/bin/python3 "$LOCAL_CLOS/scripts/harvest-live-math-training.py" \
     --run-id "$RUN_ID" --ssh-host "$SSH_HOST" --state-root "$STATE_ROOT" \
-    --assessment-bank "$ASSESSMENT_BANK"
+    --assessment-bank "$ASSESSMENT_BANK" \
+    --remote-state-root "$REMOTE_STATE_ROOT" \
+    --remote-artifact-root "$REMOTE_ARTIFACT_ROOT" \
+    --local-incoming-root "$STATE_ROOT/training/incoming"
 
 if [[ "$NOTIFY" == true ]]; then
   NOTIFY_COMMAND="until /usr/bin/python3 '$LOCAL_CLOS/scripts/detached_job_notifier.py' --once --state-file '$REMOTE_STATE' --ssh-host '$SSH_HOST' --job-label 'Cortex Learning OS math training $RUN_ID'; do sleep 30; done"
@@ -145,6 +152,7 @@ if [[ "$MODE" == "adaptive" ]]; then
       --working-directory="$REMOTE_CLOS" \
       /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" \
         "$RUN_ID" adaptive "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN" "$REMOTE_PLAN" "$REMOTE_ASSESSMENT_BANK"
+        "$REMOTE_RUNTIME_ROOT"
 else
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$SSH_HOST" \
     systemd-run --unit="$REMOTE_UNIT" --collect --quiet \
@@ -152,4 +160,5 @@ else
       --working-directory="$REMOTE_CLOS" \
       /bin/bash "$REMOTE_CLOS/scripts/remote-math-training-worker.sh" \
         "$RUN_ID" "$EXAM" "$LOCAL_COMMIT" "$REMOTE_CODEX_BIN"
+        "$REMOTE_RUNTIME_ROOT"
 fi

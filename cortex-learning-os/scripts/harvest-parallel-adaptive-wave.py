@@ -59,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--wave", required=True, type=Path)
     value.add_argument("--ssh-host", default="root@37.27.129.239")
     value.add_argument("--remote-repo", default="/home/jake/clawd-remote")
+    value.add_argument("--remote-runtime-root", default="/home/jake/.local/state/cortex-learning-os")
     value.add_argument("--local-artifact-root", required=True, type=Path)
     value.add_argument("--state-file", required=True, type=Path)
     value.add_argument("--state-root", default="/root/.openclaw/cortex-learning-os")
@@ -94,6 +95,10 @@ def main() -> int:
         raise WaveHarvestError("invalid wave or child identity")
     if not 1 <= len(run_ids) <= 8:
         raise WaveHarvestError("invalid wave child count")
+    if not re.fullmatch(r"/[A-Za-z0-9._/-]+", args.remote_runtime_root) or ".." in args.remote_runtime_root:
+        raise WaveHarvestError("invalid external remote runtime root")
+    if args.remote_runtime_root == args.remote_repo or args.remote_runtime_root.startswith(f"{args.remote_repo}/"):
+        raise WaveHarvestError("remote runtime root must be outside the source checkout")
     started = time.monotonic()
     state = {
         "schemaVersion": "cortex.learning_os.parallel_wave_harvest.v1",
@@ -112,7 +117,7 @@ def main() -> int:
         },
     }
     atomic_json(args.state_file, state)
-    remote_state_root = f"{args.remote_repo}/state/cortex-learning-os/waves/{wave_id}"
+    remote_state_root = f"{args.remote_runtime_root}/waves/{wave_id}"
     while True:
         children = {
             run_id: remote_json(args.ssh_host, f"{remote_state_root}/{run_id}.json")
@@ -142,7 +147,7 @@ def main() -> int:
         if local_child.exists():
             raise WaveHarvestError(f"incoming child path already exists: {run_id}")
         local_child.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        remote_child = f"{args.remote_repo}/cortex-learning-os/artifacts/parallel-waves/{wave_id}/children/{run_id}/"
+        remote_child = f"{args.remote_runtime_root}/artifacts/parallel-waves/{wave_id}/children/{run_id}/"
         run([
             "rsync", "-a", "--chmod=Du=rwx,Dgo=,Fu=rw,Fgo=", "--protect-args",
             f"{args.ssh_host}:{remote_child}", f"{local_child}/",

@@ -331,7 +331,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--home", default="/home/jake", type=Path)
     result.add_argument("--empty", required=True, type=Path)
     result.add_argument("--model", default="gpt-5.6-sol")
-    result.add_argument("--thinking", default="xhigh", choices=["high", "xhigh"])
+    result.add_argument("--thinking", default="xhigh", choices=["high", "xhigh", "ultra"])
     result.add_argument("--batch-size", default=4, type=int)
     result.add_argument("--concurrency", default=2, type=int)
     result.add_argument("--max-attempts", default=6, type=int)

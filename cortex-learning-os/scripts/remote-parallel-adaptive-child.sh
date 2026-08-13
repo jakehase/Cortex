@@ -17,10 +17,11 @@ CAPSULE_PATH="${9:-$CLOS_ROOT/capsules/math-foundations/capsule.json}"
 ASSESSMENT_BANK_PATH="${10:-}"
 APPROVED_MODEL_EXECUTABLE_BINDING_PATH="${11:-}"
 EXECUTION_PRIVATE_KEY_PATH="${12:-}"
-STATE_ROOT="$REPO_ROOT/state/cortex-learning-os/waves/$WAVE_ID"
-ARTIFACT_ROOT="$CLOS_ROOT/artifacts/parallel-waves/$WAVE_ID/children/$RUN_ID"
+RUNTIME_ROOT="${13:-/home/jake/.local/state/cortex-learning-os}"
+STATE_ROOT="$RUNTIME_ROOT/waves/$WAVE_ID"
+ARTIFACT_ROOT="$RUNTIME_ROOT/artifacts/parallel-waves/$WAVE_ID/children/$RUN_ID"
 STATE_FILE="$STATE_ROOT/$RUN_ID.json"
-LOG_ROOT="$REPO_ROOT/logs/cortex-learning-os/waves/$WAVE_ID"
+LOG_ROOT="$RUNTIME_ROOT/logs/waves/$WAVE_ID"
 LOG_FILE="$LOG_ROOT/$RUN_ID.log"
 
 [[ "$WAVE_ID" =~ ^math-wave-[0-9]{8}T[0-9]{6}Z-[a-z0-9]{6}$ ]] || { echo "invalid wave id" >&2; exit 2; }
@@ -32,6 +33,7 @@ LOG_FILE="$LOG_ROOT/$RUN_ID.log"
 [[ "$ASSESSMENT_BANK_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid independent assessment bank path" >&2; exit 2; }
 [[ "$APPROVED_MODEL_EXECUTABLE_BINDING_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid approved model executable binding path" >&2; exit 2; }
 [[ "$EXECUTION_PRIVATE_KEY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid execution private key path" >&2; exit 2; }
+[[ "$RUNTIME_ROOT" =~ ^/[A-Za-z0-9._/-]+$ && "$RUNTIME_ROOT" != "$REPO_ROOT" && "$RUNTIME_ROOT" != "$REPO_ROOT/"* ]] || { echo "runtime root must be a safe path outside the source checkout" >&2; exit 2; }
 [[ "$GRAPH_PATH" =~ ^/[A-Za-z0-9._/-]+$ && "$POLICY_PATH" =~ ^/[A-Za-z0-9._/-]+$ && "$CAPSULE_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "invalid adaptive input path" >&2; exit 2; }
 [[ -f "$PLAN_PATH" && ! -L "$PLAN_PATH" && -r "$PLAN_PATH" ]] || { echo "child plan must be a readable regular file" >&2; exit 2; }
 for input_path in "$GRAPH_PATH" "$POLICY_PATH" "$CAPSULE_PATH"; do
@@ -87,11 +89,7 @@ trap on_error ERR
 
 write_state running "detached Hetzner child is collecting bounded acquisition or correction evidence"
 {
-  if [[ -f "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT" ]]; then
-    ACTUAL_COMMIT="$(tr -d '[:space:]' < "$REPO_ROOT/CORTEX_LEARNING_OS_SOURCE_COMMIT")"
-  else
-    ACTUAL_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
-  fi
+  ACTUAL_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   CHECKED_OUT_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   ACTUAL_TREE="$(git -C "$REPO_ROOT" rev-parse "$ACTUAL_COMMIT^{tree}")"
   [[ "$ACTUAL_COMMIT" == "$EXPECTED_COMMIT" ]]
