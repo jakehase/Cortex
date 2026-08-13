@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME } from './continuous-math-validity-runtime.mjs';
 import { currentCommittedIdentity } from './git-product-source.mjs';
 import { loadCanonicalPhdProgram } from './phd-program-runtime.mjs';
 
@@ -12,14 +13,16 @@ const value = (flag, fallback = null) => {
 };
 const outputValue = value('--out');
 const campaignId = value('--campaign-id');
-const thinking = value('--thinking', 'ultra');
+const thinking = value('--thinking', CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME.thinking);
 if (!outputValue || !campaignId) {
   throw new Error('usage: continuous-math-validity-spec.mjs --out <fresh-file> --campaign-id <id> [--thinking ultra]');
 }
 if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(campaignId)) {
   throw new Error('invalid validity campaign identity');
 }
-if (!['xhigh', 'ultra'].includes(thinking)) throw new Error('validity reasoning must be xhigh or ultra');
+if (thinking !== CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME.thinking) {
+  throw new Error('validity reasoning must be the frozen production value ultra');
+}
 const outputPath = path.resolve(outputValue);
 if (fs.existsSync(outputPath)) throw new Error('validity commissioning spec output must be fresh');
 
@@ -69,13 +72,7 @@ const spec = {
     { assessmentRole: 'validity-compositional', variant: 1 },
   ],
   secrecyClass: 'fresh_disjoint_validity_unseen_until_scored_release',
-  modelRuntime: {
-    provider: 'openai-codex',
-    model: 'gpt-5.6-sol',
-    thinking,
-    sandbox: 'read-only',
-    toolsAllowed: false,
-  },
+  modelRuntime: structuredClone(CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME),
   provenancePolicy: {
     authorContext: 'committed_concept_metadata_only',
     targetAnswersExposedToCandidate: false,

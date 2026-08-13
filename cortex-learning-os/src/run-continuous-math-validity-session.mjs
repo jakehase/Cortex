@@ -7,6 +7,7 @@ import {
   assertApprovedModelExecutableAtPath,
   validateApprovedModelExecutableBinding,
 } from './approved-model-executable.mjs';
+import { CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME } from './continuous-math-validity-runtime.mjs';
 import { deploymentBindingDigest } from './deployment-identity.mjs';
 import { executionSourceSha256 } from './execution-evidence.mjs';
 import { currentCommittedIdentity } from './git-product-source.mjs';
@@ -156,6 +157,7 @@ const modelRun = runCodexExam({
   timeoutSeconds,
   thinking: plan.modelRuntime.thinking,
   model: plan.modelRuntime.model,
+  serviceTier: plan.modelRuntime.serviceTier,
   codexCommand,
   executionContext: {
     role: 'validity_candidate',
@@ -165,6 +167,22 @@ const modelRun = runCodexExam({
   executionTrustPolicy: program.trustPolicy,
   executionPrivateKeyPem,
 });
+const executionModel = modelRun.raw.executionEvidenceCore?.model;
+const observedModelRuntime = {
+  provider: executionModel?.provider,
+  model: executionModel?.model,
+  thinking: executionModel?.thinking,
+  serviceTier: executionModel?.serviceTier,
+  sandbox: executionModel?.sandbox,
+  toolsAllowed: executionModel?.toolsAllowed,
+};
+if (canonicalJson(plan.modelRuntime)
+      !== canonicalJson(CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME)
+    || canonicalJson(observedModelRuntime) !== canonicalJson(plan.modelRuntime)
+    || canonicalJson(modelRun.raw.executionEvidenceCore?.environment?.declared?.modelRuntime)
+      !== canonicalJson(plan.modelRuntime)) {
+  throw new Error('validity candidate execution differs from the frozen model runtime');
+}
 const expectedItemIds = [...session.itemIds].sort();
 const observedItemIds = modelRun.answerSet.answers.map((row) => row.itemId).sort();
 if (canonicalJson(observedItemIds) !== canonicalJson(expectedItemIds)

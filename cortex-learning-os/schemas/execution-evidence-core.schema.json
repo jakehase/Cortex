@@ -145,6 +145,19 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "allOf": [
+            {
+              "if": { "required": ["serviceTier"] },
+              "then": {
+                "properties": {
+                  "provider": { "const": "openai-codex" },
+                  "model": { "const": "gpt-5.6-sol" },
+                  "thinking": { "const": "ultra" },
+                  "serviceTier": { "const": "fast" }
+                }
+              }
+            }
+          ],
           "required": [
             "provider",
             "model",
@@ -161,6 +174,7 @@
             "provider": { "$ref": "#/$defs/identifier" },
             "model": { "type": "string", "minLength": 1, "maxLength": 256 },
             "thinking": { "enum": ["xhigh", "ultra"] },
+            "serviceTier": { "const": "fast" },
             "sandbox": { "const": "read-only" },
             "toolsAllowed": { "const": false },
             "toolsUsed": { "type": "array", "maxItems": 0 },

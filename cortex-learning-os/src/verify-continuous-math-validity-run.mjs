@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import { validateApprovedModelExecutableBinding } from './approved-model-executable.mjs';
+import { CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME } from './continuous-math-validity-runtime.mjs';
 import { deploymentBindingDigest } from './deployment-identity.mjs';
 import { executionSourceSha256 } from './execution-evidence.mjs';
 import { currentCommittedIdentity } from './git-product-source.mjs';
@@ -70,6 +71,10 @@ function readJson(target, maximumBytes = 128 * 1024 * 1024) {
     throw new Error(`JSON object required: ${target}`);
   }
   return result;
+}
+function exactKeys(value, keys) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
 }
 function writeJson(target, record) {
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
@@ -187,6 +192,10 @@ const planValidation = validateValidityPlan(plan, {
 if (!planValidation.ok) {
   throw new Error(`validity plan failed proctor verification: ${planValidation.errors.join('; ')}`);
 }
+const expectedModelRuntime = structuredClone(CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME);
+if (canonicalJson(plan.modelRuntime) !== canonicalJson(expectedModelRuntime)) {
+  throw new Error('validity plan model runtime differs from the frozen production runtime');
+}
 if (remoteState.schemaVersion !== 'cortex.learning_os.remote_validity_supervisor.v1'
     || remoteState.status !== 'completed'
     || remoteState.campaignId !== plan.campaignId
@@ -258,7 +267,25 @@ for (const conceptId of graphConceptIds) {
         || prompt !== buildExamPrompt({ exam: expectedExam, learningContext: null })) {
       throw new Error('validity session plan, exam, or exact prompt was substituted');
     }
-    if (receipt.schemaVersion !== 'cortex.learning_os.validity_worker_receipt.v1'
+    if (!exactKeys(receipt, [
+      'bank',
+      'campaignId',
+      'completedAt',
+      'conceptId',
+      'executionEvidenceSha256',
+      'jobId',
+      'modelRuntime',
+      'placement',
+      'planSha256',
+      'providerUsage',
+      'schemaVersion',
+      'sessionId',
+      'source',
+      'startedAt',
+      'status',
+      'truthBoundary',
+    ])
+        || receipt.schemaVersion !== 'cortex.learning_os.validity_worker_receipt.v1'
         || receipt.status !== 'candidate'
         || receipt.placement !== 'hetzner'
         || receipt.campaignId !== plan.campaignId
@@ -268,7 +295,7 @@ for (const conceptId of graphConceptIds) {
         || receipt.jobId !== session.jobId
         || canonicalJson(receipt.source) !== canonicalJson(identity)
         || canonicalJson(receipt.bank) !== canonicalJson(expectedBank)
-        || canonicalJson(receipt.modelRuntime) !== canonicalJson(plan.modelRuntime)
+        || canonicalJson(receipt.modelRuntime) !== canonicalJson(expectedModelRuntime)
         || receipt.executionEvidenceSha256 !== modelCall.executionEvidenceSha256) {
       throw new Error('validity worker receipt is invalid or detached');
     }
@@ -319,9 +346,7 @@ for (const conceptId of graphConceptIds) {
       rawEventLedgerBytes: Buffer.from(modelCall.stdoutBase64 || '', 'base64'),
       rawStderrBytes: Buffer.from(modelCall.stderrBase64 || '', 'base64'),
       expected: {
-        provider: plan.modelRuntime.provider,
-        model: plan.modelRuntime.model,
-        thinking: plan.modelRuntime.thinking,
+        modelRuntime: expectedModelRuntime,
         role: 'validity_candidate',
         plannedSessionId: session.sessionId,
         promptSha256: sha256Bytes(promptBytes),

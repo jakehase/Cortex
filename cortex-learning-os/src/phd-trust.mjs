@@ -39,6 +39,14 @@ function exactKeys(value, expected) {
     && expected.every((key) => Object.hasOwn(value, key));
 }
 
+function canonicalEqual(left, right) {
+  try {
+    return canonicalJson(left) === canonicalJson(right);
+  } catch {
+    return false;
+  }
+}
+
 function publicKeyFingerprint(publicKeyPem) {
   const key = crypto.createPublicKey(publicKeyPem);
   if (key.asymmetricKeyType !== 'ed25519') throw new Error('trust authority key must be Ed25519');
@@ -427,13 +435,30 @@ export function verifyTrustedExecutionEvidence({
   const model = core?.model;
   const bindings = core?.bindings;
   const processRecord = core?.process;
-  const expectedThinking = expected?.thinking || 'xhigh';
+  const exactExpectedModelRuntime = expected?.modelRuntime !== undefined;
+  const expectedModelRuntime = !exactExpectedModelRuntime
+    ? {
+      provider: expected?.provider,
+      model: expected?.model,
+      thinking: expected?.thinking || 'xhigh',
+      sandbox: 'read-only',
+      toolsAllowed: false,
+    }
+    : expected.modelRuntime;
+  const observedModelRuntime = {
+    provider: model?.provider,
+    model: model?.model,
+    thinking: model?.thinking,
+    ...(isRecord(model) && Object.hasOwn(model, 'serviceTier')
+      ? { serviceTier: model.serviceTier }
+      : {}),
+    sandbox: model?.sandbox,
+    toolsAllowed: model?.toolsAllowed,
+  };
   if (core?.executionKind !== 'model'
-      || model?.provider !== expected?.provider
-      || model?.model !== expected?.model
-      || model?.thinking !== expectedThinking
-      || model?.sandbox !== 'read-only'
-      || model?.toolsAllowed !== false
+      || !canonicalEqual(observedModelRuntime, expectedModelRuntime)
+      || (exactExpectedModelRuntime
+        && !canonicalEqual(core?.environment?.declared?.modelRuntime, expectedModelRuntime))
       || !Array.isArray(model?.toolsUsed) || model.toolsUsed.length !== 0
       || model?.plannedSessionId !== expected?.plannedSessionId
       || core?.input?.sha256 !== expected?.promptSha256) {
@@ -525,6 +550,9 @@ export function executionEvidencePayload(attestation) {
     provider: core.model.provider,
     model: core.model.model,
     thinking: core.model.thinking,
+    ...(Object.hasOwn(core.model, 'serviceTier')
+      ? { serviceTier: core.model.serviceTier }
+      : {}),
     sandbox: core.model.sandbox,
     toolsAllowed: core.model.toolsAllowed,
     toolsUsed: core.model.toolsUsed,

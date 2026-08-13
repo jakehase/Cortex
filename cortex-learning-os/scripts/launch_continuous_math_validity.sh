@@ -43,7 +43,7 @@ for target in "$REMOTE_MIRROR" "$APPROVED_BINDING" "$STATE_ROOT" "$AUTHORITY_ROO
 done
 [[ "$COMMISSION_CONCURRENCY" =~ ^[1-8]$ && "$ASSESSMENT_CONCURRENCY" =~ ^[1-8]$ ]] || { echo "concurrency must be 1..8" >&2; exit 2; }
 [[ -f "$APPROVED_BINDING" && ! -L "$APPROVED_BINDING" ]] || { echo "approved model executable binding is unavailable" >&2; exit 3; }
-[[ -x "$CLOS_ROOT/scripts/run_continuous_math_validity_pipeline.py" ]] || { echo "validity pipeline supervisor is unavailable" >&2; exit 3; }
+[[ -f "$CLOS_ROOT/scripts/run_continuous_math_validity_pipeline.py" && ! -L "$CLOS_ROOT/scripts/run_continuous_math_validity_pipeline.py" && -r "$CLOS_ROOT/scripts/run_continuous_math_validity_pipeline.py" ]] || { echo "validity pipeline supervisor is unavailable" >&2; exit 3; }
 if [[ "$NOTIFY" == true ]]; then
   [[ -x "$NOTIFIER" ]] || { echo "control-plane direct notifier is unavailable" >&2; exit 3; }
 fi

@@ -18,6 +18,14 @@ from typing import Any
 SCHEMA = "cortex.learning_os.remote_validity_supervisor.v1"
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+VALIDITY_MODEL_RUNTIME = {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinking": "ultra",
+    "serviceTier": "fast",
+    "sandbox": "read-only",
+    "toolsAllowed": False,
+}
 LOCK = threading.Lock()
 
 
@@ -52,6 +60,12 @@ def read(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"JSON object required: {path}")
     return value
+
+
+def exact_json(left: Any, right: Any) -> bool:
+    return json.dumps(left, sort_keys=True, separators=(",", ":")) == json.dumps(
+        right, sort_keys=True, separators=(",", ":")
+    )
 
 
 def sha256(path: Path) -> str:
@@ -124,6 +138,8 @@ def main() -> int:
     binding = read(args.approved_model_executable_binding)
     if binding.get("path") != args.codex_command:
         raise RuntimeError("requested model executable differs from the approved binding")
+    if not exact_json(plan.get("modelRuntime"), VALIDITY_MODEL_RUNTIME):
+        raise RuntimeError("signed validity plan model runtime differs from the frozen production runtime")
     source = plan.get("source") or {}
     if (
         not COMMIT.fullmatch(str(source.get("sourceCommit") or ""))
@@ -254,6 +270,7 @@ def main() -> int:
                 or receipt.get("conceptId") != concept_id
                 or receipt.get("placement") != "hetzner"
                 or receipt.get("planSha256") != plan.get("planSha256")
+                or not exact_json(receipt.get("modelRuntime"), VALIDITY_MODEL_RUNTIME)
                 or not manifest.is_file()
                 or manifest.is_symlink()
             ):

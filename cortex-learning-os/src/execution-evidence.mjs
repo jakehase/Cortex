@@ -22,6 +22,14 @@ function exactKeys(value, keys) {
     && canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
 }
 
+function canonicalEqual(left, right) {
+  try {
+    return canonicalJson(left) === canonicalJson(right);
+  } catch {
+    return false;
+  }
+}
+
 function digest(value) {
   return sha256Text(canonicalJson(value));
 }
@@ -79,6 +87,9 @@ function canonicalModelCommandErrors(command, model) {
       || canonicalJson(requested.slice(1)) !== canonicalJson(executed.slice(1))) {
     return ['model execution requestedArgv and executedArgv do not bind one exact argument vector'];
   }
+  const tiered = isRecord(model) && Object.hasOwn(model, 'serviceTier');
+  const schemaIndex = tiered ? 18 : 16;
+  const outputIndex = tiered ? 20 : 18;
   const expected = [
     executed[0],
     'exec',
@@ -92,13 +103,14 @@ function canonicalModelCommandErrors(command, model) {
     model?.model,
     '--config',
     `model_reasoning_effort="${model?.thinking}"`,
+    ...(tiered ? ['--config', 'service_tier="fast"'] : []),
     '--cd',
     command?.cwd,
     '--json',
     '--output-schema',
-    executed[16],
+    executed[schemaIndex],
     '--output-last-message',
-    executed[18],
+    executed[outputIndex],
     '-',
   ];
   if (executed.length !== expected.length
@@ -108,9 +120,9 @@ function canonicalModelCommandErrors(command, model) {
       || executed[0] !== command?.executable?.resolvedPath
       || !path.isAbsolute(executed[0])
       || !path.isAbsolute(requested[0])
-      || !path.isAbsolute(String(executed[16] || ''))
-      || !path.isAbsolute(String(executed[18] || ''))
-      || path.dirname(executed[18]) !== command?.cwd) {
+      || !path.isAbsolute(String(executed[schemaIndex] || ''))
+      || !path.isAbsolute(String(executed[outputIndex] || ''))
+      || path.dirname(executed[outputIndex]) !== command?.cwd) {
     errors.push('model execution argv is not the exact stdin-only canonical worker command');
   }
   const securityCritical = [
@@ -129,7 +141,8 @@ function canonicalModelCommandErrors(command, model) {
     '-',
   ];
   for (const option of securityCritical) {
-    if (executed.filter((part) => part === option).length !== 1) {
+    const expectedCount = option === '--config' && tiered ? 2 : 1;
+    if (executed.filter((part) => part === option).length !== expectedCount) {
       errors.push(`model execution argv duplicates or omits security-critical option: ${option}`);
     }
   }
@@ -296,7 +309,7 @@ export function validateExecutionEvidenceCore(core) {
     const stdoutRecord = outputs?.raw?.find((record) => record?.name === 'stdout');
     const commandErrors = canonicalModelCommandErrors(command, model);
     errors.push(...commandErrors);
-    if (!exactKeys(model, [
+    const legacyModelKeys = [
       'model',
       'plannedSessionId',
       'provider',
@@ -307,12 +320,30 @@ export function validateExecutionEvidenceCore(core) {
       'toolsAllowed',
       'toolsUsed',
       'usage',
-    ])
+    ];
+    const tieredModelKeys = [...legacyModelKeys, 'serviceTier'];
+    const legacyModelShape = exactKeys(model, legacyModelKeys);
+    const tieredModelShape = exactKeys(model, tieredModelKeys);
+    const projectedModelRuntime = {
+      provider: model?.provider,
+      model: model?.model,
+      thinking: model?.thinking,
+      ...(tieredModelShape ? { serviceTier: model?.serviceTier } : {}),
+      sandbox: model?.sandbox,
+      toolsAllowed: model?.toolsAllowed,
+    };
+    if ((!legacyModelShape && !tieredModelShape)
         || !IDENTIFIER.test(String(model?.provider || ''))
         || typeof model?.model !== 'string' || model.model.length < 1 || model.model.length > 256
         || !['xhigh', 'ultra'].includes(model.thinking)
+        || (tieredModelShape && (model.provider !== 'openai-codex'
+          || model.model !== 'gpt-5.6-sol'
+          || model.thinking !== 'ultra'
+          || model.serviceTier !== 'fast'))
         || model.sandbox !== 'read-only'
         || model.toolsAllowed !== false
+        || (tieredModelShape
+          && !canonicalEqual(environment?.declared?.modelRuntime, projectedModelRuntime))
         || !Array.isArray(model.toolsUsed) || model.toolsUsed.length !== 0
         || !validUsage(model.usage)
         || !validOptionalIdentifier(model.providerRequestId)

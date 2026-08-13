@@ -1,4 +1,5 @@
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
+import { validateContinuousMathValidityModelRuntime } from './continuous-math-validity-runtime.mjs';
 import { sha256Text } from './hash.mjs';
 import {
   createAuthorityAttestation,
@@ -133,18 +134,7 @@ export function validateValidityPlan(plan, {
       }
     }
   }
-  if (!exactKeys(plan.modelRuntime, [
-    'model',
-    'provider',
-    'sandbox',
-    'thinking',
-    'toolsAllowed',
-  ])
-      || plan.modelRuntime?.provider !== 'openai-codex'
-      || plan.modelRuntime?.model !== 'gpt-5.6-sol'
-      || !['xhigh', 'ultra'].includes(plan.modelRuntime?.thinking)
-      || plan.modelRuntime?.sandbox !== 'read-only'
-      || plan.modelRuntime?.toolsAllowed !== false) {
+  if (!validateContinuousMathValidityModelRuntime(plan.modelRuntime).ok) {
     errors.push('validity plan model runtime is invalid');
   }
   if (!exactKeys(plan.threshold, [

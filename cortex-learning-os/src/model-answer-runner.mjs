@@ -63,6 +63,33 @@ export function buildExamPrompt({ exam, learningContext = null } = {}) {
   ].join('\n\n');
 }
 
+export function canonicalCodexExamArgs({
+  temporaryRoot,
+  schemaPath,
+  lastMessagePath,
+  model = 'gpt-5.6-sol',
+  thinking = 'xhigh',
+  serviceTier = null,
+} = {}) {
+  if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].includes(thinking)) {
+    throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
+  }
+  if (serviceTier !== null && serviceTier !== 'fast') {
+    throw new Error(`unsupported Codex service tier: ${serviceTier}`);
+  }
+  if (serviceTier === 'fast' && (model !== 'gpt-5.6-sol' || thinking !== 'ultra')) {
+    throw new Error('fast Codex execution requires the frozen gpt-5.6-sol ultra runtime');
+  }
+  return [
+    'exec', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only',
+    '--skip-git-repo-check', '--model', model,
+    '--config', `model_reasoning_effort="${thinking}"`,
+    ...(serviceTier === null ? [] : ['--config', `service_tier="${serviceTier}"`]),
+    '--cd', temporaryRoot, '--json',
+    '--output-schema', schemaPath, '--output-last-message', lastMessagePath, '-',
+  ];
+}
+
 export function parseAgentResult(raw, { runId, evidenceRole = 'exam', startedAt, completedAt } = {}) {
   const payloadText = raw?.result?.payloads?.[0]?.text;
   const parsed = extractJson(payloadText);
@@ -113,24 +140,35 @@ export function runCodexExam({
   timeoutSeconds = 240,
   thinking = 'xhigh',
   model = 'gpt-5.6-sol',
+  serviceTier = null,
   codexCommand = 'codex',
   executionContext = null,
   approvedModelExecutable = null,
   executionTrustPolicy = null,
   executionPrivateKeyPem = null,
 } = {}) {
-  if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].includes(thinking)) throw new Error(`unsupported Codex reasoning effort: ${thinking}`);
   const prompt = buildExamPrompt({ exam, learningContext });
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-codex-exam-'));
   const lastMessagePath = path.join(temporaryRoot, 'last-message.json');
   const schemaPath = path.join(CLOS_ROOT, 'schemas/model-answer-output.schema.json');
   let result;
   try {
-    const args = [
-      'exec', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--sandbox', 'read-only',
-      '--skip-git-repo-check', '--model', model, '--config', `model_reasoning_effort="${thinking}"`, '--cd', temporaryRoot, '--json',
-      '--output-schema', schemaPath, '--output-last-message', lastMessagePath, '-'
-    ];
+    const args = canonicalCodexExamArgs({
+      temporaryRoot,
+      schemaPath,
+      lastMessagePath,
+      model,
+      thinking,
+      serviceTier,
+    });
+    const modelRuntime = {
+      provider: 'openai-codex',
+      model,
+      thinking,
+      ...(serviceTier === null ? {} : { serviceTier }),
+      sandbox: 'read-only',
+      toolsAllowed: false,
+    };
     const processEnvironment = {
       ...process.env,
       CLOS_EXPERIMENT_SESSION_ID: sessionId,
@@ -225,13 +263,7 @@ export function runCodexExam({
         declaredEnvironment: {
           executionKind: 'host_process',
           role: executionContext.role,
-          modelRuntime: {
-            provider: 'openai-codex',
-            model,
-            thinking,
-            sandbox: 'read-only',
-            toolsAllowed: false,
-          },
+          modelRuntime: structuredClone(modelRuntime),
         },
         observedEnvironment: observeProcessEnvironment(processEnvironment),
         requestedArgv: [selectedExecutable, ...args],
@@ -257,11 +289,7 @@ export function runCodexExam({
           bytes: Buffer.from(finalText, 'utf8'),
         }],
         model: {
-          provider: 'openai-codex',
-          model,
-          thinking,
-          sandbox: 'read-only',
-          toolsAllowed: false,
+          ...modelRuntime,
           toolsUsed: toolEvents.map((event) => (
             event?.item?.type || event?.type || 'unknown_tool'
           )),

@@ -426,6 +426,7 @@ def main() -> int:
                 "--empty", f"{remote_runtime}/empty",
                 "--model", "gpt-5.6-sol",
                 "--thinking", "ultra",
+                "--service-tier", "fast",
                 "--batch-size", "4",
                 "--concurrency", str(args.commission_concurrency),
                 "--max-attempts", "6",

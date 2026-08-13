@@ -5,7 +5,7 @@
 - Project slug: `cortex-learning-os`
 - Plan owner: Jake + Cortex
 - Created: `2026-07-07`
-- Last updated: `2026-08-09`
+- Last updated: `2026-08-13`
 - Status: `active_continuous_math_expansion_wave1`
 - Fidelity target: `production_additive_curriculum_and_independent_evidence`
 - Primary stop condition: `wave1_acquired_once_with_future_validity_retention_frozen_or_precise_blocker`
@@ -674,6 +674,18 @@ Truth boundary:
 
 - This wave creates the route to continued learning and evidence; the plan itself proves nothing.
 - Profile availability is not acquisition, acquisition is not validity, validity is not retention, activation is not utility, and none implies model-weight learning.
+
+Near-term validity launch qualification amendment (2026-08-13):
+
+- The full 288-concept validity path is launch-qualified only for the exact runtime `openai-codex` / `gpt-5.6-sol` / reasoning `ultra` / service tier `fast` / read-only sandbox / no tools. The commissioning spec, signed plan, candidate command, trusted execution replay, worker receipt, and independent verifier must all bind that runtime fail-closed.
+- The focused local gate is:
+
+```bash
+cd /root/clawd/cortex-learning-os && npm run math:validity:smoke
+```
+
+- That smoke makes no provider, SSH, campaign, or canonical-state call. It uses ephemeral in-memory authorities to prove the exact canonical 288-concept/288-session surface, 576 unique item bindings, signed plan validation, signed pending-state validation, and fail-closed runtime and false-green tamper rejection.
+- The smoke is contract evidence only. Production validity still requires the independently signed bank, source and acquisition identity, contamination gate, positive provider usage, exact no-tools execution evidence, independent replay and grading, and canonical write-through verification. It grants no validity, retention, utility, mastery, or model-weight credit.
 
 ### Wave 6 — Quant Truth Lab extension
 

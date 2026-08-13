@@ -54,6 +54,12 @@ def read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def exact_json(left: Any, right: Any) -> bool:
+    return json.dumps(left, sort_keys=True, separators=(",", ":"), ensure_ascii=False) == json.dumps(
+        right, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
 def update_state(state_path: Path, **changes: Any) -> None:
     with LOCK:
         PROGRESS.update(changes)
@@ -156,8 +162,12 @@ def run_model(args: argparse.Namespace, state_path: Path, *, role: str, attempt_
         str(args.codex), "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
         "--sandbox", "read-only", "--skip-git-repo-check", "--cd", str(args.empty),
         "--model", args.model, "--config", f'model_reasoning_effort="{args.thinking}"',
-        "--output-schema", str(schema), "--json", "-o", str(output_path), "-",
     ]
+    if args.service_tier is not None:
+        command.extend(["--config", f'service_tier="{args.service_tier}"'])
+    command.extend([
+        "--output-schema", str(schema), "--json", "-o", str(output_path), "-",
+    ])
     with LOCK:
         PROGRESS["providerCallsStarted"] += 1
         PROGRESS["updatedAt"] = utc_now()
@@ -332,6 +342,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--empty", required=True, type=Path)
     result.add_argument("--model", default="gpt-5.6-sol")
     result.add_argument("--thinking", default="xhigh", choices=["high", "xhigh", "ultra"])
+    result.add_argument("--service-tier", choices=["fast"])
     result.add_argument("--batch-size", default=4, type=int)
     result.add_argument("--concurrency", default=2, type=int)
     result.add_argument("--max-attempts", default=6, type=int)
@@ -365,7 +376,28 @@ def main() -> int:
         raise RuntimeError("invalid commissioning concept surface")
     if not isinstance(blueprints, list) or spec.get("expectedItemCount") != len(concepts) * len(blueprints):
         raise RuntimeError("invalid commissioning item blueprint")
-    if spec.get("modelRuntime") != {"provider": "openai-codex", "model": args.model, "thinking": args.thinking, "sandbox": "read-only", "toolsAllowed": False}:
+    if args.service_tier is None:
+        expected_model_runtime = {
+            "provider": "openai-codex",
+            "model": args.model,
+            "thinking": args.thinking,
+            "sandbox": "read-only",
+            "toolsAllowed": False,
+        }
+    else:
+        expected_model_runtime = {
+            "provider": "openai-codex",
+            "model": "gpt-5.6-sol",
+            "thinking": "ultra",
+            "serviceTier": "fast",
+            "sandbox": "read-only",
+            "toolsAllowed": False,
+        }
+        if spec.get("purpose") != "validity":
+            raise RuntimeError("tiered commissioning is reserved for the full validity path")
+        if args.model != expected_model_runtime["model"] or args.thinking != expected_model_runtime["thinking"]:
+            raise RuntimeError("tiered model runtime arguments differ from the frozen validity runtime")
+    if not exact_json(spec.get("modelRuntime"), expected_model_runtime):
         raise RuntimeError("model runtime differs from frozen spec")
     batches = [concepts[index:index + args.batch_size] for index in range(0, len(concepts), args.batch_size)]
     PROGRESS.update({

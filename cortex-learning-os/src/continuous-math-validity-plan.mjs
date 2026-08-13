@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
+import { CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME } from './continuous-math-validity-runtime.mjs';
 import { validateIndependentAssessmentBank } from './phd-assessment.mjs';
 import { currentCommittedIdentity } from './git-product-source.mjs';
 import { sha256Bytes, sha256Text } from './hash.mjs';
@@ -25,12 +26,14 @@ const stateRoot = path.resolve(value(
 const masteryPath = path.resolve(value('--mastery', path.join(stateRoot, 'mastery.json')));
 const masterySecretPath = path.resolve(value('--mastery-secret', path.join(stateRoot, 'mastery.hmac')));
 const proctorPrivateKeyPath = path.resolve(value('--proctor-private-key', ''));
-const thinking = value('--thinking', 'ultra');
+const thinking = value('--thinking', CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME.thinking);
 if (!outputValue || !bankValue || !campaignId || !value('--proctor-private-key')) {
   throw new Error('usage: continuous-math-validity-plan.mjs --out <fresh-file> --bank <signed-bank> --campaign-id <id> --proctor-private-key <owner-only-key> [--state-root <root>] [--thinking ultra]');
 }
 if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(campaignId)) throw new Error('invalid validity campaign identity');
-if (!['xhigh', 'ultra'].includes(thinking)) throw new Error('validity reasoning must be xhigh or ultra');
+if (thinking !== CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME.thinking) {
+  throw new Error('validity reasoning must be the frozen production value ultra');
+}
 const outputPath = path.resolve(outputValue);
 const bankPath = path.resolve(bankValue);
 if (fs.existsSync(outputPath)) throw new Error('validity plan output must be fresh');
@@ -134,13 +137,7 @@ const planCore = {
   source,
   bank: bankBinding,
   acquisition,
-  modelRuntime: {
-    provider: 'openai-codex',
-    model: 'gpt-5.6-sol',
-    thinking,
-    sandbox: 'read-only',
-    toolsAllowed: false,
-  },
+  modelRuntime: structuredClone(CONTINUOUS_MATH_VALIDITY_MODEL_RUNTIME),
   threshold,
   sessions: graphConceptIds.map((conceptId) => {
     const items = bank.items.filter((item) => item.conceptId === conceptId)
