@@ -131,8 +131,14 @@ def validate_author(payload: dict[str, Any], batch_id: str, concepts: list[dict[
         validate_checker(row)
 
 
-def validate_events(path: Path) -> dict[str, Any]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+def validate_event_bytes(raw: bytes) -> dict[str, Any]:
+    try:
+        text = raw.decode("utf-8")
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"provider event ledger is invalid JSONL: {error}") from error
+    if not rows or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("provider event ledger must contain JSON objects")
     started = [row for row in rows if row.get("type") == "thread.started"]
     completed = [row for row in rows if row.get("type") == "turn.completed"]
     forbidden: list[str] = []
@@ -147,6 +153,10 @@ def validate_events(path: Path) -> dict[str, Any]:
     if int(usage.get("input_tokens", 0)) <= 0 or int(usage.get("output_tokens", 0)) <= 0:
         raise ValueError("provider-observed token usage is missing")
     return {"threadId": started[0]["thread_id"], "usage": usage}
+
+
+def validate_events(path: Path) -> dict[str, Any]:
+    return validate_event_bytes(path.read_bytes())
 
 
 def run_model(args: argparse.Namespace, state_path: Path, *, role: str, attempt_dir: Path, prompt: str, schema: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -254,7 +264,7 @@ def validate_review(review: dict[str, Any], author: dict[str, Any], batch_id: st
         raise ValueError("review batch identity mismatch")
     proposals = {row["itemKey"]: row for row in author["items"]}
     reviews = {row.get("itemKey"): row for row in review["reviews"]}
-    if len(reviews) != len(proposals) or set(reviews) != set(proposals):
+    if len(review["reviews"]) != len(proposals) or len(reviews) != len(proposals) or set(reviews) != set(proposals):
         raise ValueError("review did not cover every proposal exactly once")
     rejected: dict[str, list[str]] = {}
     for key, proposal in proposals.items():
@@ -422,7 +432,7 @@ def main() -> int:
         "providerReasoningTokens": 0,
         "startedAt": utc_now(),
         "updatedAt": utc_now(),
-        "truthBoundary": "Commissioning acceptance proves role-isolated bank content mechanics only; no candidate has been evaluated.",
+        "truthBoundary": "Commissioning acceptance proves role-isolated bank content mechanics only; it grants no validity, retention, utility, mastery, or model-weight credit.",
     })
     atomic_json(state_path, PROGRESS)
     try:
