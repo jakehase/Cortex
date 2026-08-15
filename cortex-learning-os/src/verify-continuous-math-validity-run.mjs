@@ -367,7 +367,9 @@ for (const conceptId of graphConceptIds) {
       const execution = executeIndependentAssessmentItem({
         item,
         answer,
-        bank,
+        // The exact signed bank was validated once before this loop, and item
+        // comes from the identity-bound map built from that bank. Passing bank
+        // here would revalidate all 576 signed items for every answer (O(n²)).
         graph: program.graph,
         rubric: program.rubric,
         trustPolicy: program.trustPolicy,

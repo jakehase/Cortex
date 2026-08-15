@@ -1067,4 +1067,24 @@ else:
   assert.match(canonicalError.error, /statistics-likelihood-estimation:validity-direct:1\.checker\.expectedJson/);
   assert.match(canonicalError.error, /use exactly '\[100,0\.0002\]'/);
   assert.match(canonicalError.error, /received '\[100, 0\.0002\]'/);
+
+  const verifierSource = fs.readFileSync(
+    path.join(CLOS_ROOT, 'src', 'verify-continuous-math-validity-run.mjs'),
+    'utf8',
+  );
+  assert.equal(
+    (verifierSource.match(/validateIndependentAssessmentBank\(bank/g) || []).length,
+    1,
+    'the signed validity bank must be validated exactly once before replay',
+  );
+  const executionInvocation = verifierSource.match(
+    /const execution = executeIndependentAssessmentItem\(\{([\s\S]*?)\n\s*\}\);/,
+  );
+  assert.ok(executionInvocation, 'validity replay execution call is missing');
+  assert.doesNotMatch(
+    executionInvocation[1],
+    /^\s*bank,\s*$/m,
+    'per-item replay must not recursively revalidate the already-validated bank',
+  );
+  assert.match(verifierSource, /revalidate all 576 signed items for every answer \(O\(n²\)\)/);
 });
