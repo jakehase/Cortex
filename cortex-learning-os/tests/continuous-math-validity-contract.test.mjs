@@ -1034,4 +1034,37 @@ module.validate_continuation_content(
   const launcherSyntax = spawnSync('bash', ['-n', launcherPath], { encoding: 'utf8' });
   assert.equal(launcherSyntax.status, 0, launcherSyntax.stderr);
   assert.match(pipelineSource, /adoption never falls back to commissioning/);
+
+  const commissionerPath = path.join(CLOS_ROOT, 'scripts', 'commission_continuous_math_bank.py');
+  const commissionerSource = fs.readFileSync(commissionerPath, 'utf8');
+  assert.match(commissionerSource, /affine change of variables, reparameterization, relabeling, duality/);
+  assert.match(commissionerSource, /changed notation, domain, or constants do not make a new semantic family/);
+  assert.match(commissionerSource, /use exactly \{canonical!r\}, received \{text!r\}/);
+  const canonicalFeedback = spawnSync('python3', ['-c', String.raw`
+import importlib.util
+import json
+import sys
+spec = importlib.util.spec_from_file_location("commissioner", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+row = {
+  "itemKey": "statistics-likelihood-estimation:validity-direct:1",
+  "checker": {
+    "mode": "ordered_numeric_tuple",
+    "expectedJson": "[100, 0.0002]",
+    "tolerance": 0,
+  },
+}
+try:
+  module.validate_checker(row)
+except ValueError as error:
+  print(json.dumps({"error": str(error)}, separators=(",", ":")))
+else:
+  raise SystemExit("noncanonical expectedJson was accepted")
+`, commissionerPath], { encoding: 'utf8' });
+  assert.equal(canonicalFeedback.status, 0, canonicalFeedback.stderr);
+  const canonicalError = JSON.parse(canonicalFeedback.stdout);
+  assert.match(canonicalError.error, /statistics-likelihood-estimation:validity-direct:1\.checker\.expectedJson/);
+  assert.match(canonicalError.error, /use exactly '\[100,0\.0002\]'/);
+  assert.match(canonicalError.error, /received '\[100, 0\.0002\]'/);
 });

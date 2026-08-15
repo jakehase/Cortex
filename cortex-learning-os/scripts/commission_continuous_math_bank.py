@@ -67,16 +67,24 @@ def update_state(state_path: Path, **changes: Any) -> None:
         atomic_json(state_path, PROGRESS)
 
 
-def canonical_expected(text: str) -> Any:
-    value = json.loads(text)
-    if json.dumps(value, ensure_ascii=False, separators=(",", ":")) != text:
-        raise ValueError("expectedJson is not canonical JSON")
+def canonical_expected(text: str, context: str = "expectedJson") -> Any:
+    if not isinstance(text, str):
+        raise ValueError(f"{context} must be a string containing canonical JSON")
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{context} is not valid JSON: {error.msg}") from error
+    canonical = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if canonical != text:
+        raise ValueError(
+            f"{context} is not canonical JSON; use exactly {canonical!r}, received {text!r}"
+        )
     return value
 
 
 def validate_checker(row: dict[str, Any]) -> None:
     checker = row["checker"]
-    value = canonical_expected(checker["expectedJson"])
+    value = canonical_expected(checker["expectedJson"], f"{row['itemKey']}.checker.expectedJson")
     mode = checker["mode"]
     if mode in {"exact_number", "numeric_tolerance"}:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -227,8 +235,9 @@ Quality contract:
 - Each prompt is self-contained, unambiguous, no-tools solvable, and has exactly one supported checker answer.
 - Advanced items may use carefully designed multiple choice, but distractors must be plausible and only one option correct.
 - Put answer formatting in the prompt. Never reveal or mention expected answers, checkers, hidden metadata, or commissioning.
-- Compute expected values carefully as canonical JSON in checker.expectedJson. Use tolerance 0 except numeric_tolerance.
+- Compute expected values carefully as canonical JSON in checker.expectedJson. This field is a string containing the exact compact JSON serialization: no spaces, Markdown, commentary, or alternate numeric spelling. Exact output-object examples are `"expectedJson":"\\"B\\""`, `"expectedJson":"0.0002"`, and `"expectedJson":"[100,0.0002]"`. Use tolerance 0 except numeric_tolerance.
 - Prompts across the batch must be original and materially distinct; do not copy public source exercises.
+- Every item must use a genuinely disjoint mathematical model/problem family. Redesign items when one is equivalent to a sibling under an affine change of variables, reparameterization, relabeling, duality, or a simple algebraic rewrite; changed notation, domain, or constants do not make a new semantic family.
 - authorRationale must derive the answer and explain outcome coverage.
 - Return only schema-valid JSON with batchId exactly {json.dumps(batch_id)}.
 
@@ -270,8 +279,8 @@ def validate_review(review: dict[str, Any], author: dict[str, Any], batch_id: st
     for key, proposal in proposals.items():
         row = reviews[key]
         try:
-            recomputed = canonical_expected(row["recomputedExpectedJson"])
-            expected = canonical_expected(proposal["checker"]["expectedJson"])
+            recomputed = canonical_expected(row["recomputedExpectedJson"], f"{key}.recomputedExpectedJson")
+            expected = canonical_expected(proposal["checker"]["expectedJson"], f"{key}.checker.expectedJson")
         except Exception as error:
             row["accepted"] = False
             row.setdefault("issues", []).append(str(error))
