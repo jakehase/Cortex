@@ -39,6 +39,14 @@ from cortex_server.middleware.request_body_limit import (
     configured_max_request_body_bytes,
 )
 from cortex_server.middleware.write_authorization import MUTATING_METHODS, WriteAuthorizationMiddleware
+from cortex_server.internal_addressing import (
+    CORTEX_INTERNAL_BASE_URL,
+    DEFAULT_CORTEX_HOST,
+    DEFAULT_CORTEX_PORT,
+    internal_reachability_response,
+    probe_internal_reachability,
+)
+from cortex_server.modules.execution_capabilities import execution_capability_status
 from cortex_server.routers import websockets
 import asyncio
 import subprocess
@@ -627,6 +635,7 @@ _PUBLIC_READ_PATHS = frozenset(
         "/docs",
         "/docs/oauth2-redirect",
         "/health",
+        "/_internal/reachability",
         "/release-observation",
         "/openapi.json",
         "/ready",
@@ -1728,6 +1737,11 @@ def create_app() -> FastAPI:
     }
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
     app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
+    app.state.last_internal_reachability = {
+        "ok": False,
+        "status": "not_checked",
+        "target": f"{CORTEX_INTERNAL_BASE_URL}/_internal/reachability",
+    }
 
     app.add_middleware(
         WriteAuthorizationMiddleware,
@@ -1971,7 +1985,7 @@ def create_app() -> FastAPI:
     router_load_report = load_dynamic_routers(app, safe_mode=safe_mode)
     app.include_router(websockets.router, tags=["WebSockets"])
 
-    def readiness_payload() -> dict:
+    def readiness_payload(*, self_reachability: dict | None = None) -> dict:
         route_paths = _route_paths(app.routes)
         required_paths = readiness_config.required_paths
         required_routers = readiness_config.required_routers
@@ -2021,6 +2035,7 @@ def create_app() -> FastAPI:
             )
         except Exception as exc:
             runtime_delivery_check = {"ready": False, "status": "not_ready", "error": f"{type(exc).__name__}: {exc}"}
+        execution_policy = execution_capability_status()
         checks = {
             "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
             "requiredRouters": {"ok": not missing_routers, "missing": missing_routers},
@@ -2066,6 +2081,16 @@ def create_app() -> FastAPI:
                 "status": runtime_delivery_check.get("status"),
                 "checks": runtime_delivery_check.get("checks", {}),
                 "error": runtime_delivery_check.get("error"),
+            },
+            "internalSelfReachability": dict(
+                self_reachability
+                if self_reachability is not None
+                else app.state.last_internal_reachability
+            ),
+            "executionCapabilityPolicy": {
+                "ok": execution_policy.get("defaultDeny") is True,
+                "requiredForReadiness": False,
+                **execution_policy,
             },
         }
         ready = all(
@@ -2129,8 +2154,22 @@ def create_app() -> FastAPI:
     readiness_cache_recorded_at = 0.0
     readiness_cache_ttl_seconds = 1.0
 
+    async def collect_readiness_payload() -> dict:
+        try:
+            timeout_seconds = float(os.getenv("CORTEX_SELF_REACHABILITY_TIMEOUT_S", "1.5"))
+        except ValueError:
+            timeout_seconds = 1.5
+        self_reachability = await probe_internal_reachability(
+            timeout_seconds=timeout_seconds
+        )
+        app.state.last_internal_reachability = self_reachability
+        return await asyncio.to_thread(
+            readiness_payload,
+            self_reachability=self_reachability,
+        )
+
     async def async_readiness_payload() -> dict:
-        """Single-flight blocking probes off the event loop with a hard deadline."""
+        """Single-flight active identity and blocking probes with a hard deadline."""
 
         nonlocal readiness_probe_task, readiness_cache_payload, readiness_cache_recorded_at
         async with readiness_probe_lock:
@@ -2146,7 +2185,7 @@ def create_app() -> FastAPI:
                 readiness_probe_task = None
             if readiness_probe_task is None:
                 readiness_probe_task = asyncio.create_task(
-                    asyncio.to_thread(readiness_payload),
+                    collect_readiness_payload(),
                     name="cortex-readiness-probe",
                 )
             probe = readiness_probe_task
@@ -2203,6 +2242,10 @@ def create_app() -> FastAPI:
     # dependency on create_app's closure while preserving one admission path.
     app.state.async_readiness_payload = async_readiness_payload
 
+    @app.get("/_internal/reachability", include_in_schema=False)
+    async def internal_reachability_check():
+        return internal_reachability_response()
+
     @app.get("/ready")
     async def readiness_check():
         from fastapi.responses import JSONResponse
@@ -2211,6 +2254,7 @@ def create_app() -> FastAPI:
 
     @app.get("/capabilities")
     async def capability_inventory():
+        execution_policy = execution_capability_status()
         capabilities = []
         for route in _effective_routes(app.routes):
             methods = sorted(method for method in (getattr(route, "methods", None) or []) if method not in {"HEAD", "OPTIONS"})
@@ -2236,6 +2280,7 @@ def create_app() -> FastAPI:
                 "sensitiveReadAuthorizationMode": "signed_principal_or_admin",
                 "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
             },
+            "executionCapabilityPolicy": execution_policy,
             "capabilityCount": len(capabilities),
             "writeCapabilityCount": sum(1 for row in capabilities if row["write"]),
             "capabilities": sorted(capabilities, key=lambda row: (row["path"], row["methods"])),
@@ -2264,8 +2309,9 @@ def create_app() -> FastAPI:
                 "writeTokenConfigured": bool(write_token),
                 "sensitiveReadAuthorizationMode": "signed_principal_or_admin",
                 "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
-                "networkBind": os.getenv("CORTEX_HOST", "127.0.0.1"),
+                "networkBind": os.getenv("CORTEX_HOST", DEFAULT_CORTEX_HOST),
             },
+            "internalBaseUrl": CORTEX_INTERNAL_BASE_URL,
             "readiness": readiness["ready"],
         }
         return JSONResponse(status_code=200 if readiness["ready"] else 503, content=payload)
@@ -2574,4 +2620,8 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=os.getenv("CORTEX_HOST", "127.0.0.1"), port=int(os.getenv("CORTEX_PORT", "8000")))
+    uvicorn.run(
+        app,
+        host=os.getenv("CORTEX_HOST", DEFAULT_CORTEX_HOST),
+        port=int(os.getenv("CORTEX_PORT", str(DEFAULT_CORTEX_PORT))),
+    )

@@ -6,6 +6,8 @@ Runs scenarios with temporary personas to evaluate performance.
 import requests
 from typing import Dict, Optional
 
+from cortex_server.internal_addressing import internal_url
+
 
 class TheSimulator:
     """Isolated testing environment for prompt mutations.
@@ -17,7 +19,7 @@ class TheSimulator:
     4. Returns score (1-10) before Council review
     """
     
-    ORACLE_URL = "http://localhost:8888/oracle/chat"
+    ORACLE_URL = internal_url("/oracle/chat")
     
     def __init__(self):
         self.test_scenarios = [

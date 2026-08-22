@@ -12,6 +12,7 @@ import re
 import asyncio
 import os
 
+from cortex_server.internal_addressing import internal_url
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
     conscious_action,
@@ -21,10 +22,10 @@ from cortex_server.modules.consciousness_integration import (
 
 router = APIRouter()
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 # Keep Council responsive under degraded upstream conditions.
 ORACLE_TIMEOUT = float(os.getenv("COUNCIL_ORACLE_TIMEOUT_S", "24.0"))
-SEER_PREDICT_URL = "http://localhost:8888/seer/predict"
+SEER_PREDICT_URL = internal_url("/seer/predict")
 SEER_TIMEOUT = float(os.getenv("COUNCIL_SEER_TIMEOUT_S", "1.0"))
 COUNCIL_REVIEW_TIMEOUT_S = float(os.getenv("COUNCIL_REVIEW_TIMEOUT_S", "26.0"))
 deliberations: List[Dict[str, Any]] = []

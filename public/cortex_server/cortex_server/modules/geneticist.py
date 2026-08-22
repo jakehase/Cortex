@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import requests
 
+from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.simulator import get_simulator
 from cortex_server.modules.council import get_council
 
@@ -157,7 +158,7 @@ INSTRUCTIONS:
 NEW PERSONA:"""
 
         # Query Oracle for mutation
-        ORACLE_URL = "http://localhost:8888/oracle/chat"
+        ORACLE_URL = internal_url("/oracle/chat")
         
         try:
             # Use OpenRouter with Kimi for high-reasoning mutation generation

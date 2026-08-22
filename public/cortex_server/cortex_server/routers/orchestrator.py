@@ -28,8 +28,8 @@ from contextlib import ExitStack, asynccontextmanager, contextmanager
 from functools import partial
 from uuid import uuid4
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL, internal_url
 from cortex_server.modules.diplomat import get_diplomat
-from cortex_server.modules.reasoning_approvals import create_approval_grant
 from cortex_server.modules.reasoning_beliefs import belief_conflicts, beliefs_for_task, explain_belief, get_belief, list_beliefs, search_beliefs, select_influential_beliefs, summarize_beliefs, trace_belief_lineage, upsert_belief
 from cortex_server.modules import reasoning_explain as explain
 from cortex_server.modules import reasoning_observability as observability
@@ -177,14 +177,14 @@ _stats = {
     "workflows_executed": 0,
 }
 
-BASE_URL = "http://127.0.0.1:8888"
+BASE_URL = CORTEX_INTERNAL_BASE_URL
 
 MAX_WORKFLOW_STEPS = int(os.getenv("ORCHESTRATOR_MAX_STEPS", "25"))
 MAX_PAYLOAD_BYTES = int(os.getenv("ORCHESTRATOR_MAX_PAYLOAD_BYTES", "51200"))
 STEP_TIMEOUT_MAX_S = float(os.getenv("ORCHESTRATOR_STEP_TIMEOUT_MAX_S", "20"))
 MAX_STEP_RESPONSE_CHARS = int(os.getenv("ORCHESTRATOR_MAX_STEP_RESPONSE_CHARS", "4000"))
 MAX_EXECUTIONS_PER_WORKFLOW = int(os.getenv("ORCHESTRATOR_MAX_EXECUTIONS_PER_WORKFLOW", "20"))
-SENTINEL_SCAN_URL = "http://127.0.0.1:8888/sentinel/scan"
+SENTINEL_SCAN_URL = internal_url("/sentinel/scan")
 
 
 def _db_path() -> Path:
@@ -4145,11 +4145,48 @@ def _payload_size_ok(obj: Any) -> bool:
 
 
 async def _sentinel_preflight() -> Dict[str, Any]:
+    required_targets = [
+        internal_url('/health'),
+        internal_url('/oracle/status'),
+        internal_url('/augmenter/status'),
+    ]
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
+        async with httpx.AsyncClient(timeout=4.0, trust_env=False) as client:
+            for target in required_targets:
+                watch_response = await client.post(
+                    internal_url('/sentinel/watch'),
+                    json={
+                        'name': 'orchestrator-required-preflight',
+                        'watch_type': 'endpoint',
+                        'target': target,
+                        'timeout_seconds': 1.5,
+                    },
+                )
+                watch_response.raise_for_status()
+                watch_payload = watch_response.json()
+                if not isinstance(watch_payload, dict) or watch_payload.get('success') is not True or not watch_payload.get('watch_id'):
+                    raise RuntimeError('malformed_sentinel_watch_response')
             r = await client.post(SENTINEL_SCAN_URL, json={})
             r.raise_for_status()
-            return r.json()
+            payload = r.json()
+            scan = payload.get('scan') if isinstance(payload, dict) else None
+            results = scan.get('results') if isinstance(scan, dict) else None
+            if not isinstance(results, list):
+                raise RuntimeError('malformed_sentinel_scan_results')
+            by_target = {
+                str(row.get('target')): row
+                for row in results
+                if isinstance(row, dict) and row.get('target')
+            }
+            for target in required_targets:
+                result = by_target.get(target)
+                try:
+                    status_code = int(result.get('status_code')) if isinstance(result, dict) else 0
+                except (TypeError, ValueError):
+                    status_code = 0
+                if not isinstance(result, dict) or result.get('ok') is not True or not 0 < status_code < 400:
+                    raise RuntimeError(f'sentinel_required_target_failed:{target}')
+            return payload
     except Exception as e:
         return {"success": False, "error": f"sentinel_preflight_failed:{type(e).__name__}:{e}"}
 
@@ -5095,7 +5132,6 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         scheduled = runtime_service.schedule_runtime_plan(
             request,
             workflow=workflow,
-            create_approval_grant_fn=create_approval_grant,
             build_workflow_policy_fn=partial(build_workflow_policy, belief_scope=belief_scope),
             create_process_from_workflow_fn=create_process_from_workflow,
         )

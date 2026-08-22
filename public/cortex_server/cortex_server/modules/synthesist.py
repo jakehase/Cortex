@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Any, Set
 from collections import defaultdict
 from urllib.request import urlopen
 
+from cortex_server.internal_addressing import internal_url
+
 class Synthesist:
     """Level 32: The Synthesist - Unified Knowledge & Insight Generation"""
     
@@ -137,7 +139,7 @@ class Synthesist:
 
     def _load_live_expected_levels(self) -> Set[str]:
         try:
-            with urlopen('http://127.0.0.1:8888/kernel/levels', timeout=1.5) as r:
+            with urlopen(internal_url("/kernel/levels"), timeout=1.5) as r:
                 payload = json.loads(r.read().decode('utf-8', 'replace'))
             levels = payload.get('levels') or []
             expected = set()

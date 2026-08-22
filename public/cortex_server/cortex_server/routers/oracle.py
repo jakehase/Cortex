@@ -11,6 +11,7 @@ from cortex_server.modules.alive_cortex import get_alive_mode
 from cortex_server.modules.codec_policy import get_codec_backend_policy, get_codec_policy_for_query, get_codec_routing_priors, infer_served_variant, observe_codec_outcome, observe_passive_codec_feedback, register_codec_session_turn
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.internal_addressing import internal_url
 from cortex_server.routers.openclaw import load_config
 
 router = APIRouter()
@@ -81,6 +82,13 @@ def _get_base_model() -> str:
 
 def _openclaw_model_label() -> str:
     return f"{_get_base_model()} (base_model via Cortex config)"
+
+
+def _oracle_emergency_bypass_enabled() -> bool:
+    """Emergency static acknowledgement is opt-in and never a completion."""
+    return str(os.getenv("ORACLE_EMERGENCY_BYPASS") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 ROUTE_STATS = {"openclaw": 0, "bridge": 0, "tinyllama": 0, "frontend_local": 0, "frontend_fallback": 0, "total": 0}
 FRONTEND_CONTRACT_STATS = {"applied": 0}
 _OPENCLAW_RATE_LIMITS: Dict[str, Dict[str, float | int]] = {}
@@ -695,7 +703,23 @@ def _run_autopilot_status_command(json_mode: bool = False) -> str:
     if proc.returncode != 0:
         # Never fail hard for chat command; degrade gracefully.
         return _autopilot_status_fallback(json_mode)
-    return out or _autopilot_status_fallback(json_mode)
+    if not out:
+        return _autopilot_status_fallback(json_mode)
+    return _EvidenceText(
+        out,
+        completion_receipt=_completion_receipt(
+            kind="local_execution",
+            source="autopilot_status_subprocess",
+            response=out,
+            evidence={
+                "returncode": int(proc.returncode),
+                "stdout_sha256": hashlib.sha256((proc.stdout or "").encode("utf-8")).hexdigest(),
+                "script_sha256": hashlib.sha256(script.encode("utf-8")).hexdigest(),
+            },
+        ),
+        origin="autopilot_status_subprocess",
+        provider_invoked=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -815,6 +839,13 @@ class ChatResponse(BaseModel):
     model: str
     done: bool
 
+    # Completion truth/provenance.  ``done`` is only true when the response is
+    # paired with a receipt for provider work or a concrete local execution.
+    origin: Optional[str] = None
+    provider_invoked: bool = False
+    degraded: bool = False
+    completion_receipt: Optional[Dict[str, Any]] = None
+
     # Observability / benchmark trace fields
     lane: Optional[str] = None
     alive_enabled: Optional[bool] = None
@@ -831,6 +862,18 @@ class ChatResponse(BaseModel):
     counterfactuals: Optional[List[Dict[str, Any]]] = None
     followups: Optional[List[str]] = None
     forecast_refs: Optional[List[str]] = None
+
+    def __init__(self, **data: Any):
+        # Keep the truth invariant on the response type itself so future lanes
+        # cannot accidentally reintroduce synthetic completion.
+        if data.get("done") and not _completion_receipt_is_valid(
+            data.get("completion_receipt") or {},
+            response=str(data.get("response") or ""),
+        ):
+            data["done"] = False
+            data["degraded"] = True
+            data["completion_receipt"] = None
+        super().__init__(**data)
 
 
 class ForecastResolveRequest(BaseModel):
@@ -1330,18 +1373,24 @@ def _mk_chat_response(
     final_only: Optional[bool] = None,
     active_levels: Optional[List[Any]] = None,
     routing_trace: Optional[Dict[str, Any]] = None,
+    origin: Optional[str] = None,
+    provider_invoked: bool = False,
+    degraded: bool = False,
+    completion_receipt: Optional[Dict[str, Any]] = None,
+    attach_advanced: bool = True,
 ) -> ChatResponse:
     advanced: Dict[str, Any] = {}
-    try:
-        advanced = _attach_l5_advanced(
-            prompt=prompt,
-            response=response,
-            session_key=session_key,
-            priority=priority,
-            strict_contract=bool(strict_contract),
-        )
-    except Exception:
-        advanced = {}
+    if attach_advanced:
+        try:
+            advanced = _attach_l5_advanced(
+                prompt=prompt,
+                response=response,
+                session_key=session_key,
+                priority=priority,
+                strict_contract=bool(strict_contract),
+            )
+        except Exception:
+            advanced = {}
 
     response_out = _ensure_everyday_format(
         response=response,
@@ -1350,22 +1399,193 @@ def _mk_chat_response(
         strict_contract=bool(strict_contract),
     )
 
+    receipt = dict(completion_receipt or {})
+    receipt_valid = _completion_receipt_is_valid(receipt, response=response)
+    if receipt_valid:
+        receipt["delivered_response_sha256"] = hashlib.sha256(response_out.encode("utf-8")).hexdigest()
+    truthful_done = bool(done) and receipt_valid
+    trace = dict(routing_trace or {})
+    trace["completion"] = {
+        "requested_done": bool(done),
+        "receipt_valid": receipt_valid,
+        "origin": origin,
+        "provider_invoked": bool(provider_invoked),
+        "degraded": bool(degraded or (done and not receipt_valid)),
+    }
+
     resp = ChatResponse(
         response=response_out,
         model=model,
-        done=done,
+        done=truthful_done,
+        origin=origin,
+        provider_invoked=bool(provider_invoked),
+        degraded=bool(degraded or (done and not receipt_valid)),
+        completion_receipt=receipt if receipt_valid else None,
         lane=lane,
         alive_enabled=alive_enabled,
         strict_contract=strict_contract,
         final_only=final_only,
         active_levels=active_levels,
-        routing_trace=routing_trace,
+        routing_trace=trace,
     )
 
     for k, v in advanced.items():
         setattr(resp, k, v)
 
     return resp
+
+
+_COMPLETION_RECEIPT_VERSION = "cortex.oracle.completion.v1"
+_COMPLETION_RECEIPT_KINDS = frozenset({"provider_response", "local_execution", "upstream_execution"})
+
+
+def _completion_receipt(
+    *,
+    kind: str,
+    source: str,
+    response: str,
+    evidence: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Create evidence only after a provider or concrete execution returned."""
+    normalized_kind = str(kind or "").strip()
+    normalized_source = str(source or "").strip()
+    if normalized_kind not in _COMPLETION_RECEIPT_KINDS or not normalized_source:
+        raise ValueError("invalid Oracle completion evidence")
+    response_sha256 = hashlib.sha256(str(response or "").encode("utf-8")).hexdigest()
+    completed_at = datetime.now(timezone.utc).isoformat()
+    receipt_seed = "\0".join((_COMPLETION_RECEIPT_VERSION, normalized_kind, normalized_source, completed_at, response_sha256))
+    receipt = {
+        "version": _COMPLETION_RECEIPT_VERSION,
+        "receipt_id": f"oracle_{hashlib.sha256(receipt_seed.encode('utf-8')).hexdigest()[:24]}",
+        "kind": normalized_kind,
+        "source": normalized_source,
+        "completed_at": completed_at,
+        "response_sha256": response_sha256,
+    }
+    if isinstance(evidence, dict) and evidence:
+        receipt["evidence"] = dict(evidence)
+    return receipt
+
+
+def _completion_receipt_is_valid(receipt: Dict[str, Any], *, response: str) -> bool:
+    if not isinstance(receipt, dict):
+        return False
+    if str(receipt.get("version") or "") != _COMPLETION_RECEIPT_VERSION:
+        return False
+    if str(receipt.get("kind") or "") not in _COMPLETION_RECEIPT_KINDS:
+        return False
+    if not str(receipt.get("receipt_id") or "").strip() or not str(receipt.get("source") or "").strip():
+        return False
+    completed_at = str(receipt.get("completed_at") or "").strip()
+    try:
+        parsed = datetime.fromisoformat(completed_at)
+        if parsed.tzinfo is None:
+            return False
+    except (TypeError, ValueError):
+        return False
+    expected = hashlib.sha256(str(response or "").encode("utf-8")).hexdigest()
+    return expected in {
+        str(receipt.get("response_sha256") or ""),
+        str(receipt.get("delivered_response_sha256") or ""),
+    }
+
+
+class _EvidenceText(str):
+    """String-compatible backend output carrying evidence from the call site."""
+
+    def __new__(
+        cls,
+        value: str,
+        *,
+        completion_receipt: Optional[Dict[str, Any]] = None,
+        origin: Optional[str] = None,
+        provider_invoked: bool = False,
+    ):
+        obj = super().__new__(cls, str(value or ""))
+        obj.completion_receipt = dict(completion_receipt or {}) or None
+        obj.origin = str(origin or "").strip() or None
+        obj.provider_invoked = bool(provider_invoked)
+        return obj
+
+
+class _BackendAnswer(tuple):
+    """Backward-compatible three-tuple plus non-forgeable-by-label evidence."""
+
+    def __new__(
+        cls,
+        text: str,
+        model: str,
+        fallback_reason: str,
+        *,
+        completion_receipt: Optional[Dict[str, Any]] = None,
+        origin: Optional[str] = None,
+        provider_invoked: bool = False,
+    ):
+        obj = super().__new__(cls, (str(text or ""), str(model or ""), str(fallback_reason or "")))
+        receipt = dict(completion_receipt or {})
+        obj.completion_receipt = receipt if _completion_receipt_is_valid(receipt, response=str(text or "")) else None
+        obj.origin = str(origin or "").strip() or None
+        obj.provider_invoked = bool(provider_invoked and obj.completion_receipt)
+        return obj
+
+
+def _backend_answer(text: str, model: str, fallback_reason: str) -> _BackendAnswer:
+    receipt = getattr(text, "completion_receipt", None)
+    return _BackendAnswer(
+        str(text or ""),
+        model,
+        fallback_reason,
+        completion_receipt=receipt if isinstance(receipt, dict) else None,
+        origin=getattr(text, "origin", None),
+        provider_invoked=bool(getattr(text, "provider_invoked", False)),
+    )
+
+
+def _backend_answer_receipt(answer: Any, *, response: str) -> Optional[Dict[str, Any]]:
+    receipt = getattr(answer, "completion_receipt", None)
+    if isinstance(receipt, dict) and _completion_receipt_is_valid(receipt, response=response):
+        return dict(receipt)
+    return None
+
+
+def _backend_completion(answer: Any, *, response: str) -> Dict[str, Any]:
+    receipt = _backend_answer_receipt(answer, response=response)
+    return {
+        "done": bool(receipt),
+        "origin": (getattr(answer, "origin", None) if receipt else None) or "receiptless_backend_output",
+        "provider_invoked": bool(receipt and getattr(answer, "provider_invoked", False)),
+        "degraded": not bool(receipt),
+        "completion_receipt": receipt,
+    }
+
+
+def _upstream_completion(
+    payload: Dict[str, Any],
+    *,
+    response: str,
+    default_origin: str,
+) -> Dict[str, Any]:
+    """Accept upstream completion only when its response-bound receipt verifies."""
+    receipt = payload.get("completion_receipt") if isinstance(payload, dict) else None
+    complete = (
+        isinstance(payload, dict)
+        and payload.get("done") is True
+        and isinstance(receipt, dict)
+        and _completion_receipt_is_valid(receipt, response=response)
+    )
+    return {
+        "done": complete,
+        "origin": (
+            str(payload.get("origin") or default_origin)
+            if complete
+            else f"receiptless_{default_origin}_output"
+        ),
+        "provider_invoked": bool(
+            complete and (payload.get("provider_invoked") or payload.get("providerInvoked"))
+        ),
+        "degraded": not complete,
+        "completion_receipt": receipt if complete else None,
+    }
 
 
 def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_result: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -2319,37 +2539,54 @@ def call_bridge(prompt: str) -> str:
     if str(data.get("model") or "").startswith("oracle-") or str(data.get("lane") or "").startswith("emergency_"):
         raise HTTPException(status_code=503, detail="Bridge recursion detected (oracle fallback payload)")
 
+    def bridge_output(value: str) -> str:
+        receipt = data.get("completion_receipt")
+        if (
+            data.get("done") is True
+            and isinstance(receipt, dict)
+            and _completion_receipt_is_valid(receipt, response=value)
+        ):
+            return _EvidenceText(
+                value,
+                completion_receipt=receipt,
+                origin=str(data.get("origin") or "bridge_backend"),
+                provider_invoked=bool(data.get("provider_invoked") or data.get("providerInvoked")),
+            )
+        # Legacy bridge text remains useful, but is explicitly not completion
+        # evidence and will be returned as done=false by /oracle/chat.
+        return str(value)
+
     text = data.get("response")
     if isinstance(text, str) and text.strip():
         if _bridge_is_low_quality_response(prompt, text):
             raise HTTPException(status_code=503, detail="Bridge returned low-quality response for this prompt")
-        return text
+        return bridge_output(text)
 
     # Last-resort compatibility keys.
     text2 = data.get("text")
     if isinstance(text2, str) and text2.strip():
         if _bridge_is_low_quality_response(prompt, text2):
             raise HTTPException(status_code=503, detail="Bridge returned low-quality response for this prompt")
-        return text2
+        return bridge_output(text2)
 
     raise HTTPException(status_code=503, detail=f"Bridge payload missing response text: {str(data)[:300]}")
 
 
 
 def _call_council(topic: str):
-    r = requests.post("http://localhost:8888/council/deliberate", json={"topic": topic, "context": "Alive Cortex Mode"}, timeout=120)
+    r = requests.post(internal_url("/council/deliberate"), json={"topic": topic, "context": "Alive Cortex Mode"}, timeout=120)
     r.raise_for_status()
     return r.json()
 
 
 def _call_ethicist(action: str):
-    r = requests.post("http://localhost:8888/ethicist/evaluate", json={"action": action, "context": "Alive Cortex Mode", "severity": "medium"}, timeout=120)
+    r = requests.post(internal_url("/ethicist/evaluate"), json={"action": action, "context": "Alive Cortex Mode", "severity": "medium"}, timeout=120)
     r.raise_for_status()
     return r.json()
 
 
 def _call_validator(data: dict):
-    r = requests.post("http://localhost:8888/validator/validate", json={"schema": "api_response", "data": data, "strict": False}, timeout=30)
+    r = requests.post(internal_url("/validator/validate"), json={"schema": "api_response", "data": data, "strict": False}, timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -2358,7 +2595,33 @@ def _generate_local_sync(payload: dict, model: str) -> ChatResponse:
     r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=60)
     r.raise_for_status()
     d = r.json()
-    return ChatResponse(response=d.get('response', ''), model=d.get('model', model), done=d.get('done', True))
+    response_text = str(d.get("response") or "")
+    model_label = str(d.get("model") or model)
+    provider_done = d.get("done") is True and bool(response_text.strip())
+    receipt = (
+        _completion_receipt(kind="provider_response", source=model_label, response=response_text)
+        if provider_done
+        else None
+    )
+    return ChatResponse(
+        response=response_text,
+        model=model_label,
+        done=provider_done,
+        origin="ollama_provider",
+        provider_invoked=True,
+        degraded=not provider_done,
+        completion_receipt=receipt,
+        routing_trace={
+            "path": "ollama_generate",
+            "completion": {
+                "requested_done": d.get("done") is True,
+                "receipt_valid": bool(receipt),
+                "origin": "ollama_provider",
+                "provider_invoked": True,
+                "degraded": not provider_done,
+            },
+        },
+    )
 
 
 def _openclaw_session_id_for_key(key: str) -> str:
@@ -2470,10 +2733,27 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None, *, principal_
                     raise RuntimeError('openclaw_returned_empty')
                 # Successful assistant content is never interpreted as provider
                 # control metadata. It clears only this principal's cooldown.
+                execution_receipt = _completion_receipt(
+                    kind="upstream_execution",
+                    source="openclaw_subprocess",
+                    response=text,
+                    evidence={
+                        "returncode": int(r.returncode),
+                        "stdout_sha256": hashlib.sha256((r.stdout or "").encode("utf-8")).hexdigest(),
+                        "session_id_sha256": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
+                        "payload_count": len(payloads),
+                    },
+                )
+                evidenced_text = _EvidenceText(
+                    text,
+                    completion_receipt=execution_receipt,
+                    origin="openclaw_subprocess",
+                    provider_invoked=False,
+                )
                 with _OPENCLAW_LOCK:
                     _OPENCLAW_RATE_LIMITS.pop(principal_scope_key, None)
-                    inflight["result"] = text
-                return text
+                    inflight["result"] = evidenced_text
+                return evidenced_text
             except Exception as e:
                 err_detail = f"OpenClaw local invoke failed (attempt {attempt}/{max_attempts}): {e}"
                 # jittered backoff
@@ -2537,14 +2817,18 @@ def _hedge_delay_for_prompt(prompt: str) -> float:
 
 
 def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None, adaptive_policies=None, backend_policy_override: Optional[Dict[str, Any]] = None, principal_scope_key: str = "internal-system") -> Tuple[str, str, str]:
-    """Return (text, model_label, fallback_reason)."""
+    """Return a three-tuple carrying evidence only from the selected backend."""
     # Frontend fast-path: keep UX stable and low-latency during backend turbulence.
     if _is_frontend_prompt((prompt or "") + "\n" + (system or "")):
         try:
             ROUTE_STATS['frontend_fallback'] += 1
         except Exception:
             pass
-        return _deterministic_frontend_fallback(prompt), "deterministic-frontend-fallback", "frontend_direct_fastpath"
+        return _backend_answer(
+            _deterministic_frontend_fallback(prompt),
+            "deterministic-frontend-fallback",
+            "frontend_direct_fastpath",
+        )
 
     priors = routing_priors if isinstance(routing_priors, dict) else {}
     backend_policy = dict(backend_policy_override or {})
@@ -2569,7 +2853,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             text = call_bridge(prompt)
             _bridge_cb_record_success()
             ROUTE_STATS["bridge"] += 1
-            return text, BRIDGE_MODEL_LABEL, ("codec_policy_bridge_first" if prefer_bridge_first else "bridge_first")
+            return _backend_answer(text, BRIDGE_MODEL_LABEL, ("codec_policy_bridge_first" if prefer_bridge_first else "bridge_first"))
         except Exception:
             _bridge_cb_record_failure()
             pass
@@ -2579,7 +2863,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
         try:
             text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode, principal_scope_key=principal_scope_key)
             ROUTE_STATS['openclaw'] += 1
-            return text, _openclaw_model_label(), "openclaw_only_fallbacks_disabled"
+            return _backend_answer(text, _openclaw_model_label(), "openclaw_only_fallbacks_disabled")
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"OpenClaw invoke failed (fallbacks disabled): {e}")
 
@@ -2599,8 +2883,17 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
                     payload={'model': LOCAL_MODEL, 'prompt': prompt, 'stream': False, 'system': system or 'You are Cortex. Be direct and accurate.'},
                     model=LOCAL_MODEL,
                 )
+                if not local.done or not local.completion_receipt:
+                    raise RuntimeError("tinyllama_provider_incomplete")
                 ROUTE_STATS['tinyllama'] += 1
-                return (local.response or ''), LOCAL_MODEL, "tinyllama_degraded_fastpath"
+                return _BackendAnswer(
+                    local.response or "",
+                    LOCAL_MODEL,
+                    "tinyllama_degraded_fastpath",
+                    completion_receipt=local.completion_receipt,
+                    origin=local.origin,
+                    provider_invoked=local.provider_invoked,
+                )
             except Exception as e:
                 last_err = e
         else:
@@ -2615,7 +2908,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             try:
                 text = oc_f.result(timeout=_hedge_delay_for_prompt(prompt))
                 ROUTE_STATS['openclaw'] += 1
-                return text, _openclaw_model_label(), "openclaw_primary_hedge_fast"
+                return _backend_answer(text, _openclaw_model_label(), "openclaw_primary_hedge_fast")
             except concurrent.futures.TimeoutError:
                 # OpenClaw not ready quickly enough; start bridge race.
                 br_f = ex.submit(call_bridge, prompt)
@@ -2630,26 +2923,26 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
                     try:
                         text = oc_f.result()
                         ROUTE_STATS['openclaw'] += 1
-                        return text, _openclaw_model_label(), "openclaw_won_hedge_race"
+                        return _backend_answer(text, _openclaw_model_label(), "openclaw_won_hedge_race")
                     except Exception as e_oc:
                         last_err = e_oc
                         try:
                             text = br_f.result()
                             ROUTE_STATS['bridge'] += 1
-                            return text, BRIDGE_MODEL_LABEL, "openclaw_failed_bridge_won_hedge"
+                            return _backend_answer(text, BRIDGE_MODEL_LABEL, "openclaw_failed_bridge_won_hedge")
                         except Exception as e_br:
                             last_err = e_br
                 else:
                     try:
                         text = br_f.result()
                         ROUTE_STATS['bridge'] += 1
-                        return text, BRIDGE_MODEL_LABEL, "bridge_won_hedge"
+                        return _backend_answer(text, BRIDGE_MODEL_LABEL, "bridge_won_hedge")
                     except Exception as e_br:
                         last_err = e_br
                         try:
                             text = oc_f.result()
                             ROUTE_STATS['openclaw'] += 1
-                            return text, _openclaw_model_label(), "bridge_failed_openclaw_recovered"
+                            return _backend_answer(text, _openclaw_model_label(), "bridge_failed_openclaw_recovered")
                         except Exception as e_oc:
                             last_err = e_oc
             except Exception as e:
@@ -2665,7 +2958,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
         try:
             text = _solve_with_self_consistency(prompt, system, depth_mode=depth_mode, principal_scope_key=principal_scope_key)
             ROUTE_STATS['openclaw'] += 1
-            return text, _openclaw_model_label(), "openclaw_primary_nonhedged"
+            return _backend_answer(text, _openclaw_model_label(), "openclaw_primary_nonhedged")
         except Exception as e:
             last_err = e
 
@@ -2678,14 +2971,18 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             ROUTE_STATS['frontend_fallback'] += 1
         except Exception:
             pass
-        return _deterministic_frontend_fallback(prompt), "deterministic-frontend-fallback", "frontend_contract_fallback_no_backend"
+        return _backend_answer(
+            _deterministic_frontend_fallback(prompt),
+            "deterministic-frontend-fallback",
+            "frontend_contract_fallback_no_backend",
+        )
 
     # 2) bridge (if we didn't already hedge it)
     if (not should_hedge) and (not avoid_bridge_fallback):
         try:
             text = call_bridge(prompt)
             ROUTE_STATS['bridge'] += 1
-            return text, BRIDGE_MODEL_LABEL, "bridge_fallback_after_openclaw_error"
+            return _backend_answer(text, BRIDGE_MODEL_LABEL, "bridge_fallback_after_openclaw_error")
         except Exception as e:
             last_err = e
     elif avoid_bridge_fallback:
@@ -2699,8 +2996,17 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
                 payload={'model': LOCAL_MODEL, 'prompt': prompt, 'stream': False, 'system': system or 'You are Cortex. Be direct and accurate.'},
                 model=LOCAL_MODEL,
             )
+            if not local.done or not local.completion_receipt:
+                raise RuntimeError("tinyllama_provider_incomplete")
             ROUTE_STATS['tinyllama'] += 1
-            return (local.response or ''), LOCAL_MODEL, "tinyllama_last_resort_after_openclaw_bridge_failure"
+            return _BackendAnswer(
+                local.response or "",
+                LOCAL_MODEL,
+                "tinyllama_last_resort_after_openclaw_bridge_failure",
+                completion_receipt=local.completion_receipt,
+                origin=local.origin,
+                provider_invoked=local.provider_invoked,
+            )
         except Exception as e:
             last_err = e
     else:
@@ -2720,6 +3026,40 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=400, detail='Prompt cannot be empty')
 
     prompt = raw_prompt
+    priority = (request.priority or '').lower().strip()
+    requested_model = (request.model or '').strip().lower()
+    final_only = (request.response_mode or 'default').lower() == 'final_only'
+
+    # This explicit emergency lane is a content-free acknowledgement. Resolve
+    # it before any principal-scoped memory or adaptive-policy access so the
+    # bypass cannot read or mutate shared state and cannot invoke a provider.
+    if _oracle_emergency_bypass_enabled():
+        track_level(http_request, 5, "Oracle", always_on=False)
+        return _mk_chat_response(
+            prompt=prompt,
+            session_key="emergency-static",
+            priority=priority,
+            response="Oracle temporary degraded mode: request accepted.",
+            model="oracle-emergency-bypass",
+            done=False,
+            lane="emergency_static",
+            alive_enabled=False,
+            strict_contract=False,
+            final_only=final_only,
+            active_levels=[{"level": 5, "name": "Oracle"}],
+            routing_trace={
+                "path": "emergency_static",
+                "provenance": "static_acknowledgement",
+                "provider_invoked": False,
+                "degraded": True,
+                "reason": "explicit_emergency_bypass",
+            },
+            origin="static_acknowledgement",
+            provider_invoked=False,
+            degraded=True,
+            attach_advanced=False,
+        )
+
     from cortex_server.routers.nexus import (
         _adaptive_observation_allowed,
         _adaptive_policies_for_scope,
@@ -2745,9 +3085,6 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         "adaptive_policies": adaptive_policies,
         "observation_allowed": observation_allowed,
     }
-    priority = (request.priority or '').lower().strip()
-    requested_model = (request.model or '').strip().lower()
-    final_only = (request.response_mode or 'default').lower() == 'final_only'
     kernel_trace: Optional[Dict[str, Any]] = None
     passive_codec_feedback = (
         _scoped_policy_call(
@@ -2764,43 +3101,34 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     # Explicit activation for all Oracle chat turns (required by hard send-time gate).
     track_level(http_request, 5, "Oracle", always_on=False)
 
-    # Emergency bypass: keep /oracle/chat responsive under orchestration stalls.
-    if (os.getenv("ORACLE_EMERGENCY_BYPASS") or "false").strip().lower() == "true":
-        track_level(http_request, 5, "Oracle", always_on=False)
-        return _mk_chat_response(
-            prompt=prompt,
-            session_key=session_key,
-            priority=priority,
-            response="Oracle temporary degraded mode: request accepted.",
-            model="oracle-emergency-bypass",
-            done=True,
-            lane="emergency_static",
-            alive_enabled=False,
-            strict_contract=False,
-            final_only=(request.response_mode or 'default').lower() == 'final_only',
-            active_levels=[{"level": 5, "name": "Oracle"}],
-            routing_trace={"path": "emergency_static"},
-        )
-
     # WhatsApp/Chat convenience: allow direct autopilot status command requests
     # from user prompts without requiring shell access.
     status_mode = _extract_autopilot_status_mode(prompt)
     if status_mode is not None:
         status_text = _run_autopilot_status_command(bool(status_mode))
+        status_receipt = getattr(status_text, "completion_receipt", None)
+        status_complete = isinstance(status_receipt, dict) and _completion_receipt_is_valid(
+            status_receipt,
+            response=str(status_text),
+        )
         track_level(http_request, 5, "Oracle", always_on=False)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
             priority=priority,
-            response=status_text,
+            response=str(status_text),
             model="local-system-command",
-            done=True,
+            done=status_complete,
             lane="local_autopilot_status",
             alive_enabled=True,
             strict_contract=False,
             final_only=(request.response_mode or 'default').lower() == 'final_only',
             active_levels=[{"level": 5, "name": "Oracle"}],
             routing_trace={"path": "local_autopilot_status", "json_mode": bool(status_mode)},
+            origin=getattr(status_text, "origin", None) or "local_status_degraded",
+            provider_invoked=False,
+            degraded=not status_complete,
+            completion_receipt=status_receipt if status_complete else None,
         )
 
     _remember_referents(session_key, raw_prompt)
@@ -2875,13 +3203,16 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 priority=priority,
                 response="",
                 model=_openclaw_model_label(),
-                done=True,
+                done=False,
                 lane='forced_empty_test',
                 alive_enabled=True,
                 strict_contract=False,
                 final_only=(request.response_mode or 'default').lower() == 'final_only',
                 active_levels=[{'level': 5, 'name': 'Oracle'}],
                 routing_trace={'path': 'forced_empty_test'},
+                origin="test_hook",
+                provider_invoked=False,
+                degraded=True,
             )
 
     contract_basis = (raw_prompt + "\n\n" + (request_system or ''))
@@ -2920,7 +3251,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             try:
                 async with httpx.AsyncClient(timeout=65.0) as client:
                     r = await client.post(
-                        "http://127.0.0.1:8888/augmenter/chat",
+                        internal_url("/augmenter/chat"),
                         json={
                             "prompt": prompt,
                             "response_mode": request.response_mode or "final_only",
@@ -2936,6 +3267,11 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     # fall through to normal Oracle routing instead of returning empty.
                     if (data.get("ok") is False) or (not resp_text.strip()):
                         raise RuntimeError(f"augmenter_failed_or_empty:{data.get('error') or 'empty'}")
+                    augmenter_completion = _upstream_completion(
+                        data,
+                        response=resp_text,
+                        default_origin="augmenter_upstream",
+                    )
                     # Ensure HUD/_activated reflects that Augmenter was involved.
                     track_level(http_request, 38, "Augmenter", always_on=False)
                     # Return in Oracle's ChatResponse envelope for compatibility.
@@ -2946,7 +3282,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         priority=priority,
                         response=resp_text,
                         model=_openclaw_model_label(),
-                        done=True,
+                        done=augmenter_completion["done"],
                         lane="augmenter",
                         alive_enabled=True,
                         strict_contract=False,
@@ -2960,6 +3296,10 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                         },
+                        origin=augmenter_completion["origin"],
+                        provider_invoked=augmenter_completion["provider_invoked"],
+                        degraded=augmenter_completion["degraded"],
+                        completion_receipt=augmenter_completion["completion_receipt"],
                     )
             except Exception as e:
                 # Fall through to normal Oracle routing if Augmenter fails.
@@ -2986,7 +3326,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 priority=priority,
                 response=micro,
                 model="deterministic-fastpath",
-                done=True,
+                done=False,
                 lane="strict_contract_micro_fastpath",
                 alive_enabled=None,
                 strict_contract=True,
@@ -3003,6 +3343,9 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                 },
+                origin="deterministic_fastpath",
+                provider_invoked=False,
+                degraded=True,
             )
 
     semantic_guardrail = _semantic_guardrail_response(raw_prompt, session_key=session_key)
@@ -3023,7 +3366,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             priority=priority,
             response=response_text,
             model="deterministic-semantic-guardrail",
-            done=True,
+            done=False,
             lane=lane,
             alive_enabled=None,
             strict_contract=False,
@@ -3039,6 +3382,9 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
             },
+            origin="deterministic_guardrail",
+            provider_invoked=False,
+            degraded=True,
         )
 
     IS_BUSY = True
@@ -3048,7 +3394,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         if alive.enabled() and os.getenv("ORACLE_DISABLE_ALIVE", "true").lower() != "true":
             # Benchmark-safe strict contract lane: keep exact output shape and skip HUD.
             if strict_contract:
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                backend_answer = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                text, model_label, fallback_reason = backend_answer
                 text = _enforce_contract_output(contract_basis, text)
                 # Verifier lane: if contract still not satisfied, attempt repair.
                 if not _verify_contract(contract_basis, text):
@@ -3072,13 +3419,14 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "fallback_reason": fallback_reason,
                 })
                 codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
+                completion = _backend_completion(backend_answer, response=text)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
                     priority=priority,
                     response=text,
                     model=model_label,
-                    done=True,
+                    done=completion["done"],
                     lane="strict_contract",
                     alive_enabled=True,
                     strict_contract=True,
@@ -3095,10 +3443,15 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                     },
+                    origin=completion["origin"],
+                    provider_invoked=completion["provider_invoked"],
+                    degraded=completion["degraded"],
+                    completion_receipt=completion["completion_receipt"],
                 )
 
             if not (force_orchestrate or _should_orchestrate(raw_prompt, priority=priority, strict_contract=strict_contract)):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                backend_answer = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                text, model_label, fallback_reason = backend_answer
                 _ledger_append({
                     "lane": "gated_direct",
                     "alive": True,
@@ -3107,13 +3460,14 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "fallback_reason": fallback_reason,
                 })
                 codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace, **oracle_scope_kwargs)
+                completion = _backend_completion(backend_answer, response=text)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
                     priority=priority,
                     response=text,
                     model=model_label,
-                    done=True,
+                    done=completion["done"],
                     lane="gated_direct",
                     alive_enabled=True,
                     strict_contract=False,
@@ -3129,6 +3483,10 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                     },
+                    origin=completion["origin"],
+                    provider_invoked=completion["provider_invoked"],
+                    degraded=completion["degraded"],
+                    completion_receipt=completion["completion_receipt"],
                 )
 
             orchestration = await run_in_threadpool(
@@ -3142,9 +3500,23 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             text = orchestration.get('response', '')
             model_label = _openclaw_model_label()
             fallback_reason = "alive_orchestration"
+            orchestration_receipt = orchestration.get("completion_receipt") or getattr(text, "completion_receipt", None)
+            backend_answer = _BackendAnswer(
+                text,
+                model_label,
+                fallback_reason,
+                completion_receipt=orchestration_receipt if isinstance(orchestration_receipt, dict) else None,
+                origin=str(orchestration.get("origin") or getattr(text, "origin", None) or "alive_orchestration"),
+                provider_invoked=bool(
+                    orchestration.get("provider_invoked")
+                    or orchestration.get("providerInvoked")
+                    or getattr(text, "provider_invoked", False)
+                ),
+            )
 
             if _looks_like_hud_only(text):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                backend_answer = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+                text, model_label, fallback_reason = backend_answer
 
             hide_sig = final_only or alive.should_hide_hud_signature(raw_prompt)
             if not hide_sig:
@@ -3165,13 +3537,14 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             })
 
             codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace, **oracle_scope_kwargs)
+            completion = _backend_completion(backend_answer, response=text)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
                 priority=priority,
                 response=text,
                 model=model_label,
-                done=True,
+                done=completion["done"],
                 lane="alive_orchestrated",
                 alive_enabled=True,
                 strict_contract=False,
@@ -3189,10 +3562,15 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                 },
+                origin=completion["origin"],
+                provider_invoked=completion["provider_invoked"],
+                degraded=completion["degraded"],
+                completion_receipt=completion["completion_receipt"],
             )
 
         if use_bridge:
-            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+            backend_answer = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+            text, model_label, fallback_reason = backend_answer
             if strict_contract:
                 text = _enforce_contract_output(contract_basis, text)
                 if not _verify_contract(contract_basis, text):
@@ -3217,13 +3595,14 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "fallback_reason": fallback_reason,
             })
             codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
+            completion = _backend_completion(backend_answer, response=text)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
                 priority=priority,
                 response=text,
                 model=model_label,
-                done=True,
+                done=completion["done"],
                 lane="best_effort",
                 alive_enabled=False,
                 strict_contract=bool(strict_contract),
@@ -3241,11 +3620,16 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
                 },
+                origin=completion["origin"],
+                provider_invoked=completion["provider_invoked"],
+                degraded=completion["degraded"],
+                completion_receipt=completion["completion_receipt"],
             )
 
         # Non-bridge/basic path: still use unified best-effort router so tinyllama
         # only appears as true last-resort fallback (never first-choice).
-        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+        backend_answer = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors, None, codec_backend_policy, openclaw_scope_key)
+        text, model_label, fallback_reason = backend_answer
         if strict_contract:
             text = _enforce_contract_output(contract_basis, text)
             if not _verify_contract(contract_basis, text):
@@ -3270,13 +3654,14 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "fallback_reason": fallback_reason,
         })
         codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace, **oracle_scope_kwargs)
+        completion = _backend_completion(backend_answer, response=text)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
             priority=priority,
             response=text,
             model=model_label,
-            done=True,
+            done=completion["done"],
             lane="fallback_best_effort",
             alive_enabled=False,
             strict_contract=bool(strict_contract),
@@ -3294,6 +3679,10 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "codec_routing_priors": codec_step_priors,
                             "codec_backend_policy": codec_backend_policy,
             },
+            origin=completion["origin"],
+            provider_invoked=completion["provider_invoked"],
+            degraded=completion["degraded"],
+            completion_receipt=completion["completion_receipt"],
         )
 
     except HTTPException as e:

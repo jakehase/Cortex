@@ -2,7 +2,7 @@
 Knowledge Graph Router - API endpoints for graph operations.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, Optional, List, Dict, Any
 from datetime import datetime, timezone
@@ -26,8 +26,15 @@ from cortex_server.routers.librarian import (
 )
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
+from cortex_server.modules.memory_scope import (
+    AuthenticatedMemoryPrincipal,
+    memory_principal_for_request,
+    principal_memory_where,
+    require_authenticated_memory_principal,
+    scoped_memory_metadata,
+)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 service = KnowledgeService()
 
 _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
@@ -180,6 +187,17 @@ def _graph_principal(request):
     )
 
 
+def _route_principal(
+    request: Any,
+    http_request: Optional[Request],
+) -> AuthenticatedMemoryPrincipal:
+    """Use dependency-authenticated headers on HTTP routes, with direct-call compatibility."""
+
+    if http_request is not None:
+        return memory_principal_for_request(http_request)
+    return _graph_principal(request)
+
+
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
     if node is None:
         return None
@@ -201,6 +219,141 @@ def _neighbor_to_dict(entry: Dict[str, Any]) -> Dict[str, Any]:
         "direction": entry.get("direction"),
         "edge": _edge_to_dict(entry.get("edge")),
         "node": _node_to_dict(entry.get("node")),
+    }
+
+
+def _graph_principal_key(principal: AuthenticatedMemoryPrincipal) -> str:
+    return principal.isolation_key("knowledge-graph")
+
+
+def _graph_metadata_matches(value: object, principal: AuthenticatedMemoryPrincipal) -> bool:
+    return isinstance(value, dict) and str(value.get("knowledge_principal_key") or "") == _graph_principal_key(principal)
+
+
+def _scoped_graph_metadata(
+    principal: AuthenticatedMemoryPrincipal,
+    metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        **scoped_memory_metadata(principal, metadata),
+        "knowledge_principal_key": _graph_principal_key(principal),
+    }
+
+
+def _scoped_graph_id(
+    principal: AuthenticatedMemoryPrincipal,
+    kind: str,
+    external_id: object,
+) -> str:
+    return principal.scoped_resource_id(f"knowledge-{kind}", external_id)
+
+
+def _principal_graph_nodes(
+    principal: AuthenticatedMemoryPrincipal,
+    *,
+    node_type: Optional[NodeType] = None,
+    name_pattern: Optional[str] = None,
+    limit: int = 100,
+) -> List[Any]:
+    requested = max(1, min(int(limit or 100), 1000))
+    return service.graph.query(
+        node_type=node_type,
+        name_pattern=name_pattern,
+        limit=requested,
+        tenant_id=principal.tenant_id,
+        storage_workspace_id=principal.storage_workspace_id,
+    )
+
+
+def _principal_graph_neighbors(
+    principal: AuthenticatedMemoryPrincipal,
+    node_id: str,
+    *,
+    edge_type: Optional[EdgeType] = None,
+    direction: str = "out",
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    return service.graph.get_neighbors(
+        node_id,
+        edge_type=edge_type,
+        direction=direction,
+        limit=limit,
+        tenant_id=principal.tenant_id,
+        storage_workspace_id=principal.storage_workspace_id,
+    )
+
+
+def _principal_semantic_memory_count(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Optional[int]:
+    """Count only rows carrying this principal's server-issued namespace."""
+
+    try:
+        data = collection.get(
+            where=principal_memory_where(principal),
+            include=["metadatas"],
+        )
+    except Exception:
+        return None
+    metadatas = data.get("metadatas") or []
+    return sum(
+        1
+        for metadata in metadatas
+        if isinstance(metadata, dict)
+        and str(metadata.get("memory_principal_key") or "") == principal.memory_principal_key
+    )
+
+
+def _principal_memory_health_payload(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    """Return bounded principal-local health without scanning shared stores."""
+
+    semantic_count = _principal_semantic_memory_count(principal)
+    semantic = {
+        "ok": semantic_count is not None,
+        "status": "available" if semantic_count is not None else "unavailable",
+        "count": semantic_count,
+        "principalScoped": True,
+    }
+    try:
+        from cortex_server.modules.cortex_codec import get_codec_debug_view
+
+        debug = get_codec_debug_view(
+            principal.codec_session_key,
+            query="memory health",
+            max_chars=420,
+            history_limit=3,
+        )
+        codec = {
+            "ok": bool(debug.get("enabled")) and bool(debug.get("durable_enabled")),
+            "availableForSession": bool(debug.get("available")),
+            "durableEnabled": bool(debug.get("durable_enabled")),
+            "snapshotCount": int((debug.get("persisted_snapshots") or {}).get("count", 0) or 0),
+            "sourceEventCount": int(debug.get("source_event_count", 0) or 0),
+            "principalScoped": True,
+        }
+    except Exception:
+        codec = {
+            "ok": False,
+            "availableForSession": False,
+            "principalScoped": True,
+            "status": "unavailable",
+        }
+
+    ok = bool(semantic["ok"] and codec["ok"])
+    return {
+        "success": ok,
+        "ok": ok,
+        "status": "principal_scoped" if ok else "principal_scoped_degraded",
+        "generatedAt": _utc_now().isoformat(),
+        "components": {"semanticMemory": semantic, "codec": codec},
+        "aggregateDetails": "withheld",
+        "truthBoundary": (
+            "This authenticated compatibility view reports only the caller's semantic-memory "
+            "namespace and server-derived Codec session. System-wide health requires a separate "
+            "operator-authorized control-plane surface."
+        ),
     }
 
 
@@ -560,14 +713,19 @@ def _memory_health_payload() -> Dict[str, Any]:
 
 
 @router.get("/status")
-async def knowledge_status():
+async def knowledge_status(http_request: Request = None):
     """L22 Mnemosyne status endpoint (canonical)."""
     try:
-        memory_count = None
-        try:
-            memory_count = int(collection.count())
-        except Exception:
-            memory_count = None
+        principal = (
+            memory_principal_for_request(http_request)
+            if http_request is not None
+            else _authenticated_memory_principal_scope(
+                DEFAULT_TENANT_ID,
+                DEFAULT_WORKSPACE_ID,
+                None,
+            )
+        )
+        memory_count = _principal_semantic_memory_count(principal)
 
         available = memory_count is not None
         return {
@@ -581,6 +739,8 @@ async def knowledge_status():
                 "memory_persistence",
             ],
             "memory_count": memory_count,
+            "principal_scoped": True,
+            "aggregate_details": "withheld",
             "canonical_endpoint": "/knowledge/status",
         }
     except Exception as e:
@@ -594,18 +754,25 @@ async def knowledge_status():
 
 
 @router.get("/memory-health")
-async def memory_health():
-    """Comprehensive memory health gate.
-
-    This deliberately separates semantic memory, Codec, durable file memory,
-    and structural codebase memory so a green generic "memory" status cannot
-    hide an empty or stale code graph again.
-    """
-    return _memory_health_payload()
+async def memory_health(http_request: Request = None):
+    """Principal-local compatibility health; aggregate diagnostics are withheld."""
+    principal = (
+        memory_principal_for_request(http_request)
+        if http_request is not None
+        else _authenticated_memory_principal_scope(
+            DEFAULT_TENANT_ID,
+            DEFAULT_WORKSPACE_ID,
+            None,
+        )
+    )
+    return _principal_memory_health_payload(principal)
 
 
 @router.post("/search")
-async def search_knowledge(request: KnowledgeSearchRequest):
+async def search_knowledge(
+    request: KnowledgeSearchRequest,
+    http_request: Request = None,
+):
     """Compatibility semantic search endpoint used by OpenClaw config.
 
     Uses Librarian's resilient recall path so memory_search remains available even
@@ -615,13 +782,7 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        principal = _authenticated_memory_principal_scope(
-            request.tenant_id,
-            request.workspace_id,
-            request.scope_signature,
-            scope=request.scope,
-            scope_credential_id=request.scope_credential_id,
-        )
+        principal = _route_principal(request, http_request)
         tenant, workspace = principal.tenant_id, principal.storage_workspace_id
 
         result = robust_search(
@@ -630,6 +791,7 @@ async def search_knowledge(request: KnowledgeSearchRequest):
             allow_fallback=True,
             tenant_id=tenant,
             workspace_id=workspace,
+            memory_principal_key=principal.memory_principal_key,
         )
         return {
             "query": request.query,
@@ -659,20 +821,17 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         "x-cortex-principal-scope-required": True,
     },
 )
-async def prior_art_gate(request: PriorArtGateRequest):
+async def prior_art_gate(
+    request: PriorArtGateRequest,
+    http_request: Request = None,
+):
     """Pre-implementation recall gate for existing capabilities.
 
     Use this before building a new product/control-plane primitive. It searches
     durable memory plus the structural code graph and requires a reuse/extend/
     adapter decision when high-confidence prior art exists.
     """
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
+    principal = _route_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
 
     try:
@@ -694,6 +853,7 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     allow_fallback=True,
                     tenant_id=tenant,
                     workspace_id=workspace,
+                    memory_principal_key=principal.memory_principal_key,
                 )
                 if result.get("available") is not True:
                     memory_query_failed = True
@@ -751,10 +911,13 @@ async def prior_art_gate(request: PriorArtGateRequest):
 
 
 @router.post("/query")
-async def query_graph(request: BoundedGraphQueryRequest):
+async def query_graph(
+    request: BoundedGraphQueryRequest,
+    http_request: Request = None,
+):
     """Query the knowledge graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.query(
             request,
             tenant_id=principal.tenant_id,
@@ -768,16 +931,41 @@ async def query_graph(request: BoundedGraphQueryRequest):
 
 
 @router.get("/graph/stats")
-async def graph_stats():
+async def graph_stats(http_request: Request):
     """Return structural graph cardinality and type breakdowns."""
     try:
-        return {"success": True, "data": service.graph.stats(), "error": None}
+        principal = memory_principal_for_request(http_request)
+        nodes = _principal_graph_nodes(principal, limit=1000)
+        edges = [
+            edge for edge in service.graph.storage.query_edges(limit=1000)
+            if str(getattr(edge, "tenant_id", "") or "") == principal.tenant_id
+            and str(getattr(edge, "storage_workspace_id", "") or "")
+            == principal.storage_workspace_id
+        ]
+        node_types: Dict[str, int] = {}
+        edge_types: Dict[str, int] = {}
+        for node in nodes:
+            key = str(getattr(node.type, "value", node.type))
+            node_types[key] = node_types.get(key, 0) + 1
+        for edge in edges:
+            key = str(getattr(edge.type, "value", edge.type))
+            edge_types[key] = edge_types.get(key, 0) + 1
+        return {"success": True, "data": {
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+            "nodeTypes": node_types,
+            "edgeTypes": edge_types,
+            "namespace": "authenticated_principal",
+        }, "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.post("/structural/search")
-async def structural_search(request: StructuralSearchRequest):
+async def structural_search(
+    request: StructuralSearchRequest,
+    http_request: Request = None,
+):
     """Search the Cortex structural code graph.
 
     This is deliberately separate from semantic memory search. Use it for
@@ -785,7 +973,7 @@ async def structural_search(request: StructuralSearchRequest):
     functions, routes, and nearby dependency edges.
     """
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         node_type = None
         if request.node_type:
             try:
@@ -822,14 +1010,21 @@ async def structural_search(request: StructuralSearchRequest):
 
 
 @router.post("/structural/impact")
-async def structural_impact(request: ImpactRequest):
+async def structural_impact(
+    request: ImpactRequest,
+    http_request: Request = None,
+):
     """Return dependency/call/import neighborhood for a node or symbol query."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         nodes = []
         if request.node_id:
             node = service.graph.get_node(
-                request.node_id,
+                service._scoped_id(
+                    request.node_id,
+                    principal.tenant_id,
+                    principal.storage_workspace_id,
+                ),
                 tenant_id=principal.tenant_id,
                 storage_workspace_id=principal.storage_workspace_id,
             )
@@ -877,10 +1072,13 @@ async def structural_impact(request: ImpactRequest):
 
 
 @router.post("/nodes")
-async def create_node(request: BoundedGraphNodeCreateRequest):
+async def create_node(
+    request: BoundedGraphNodeCreateRequest,
+    http_request: Request = None,
+):
     """Create a new node in the graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.create_node(
             request,
             tenant_id=principal.tenant_id,
@@ -894,12 +1092,22 @@ async def create_node(request: BoundedGraphNodeCreateRequest):
 
 
 @router.get("/nodes/{node_id}")
-async def get_node(node_id: str):
+async def get_node(node_id: str, http_request: Request):
     """Get a node by ID."""
     try:
-        result = await service.get_node(node_id)
-        if result:
-            return {"success": True, "data": result, "error": None}
+        principal = memory_principal_for_request(http_request)
+        scoped_node_id = service._scoped_id(
+            node_id,
+            principal.tenant_id,
+            principal.storage_workspace_id,
+        )
+        node = service.graph.get_node(
+            scoped_node_id,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
+        if node is not None:
+            return {"success": True, "data": _node_to_dict(node), "error": None}
         raise HTTPException(status_code=404, detail="Node not found")
     except HTTPException:
         raise
@@ -908,10 +1116,13 @@ async def get_node(node_id: str):
 
 
 @router.post("/edges")
-async def create_edge(request: BoundedGraphEdgeCreateRequest):
+async def create_edge(
+    request: BoundedGraphEdgeCreateRequest,
+    http_request: Request = None,
+):
     """Create a new edge in the graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.create_edge(
             request,
             tenant_id=principal.tenant_id,
@@ -927,14 +1138,46 @@ async def create_edge(request: BoundedGraphEdgeCreateRequest):
 @router.get("/nodes/{node_id}/neighbors")
 async def get_neighbors(
     node_id: str,
+    http_request: Request,
     edge_type: str = None,
     direction: str = "out",
     limit: int = Query(100, ge=1, le=100),
 ):
     """Get neighbors of a node."""
     try:
-        result = await service.get_neighbors(node_id, edge_type, direction, limit)
-        return {"success": True, "data": result}
+        principal = memory_principal_for_request(http_request)
+        scoped_node_id = service._scoped_id(
+            node_id,
+            principal.tenant_id,
+            principal.storage_workspace_id,
+        )
+        node = service.graph.get_node(
+            scoped_node_id,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        resolved_edge_type = None
+        if edge_type:
+            try:
+                resolved_edge_type = EdgeType(edge_type)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="invalid edge_type") from exc
+        rows = _principal_graph_neighbors(
+            principal,
+            scoped_node_id,
+            edge_type=resolved_edge_type,
+            direction=direction,
+            limit=limit,
+        )
+        return {"success": True, "data": {
+            "node_id": scoped_node_id,
+            "neighbors": [_neighbor_to_dict(row) for row in rows],
+            "count": len(rows),
+        }}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:

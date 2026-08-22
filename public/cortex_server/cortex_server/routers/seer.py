@@ -20,6 +20,8 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, ValidationError
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ _predictions_count: int = 0
 # Config
 # ---------------------------------------------------------------------------
 
-ORACLE_URL = os.getenv("SEER_ORACLE_URL", "http://localhost:8888/oracle/chat")
+ORACLE_URL = os.getenv("SEER_ORACLE_URL", internal_url("/oracle/chat"))
 
 # Must be comfortably below the API gateway timeout (~25s).
 SEER_DEADLINE_S = float(os.getenv("SEER_DEADLINE_S", "18"))

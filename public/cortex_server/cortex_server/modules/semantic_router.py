@@ -17,7 +17,9 @@ import time
 from typing import List, Dict, Any, Optional
 from collections import deque
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+from cortex_server.internal_addressing import internal_url
+
+ORACLE_URL = internal_url("/oracle/chat")
 
 # Cache recent routings to avoid hitting Oracle for repeated/similar queries
 _routing_cache: Dict[str, Dict] = {}

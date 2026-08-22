@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+from cortex_server.internal_addressing import internal_url
 from cortex_server.routers import oracle as oracle_router
 
 router = APIRouter()
@@ -24,7 +25,7 @@ router = APIRouter()
 
 _mediations_count: int = 0
 
-ORACLE_URL = os.getenv("MEDIATOR_ORACLE_URL", "http://127.0.0.1:8888/oracle/chat").strip()
+ORACLE_URL = os.getenv("MEDIATOR_ORACLE_URL", internal_url("/oracle/chat")).strip()
 MEDIATOR_DEADLINE_S = float(os.getenv("MEDIATOR_DEADLINE_S", "16.0"))
 MEDIATOR_HTTP_TIMEOUT_S = float(
     os.getenv("MEDIATOR_HTTP_TIMEOUT_S", str(max(6.0, min(MEDIATOR_DEADLINE_S - 1.0, 14.0))))

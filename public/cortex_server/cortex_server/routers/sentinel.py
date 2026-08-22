@@ -12,6 +12,8 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
+
 
 @asynccontextmanager
 async def _sentinel_lifespan(_app):
@@ -41,7 +43,7 @@ _scan_history: List[Dict[str, Any]] = []
 
 MAX_HISTORY = 120
 DEFAULT_ENDPOINT_TIMEOUT_S = 2.5
-BASE_URL = "http://127.0.0.1:8888"
+BASE_URL = CORTEX_INTERNAL_BASE_URL
 STATE_FILE = Path("/app/cortex_server/knowledge/evolution/sentinel_watchers.json")
 _self_heal_events: List[Dict[str, Any]] = []
 
@@ -301,4 +303,3 @@ async def self_heal_status(limit: int = 20):
         "recent_events": _self_heal_events[-limit:],
         "auto_normalization": True,
     }
-

@@ -8,16 +8,20 @@ import httpx
 import uuid
 import json
 
+from cortex_server.internal_addressing import internal_url
 from cortex_server.worker import app as celery_app
 from cortex_server.modules.hive_novelty import build_l3_novel_plan
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import (
+    MemoryScopeAuthError,
+    configured_internal_memory_headers,
+)
 
 router = APIRouter()
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
-QUEUE_URL = "http://localhost:8888/queue/schedule"
-LIBRARIAN_EMBED = "http://localhost:8888/librarian/embed"
-LIBRARIAN_SEARCH = "http://localhost:8888/librarian/search"
+ORACLE_URL = internal_url("/oracle/chat")
+QUEUE_URL = internal_url("/queue/schedule")
+LIBRARIAN_EMBED = internal_url("/librarian/embed")
+LIBRARIAN_SEARCH = internal_url("/librarian/search")
 
 
 class SwarmRequest(BaseModel):
@@ -130,17 +134,33 @@ async def swarm_novel_plan(request: NovelSwarmRequest):
 async def get_swarm_plan(plan_id: str):
     """Retrieve a swarm plan from Librarian memory."""
     try:
+        memory_headers = configured_internal_memory_headers()
+    except MemoryScopeAuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if memory_headers is None:
+        raise HTTPException(
+            status_code=503,
+            detail="configured internal memory principal is unavailable",
+        )
+    try:
         async with httpx.AsyncClient(timeout=10) as client:
-            search_payload = {
-                "query": f"HIVE MASTER PLAN [{plan_id}]",
-                "n_results": 1,
-                **authenticated_memory_scope_fields(),
-            }
-            resp = await client.post(LIBRARIAN_SEARCH, json=search_payload)
+            search_payload = {"query": f"HIVE MASTER PLAN [{plan_id}]", "n_results": 1}
+            resp = await client.post(
+                LIBRARIAN_SEARCH,
+                json=search_payload,
+                headers=memory_headers,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Librarian search unavailable ({resp.status_code})",
+                )
             results = resp.json().get("results", [])
             if results:
                 return {"found": True, "plan_id": plan_id, "memory": results[0]}
             return {"found": False, "plan_id": plan_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
@@ -151,12 +171,12 @@ async def hive_status():
     services = {}
     async with httpx.AsyncClient(timeout=3) as client:
         try:
-            resp = await client.get("http://localhost:8888/oracle/status")
+            resp = await client.get(internal_url("/oracle/status"))
             services["oracle"] = "online" if resp.status_code == 200 else "offline"
         except Exception:
             services["oracle"] = "offline"
         try:
-            resp = await client.get("http://localhost:8888/librarian/stats")
+            resp = await client.get(internal_url("/librarian/stats"))
             services["librarian"] = "online" if resp.status_code == 200 else "offline"
         except Exception:
             services["librarian"] = "offline"

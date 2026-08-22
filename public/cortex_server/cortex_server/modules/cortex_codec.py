@@ -1869,7 +1869,10 @@ def _fetch_codec_rows_from_l22(
     max_len = max(len(documents), len(metadatas), len(ids))
     for idx in range(max_len):
         meta = metadatas[idx] if idx < len(metadatas) and isinstance(metadatas[idx], dict) else {}
-        if str(meta.get("type") or "") != "codec_state":
+        if (
+            str(meta.get("type") or "") != "codec_state"
+            or str(meta.get("codec_session_key") or "") != session_key
+        ):
             continue
         out.append({
             "id": ids[idx] if idx < len(ids) else None,
@@ -2113,7 +2116,10 @@ def _enrich_codec_state_with_rollups(
     if not session_key or not isinstance(state, dict) or not state or not CODEC_DURABLE_ENABLED:
         return state
 
-    rows = _fetch_global_codec_rows_from_l22(
+    # Codec state is principal-session state. Rollups must never incorporate
+    # another session's durable rows, even when both sessions share a tenant.
+    rows = _fetch_codec_rows_from_l22(
+        session_key,
         limit=limit,
         **_codec_scope_kwargs(tenant_id, workspace_id),
     )

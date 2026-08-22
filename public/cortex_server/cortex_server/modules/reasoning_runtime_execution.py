@@ -354,7 +354,6 @@ async def execute_single_step(
     validate_endpoint_fn(step.get("endpoint", ""))
 
     belief_context = step_belief_context_fn(step, workflow_metadata)
-    safety = evaluate_step_permission(step, workflow_metadata=workflow_metadata or {})
     compact_belief_context = {
         "task_id": belief_context.get("task_id"),
         "selected_ids": belief_context.get("selected_ids"),
@@ -373,7 +372,13 @@ async def execute_single_step(
         "embodiment": embodiment_summary,
     }
 
-    if not bool(safety.get("allow")):
+    # Approval digests bind the payload that will actually reach the sink, not
+    # an authored template that can resolve to a different recipient/target.
+    try:
+        resolved_payload = render_plan_templates(payload, results_by_node)
+        if resolved_payload not in (None, {}) and not payload_size_ok_fn(resolved_payload):
+            raise ValueError("payload too large")
+    except Exception as exc:  # noqa: BLE001
         return {
             "step": step_index,
             "node_id": step_id,
@@ -383,14 +388,39 @@ async def execute_single_step(
             "request": request_view,
             "status_code": None,
             "response": None,
-            "error": f"safety_block:{safety.get('reason')}",
+            "error": str(exc)[:300],
             "policy": policy_settings,
             "belief_context": compact_belief_context,
-            "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
             **phase_runtime_summaries,
         }
+    resolved_step = dict(step)
+    resolved_step["payload"] = resolved_payload
+    safety = evaluate_step_permission(resolved_step, workflow_metadata=workflow_metadata or {})
+    request_view = {"payload": resolved_payload, "headers": redact_headers_fn(headers), "timeout_s": step_timeout}
+
+    def safety_block_result(decision: JsonDict) -> JsonDict:
+        return {
+            "step": step_index,
+            "node_id": step_id,
+            "title": step.get("title") or step_id,
+            "endpoint": step["endpoint"],
+            "method": method,
+            "request": request_view,
+            "status_code": None,
+            "response": None,
+            "error": f"safety_block:{decision.get('reason')}",
+            "policy": policy_settings,
+            "belief_context": compact_belief_context,
+            "safety": decision,
+            "elapsed_ms": 0.0,
+            "success": False,
+            **phase_runtime_summaries,
+        }
+
+    if not bool(safety.get("allow")):
+        return safety_block_result(safety)
 
     blocked_by = dependency_failures(step, results_by_node)
     if blocked_by:
@@ -438,7 +468,7 @@ async def execute_single_step(
     pre_verification = evaluate_contracts(
         contracts,
         stage="pre",
-        step=step,
+        step=resolved_step,
         workflow_metadata=workflow_metadata or {},
         results_by_node=results_by_node,
     )
@@ -463,11 +493,20 @@ async def execute_single_step(
             **phase_runtime_summaries,
         }
 
+    # One-use approvals are consumed atomically only after dependencies and
+    # preconditions pass, immediately before the sensitive HTTP sink.
+    if bool(safety.get("approval_required")):
+        consumed_safety = evaluate_step_permission(
+            resolved_step,
+            workflow_metadata=workflow_metadata or {},
+            consume_approval=True,
+        )
+        if not bool(consumed_safety.get("allow")):
+            return safety_block_result(consumed_safety)
+        safety = consumed_safety
+
     t0 = time.monotonic()
     try:
-        resolved_payload = render_plan_templates(payload, results_by_node)
-        if resolved_payload not in (None, {}) and not payload_size_ok_fn(resolved_payload):
-            raise ValueError("payload too large")
         if method == "GET":
             resp = await client.get(url, params=resolved_payload, headers=headers, timeout=step_timeout)
         else:
@@ -498,7 +537,7 @@ async def execute_single_step(
         post_verification = evaluate_contracts(
             contracts,
             stage="post",
-            step=step,
+            step=resolved_step,
             workflow_metadata=workflow_metadata or {},
             results_by_node=results_by_node,
             response=result,

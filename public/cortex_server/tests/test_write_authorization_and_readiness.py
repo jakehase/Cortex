@@ -31,7 +31,11 @@ def test_openapi_declares_security_for_mutating_operations(monkeypatch):
 
 
 def test_readiness_and_capability_inventory_are_explicit(monkeypatch):
+    async def reachable_probe(**_kwargs):
+        return {"ok": True, "status": "reachable", "target": "http://127.0.0.1:8000/_internal/reachability"}
+
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback")
+    monkeypatch.setattr("cortex_server.main.probe_internal_reachability", reachable_probe)
     app = create_app()
     client = TestClient(app)
     readiness = client.get("/ready")

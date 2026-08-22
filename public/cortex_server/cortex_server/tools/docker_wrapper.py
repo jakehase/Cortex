@@ -8,7 +8,7 @@ import os
 import re
 import stat
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import AsyncIterator, Dict, List, Optional, Sequence, Tuple, Any
 from pydantic import BaseModel, Field
 from .subprocess_lifecycle import (
@@ -33,6 +33,7 @@ class Container(BaseModel):
     ports: List[str] = Field(default_factory=list)
     volumes: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
+    labels: Dict[str, str] = Field(default_factory=dict)
 
 
 class Image(BaseModel):
@@ -175,6 +176,27 @@ def _mount(host: str, container: str) -> str:
     if resolved == Path("/") or any(_paths_overlap(resolved, p) for p in sensitive) or not any(resolved == root or root in resolved.parents for root in roots):
         raise DockerError("Docker bind mount is outside configured roots")
     return f"{resolved}:{container}:{access}"
+
+
+_SAFE_DOCKER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_SAFE_IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,254}$")
+_SAFE_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_CORTEX_MANAGED_LABEL = "com.cortex.execution.managed"
+
+
+def _require_docker_identifier(value: str, *, kind: str) -> str:
+    text = str(value or "").strip()
+    pattern = _SAFE_IMAGE if kind == "image" else _SAFE_DOCKER_NAME
+    if not pattern.fullmatch(text):
+        raise DockerError(f"invalid Docker {kind}")
+    return text
+
+
+def _safe_container_path(value: str) -> str:
+    path = PurePosixPath(str(value or ""))
+    if not path.is_absolute() or ".." in path.parts:
+        raise DockerError("container volume path must be absolute and normalized")
+    return str(path)
 
 
 async def _run_cmd(
@@ -356,26 +378,39 @@ class ContainerManager:
     """Manage Docker containers."""
     
     async def run(self, config: ContainerConfig) -> Container:
-        """Run a new container."""
-        args = ["docker", "run"]
+        """Run a container with a non-networked, read-only default sandbox."""
+        image = _require_docker_identifier(config.image, kind="image")
+        if config.ports:
+            raise DockerError("published ports are disabled by the constrained Docker capability")
+        args = [
+            "docker", "run",
+            "--pull=never",
+            "--network=none",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=128",
+            "--memory=512m",
+            "--cpus=1",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
+            "--label", f"{_CORTEX_MANAGED_LABEL}=true",
+        ]
         
         if config.detach:
             args.append("-d")
         
-        _identifier(config.image, "image")
         if config.name:
-            args.extend(["--name", _identifier(config.name, "name")])
-        
+            args.extend(["--name", _require_docker_identifier(config.name, kind="name")])
+
         for assignment in _environment(config.env):
+            if len(assignment.partition("=")[2]) > 8192:
+                raise DockerError("invalid container environment entry")
             args.extend(["-e", assignment])
-        
-        for cport, hport in config.ports.items():
-            args.extend(["-p", f"{hport}:{cport}"])
         
         for hpath, cpath in config.volumes.items():
             args.extend(["-v", _mount(hpath, cpath)])
         
-        args.extend(["--", config.image])
+        args.extend(["--", image])
         
         if config.command:
             args.extend(config.command)
@@ -403,8 +438,20 @@ class ContainerManager:
         await _run_cmd(["docker", "start", "--", _identifier(container_id, "container ID")])
     
     async def stop(self, container_id: str, timeout: int = 10) -> None:
-        """Stop a container."""
-        await _run_cmd(["docker", "stop", "-t", str(timeout), "--", _identifier(container_id, "container ID")])
+        """Stop only a container created by the constrained Cortex runner."""
+        requested_id = _identifier(container_id, "container ID")
+        if not isinstance(timeout, int) or isinstance(timeout, bool) or not 0 <= timeout <= 300:
+            raise DockerError("Invalid Docker stop timeout")
+        output = await _run_cmd(["docker", "inspect", "--", requested_id])
+        try:
+            data = json.loads(output)[0]
+            labels = (data.get("Config") or {}).get("Labels") or {}
+            resolved_id = _identifier(str(data.get("Id") or ""), "container ID")
+        except (IndexError, KeyError, TypeError, json.JSONDecodeError, DockerError) as exc:
+            raise DockerError("unable to prove Docker container ownership") from exc
+        if not isinstance(labels, dict) or str(labels.get(_CORTEX_MANAGED_LABEL) or "").lower() != "true":
+            raise DockerError("refusing to stop a container not owned by Cortex execution")
+        await _run_cmd(["docker", "stop", "-t", str(timeout), "--", resolved_id])
     
     async def restart(self, container_id: str) -> None:
         """Restart a container."""
@@ -461,12 +508,20 @@ class ContainerManager:
         config = data.get("Config", {})
         state = data.get("State", {})
         
+        env_rows = config.get("Env") if isinstance(config.get("Env"), list) else []
+        env = {}
+        for row in env_rows:
+            key, separator, value = str(row).partition("=")
+            if separator and _SAFE_ENV_KEY.fullmatch(key):
+                env[key] = value
+        labels = config.get("Labels") if isinstance(config.get("Labels"), dict) else {}
         return Container(
             id=data.get("Id", "")[:12],
             name=data.get("Name", "").lstrip("/"),
             image=config.get("Image", ""),
             status=state.get("Status", ""),
-            env={item.partition("=")[0]: item.partition("=")[2] for item in (config.get("Env") or []) if "=" in item},
+            env=env,
+            labels={str(key): str(value) for key, value in labels.items()},
         )
     
     async def logs(
@@ -507,9 +562,9 @@ class ImageManager:
     
     async def pull(self, image_name: str, tag: str = "latest") -> None:
         """Pull an image."""
-        _identifier(image_name, "image")
-        _identifier(tag, "tag")
-        await _run_cmd(["docker", "pull", "--", f"{image_name}:{tag}"])
+        image = _require_docker_identifier(image_name, kind="image")
+        safe_tag = _require_docker_identifier(tag, kind="tag")
+        await _run_cmd(["docker", "pull", "--", f"{image}:{safe_tag}"])
     
     async def build(
         self,
@@ -518,14 +573,22 @@ class ImageManager:
         dockerfile: str = "Dockerfile",
         build_args: Optional[Dict[str, str]] = None,
     ) -> str:
-        """Build an image."""
-        _identifier(tag, "tag")
+        """Build an image without allowing Dockerfile-controlled egress."""
+        safe_tag = _require_docker_identifier(tag, kind="tag")
         if dockerfile.startswith("-") or "\x00" in dockerfile:
             raise DockerError("Invalid Dockerfile")
-        args = ["docker", "build", "-t", tag, "-f", dockerfile]
+        args = [
+            "docker", "build",
+            "--network=none",
+            "--pull=false",
+            "-t", safe_tag,
+            "-f", dockerfile,
+        ]
         
         if build_args:
             for k, v in build_args.items():
+                if not _SAFE_ENV_KEY.fullmatch(str(k)) or "\x00" in str(v) or len(str(v)) > 8192:
+                    raise DockerError("Invalid Docker build argument")
                 args.extend(["--build-arg", f"{k}={v}"])
         
         args.extend(["--", path])

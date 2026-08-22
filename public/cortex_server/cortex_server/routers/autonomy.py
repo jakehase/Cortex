@@ -27,18 +27,22 @@ import time
 import urllib.error
 import urllib.request
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 from cortex_server.middleware.event_ledger_middleware import (
     EVENT_LEDGER_PATH,
     get_event_health,
     get_recent_events,
 )
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import (
+    MemoryScopeAuthError,
+    configured_internal_memory_headers,
+)
 
 router = APIRouter()
 
 AUTONOMY_STATE_PATH = os.getenv("CORTEX_AUTONOMY_STATE_PATH", "/app/config/autonomy_state.json")
 DECISION_LOG_PATH = os.getenv("CORTEX_DECISION_LOG_PATH", "/app/logs/cortex_decisions.jsonl")
-DEFAULT_LOCAL_BASE_URL = os.getenv("CORTEX_LOCAL_BASE_URL", "http://127.0.0.1:8888").rstrip("/")
+DEFAULT_LOCAL_BASE_URL = CORTEX_INTERNAL_BASE_URL
 
 _state_lock = threading.RLock()
 
@@ -242,12 +246,17 @@ def _get_local_json(path: str, timeout_s: float = 5.0) -> Dict[str, Any]:
         return json.loads(raw) if raw else {}
 
 
-def _post_local_json(path: str, payload: Dict[str, Any], timeout_s: float = 8.0) -> Dict[str, Any]:
+def _post_local_json(
+    path: str,
+    payload: Dict[str, Any],
+    timeout_s: float = 8.0,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     url = f"{DEFAULT_LOCAL_BASE_URL}{path}"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **dict(headers or {})},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout_s) as r:
@@ -257,6 +266,12 @@ def _post_local_json(path: str, payload: Dict[str, Any], timeout_s: float = 8.0)
 
 def _persist_l22(content: str, tags: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
+        memory_headers = configured_internal_memory_headers()
+        if memory_headers is None:
+            return {
+                "status": "unavailable",
+                "reason": "configured_internal_memory_principal_unavailable",
+            }
         return _post_local_json(
             "/l22/store",
             {
@@ -264,10 +279,12 @@ def _persist_l22(content: str, tags: Optional[List[str]] = None, metadata: Optio
                 "content": content,
                 "tags": _dedupe_str_list(tags or []),
                 "metadata": metadata or {},
-                **authenticated_memory_scope_fields(),
             },
             timeout_s=6.0,
+            headers=memory_headers,
         )
+    except MemoryScopeAuthError as exc:
+        return {"status": "unavailable", "reason": str(exc)}
     except Exception as exc:
         return {"status": "failed", "error": str(exc)}
 

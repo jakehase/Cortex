@@ -26,10 +26,33 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.execution_capabilities import (
+    ExecutionCapabilityDenied,
+    ExecutionGrant,
+    authorize_execution_request,
+    execution_capability_status,
+    resolve_authorized_path,
+)
+
 router = APIRouter()
 
-COUNCIL_REVIEW_URL = "http://localhost:8888/council/review"
+COUNCIL_REVIEW_URL = internal_url("/council/review")
 COUNCIL_TIMEOUT = 12.0
+
+
+def _grant(http_request: Request, action: str) -> ExecutionGrant:
+    try:
+        return authorize_execution_request(http_request, action)
+    except ExecutionCapabilityDenied as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": exc.detail, "action": action},
+        ) from exc
+
+
+def _authorize_state_path(grant: ExecutionGrant, action: str) -> None:
+    resolve_authorized_path(grant, action, _STATE_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -590,11 +613,12 @@ async def forge_status():
     approved = sum(1 for p in _PROPOSALS.values() if p.status == "approved")
     committed = sum(1 for p in _PROPOSALS.values() if p.status == "committed")
 
+    capability_policy = execution_capability_status()
     return {
         "success": True,
         "level": 27,
         "name": "Forge",
-        "status": "active",
+        "status": "active" if capability_policy["enabled"] else "degraded",
         "templates_available": len(TEMPLATES),
         "proposals": {
             "pending": pending,
@@ -611,6 +635,7 @@ async def forge_status():
             "diff_preview",
             "allowlist_disk_write",
         ],
+        "executionCapabilityPolicy": capability_policy,
     }
 
 
@@ -632,7 +657,9 @@ async def generate_router(request: GenerateRequest):
 
 
 @router.post("/propose", response_model=ProposeResponse)
-async def propose_router(request: ProposeRequest):
+async def propose_router(request: ProposeRequest, http_request: Request):
+    grant = _grant(http_request, "forge.propose")
+    _authorize_state_path(grant, "forge.propose")
     gen = _validated_generate(request)
 
     # Council gate (machine-actionable review)
@@ -701,13 +728,9 @@ async def forge_inbox(request: Request, limit: int = 5, include_notified: bool =
         if len(items) >= limit:
             break
 
-    if mark_notified and items:
-        now = _now_iso()
-        for prop in items:
-            if not prop.notified_at:
-                prop.notified_at = now
-                _PROPOSALS[prop.id] = prop
-        _save_state()
+    # GET is read-only.  Legacy mark_notified is retained in the schema but no
+    # longer mutates approval state; callers must use an authorized POST flow.
+    mark_notified = False
 
     lines = []
     for prop in items:
@@ -737,7 +760,9 @@ async def forge_inbox(request: Request, limit: int = 5, include_notified: bool =
 
 
 @router.post("/decision")
-async def forge_decision(request: DecisionRequest):
+async def forge_decision(request: DecisionRequest, http_request: Request):
+    grant = _grant(http_request, "forge.decision")
+    _authorize_state_path(grant, "forge.decision")
     code = (request.code or "").strip().upper()
     if not code:
         raise HTTPException(status_code=400, detail="code required")
@@ -765,8 +790,13 @@ async def forge_decision(request: DecisionRequest):
     _save_state()
 
     if request.auto_commit:
-        cr = await commit_proposal(CommitRequest(id=prop.id, token=prop.approve_token, confirm=True, dry_run=False, overwrite=False))
-        return {"success": True, "message": f"Approved+Committed {code}", "commit": cr}
+        return {
+            "success": True,
+            "message": f"Approved {code}; auto-commit is disabled at the capability boundary",
+            "auto_commit": False,
+            "commit_required": True,
+            "proposal": prop.model_dump(exclude={"code", "approve_token"}),
+        }
 
     return {"success": True, "message": f"Approved {code} (not committed)", "proposal": prop.model_dump(exclude={"code", "approve_token"})}
 
@@ -792,11 +822,13 @@ async def get_proposal(proposal_id: str):
     p = _PROPOSALS.get(proposal_id)
     if not p:
         raise HTTPException(status_code=404, detail="proposal not found")
-    return {"success": True, "proposal": p.model_dump()}
+    return {"success": True, "proposal": p.model_dump(exclude={"approve_token", "approval_code"})}
 
 
 @router.post("/approve")
-async def approve_proposal(request: ApproveRequest):
+async def approve_proposal(request: ApproveRequest, http_request: Request):
+    grant = _grant(http_request, "forge.approve")
+    _authorize_state_path(grant, "forge.approve")
     p = _PROPOSALS.get(request.id)
     if not p:
         raise HTTPException(status_code=404, detail="proposal not found")
@@ -833,7 +865,9 @@ async def approve_proposal(request: ApproveRequest):
 
 
 @router.post("/reject")
-async def reject_proposal(request: ApproveRequest):
+async def reject_proposal(request: ApproveRequest, http_request: Request):
+    grant = _grant(http_request, "forge.reject")
+    _authorize_state_path(grant, "forge.reject")
     p = _PROPOSALS.get(request.id)
     if not p:
         raise HTTPException(status_code=404, detail="proposal not found")
@@ -853,7 +887,9 @@ async def reject_proposal(request: ApproveRequest):
 
 
 @router.post("/commit")
-async def commit_proposal(request: CommitRequest):
+async def commit_proposal(request: CommitRequest, http_request: Request):
+    grant = _grant(http_request, "forge.commit")
+    _authorize_state_path(grant, "forge.commit")
     p = _PROPOSALS.get(request.id)
     if not p:
         raise HTTPException(status_code=404, detail="proposal not found")
@@ -871,8 +907,15 @@ async def commit_proposal(request: CommitRequest):
     rel = _safe_rel_path(rel)
     dest = (base_dir / rel).resolve()
     base_res = base_dir.resolve()
-    if not str(dest).startswith(str(base_res)):
+    if dest != base_res and base_res not in dest.parents:
         raise HTTPException(status_code=400, detail="target_path escapes allowlist")
+    try:
+        dest = resolve_authorized_path(grant, "forge.commit", dest)
+    except ExecutionCapabilityDenied as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": exc.detail, "action": "forge.commit"},
+        ) from exc
 
     exists = dest.exists()
     if exists and not request.overwrite:

@@ -12,6 +12,8 @@ import asyncio
 import time
 import httpx
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
+
 router = APIRouter()
 
 # ── Canonical Level Registry ────────────────────────────────────────────────
@@ -58,7 +60,7 @@ LEVEL_MAP: Dict[int, Dict[str, Any]] = {
     38: {"name": "Augmenter",    "path": "/augmenter",      "category": "Singularity",    "always_on": False},
 }
 
-BASE_URL = "http://127.0.0.1:8888"
+BASE_URL = CORTEX_INTERNAL_BASE_URL
 
 CATEGORY_COLORS = {
     "Foundation":    "#00ff41",

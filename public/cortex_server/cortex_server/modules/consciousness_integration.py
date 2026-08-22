@@ -28,8 +28,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.level_registry import get_level_registry
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import configured_internal_memory_headers
 
 logger = logging.getLogger("consciousness_integration")
 
@@ -222,14 +223,14 @@ async def chain_to(
 
     Parameters:
         from_level: Name of the calling level (for bus broadcast).
-        endpoint:   Path under ``http://localhost:8888`` (e.g. ``"ethicist/evaluate"``).
+        endpoint:   Path under the internal Cortex origin (e.g. ``"ethicist/evaluate"``).
         payload:    JSON body for POST requests.
         method:     HTTP method (default POST).
         timeout:    Request timeout in seconds.
 
     Returns the parsed JSON dict, or ``None`` on any error.
     """
-    url = f"http://localhost:8888/{endpoint.lstrip('/')}"
+    url = internal_url(f"/{endpoint.lstrip('/')}")
 
     # Broadcast chain start
     try:
@@ -243,20 +244,17 @@ async def chain_to(
         pass
 
     try:
+        normalized_endpoint = endpoint.lstrip("/")
+        memory_endpoint = normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search"
+        memory_headers = configured_internal_memory_headers() if memory_endpoint else None
+        if memory_endpoint and memory_headers is None:
+            return None
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method.upper() == "GET":
-                resp = await client.get(url, params=payload)
+                resp = await client.get(url, params=payload, headers=memory_headers)
             else:
                 body = dict(payload or {})
-                normalized_endpoint = endpoint.lstrip("/")
-                if normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search":
-                    scope = authenticated_memory_scope_fields(
-                        body.get("tenant_id"),
-                        body.get("workspace_id"),
-                    )
-                    for key, value in scope.items():
-                        body.setdefault(key, value)
-                resp = await client.post(url, json=body)
+                resp = await client.post(url, json=body, headers=memory_headers)
             resp.raise_for_status()
             result = resp.json()
 

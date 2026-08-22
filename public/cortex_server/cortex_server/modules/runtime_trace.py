@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -130,7 +131,30 @@ def emit_output_events(context: Optional[JsonDict], *, stdout: Optional[str] = N
 
 
 def _run_git(repo_path: str, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", "-C", repo_path, *args], capture_output=True, text=True, check=False)
+    env = {
+        "PATH": os.getenv("PATH", "/usr/bin:/bin"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "HOME": "/nonexistent",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/bin/false",
+    }
+    return subprocess.run(
+        [
+            "git", "-C", repo_path,
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "core.fsmonitor=false",
+            "-c", "credential.helper=",
+            "-c", "diff.external=",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
 
 
 def git_status_snapshot(repo_path: Optional[str]) -> Optional[JsonDict]:
@@ -156,11 +180,11 @@ def git_diff_snapshot(repo_path: Optional[str], *, cached: bool = False) -> Opti
     if not target:
         return None
     try:
-        args: List[str] = ["diff", "--stat"]
+        args: List[str] = ["diff", "--no-ext-diff", "--no-textconv", "--stat"]
         if cached:
             args.insert(1, "--cached")
         diff = _run_git(target, *args)
-        patch_args: List[str] = ["diff", "--unified=0"]
+        patch_args: List[str] = ["diff", "--no-ext-diff", "--no-textconv", "--unified=0"]
         if cached:
             patch_args.insert(1, "--cached")
         patch = _run_git(target, *patch_args)

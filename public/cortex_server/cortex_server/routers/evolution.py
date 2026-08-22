@@ -2,7 +2,7 @@
 
 Level 13: Triggers skill evolution cycles via the Dreamer engine.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -11,12 +11,45 @@ import requests
 import re
 
 from cortex_server.modules.dreamer import Dreamer
-from cortex_server.modules.ghost import Ghost
 from cortex_server.modules.academy import get_academy
 from cortex_server.modules.diplomat import get_diplomat
 from cortex_server.modules.geneticist import get_geneticist
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.completion_truth import verified_completion_text
+from cortex_server.modules.execution_capabilities import (
+    ExecutionCapabilityDenied,
+    ExecutionGrant,
+    authorize_execution_request,
+    resolve_authorized_path,
+)
 
 router = APIRouter()
+
+_SAFE_SKILL_MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _grant(http_request: Request, action: str) -> ExecutionGrant:
+    try:
+        return authorize_execution_request(http_request, action)
+    except ExecutionCapabilityDenied as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": exc.detail, "action": action},
+        ) from exc
+
+
+def _safe_skill_module_name(value: object) -> str:
+    """Accept one Python module basename, never a path from registry/model data."""
+    name = str(value or "").strip()
+    if not _SAFE_SKILL_MODULE_RE.fullmatch(name):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_skill_module_name",
+                "message": "proposed_module must be a bounded Python module basename",
+            },
+        )
+    return name
 
 
 class DreamResponse(BaseModel):
@@ -36,7 +69,7 @@ class MaterializeResponse(BaseModel):
 
 
 @router.post("/dream", response_model=DreamResponse)
-async def trigger_dream() -> DreamResponse:
+async def trigger_dream(http_request: Request) -> DreamResponse:
     """Trigger the Dreamer evolution cycle.
     
     Executes:
@@ -47,8 +80,17 @@ async def trigger_dream() -> DreamResponse:
     
     Returns the proposal generated.
     """
+    grant = _grant(http_request, "evolution.dream")
     try:
         dreamer = Dreamer()
+        resolve_authorized_path(grant, "evolution.dream", Path(dreamer.registry_path).resolve(strict=False))
+        if dreamer.log_path.exists():
+            resolve_authorized_path(
+                grant,
+                "evolution.dream",
+                Path(dreamer.log_path).resolve(strict=False),
+                require_file=True,
+            )
         result = dreamer.dream()
         
         # Parse the result to extract proposal data
@@ -71,7 +113,7 @@ async def trigger_dream() -> DreamResponse:
 
 
 @router.post("/materialize", response_model=MaterializeResponse)
-async def materialize_skill(request: MaterializeRequest) -> MaterializeResponse:
+async def materialize_skill(request: MaterializeRequest, http_request: Request) -> MaterializeResponse:
     """Materialize a proposed skill into working code.
     
     The Flywheel:
@@ -81,9 +123,15 @@ async def materialize_skill(request: MaterializeRequest) -> MaterializeResponse:
     4. Write to modules/extensions/ (Level 9)
     5. Update registry status to 'Installed'
     """
+    grant = _grant(http_request, "evolution.materialize")
     try:
         dreamer = Dreamer()
-        registry_path = Path(dreamer.registry_path)
+        registry_path = resolve_authorized_path(
+            grant,
+            "evolution.materialize",
+            Path(dreamer.registry_path).resolve(strict=False),
+            require_file=True,
+        )
         
         # 1. Load skill from registry
         if not registry_path.exists():
@@ -113,58 +161,17 @@ async def materialize_skill(request: MaterializeRequest) -> MaterializeResponse:
         if not skill:
             raise HTTPException(status_code=404, detail="No pending skill found to materialize")
         
-        skill_name = skill.get("proposed_module", "generic_handler")
+        skill_name = _safe_skill_module_name(skill.get("proposed_module", "generic_handler"))
         gap_summary = skill.get("gap_summary", "")
         
-        # Step 1: Pre-computation - Consult The Academy (Level 16)
-        academy = get_academy()
-        skill_plan = f"{skill_name} {gap_summary}"
-        examples = academy.consult(skill_plan, top_n=2)
-        
-        # Format examples for Oracle prompt
+        # Optional Academy persistence and Ghost browser research are not part
+        # of the materialize capability.  Keep this host-write path bounded to
+        # the authorized registry/output and use a deterministic local context.
         examples_text = ""
-        if examples:
-            examples_text = "\n\nREFERENCE THESE PAST SUCCESSFUL MODULES FOR STYLE AND STRUCTURE:\n\n"
-            for i, ex in enumerate(examples, 1):
-                examples_text += f"--- Example {i}: {ex.get('module', 'unknown')} ---\n"
-                # Include first 800 chars of code as reference
-                code_sample = ex.get('code', '')[:800]
-                examples_text += f"{code_sample}\n...\n\n"
-        
-        # 2. Research (Level 2) - Use Ghost to find library examples
-        ghost = Ghost()
-        research_notes = []
-        
-        # Detect libraries from gap and proposed module
-        library_keywords = {
-            "finance": "yfinance python stock price example",
-            "stock": "yfinance python stock price example",
-            "price": "yfinance python stock price example",
-            "youtube": "youtube_dl python download video example",
-            "pdf": "pypdf2 python extract text example",
-            "database": "sqlalchemy python orm example",
-            "api": "requests python rest api client example",
-            "scrape": "beautifulsoup4 python web scraping example",
-            "download": "requests python file download example"
-        }
-        
-        search_query = None
-        for keyword, query in library_keywords.items():
-            if keyword in skill_name.lower() or keyword in gap_summary.lower():
-                search_query = query
-                break
-        
-        if search_query:
-            try:
-                search_results = ghost.search(search_query, max_results=3)
-                research_notes = [f"{r['title']}: {r['link']}" for r in search_results]
-            except Exception as e:
-                research_notes = [f"Research note: Could not search: {e}"]
-        else:
-            research_notes = ["Generic Python class implementation"]
+        research_notes = ["Use only Python's standard library unless the task explicitly requires otherwise."]
         
         # 3. Code Generation (Level 5) - Use Oracle
-        ORACLE_URL = "http://localhost:8888/oracle/chat"
+        ORACLE_URL = internal_url("/oracle/chat")
         
         prompt = f"""You are the Architect. Write a Python class named {skill_name.title()} that solves this gap:
 {gap_summary}
@@ -192,8 +199,14 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
         
         try:
             oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, timeout=120)
+            oracle_resp.raise_for_status()
             oracle_data = oracle_resp.json()
-            generated_code = oracle_data.get("response", "")
+            generated_code = verified_completion_text(oracle_data)
+            if not generated_code:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Oracle materialization requires a response-bound completion receipt",
+                )
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Oracle code generation failed: {str(e)}")
         
@@ -208,10 +221,20 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
         generated_code = generated_code.strip()
         
         # 4. Build (Level 9) - Write to modules/extensions/
-        extensions_dir = Path("/app/cortex_server/modules/extensions")
+        extensions_dir = resolve_authorized_path(
+            grant,
+            "evolution.materialize",
+            Path("/app/cortex_server/modules/extensions"),
+        )
         extensions_dir.mkdir(parents=True, exist_ok=True)
         
-        file_path = extensions_dir / f"{skill_name}.py"
+        file_path = resolve_authorized_path(
+            grant,
+            "evolution.materialize",
+            extensions_dir / f"{skill_name}.py",
+        )
+        if file_path.parent != extensions_dir:
+            raise HTTPException(status_code=400, detail="skill output must remain in the extensions directory")
         
         # Add header comment
         header = f"""# Auto-generated skill: {skill_name}
@@ -231,9 +254,6 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
         
         with open(registry_path, 'w') as f:
             json.dump(registry, f, indent=2)
-        
-        # Step 3: Post-success - Learn from this victory (Level 16)
-        academy.learn(str(file_path))
         
         # Return preview (first 500 chars of code)
         code_preview = generated_code[:500] + "..." if len(generated_code) > 500 else generated_code
@@ -345,6 +365,17 @@ async def test_mutation(request: MutateRequest) -> Dict:
     
     This is a TEST endpoint to demonstrate the safety layers.
     """
+    # The legacy module can write its persona, backup, and fitness log from a
+    # caller boolean.  Keep the route visible but unavailable until that module
+    # accepts an opaque execution grant at its write sink.
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "persona_mutation_unavailable",
+            "message": "persona mutation requires a capability-aware isolated write sink",
+            "degraded": True,
+        },
+    )
     try:
         geneticist = get_geneticist()
         

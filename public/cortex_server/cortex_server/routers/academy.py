@@ -11,8 +11,9 @@ from datetime import datetime
 import httpx
 import re
 
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.memory_scope import configured_internal_memory_headers
 from cortex_server.modules.route_health import ROUTE_HEALTH
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ _teach_latency_ms: List[float] = []
 _learn_cache: Dict[str, Dict[str, Any]] = {}
 CACHE_TTL_SECONDS = 1800
 MAX_CONTENT_CHARS = 4000
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 ORACLE_BREAKER_THRESHOLD = 3
 ORACLE_BREAKER_COOLDOWN_SECONDS = 60
 
@@ -110,14 +111,14 @@ async def _oracle_chat(prompt: str, timeout: float = 90.0) -> tuple[Optional[str
 async def _index_memory_best_effort(text: str, metadata: Dict[str, Any]) -> None:
     # Tie into L7/L22 path via Librarian embed (best effort, never blocks success)
     try:
+        memory_headers = configured_internal_memory_headers()
+        if memory_headers is None:
+            return
         async with httpx.AsyncClient(timeout=6.0) as client:
             await client.post(
-                "http://localhost:8888/librarian/embed",
-                json={
-                    "text": _clip(text, 1200),
-                    "metadata": metadata,
-                    **authenticated_memory_scope_fields(),
-                },
+                internal_url("/librarian/embed"),
+                json={"text": _clip(text, 1200), "metadata": metadata},
+                headers=memory_headers,
             )
     except Exception:
         pass
@@ -128,7 +129,7 @@ async def _validate_with_l34(payload: Dict[str, Any], schema: str) -> tuple[bool
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
             resp = await client.post(
-                "http://localhost:8888/validator/validate",
+                internal_url("/validator/validate"),
                 json={"data": payload, "schema": schema, "strict": True},
             )
             if resp.status_code != 200:

@@ -21,6 +21,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter(tags=["muse"])
 
 # ---------------------------------------------------------------------------
@@ -106,7 +108,7 @@ class BrainstormResponse(BaseModel):
 # Oracle helper
 # ---------------------------------------------------------------------------
 
-ORACLE_URL = "http://127.0.0.1:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 _ORACLE_TIMEOUT = httpx.Timeout(ORACLE_DEADLINE_S, connect=3.0)
 
 

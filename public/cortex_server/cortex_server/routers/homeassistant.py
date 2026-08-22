@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 from cortex_server.routers.bard import SpeakRequest as BardSpeakRequest
 from cortex_server.routers.bard import bard_status as bard_status_endpoint
 from cortex_server.routers.bard import text_to_speech as bard_text_to_speech
@@ -276,7 +277,7 @@ def _load_voice_cfg() -> Dict[str, Any]:
 
 
 def _public_base_url() -> str:
-    return os.getenv("CORTEX_PUBLIC_BASE_URL", "http://10.0.0.52:8888").rstrip("/")
+    return os.getenv("CORTEX_PUBLIC_BASE_URL", CORTEX_INTERNAL_BASE_URL).rstrip("/")
 
 
 def _voice_target_media_player(req_target: Optional[str], voice_cfg: Dict[str, Any]) -> Optional[str]:

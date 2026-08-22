@@ -16,6 +16,7 @@ import re
 import time
 import uuid
 
+from cortex_server.internal_addressing import internal_url
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
     conscious_action,
@@ -25,7 +26,7 @@ from cortex_server.modules.unified_messaging import get_bus
 
 router = APIRouter(tags=["Singularity"])
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 ORACLE_TIMEOUT_SYNC = 20.0
 ORACLE_TIMEOUT_ASYNC = 75.0
 SINGULARITY_GUARD_TIMEOUT_SYNC = 22.0

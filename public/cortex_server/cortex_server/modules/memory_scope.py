@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
-from typing import Dict, Mapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
+
+from fastapi import HTTPException, Request
 
 
 MEMORY_SCOPE_VERSION = "cortex.memory.principal.v2"
@@ -22,6 +25,35 @@ PRINCIPAL_FIELDS = (
 )
 _SCOPE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
 _DYNAMIC_SESSION_POLICY_FIELDS = frozenset({"type", "prefix", "max_length"})
+MEMORY_PRINCIPAL_HEADERS = {
+    "tenant_id": "x-cortex-tenant-id",
+    "workspace_id": "x-cortex-workspace-id",
+    "agent_id": "x-cortex-agent-id",
+    "user_id": "x-cortex-user-id",
+    "channel_id": "x-cortex-channel-id",
+    "session_id": "x-cortex-session-id",
+}
+_CLAIM_ALIASES = {
+    "tenant_id": "tenant_id",
+    "tenantId": "tenant_id",
+    "workspace_id": "workspace_id",
+    "workspaceId": "workspace_id",
+    "agent_id": "agent_id",
+    "agentId": "agent_id",
+    "user_id": "user_id",
+    "userId": "user_id",
+    "channel_id": "channel_id",
+    "channelId": "channel_id",
+    "session_id": "session_id",
+    "sessionId": "session_id",
+}
+_SERVER_NAMESPACE_CLAIMS = frozenset({
+    "storage_workspace_id",
+    "memory_principal_key",
+    "knowledge_principal_key",
+    "codec_session_key",
+    "scope_credential_id",
+})
 
 
 class MemoryScopeAuthError(ValueError):
@@ -119,6 +151,59 @@ def memory_scope_signature(
         canonical_memory_scope_message(credential_id, scope),
         hashlib.sha256,
     ).hexdigest()
+
+
+def configured_internal_memory_headers() -> Optional[Dict[str, str]]:
+    """Build signed internal-call headers from explicit credential and scope config.
+
+    Both ``CORTEX_INTERNAL_MEMORY_CREDENTIAL_ID`` and the full JSON object in
+    ``CORTEX_INTERNAL_MEMORY_SCOPE`` are required. Absence means the internal
+    memory capability is unavailable; this helper never selects an identity or
+    creates a secret implicitly.
+    """
+
+    credential_id = os.getenv("CORTEX_INTERNAL_MEMORY_CREDENTIAL_ID", "").strip()
+    raw_scope = os.getenv("CORTEX_INTERNAL_MEMORY_SCOPE", "").strip()
+    if not credential_id and not raw_scope:
+        return None
+    if not credential_id or not raw_scope:
+        raise MemoryScopeAuthError(
+            "internal memory calls require both credential id and exact principal scope"
+        )
+    try:
+        parsed_scope = json.loads(raw_scope)
+    except json.JSONDecodeError as exc:
+        raise MemoryScopeAuthError("CORTEX_INTERNAL_MEMORY_SCOPE must be valid JSON") from exc
+    if not isinstance(parsed_scope, dict):
+        raise MemoryScopeAuthError("CORTEX_INTERNAL_MEMORY_SCOPE must be a principal object")
+
+    scope = normalize_principal_scope(parsed_scope)
+    credentials = _configured_credentials()
+    credential = credentials.get(_normalize(credential_id, "scope_credential_id"))
+    if credential is None:
+        raise MemoryScopeAuthError("configured internal memory credential is unavailable")
+    if not any(
+        memory_scope_policy_matches(scope, allowed, credential_id)
+        for allowed in credential["allowed_scopes"]
+    ):
+        raise MemoryScopeAuthError(
+            "configured internal memory credential is not authorized for its exact scope"
+        )
+    signature = memory_scope_signature(
+        **scope,
+        credential_id=credential_id,
+        secret=str(credential["secret"]),
+    )
+    if not signature:
+        raise MemoryScopeAuthError("configured internal memory credential cannot sign requests")
+    return {
+        **{
+            MEMORY_PRINCIPAL_HEADERS[field]: scope[field]
+            for field in PRINCIPAL_FIELDS
+        },
+        "x-cortex-scope-credential-id": credential_id,
+        "x-cortex-scope-signature": signature,
+    }
 
 
 def _configured_credentials() -> Dict[str, Dict[str, object]]:
@@ -233,6 +318,16 @@ class AuthenticatedMemoryPrincipal:
         return f"principal:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
 
     @property
+    def memory_principal_key(self) -> str:
+        return self.isolation_key("semantic-memory")
+
+    @property
+    def codec_session_key(self) -> str:
+        """Opaque server-derived Codec key; never accept a caller-selected key."""
+
+        return self.isolation_key("codec-session")
+
+    @property
     def storage_workspace_id(self) -> str:
         if self.credential_id == "local-development" and self.scope == local_principal_scope():
             return self.workspace_id
@@ -245,7 +340,22 @@ class AuthenticatedMemoryPrincipal:
             **self.scope,
             "scope_credential_id": self.credential_id,
             "storage_workspace_id": self.storage_workspace_id,
+            "memory_principal_key": self.memory_principal_key,
         }
+
+    def scoped_resource_id(self, namespace: str, external_id: object) -> str:
+        """Map a caller-visible graph identifier into this principal's namespace."""
+
+        raw = str(external_id or "").strip()
+        if not raw or len(raw) > 512:
+            raise MemoryScopeAuthError("resource identifier must be bounded and non-empty")
+        prefix = f"p-{hashlib.sha256(self.isolation_key(namespace).encode('utf-8')).hexdigest()[:20]}-"
+        if raw.startswith(prefix):
+            if not re.fullmatch(r"p-[0-9a-f]{20}-[0-9a-f]{40}", raw):
+                raise MemoryScopeAuthError("malformed principal-scoped resource identifier")
+            return raw
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
+        return f"{prefix}{digest}"
 
 
 def authenticate_memory_principal(
@@ -256,9 +366,10 @@ def authenticate_memory_principal(
     credential_id: Optional[str],
     signature: Optional[str],
     production: bool,
+    allow_local_development: bool = False,
 ) -> AuthenticatedMemoryPrincipal:
     credentials = _configured_credentials()
-    if not credentials and production:
+    if not credentials and (production or not allow_local_development):
         raise MemoryScopeAuthError("principal-scoped memory credentials are not configured")
     if production and scope is None:
         raise MemoryScopeAuthError("full principal memory scope is required in production")
@@ -270,7 +381,7 @@ def authenticate_memory_principal(
     supplied_id = str(credential_id or "").strip()
 
     if not credentials:
-        if normalized["tenant_id"] != default_tenant_id() or normalized["workspace_id"] != default_workspace_id():
+        if normalized != local_principal_scope():
             raise MemoryScopeAuthError("non-default memory principals require a scoped credential")
         return AuthenticatedMemoryPrincipal(credential_id="local-development", **normalized)
 
@@ -291,6 +402,224 @@ def authenticate_memory_principal(
     if not hmac.compare_digest(str(signature or ""), expected):
         raise MemoryScopeAuthError("invalid authenticated memory principal signature")
     return AuthenticatedMemoryPrincipal(credential_id=supplied_id, **normalized)
+
+
+def production_memory_scope_mode() -> bool:
+    environment = os.getenv(
+        "CORTEX_ENV",
+        os.getenv("CORTEX_ENVIRONMENT", "development"),
+    ).strip().lower()
+    strict = os.getenv("CORTEX_MEMORY_SCOPE_STRICT", "").strip().lower()
+    return environment in {"production", "prod", "staging"} or strict in {
+        "1", "true", "yes", "on",
+    }
+
+
+def authenticate_memory_headers(
+    headers: Mapping[str, object],
+    *,
+    allow_local_development: bool = False,
+) -> AuthenticatedMemoryPrincipal:
+    """Authenticate the complete principal asserted by Cortex memory headers."""
+
+    has_identity = any(
+        str(headers.get(name, "") or "").strip()
+        for name in (
+            *MEMORY_PRINCIPAL_HEADERS.values(),
+            "x-cortex-scope-credential-id",
+            "x-cortex-scope-signature",
+        )
+    )
+    raw_scope: Optional[Dict[str, str]] = None
+    tenant_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    if has_identity:
+        missing = [
+            field
+            for field, name in MEMORY_PRINCIPAL_HEADERS.items()
+            if not str(headers.get(name, "") or "").strip()
+        ]
+        if missing:
+            raise MemoryScopeAuthError(
+                f"full authenticated principal scope is required: {', '.join(missing)}"
+            )
+        raw_scope = {
+            field: _normalize(headers.get(name), field)
+            for field, name in MEMORY_PRINCIPAL_HEADERS.items()
+        }
+        tenant_id = raw_scope["tenant_id"]
+        workspace_id = raw_scope["workspace_id"]
+
+    return authenticate_memory_principal(
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        scope=raw_scope,
+        credential_id=str(headers.get("x-cortex-scope-credential-id", "") or ""),
+        signature=str(headers.get("x-cortex-scope-signature", "") or ""),
+        production=production_memory_scope_mode(),
+        allow_local_development=allow_local_development,
+    )
+
+
+def _unsigned_local_memory_opt_in() -> bool:
+    return os.getenv("CORTEX_ALLOW_UNSIGNED_LOCAL_MEMORY_PRINCIPAL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _request_is_loopback(request: Request) -> bool:
+    client = request.client
+    host = str(client.host if client is not None else "").strip()
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def authenticate_memory_request(
+    request: Request,
+) -> AuthenticatedMemoryPrincipal:
+    """Authenticate headers, admitting unsigned local scope only on opted-in loopback."""
+
+    local_opt_in = _unsigned_local_memory_opt_in()
+    credentials_configured = bool(_configured_credentials())
+    loopback = _request_is_loopback(request)
+    if local_opt_in and not credentials_configured and not loopback:
+        raise MemoryScopeAuthError(
+            "unsigned local memory principal is restricted to a loopback client"
+        )
+    return authenticate_memory_headers(
+        request.headers,
+        allow_local_development=(
+            local_opt_in
+            and loopback
+            and not production_memory_scope_mode()
+        ),
+    )
+
+
+def _iter_identity_claims(value: object, *, path: str = "body") -> Iterable[tuple[str, object, str]]:
+    """Yield identity-bearing JSON fields, including nested metadata/scope objects."""
+
+    if isinstance(value, Mapping):
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            claim_field = _CLAIM_ALIASES.get(key)
+            if claim_field is not None:
+                yield claim_field, item, f"{path}.{key}"
+            elif key in _SERVER_NAMESPACE_CLAIMS or key == "session_key":
+                yield key, item, f"{path}.{key}"
+            if isinstance(item, (Mapping, list, tuple)):
+                yield from _iter_identity_claims(item, path=f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            if isinstance(item, (Mapping, list, tuple)):
+                yield from _iter_identity_claims(item, path=f"{path}[{index}]")
+
+
+def validate_memory_principal_claims(
+    principal: AuthenticatedMemoryPrincipal,
+    claims: Iterable[tuple[str, object, str]],
+) -> None:
+    """Reject every caller identity/namespace claim that disagrees with auth."""
+
+    expected = {
+        **principal.scope,
+        "storage_workspace_id": principal.storage_workspace_id,
+        "memory_principal_key": principal.memory_principal_key,
+        "knowledge_principal_key": principal.isolation_key("knowledge-graph"),
+        "codec_session_key": principal.codec_session_key,
+        "scope_credential_id": principal.credential_id,
+    }
+    for field, raw_value, path in claims:
+        supplied = str(raw_value or "").strip()
+        if not supplied:
+            continue
+        if field == "session_key":
+            allowed = {principal.session_id, principal.codec_session_key}
+            if supplied not in allowed:
+                raise MemoryScopeAuthError(f"{path} does not match the authenticated principal session")
+            continue
+        if supplied != str(expected[field]):
+            raise MemoryScopeAuthError(f"{path} does not match the authenticated memory principal")
+
+
+def scoped_memory_metadata(
+    principal: AuthenticatedMemoryPrincipal,
+    metadata: Optional[Mapping[str, object]] = None,
+) -> Dict[str, object]:
+    """Validate caller metadata, then overwrite identity with server authority."""
+
+    supplied = dict(metadata or {})
+    validate_memory_principal_claims(
+        principal,
+        _iter_identity_claims(supplied, path="metadata"),
+    )
+    return {**supplied, **principal.storage_metadata}
+
+
+def principal_memory_where(principal: AuthenticatedMemoryPrincipal) -> Dict[str, str]:
+    return {"memory_principal_key": principal.memory_principal_key}
+
+
+async def require_authenticated_memory_principal(request: Request) -> AuthenticatedMemoryPrincipal:
+    """Shared FastAPI dependency for every memory/Codec compatibility route."""
+
+    try:
+        principal = authenticate_memory_request(request)
+        claims = []
+        for key, value in request.query_params.multi_items():
+            claim_field = _CLAIM_ALIASES.get(key)
+            if claim_field is not None or key in _SERVER_NAMESPACE_CLAIMS or key == "session_key":
+                claims.append((claim_field or key, value, f"query.{key}"))
+        for header_name in ("x-session-id", "x-chat-id"):
+            if str(request.headers.get(header_name, "") or "").strip():
+                claims.append(("session_key", request.headers.get(header_name), f"header.{header_name}"))
+
+        body: Any = None
+        content_type = str(request.headers.get("content-type", "") or "").lower()
+        if request.method.upper() not in {"GET", "HEAD"} and "json" in content_type:
+            try:
+                body = await request.json()
+            except Exception:
+                body = None  # FastAPI's body parser retains authority for malformed JSON.
+        if body is not None:
+            claims.extend(_iter_identity_claims(body))
+
+        validate_memory_principal_claims(principal, claims)
+        body_idempotency = str(body.get("idempotency_key") or "").strip() if isinstance(body, Mapping) else ""
+        header_idempotency = str(
+            request.headers.get("x-idempotency-key")
+            or request.headers.get("idempotency-key")
+            or ""
+        ).strip()
+        if body_idempotency and header_idempotency and body_idempotency != header_idempotency:
+            raise MemoryScopeAuthError("body and header idempotency keys do not match")
+        request.state.authenticated_memory_principal = principal
+        request.state.memory_idempotency_key = body_idempotency or header_idempotency
+        return principal
+    except MemoryScopeAuthError as exc:
+        status_code = 503 if "not configured" in str(exc) else 403
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+def memory_principal_for_request(request: Request) -> AuthenticatedMemoryPrincipal:
+    principal = getattr(request.state, "authenticated_memory_principal", None)
+    if not isinstance(principal, AuthenticatedMemoryPrincipal):
+        raise HTTPException(status_code=500, detail="authenticated memory principal dependency was not applied")
+    return principal
+
+
+def request_memory_idempotency_key(request: Request, body_value: Optional[str] = None) -> Optional[str]:
+    resolved = str(
+        body_value
+        or getattr(request.state, "memory_idempotency_key", "")
+        or ""
+    ).strip()
+    return resolved or None
 
 
 def authenticated_memory_scope_fields(

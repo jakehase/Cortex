@@ -3,7 +3,7 @@ Level 19 — The Geneticist
 Real code evolution and mutation powered by L5 Oracle (cloud reasoning).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List, Literal
 import difflib
@@ -14,27 +14,41 @@ import json
 import re
 import time
 
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.completion_truth import verified_completion_text
+from cortex_server.modules.execution_capabilities import (
+    ExecutionCapabilityDenied,
+    ExecutionGrant,
+    authorize_execution_request,
+    execution_capability_status,
+    resolve_authorized_path,
+)
+
 router = APIRouter(tags=["Geneticist"])
 
-SENTINEL_WATCH_URL = 'http://127.0.0.1:8888/sentinel/watch'
-SENTINEL_SCAN_URL = 'http://127.0.0.1:8888/sentinel/scan'
+SENTINEL_WATCH_URL = internal_url('/sentinel/watch')
+SENTINEL_SCAN_URL = internal_url('/sentinel/scan')
 
 async def _sentinel_apply_gate() -> dict:
     """Preflight check before applying changes (no side effects)."""
     targets = [
-        'http://127.0.0.1:8888/health',
-        'http://127.0.0.1:8888/oracle/status',
-        'http://127.0.0.1:8888/augmenter/status',
+        internal_url('/health'),
+        internal_url('/oracle/status'),
+        internal_url('/augmenter/status'),
     ]
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
             for t in targets:
-                await client.post(SENTINEL_WATCH_URL, json={
+                watch_response = await client.post(SENTINEL_WATCH_URL, json={
                     'name': 'apply-gate',
                     'watch_type': 'endpoint',
                     'target': t,
                     'timeout_seconds': 1.5,
                 })
+                watch_response.raise_for_status()
+                watch_payload = watch_response.json()
+                if not isinstance(watch_payload, dict) or watch_payload.get('success') is not True or not watch_payload.get('watch_id'):
+                    raise RuntimeError('malformed_sentinel_watch_response')
             r = await client.post(SENTINEL_SCAN_URL, json={})
             r.raise_for_status()
             return r.json()
@@ -43,11 +57,11 @@ async def _sentinel_apply_gate() -> dict:
 
 # Use Augmenter as the primary call surface for reliability (validate/repair + fail-fast).
 # Bypass is handled inside Augmenter when it calls Oracle.
-AUGMENTER_URL = "http://localhost:8888/augmenter/chat"
+AUGMENTER_URL = internal_url("/augmenter/chat")
 AUGMENTER_TIMEOUT = 25.0
 
 # Legacy (kept for reference; not used by default)
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 ORACLE_TIMEOUT = 25.0
 
 # ── Guardrails / limits ─────────────────────────────────────────────
@@ -76,16 +90,30 @@ _ORACLE_COOLDOWN_SECONDS = 45
 _PROPOSALS: Dict[str, Dict[str, Any]] = {}
 _MAX_PROPOSALS = 100
 
-# Where apply() is allowed to write.
-_ALLOWED_WRITE_ROOTS = [
-    Path("/root/.openclaw/workspace").resolve(),
-    Path("/opt/clawdbot").resolve(),
-]
+def _grant(http_request: Request, action: str) -> ExecutionGrant:
+    try:
+        return authorize_execution_request(http_request, action)
+    except ExecutionCapabilityDenied as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": exc.detail, "action": action},
+        ) from exc
 
 
-def _allowed_path(p: Path) -> bool:
-    rp = p.resolve()
-    return any(root == rp or root in rp.parents for root in _ALLOWED_WRITE_ROOTS)
+def _safe_path(
+    grant: ExecutionGrant,
+    action: str,
+    value: str | Path,
+    *,
+    require_file: bool = False,
+) -> Path:
+    try:
+        return resolve_authorized_path(grant, action, value, require_file=require_file)
+    except ExecutionCapabilityDenied as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"error": exc.code, "message": exc.detail, "action": action},
+        ) from exc
 
 
 def _ensure_trailing_nl(s: str) -> str:
@@ -267,7 +295,9 @@ async def _ask_oracle(prompt: str, system: str, *, strict: bool = False) -> str:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                text = data.get("response") or data.get("text") or json.dumps(data)
+                text = verified_completion_text(data)
+                if not text:
+                    raise HTTPException(status_code=503, detail="Oracle returned no verified completion receipt")
                 _oracle_consecutive_failures = 0
                 return text
 
@@ -283,7 +313,9 @@ async def _ask_oracle(prompt: str, system: str, *, strict: bool = False) -> str:
             )
             resp.raise_for_status()
             data = resp.json()
-            text = data.get("response") or data.get("text") or json.dumps(data)
+            text = verified_completion_text(data)
+            if not text:
+                raise HTTPException(status_code=503, detail="Augmenter returned no verified completion receipt")
             _oracle_consecutive_failures = 0
             return text
     except HTTPException:
@@ -312,6 +344,16 @@ def _is_hud_only_response(text: str) -> bool:
     return s.startswith("[ALIVE HUD") and "```" not in s and "{" not in s
 
 
+def _healthy_sentinel_result(row: Any) -> bool:
+    if not isinstance(row, dict) or row.get("ok") is not True:
+        return False
+    try:
+        status_code = int(row.get("status_code"))
+    except (TypeError, ValueError):
+        return False
+    return 0 < status_code < 400
+
+
 async def _oracle_retry_for_code(prompt: str, system: str, raw_first: str) -> str:
     """Retry once when the model returns HUD-only / non-actionable text."""
     if not _is_hud_only_response(raw_first):
@@ -321,22 +363,21 @@ async def _oracle_retry_for_code(prompt: str, system: str, raw_first: str) -> st
 
 
 @router.post("/propose")
-async def propose_change(request: ProposeRequest):
+async def propose_change(request: ProposeRequest, http_request: Request):
     """Generate a change proposal + diff.
 
     This endpoint NEVER writes to disk. Use /apply with confirm=true to apply.
     """
 
-    # Load code either from request.code or from a file.
+    grant = _grant(http_request, "geneticist.propose")
+
+    # Load code either from request.code or from an authorized file.
     code = (request.code or "").strip()
     target_path = (request.target_path or "").strip() or None
     if target_path:
-        p = Path(target_path)
-        if not p.exists() or not p.is_file():
-            _reject("target_path must point to an existing file")
-        if not _allowed_path(p):
-            _reject("target_path is outside allowed roots")
+        p = _safe_path(grant, "geneticist.propose", Path(target_path), require_file=True)
         code = p.read_text(encoding="utf-8", errors="replace")
+        target_path = str(p)
 
     code = _require_code(code)
 
@@ -551,8 +592,9 @@ async def get_proposal(proposal_id: str):
 
 
 @router.post("/apply")
-async def apply_proposal(request: ApplyRequest):
-    """Apply a stored proposal to disk (explicit approval required)."""
+async def apply_proposal(request: ApplyRequest, http_request: Request):
+    """Apply a proposal only with a separate host-write capability."""
+    grant = _grant(http_request, "geneticist.apply")
     prop = _get_proposal(request.proposal_id)
     if not request.confirm:
         return {
@@ -563,35 +605,47 @@ async def apply_proposal(request: ApplyRequest):
             "diff": prop.get("diff"),
         }
 
-    # L21 Sentinel apply gate: refuse to apply if core services are unhealthy (unless force=true).
+    # Required Sentinel preflight fails closed on every missing, malformed, or
+    # unhealthy result.  A caller-authored force boolean cannot bypass it.
     gate = await _sentinel_apply_gate()
-    if isinstance(gate, dict) and gate.get('success') and isinstance(gate.get('scan'), dict):
-        sc = gate['scan']
-        if int(sc.get('issues_found') or 0) > 0 and not getattr(request, 'force', False):
-            return {
-                'success': False,
-                'error': 'sentinel_gate_failed',
-                'message': 'Sentinel reports issues; refusing to apply. Re-run with force=true to override.',
-                'sentinel': {
-                    'issues_found': sc.get('issues_found'),
-                    'watchers_checked': sc.get('watchers_checked'),
-                    'results': (sc.get('results') or [])[:6],
-                },
-            }
+    sc = gate.get('scan') if isinstance(gate, dict) and gate.get('success') is True else None
+    valid_scan = isinstance(sc, dict)
+    results = sc.get('results') if valid_scan else None
+    try:
+        issues_found = int(sc['issues_found']) if valid_scan else -1
+        watchers_checked = int(sc['watchers_checked']) if valid_scan else -1
+    except (KeyError, TypeError, ValueError):
+        issues_found = -1
+        watchers_checked = -1
+        valid_scan = False
+    valid_scan = bool(
+        valid_scan
+        and isinstance(results, list)
+        and watchers_checked >= 3
+        and len(results) >= 3
+        and all(_healthy_sentinel_result(row) for row in results)
+    )
+    if not valid_scan or issues_found != 0:
+        return {
+            'success': False,
+            'blocked': True,
+            'error': 'sentinel_gate_unavailable' if not valid_scan else 'sentinel_gate_failed',
+            'message': 'Required Sentinel preflight did not produce a complete healthy receipt.',
+            'sentinel': {
+                'issues_found': issues_found,
+                'watchers_checked': watchers_checked,
+                'results': (results or [])[:6] if isinstance(results, list) else [],
+            },
+        }
 
 
 
     # Determine write path.
     write_path = (request.write_path or prop.get("target_path") or "").strip()
     if not write_path:
-        # safe default: write into container sandbox (no host side-effects)
-        sandbox = Path("/opt/clawdbot/geneticist_applied")
-        sandbox.mkdir(parents=True, exist_ok=True)
-        write_path = str(sandbox / f"{request.proposal_id}.txt")
+        write_path = str(Path("/opt/clawdbot/geneticist_applied") / f"{request.proposal_id}.txt")
 
-    p = Path(write_path)
-    if not _allowed_path(p):
-        raise HTTPException(status_code=400, detail="write_path is outside allowed roots")
+    p = _safe_path(grant, "geneticist.apply", Path(write_path))
 
     new_code = prop.get("new_code") or ""
     if not isinstance(new_code, str) or not new_code.strip():
@@ -618,8 +672,7 @@ async def apply_proposal(request: ApplyRequest):
     }
 
 
-@router.post("/mutate")
-async def mutate_code(request: MutateRequest):
+async def _mutate_code(request: MutateRequest):
     code = _require_code(request.code)
     hint = _validate_mutation_hint(request.mutation_hint)
 
@@ -720,8 +773,13 @@ async def mutate_code(request: MutateRequest):
     }
 
 
-@router.post("/evolve")
-async def evolve_code(request: EvolveRequest):
+@router.post("/mutate")
+async def mutate_code(request: MutateRequest, http_request: Request):
+    _grant(http_request, "geneticist.mutate")
+    return await _mutate_code(request)
+
+
+async def _evolve_code(request: EvolveRequest):
     code = _require_code(request.code)
     fitness_goal = _validate_fitness_goal(request.fitness_goal)
     generations = _validate_generations(request.generations)
@@ -822,6 +880,12 @@ async def evolve_code(request: EvolveRequest):
     }
 
 
+@router.post("/evolve")
+async def evolve_code(request: EvolveRequest, http_request: Request):
+    _grant(http_request, "geneticist.evolve")
+    return await _evolve_code(request)
+
+
 @router.get("/contract")
 async def geneticist_contract():
     return {
@@ -844,8 +908,9 @@ async def geneticist_contract():
 
 
 @router.post("/apply_plan")
-async def apply_architect_plan(request: ArchitectHandoffRequest):
+async def apply_architect_plan(request: ArchitectHandoffRequest, http_request: Request):
     """Deterministic L9→L19 handoff endpoint."""
+    _grant(http_request, "geneticist.apply_plan")
     _require_code(request.code)
     _validate_fitness_goal(request.objective)
     _validate_mutation_hint(request.mutation_hint)
@@ -855,9 +920,9 @@ async def apply_architect_plan(request: ArchitectHandoffRequest):
     geneticist_state["architect_handoffs"] += 1
 
     if request.strategy == "mutate":
-        result = await mutate_code(MutateRequest(code=request.code, mutation_hint=request.mutation_hint or request.objective))
+        result = await _mutate_code(MutateRequest(code=request.code, mutation_hint=request.mutation_hint or request.objective))
     else:
-        result = await evolve_code(EvolveRequest(code=request.code, fitness_goal=request.objective, generations=request.generations or 1))
+        result = await _evolve_code(EvolveRequest(code=request.code, fitness_goal=request.objective, generations=request.generations or 1))
 
     return {
         "success": result.get("success", False),
@@ -870,6 +935,7 @@ async def apply_architect_plan(request: ArchitectHandoffRequest):
 
 @router.get("/status")
 async def geneticist_status():
+    capability_policy = execution_capability_status()
     return {
         "success": True,
         "data": {
@@ -896,6 +962,7 @@ async def geneticist_status():
                 "type_hints",
                 "simplify",
             ],
+            "executionCapabilityPolicy": capability_policy,
         },
         "error": None,
     }

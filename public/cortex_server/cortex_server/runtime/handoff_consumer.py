@@ -20,6 +20,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
+from cortex_server.internal_addressing import resolve_internal_base_url
 from cortex_server.runtime.agent_mailbox import AgentMessage, agent_acknowledgement_signature
 from cortex_server.runtime.production_build_loop import (
     RUNTIME_DELIVERY_MANAGER_CAPABILITY_PROCESS_ID,
@@ -1017,7 +1018,11 @@ def _bounded_health_float(name: str, default: float, maximum: float) -> float:
 def main() -> None:
     recipient = os.getenv("CORTEX_HANDOFF_RECIPIENT", "").strip()
     secret = os.getenv("CORTEX_HANDOFF_RECIPIENT_SECRET", "").strip()
-    base_url = os.getenv("CORTEX_BASE_URL", "http://cortex-brain:8888").strip()
+    addressing_environment = dict(os.environ)
+    compatible_base_url = os.getenv("CORTEX_BASE_URL", "").strip()
+    if compatible_base_url:
+        addressing_environment["CORTEX_INTERNAL_BASE_URL"] = compatible_base_url
+    base_url = resolve_internal_base_url(addressing_environment)
     if recipient not in {"release-verifier", "release-manager"}:
         raise RuntimeError("CORTEX_HANDOFF_RECIPIENT must name a required release consumer")
     if len(secret.encode("utf-8")) < 32:

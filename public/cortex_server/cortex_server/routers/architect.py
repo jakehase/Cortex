@@ -8,9 +8,11 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal, Dict, Any
 import httpx
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter()
 INSTALL_TIMEOUT_SECONDS = 45
-GENETICIST_URL = "http://localhost:8888/geneticist/apply_plan"
+GENETICIST_URL = internal_url("/geneticist/apply_plan")
 
 
 class ExtendRequest(BaseModel):

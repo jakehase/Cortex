@@ -101,11 +101,15 @@ def build_workflow_record(
     created_at: Optional[str] = None,
 ) -> JsonDict:
     workflow_id = workflow_id or f"wf_{uuid.uuid4().hex[:12]}"
+    workflow_metadata = dict(metadata or {})
+    # Approval grants bind the server-issued workflow identity.  Do not rely on
+    # caller metadata to repeat or choose that identity.
+    workflow_metadata["workflow_id"] = workflow_id
     return {
         "workflow_id": workflow_id,
         "name": name,
         "steps": [dict(step) for step in (steps or [])],
-        "metadata": dict(metadata or {}),
+        "metadata": workflow_metadata,
         "created_at": created_at or datetime.now().isoformat(),
         "executions": [],
     }

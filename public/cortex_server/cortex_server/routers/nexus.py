@@ -3,7 +3,7 @@ Nexus Router - Semantic Orchestration using L5 Oracle
 
 Replaces keyword matching with true semantic understanding.
 """
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Mapping, Optional
@@ -53,9 +53,18 @@ from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_c
 from cortex_server.modules import cortex_codec as _cortex_codec_module
 from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
-from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
+from cortex_server.modules.memory_scope import (
+    AuthenticatedMemoryPrincipal,
+    MemoryScopeAuthError,
+    authenticate_memory_headers,
+    authenticate_memory_principal,
+    authenticate_memory_request,
+    require_authenticated_memory_principal,
+    scoped_memory_metadata,
+)
+from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
 from cortex_server.runtime.assurance_receipt_ledger import (
@@ -106,8 +115,9 @@ CODEC_EVAL_MIN_JUDGE_MARGIN = float(os.getenv("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.
 CODEC_EVAL_CODEC_MARGIN_FLOOR = float(os.getenv("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
 CODEC_EVAL_MIN_VARIANTS = int(os.getenv("CODEC_EVAL_MIN_VARIANTS", "3"))
 CODEC_EVAL_MIN_ORACLE_COVERAGE = float(os.getenv("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
-CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "1").lower() not in {"0", "false", "no", "off"}
+CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0").lower() not in {"0", "false", "no", "off"}
 CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
+_CODEC_WRITE_ACK_VERSION = "cortex.codec.write-ack.v1"
 
 # Level definitions
 LEVEL_MAP = {
@@ -165,6 +175,18 @@ _CODEC_REPLAY_SCHEDULER_STATE: Dict[str, Any] = {
     "last_executed_count": 0,
     "last_error": "",
 }
+
+def _principal_codec_scheduler_view() -> Dict[str, Any]:
+    """Expose policy, never cross-principal scheduler activity counters."""
+
+    return {
+        "enabled": False,
+        "configured": bool(CODEC_REPLAY_SCHEDULER_ENABLED),
+        "interval_seconds": int(CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS),
+        "automatic_execution": False,
+        "authenticated_tick_required": True,
+        "reason": "automatic cross-principal replay is disabled; use authenticated scheduler/tick",
+    }
 
 _CONTEXT_LOCK = threading.RLock()
 _CONTEXT_TTL_SECONDS = 1800
@@ -277,6 +299,9 @@ _ASSURANCE_RESERVED_METADATA = {
     "session_id",
     "scope_credential_id",
     "storage_workspace_id",
+    "memory_principal_key",
+    "knowledge_principal_key",
+    "codec_session_key",
     "idempotency_key",
     "receipt_id",
     "world_grounding",
@@ -801,6 +826,20 @@ def _codec_session_key(request: Optional[Request]) -> str:
     return f"{client_host}|{user_agent}"
 
 
+def _principal_codec_session_key(principal: AuthenticatedMemoryPrincipal) -> str:
+    """Return the sole storage/search namespace admitted by Codec routes."""
+
+    return principal.codec_session_key
+
+
+def _authenticated_codec_principal(request: Request) -> AuthenticatedMemoryPrincipal:
+    principal = getattr(request.state, "authenticated_memory_principal", None)
+    if isinstance(principal, AuthenticatedMemoryPrincipal):
+        return principal
+    principal, _ = _authenticated_nexus_principal(request)
+    return principal
+
+
 def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_key: str) -> str:
     resolved_session = str(session_key or principal.session_id)
     principal_key = principal.isolation_key("nexus-referent-continuity-v1")
@@ -1241,7 +1280,7 @@ def _infer_codec_execution_variant(
     policy = _scoped_codec_policy_call(adaptive_policies, get_codec_policy_for_query, query)
     codec_available = bool((codec_context or {}).get("available"))
     referents_available = bool((referent_info or {}).get("resolved")) or bool((referent_info or {}).get("referent_memory"))
-    if codec_available and (bool(policy.get("should_inject", True)) or str(policy.get("action") or "") == "prefer_codec"):
+    if codec_available:
         return "referents_plus_codec"
     if referents_available:
         return "referents_only"
@@ -2362,21 +2401,48 @@ def _find_codec_replay_report(*, session_key: str, report_id: str = "") -> Dict[
 
 
 
-def _load_codec_active_policy() -> Dict[str, Any]:
+def _load_codec_active_policy(session_key: str) -> Dict[str, Any]:
+    if not str(session_key or "").strip():
+        return {}
     try:
         if not _CODEC_ACTIVE_POLICY_PATH.exists():
             return {}
         raw = json.loads(_CODEC_ACTIVE_POLICY_PATH.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
+        if not isinstance(raw, dict):
+            return {}
+        principals = raw.get("principal_sessions") if isinstance(raw.get("principal_sessions"), dict) else {}
+        if principals:
+            state = principals.get(session_key)
+            return state if isinstance(state, dict) else {}
+        # Read a legacy single-policy file only when it already carries the
+        # exact authenticated session. Never expose or migrate another session.
+        return raw if str(raw.get("session_key") or "") == session_key else {}
     except Exception:
         return {}
 
 
 
-def _save_codec_active_policy(state: Dict[str, Any]) -> None:
+def _save_codec_active_policy(state: Dict[str, Any], *, session_key: str) -> None:
+    if not str(session_key or "").strip() or str(state.get("session_key") or "") != session_key:
+        raise ValueError("active Codec policy must be bound to the authenticated principal session")
     try:
         _CODEC_ACTIVE_POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CODEC_ACTIVE_POLICY_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        existing: Dict[str, Any] = {}
+        if _CODEC_ACTIVE_POLICY_PATH.exists():
+            raw = json.loads(_CODEC_ACTIVE_POLICY_PATH.read_text(encoding="utf-8"))
+            existing = raw if isinstance(raw, dict) else {}
+        principals = existing.get("principal_sessions") if isinstance(existing.get("principal_sessions"), dict) else {}
+        principals = dict(principals)
+        legacy_session = str(existing.get("session_key") or "")
+        if legacy_session and legacy_session not in principals:
+            principals[legacy_session] = existing
+        principals[session_key] = state
+        envelope = {
+            "version": "cortex.codec.active_benchmark_policy.principal.v1",
+            "updated_at": _now_iso(),
+            "principal_sessions": principals,
+        }
+        _CODEC_ACTIVE_POLICY_PATH.write_text(json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -2471,7 +2537,7 @@ def _execute_replay_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
             "corpus_version": str(report.get("corpus_version") or ""),
             "policies": report.get("recommendations") if isinstance(report.get("recommendations"), dict) else {},
         }
-        _save_codec_active_policy(active_policy)
+        _save_codec_active_policy(active_policy, session_key=session_key)
         promoted = True
     now_iso = _now_iso()
     update = {
@@ -2498,6 +2564,14 @@ def _execute_replay_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _run_due_replay_plans_once(*, session_key: str = "", limit: int = 100) -> Dict[str, Any]:
+    if not str(session_key or "").strip():
+        return {
+            "due_count": 0,
+            "executed_count": 0,
+            "items": [],
+            "degraded": True,
+            "reason": "authenticated_principal_session_required",
+        }
     plans = _load_codec_replay_plan_states(session_key=session_key, limit=max(1, min(int(limit), 200)))
     due = [plan for plan in plans if _plan_due(plan)]
     results = [_execute_replay_plan(plan) for plan in due]
@@ -3745,50 +3819,31 @@ def _authenticated_nexus_principal(
     session_hint: str = "",
 ) -> tuple[AuthenticatedMemoryPrincipal, str]:
     headers = request.headers if request is not None else {}
-    scoped_header_names = {
-        "tenant_id": "x-cortex-tenant-id",
-        "workspace_id": "x-cortex-workspace-id",
-        "agent_id": "x-cortex-agent-id",
-        "user_id": "x-cortex-user-id",
-        "channel_id": "x-cortex-channel-id",
-        "session_id": "x-cortex-session-id",
-    }
     has_scoped_identity = any(
         str(headers.get(name, "") or "").strip()
         for name in (
-            *scoped_header_names.values(),
+            "x-cortex-tenant-id",
+            "x-cortex-workspace-id",
+            "x-cortex-agent-id",
+            "x-cortex-user-id",
+            "x-cortex-channel-id",
+            "x-cortex-session-id",
             "x-cortex-scope-credential-id",
             "x-cortex-scope-signature",
         )
     )
-    raw_scope: Optional[Dict[str, str]] = None
-    tenant_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    if has_scoped_identity:
-        missing = [field for field, name in scoped_header_names.items() if not str(headers.get(name, "") or "").strip()]
-        if missing:
-            raise HTTPException(status_code=403, detail=f"full authenticated principal scope is required: {', '.join(missing)}")
-        raw_scope = {
-            field: _bounded_scope_value(headers.get(name, ""), "")
-            for field, name in scoped_header_names.items()
-        }
-        tenant_id = raw_scope["tenant_id"]
-        workspace_id = raw_scope["workspace_id"]
-
     scoped_session = str(headers.get("x-cortex-session-id", "") or "").strip()
     transport_session = str(headers.get("x-session-id", "") or "").strip()
     if scoped_session and transport_session and not hmac.compare_digest(scoped_session, transport_session):
         raise HTTPException(status_code=403, detail="transport session must match the authenticated principal session")
 
     try:
-        principal = authenticate_memory_principal(
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            scope=raw_scope,
-            credential_id=headers.get("x-cortex-scope-credential-id", ""),
-            signature=headers.get("x-cortex-scope-signature", ""),
-            production=_production_memory_scope_mode(),
-        )
+        if request is not None:
+            principal = getattr(request.state, "authenticated_memory_principal", None)
+            if not isinstance(principal, AuthenticatedMemoryPrincipal):
+                principal = authenticate_memory_request(request)
+        else:
+            principal = authenticate_memory_headers(headers)
     except MemoryScopeAuthError as exc:
         status_code = 503 if "not configured" in str(exc) else 403
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
@@ -5071,6 +5126,7 @@ class CodecEventsRequest(BaseModel):
     scope: Optional[Dict[str, str]] = None
     scope_credential_id: Optional[str] = Field(None, max_length=128)
     scope_signature: Optional[str] = Field(None, max_length=256)
+    acknowledgement_only: bool = False
 
 
 def _codec_events_idempotency_scope(
@@ -5234,7 +5290,7 @@ Intents to detect:
 
 def _fetch_kernel_online_levels() -> Optional[set]:
     try:
-        resp = requests.get("http://localhost:8888/kernel/levels", timeout=1.2)
+        resp = requests.get(internal_url("/kernel/levels"), timeout=1.2)
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -5257,7 +5313,7 @@ def _fetch_kernel_online_levels() -> Optional[set]:
 
 def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> bool:
     # In SAFE_MODE, L9 is intentionally proxied by meta-conductor.
-    # Avoid blocking self-HTTP calls back into the same 8888 worker.
+    # Avoid blocking self-HTTP calls back into the configured internal Cortex worker.
     if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
         return True
 
@@ -5268,7 +5324,7 @@ def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> 
     started = datetime.utcnow()
     for path in ["/meta_conductor/status", "/architect_expanded/status", "/architect/status"]:
         try:
-            resp = requests.get(f"http://localhost:8888{path}", timeout=1.2)
+            resp = requests.get(internal_url(path), timeout=1.2)
             latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
             if resp.status_code != 200:
                 if route_health is not None:
@@ -5368,12 +5424,11 @@ async def get_private_retrieval_shadow_status(request: Request):
     }
 
 
-@router.get("/codec/status")
+@router.get("/codec/status", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_status(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-
     view = get_codec_debug_view(
         resolved_session_key,
         max_chars=max(120, min(int(max_chars), 2400)),
@@ -5387,28 +5442,13 @@ async def get_nexus_codec_status(request: Request, session_key: Optional[str] = 
     }
 
 
-@router.post("/codec/events")
+@router.post("/codec/events", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request):
     """Low-latency, authenticated Codec write-through path for trusted runtimes and recovery canaries."""
-    resolved_session_key = (payload.session_key or _codec_session_key(request) or "").strip()[:128]
-    if not resolved_session_key:
-        raise HTTPException(status_code=400, detail="session_key is required")
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not payload.events or len(payload.events) > 32:
         raise HTTPException(status_code=400, detail="events must contain between 1 and 32 records")
-    try:
-        principal = authenticate_memory_principal(
-            tenant_id=payload.tenant_id,
-            workspace_id=payload.workspace_id,
-            scope=payload.scope,
-            credential_id=payload.scope_credential_id,
-            signature=payload.scope_signature,
-            production=_production_memory_scope_mode(),
-        )
-    except MemoryScopeAuthError as exc:
-        status_code = 503 if "not configured" in str(exc) else 403
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-    if principal.session_id != resolved_session_key:
-        raise HTTPException(status_code=403, detail="Codec session key must match the authenticated principal session")
     events = []
     for row in payload.events:
         if not isinstance(row, dict):
@@ -5418,8 +5458,11 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
             raise HTTPException(status_code=400, detail="event text must contain between 1 and 8000 characters")
         tags = row.get("tags") if isinstance(row.get("tags"), list) else []
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        metadata = {**metadata, **principal.storage_metadata}
-        events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
+        events.append({
+            "text": text,
+            "tags": [str(tag)[:80] for tag in tags[:24]],
+            "metadata": scoped_memory_metadata(principal, metadata),
+        })
     max_chars = max(120, min(int(payload.max_chars), 2400))
     idempotency_key = str(payload.idempotency_key or "").strip()
     idempotency_scope: Optional[Dict[str, str]] = None
@@ -5555,9 +5598,37 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         update_codec_state_for_session,
         resolved_session_key,
         events,
-        tenant_id=principal.tenant_id,
-        workspace_id=principal.storage_workspace_id,
     )
+    durable_write = state.get("durable_write", {}) if isinstance(state.get("durable_write"), dict) else {}
+    # Always acknowledge the exact low-latency state mutation, even when the
+    # optional L22 snapshot path is disabled. Prefer the canonical durable
+    # fingerprint when present; otherwise hash the bounded state returned by
+    # the write function without its transport-only durable_write envelope.
+    codec_state = {key: value for key, value in state.items() if key != "durable_write"}
+    state_fingerprint = str(durable_write.get("fingerprint") or hashlib.sha256(
+        json.dumps(codec_state, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest())
+    acknowledgement = {
+        "version": _CODEC_WRITE_ACK_VERSION,
+        "status": "accepted",
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+    }
+    if durable_write.get("status") is not None:
+        acknowledgement["durable_write_status"] = str(durable_write.get("status"))
+    if durable_write.get("id") is not None:
+        acknowledgement["durable_record_id"] = str(durable_write.get("id"))
+    response = {
+        "success": True,
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+        "acknowledgement": acknowledgement,
+        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
+    }
+    if payload.acknowledgement_only:
+        return response
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
@@ -5590,9 +5661,9 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
     return response
 
 
-@router.get("/codec/benchmark")
+@router.get("/codec/benchmark", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str] = None, benchmark_query: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5610,12 +5681,12 @@ async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str]
     }
 
 
-@router.get("/codec/policy")
+@router.get("/codec/policy", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, session_key: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
-    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     policies = _adaptive_policies_for_scope(principal.storage_metadata)
-    telemetry_key = _principal_continuity_key(principal, resolved_session_key)
+    telemetry_key = _principal_continuity_key(principal, principal.session_id)
     return {
         "success": True,
         "level": 24,
@@ -5630,9 +5701,9 @@ async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, 
     }
 
 
-@router.get("/codec/lineage")
+@router.get("/codec/lineage", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     view = get_codec_debug_view(
@@ -5661,9 +5732,9 @@ async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] =
     }
 
 
-@router.get("/codec/memory/{memory_id}/lineage")
+@router.get("/codec/memory/{memory_id}/lineage", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_memory_lineage(request: Request, memory_id: str, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     view = get_codec_debug_view(
@@ -5691,15 +5762,18 @@ async def get_nexus_codec_memory_lineage(request: Request, memory_id: str, sessi
     }
 
 
-@router.get("/codec/corpus-replay")
-@router.post("/codec/corpus-replay")
+@router.get("/codec/corpus-replay", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay(request: Request, session_key: Optional[str] = None, limit: int = 50, persist_report: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if persist_report and request.method.upper() != "POST":
+        raise HTTPException(
+            status_code=405,
+            detail="GET corpus replay is read-only; persist reports through an authenticated POST workflow",
+        )
 
-    if persist_report and request.method != "POST":
-        raise HTTPException(status_code=405, detail="persist_report requires an authorized POST control operation")
     report = _codec_replay_report(resolved_session_key, limit=max(1, min(int(limit), 100)))
     if persist_report:
         _persist_codec_replay_report(report)
@@ -5714,9 +5788,9 @@ async def get_nexus_codec_corpus_replay(request: Request, session_key: Optional[
     }
 
 
-@router.post("/codec/corpus-replay/reexecute")
+@router.post("/codec/corpus-replay/reexecute", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     report = _codec_true_reexecute_summary(resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -5730,11 +5804,17 @@ async def get_nexus_codec_corpus_replay_reexecute(request: Request, session_key:
     }
 
 
-@router.post("/codec/corpus-replay/live-reexecute")
+@router.get("/codec/corpus-replay/live-reexecute", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay/live-reexecute", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backend: str = "openclaw_local", persist_report: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if request.method.upper() == "GET":
+        raise HTTPException(
+            status_code=405,
+            detail="live re-execution is side-effecting and requires authenticated POST",
+        )
     report = _codec_live_reexecute_summary(
         resolved_session_key,
         limit=max(1, min(int(limit), 20)),
@@ -5762,8 +5842,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session
     }
 
 
-@router.get("/codec/corpus-replay/live-reexecute/backends")
-async def get_nexus_codec_corpus_replay_live_reexecute_backends():
+@router.get("/codec/corpus-replay/live-reexecute/backends", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_live_reexecute_backends(request: Request):
+    _authenticated_codec_principal(request)
     return {
         "success": True,
         "level": 24,
@@ -5774,11 +5855,17 @@ async def get_nexus_codec_corpus_replay_live_reexecute_backends():
     }
 
 
-@router.post("/codec/corpus-replay/live-reexecute/compare")
+@router.get("/codec/corpus-replay/live-reexecute/compare", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay/live-reexecute/compare", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute_compare(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backends: str = "recorded,openclaw_local"):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if request.method.upper() == "GET":
+        raise HTTPException(
+            status_code=405,
+            detail="live backend comparison is side-effecting and requires authenticated POST",
+        )
     available_backends = {item.get("backend") for item in (_live_reexecute_backend_status().get("items") or []) if isinstance(item, dict)}
     backend_list = [item.strip() for item in str(backends or "recorded,openclaw_local").split(",") if item.strip() and item.strip() in available_backends]
     reports = {
@@ -5803,9 +5890,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute_compare(request: Request,
     }
 
 
-@router.get("/codec/corpus-replay/live-reexecute/reports")
+@router.get("/codec/corpus-replay/live-reexecute/reports", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     rows: List[Dict[str, Any]] = []
@@ -5868,9 +5955,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request,
     }
 
 
-@router.get("/codec/corpus-replay/reports")
+@router.get("/codec/corpus-replay/reports", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5899,9 +5986,9 @@ async def get_nexus_codec_corpus_replay_reports(request: Request, session_key: O
     }
 
 
-@router.get("/codec/corpus-replay/diff")
+@router.get("/codec/corpus-replay/diff", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_diff(request: Request, session_key: Optional[str] = None, newer_report_id: Optional[str] = None, older_report_id: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5924,21 +6011,22 @@ async def get_nexus_codec_corpus_replay_diff(request: Request, session_key: Opti
     }
 
 
-@router.get("/codec/corpus-replay/active-policy")
-async def get_nexus_codec_corpus_replay_active_policy():
+@router.get("/codec/corpus-replay/active-policy", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_active_policy(request: Request):
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     return {
         "success": True,
         "level": 24,
         "name": "The Nexus",
         "codec": {
-            "active_policy": _load_codec_active_policy(),
+            "active_policy": _load_codec_active_policy(resolved_session_key),
         },
     }
 
 
-@router.post("/codec/corpus-replay/promote-best")
+@router.post("/codec/corpus-replay/promote-best", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_key: Optional[str] = None, report_id: Optional[str] = None, source: str = "recommendations"):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5955,7 +6043,7 @@ async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_
         "corpus_version": str(report.get("corpus_version") or ""),
         "policies": recommended,
     }
-    _save_codec_active_policy(payload)
+    _save_codec_active_policy(payload, session_key=resolved_session_key)
     return {
         "success": True,
         "level": 24,
@@ -5966,9 +6054,9 @@ async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_
     }
 
 
-@router.get("/codec/corpus-replay/plans")
+@router.get("/codec/corpus-replay/plans", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_plans(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -5986,9 +6074,9 @@ async def get_nexus_codec_corpus_replay_plans(request: Request, session_key: Opt
     }
 
 
-@router.post("/codec/corpus-replay/plan")
+@router.post("/codec/corpus-replay/plan", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Optional[str] = None, cadence_minutes: int = 1440, enabled: bool = True, note: str = "", start_immediately: bool = True, auto_promote_on_success: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     created_at = _now_iso()
@@ -6008,7 +6096,7 @@ async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Opt
         "suggested_endpoint": "/nexus/codec/corpus-replay?persist_report=true",
     }
     _persist_codec_replay_plan(plan)
-    scheduler = _ensure_codec_replay_scheduler_started()
+    scheduler = _principal_codec_scheduler_view()
     return {
         "success": True,
         "level": 24,
@@ -6020,9 +6108,9 @@ async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Opt
     }
 
 
-@router.post("/codec/corpus-replay/plan/run")
+@router.post("/codec/corpus-replay/plan/run", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plan_run(request: Request, session_key: Optional[str] = None, plan_id: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=200)
@@ -6042,9 +6130,9 @@ async def post_nexus_codec_corpus_replay_plan_run(request: Request, session_key:
     }
 
 
-@router.post("/codec/corpus-replay/plans/run-due")
+@router.post("/codec/corpus-replay/plans/run-due", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plans_run_due(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -6063,9 +6151,10 @@ async def post_nexus_codec_corpus_replay_plans_run_due(request: Request, session
     }
 
 
-@router.post("/codec/corpus-replay/scheduler")
-async def get_nexus_codec_corpus_replay_scheduler():
-    scheduler = _ensure_codec_replay_scheduler_started()
+@router.get("/codec/corpus-replay/scheduler", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_scheduler(request: Request):
+    _authenticated_codec_principal(request)
+    scheduler = _principal_codec_scheduler_view()
     return {
         "success": True,
         "level": 24,
@@ -6076,9 +6165,9 @@ async def get_nexus_codec_corpus_replay_scheduler():
     }
 
 
-@router.post("/codec/corpus-replay/scheduler/tick")
+@router.post("/codec/corpus-replay/scheduler/tick", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_scheduler_tick(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     result = _run_due_replay_plans_once(session_key=resolved_session_key or "", limit=max(1, min(int(limit), 200)))
     return {
         "success": True,
@@ -6086,14 +6175,14 @@ async def post_nexus_codec_corpus_replay_scheduler_tick(request: Request, sessio
         "name": "The Nexus",
         "codec": {
             "scheduler_tick": result,
-            "scheduler": dict(_CODEC_REPLAY_SCHEDULER_STATE),
+            "scheduler": _principal_codec_scheduler_view(),
         },
     }
 
 
-@router.get("/codec/corpus-replay/corpus-versions")
+@router.get("/codec/corpus-replay/corpus-versions", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_corpus_versions(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     return {
@@ -6106,9 +6195,9 @@ async def get_nexus_codec_corpus_replay_corpus_versions(request: Request, sessio
     }
 
 
-@router.get("/codec/corpus-replay/retention")
+@router.get("/codec/corpus-replay/retention", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_retention(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     return {
@@ -6121,14 +6210,17 @@ async def get_nexus_codec_corpus_replay_retention(request: Request, session_key:
     }
 
 
-@router.get("/codec/corpus-replay/export")
-@router.post("/codec/corpus-replay/export")
+@router.get("/codec/corpus-replay/export", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay/export", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Optional[str] = None, limit: int = 100, persist_export: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-    if persist_export and request.method != "POST":
-        raise HTTPException(status_code=405, detail="persist_export requires an authorized POST control operation")
+    if persist_export and request.method.upper() != "POST":
+        raise HTTPException(
+            status_code=405,
+            detail="GET corpus export is read-only and cannot persist artifacts",
+        )
     export = _codec_benchmark_corpus_export(resolved_session_key, limit=max(1, min(int(limit), 200)))
     if persist_export:
         _persist_codec_corpus_export(export)
@@ -6143,8 +6235,8 @@ async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Op
     }
 
 
-@router.post("/codec/outcome")
-async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Request = None):
+@router.post("/codec/outcome", dependencies=[Depends(require_authenticated_memory_principal)])
+async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Request):
     _authenticated_nexus_principal(request)
     raise HTTPException(
         status_code=403,
@@ -6155,7 +6247,8 @@ async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Req
     )
 
 
-@router.post("/codec/evaluate")
+@router.get("/codec/evaluate", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/evaluate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_evaluate(
     request: Request,
     session_key: Optional[str] = None,
@@ -6166,12 +6259,18 @@ async def get_nexus_codec_evaluate(
     judge_with_oracle: bool = False,
     priority: str = "normal",
 ):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    write_mode = request.method.upper() == "POST"
+    if not write_mode and (run_oracle or judge_with_oracle):
+        raise HTTPException(
+            status_code=405,
+            detail="GET Codec evaluation is read-only; Oracle execution requires authenticated POST",
+        )
     policies = _adaptive_policies_for_scope(principal.storage_metadata)
-    policy_session_key = _principal_continuity_key(principal, resolved_session_key)
+    policy_session_key = _principal_continuity_key(principal, principal.session_id)
     if not _adaptive_observation_allowed(principal.storage_metadata):
         raise HTTPException(status_code=429, detail="principal adaptive observation rate limit exceeded")
 
@@ -6184,6 +6283,11 @@ async def get_nexus_codec_evaluate(
     )
 
     evaluation = view.get("evaluation") if isinstance(view.get("evaluation"), dict) else {}
+    evaluation["policy"] = {
+        "action": "neutral",
+        "stage": "principal_isolated_compatibility",
+        "reason": "global learned policy state is not authoritative for this principal",
+    }
     variants = evaluation.get("variants") if isinstance(evaluation.get("variants"), list) else []
     evaluation["oracle_run"] = {"requested": bool(run_oracle), "completed": False, "priority": priority}
     evaluation["oracle_judge"] = {"requested": bool(judge_with_oracle), "completed": False, "priority": priority}
@@ -6326,7 +6430,8 @@ async def get_nexus_codec_evaluate(
         "bucket_snapshot": _codec_bucket_snapshot(view),
         "recommended_policies": evaluation.get("recommendations") if isinstance(evaluation.get("recommendations"), dict) else {},
     }
-    _persist_codec_eval_run(eval_record)
+    if write_mode:
+        _persist_codec_eval_run(eval_record)
     history = _codec_eval_trend_summary(resolved_session_key, limit=20)
     history["sweep"] = _codec_eval_sweep_summary(resolved_session_key, limit=50)
     history["rollup_sweep"] = _codec_rollup_sweep_summary(resolved_session_key, limit=50)
@@ -6391,7 +6496,7 @@ async def autotune_status(request: Request):
     }
 
 
-@router.post("/outcome/feedback")
+@router.post("/outcome/feedback", dependencies=[Depends(require_authenticated_memory_principal)])
 async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Request):
     _require_outcome_feedback_control(request)
     try:
@@ -6489,7 +6594,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
             _release_outcome_feedback_claim(reservation)
 
 
-@router.get("/orchestrate")
+@router.get("/orchestrate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def orchestrate_query_read_only_guard():
     """Keep legacy route discovery truthful without permitting GET mutations."""
     raise HTTPException(
@@ -6498,7 +6603,7 @@ async def orchestrate_query_read_only_guard():
     )
 
 
-@router.post("/orchestrate")
+@router.post("/orchestrate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def orchestrate_query(
     query: Optional[str] = None,
     request: Request = None,
@@ -7790,6 +7895,13 @@ async def commit_memory(interaction: InteractionData, request: Request):
                     "source": "nexus.commit",
                     "tenant_id": scope["tenant_id"],
                     "workspace_id": scope["workspace_id"],
+                    "storage_workspace_id": scope["storage_workspace_id"],
+                    "memory_principal_key": scope["memory_principal_key"],
+                    "agent_id": scope["agent_id"],
+                    "user_id": scope["user_id"],
+                    "channel_id": scope["channel_id"],
+                    "session_id": scope["session_id"],
+                    "scope_credential_id": scope["scope_credential_id"],
                     "assurance": {
                         "receipt_version": _ASSURANCE_RECEIPT_VERSION,
                         "receipt_id": signed_receipt_jti,

@@ -4,6 +4,7 @@ import socket
 from pathlib import Path
 from datetime import datetime
 
+from cortex_server.internal_addressing import internal_host_port
 from cortex_server.modules.level_registry import get_level_registry
 
 # Canonical LEVEL_MAP - derived from the shared registry to avoid count drift.
@@ -74,10 +75,11 @@ class Cartographer:
         return skills
     
     def check_pulse(self):
-        '''Check port 8888 (Oracle) and port 10200 (Piper TTS)'''
+        '''Check the configured Cortex origin and port 10200 (Piper TTS).'''
         # Check localhost instead of external IP
+        cortex_host, cortex_port = internal_host_port()
         services = {
-            'oracle': {'port': 8888, 'status': 'unknown', 'host': '127.0.0.1'},
+            'oracle': {'port': cortex_port, 'status': 'unknown', 'host': cortex_host},
             'piper_tts': {'port': 10200, 'status': 'unknown', 'host': '127.0.0.1'}
         }
         

@@ -9,7 +9,7 @@ Plus novelty-aware extensions:
 - POST /l22/search_novel
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Callable, List, Optional, TypeVar
 from datetime import datetime, timezone
@@ -43,8 +43,15 @@ from cortex_server.routers.librarian import (
     _production_memory_mode,
     _quota_fallback_rows,
 )
+from cortex_server.modules.memory_scope import (
+    memory_principal_for_request,
+    principal_memory_where,
+    request_memory_idempotency_key,
+    require_authenticated_memory_principal,
+    scoped_memory_metadata,
+)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 _STRUCTURED_MEMORY_LOCK = threading.RLock()
 _L22_MAX_CONTENT_BYTES = 1_000_000
 _L22_QUOTA_FIXED_RECORD_BYTES = 4096
@@ -1527,6 +1534,7 @@ class L22NovelStoreRequest(BaseModel):
     scope: Optional[MemoryPrincipalScope] = None
     scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
+    idempotency_key: Optional[str] = Field(None, min_length=1, max_length=256)
 
     _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
@@ -1544,14 +1552,42 @@ class L22NovelSearchRequest(BaseModel):
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
+def _route_memory_principal(request, http_request: Optional[Request]):
+    if http_request is not None:
+        return memory_principal_for_request(http_request)
+    return _authenticated_memory_principal_scope(
+        request.tenant_id,
+        request.workspace_id,
+        request.scope_signature,
+        scope=request.scope,
+        scope_credential_id=request.scope_credential_id,
+    )
+
+
 @router.get("/status")
-async def l22_status():
+async def l22_status(http_request: Request):
+    principal = memory_principal_for_request(http_request)
     try:
-        memory_count = int(collection.count())
+        scoped = collection.get(
+            where=principal_memory_where(principal),
+            include=["metadatas"],
+        )
+        memory_count = sum(
+            1
+            for metadata in (scoped.get("metadatas") or [])
+            if isinstance(metadata, dict)
+            and str(metadata.get("memory_principal_key") or "") == principal.memory_principal_key
+        )
     except Exception:
         memory_count = None
     try:
-        structured_memory_count = count_structured_memory_records()
+        structured_memory_count = len(list_structured_memory_records(
+            memory_type="codec_state",
+            lookup_key=principal.codec_session_key,
+            limit=_CODEC_MAX_SNAPSHOTS_PER_SESSION,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+        ))
     except Exception:
         structured_memory_count = None
 
@@ -1572,6 +1608,8 @@ async def l22_status():
         ],
         "memory_count": memory_count,
         "structured_memory_count": structured_memory_count,
+        "principal_scoped": True,
+        "aggregate_storage_metrics": "withheld",
         "structured_memory_backend": "l22_structured_sqlite_v1",
         "scope_auth_ready": scope_auth_ready,
         "novelty_version": "l7l22.v1.1",
@@ -1579,40 +1617,51 @@ async def l22_status():
 
 
 @router.post("/store")
-async def l22_store(request: L22StoreRequest):
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
+async def l22_store(
+    request: L22StoreRequest,
+    http_request: Request = None,
+):
+    principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     return store_memory_record(
         content=request.content,
         memory_type=request.type,
         tags=request.tags,
-        metadata={**dict(request.metadata or {}), **principal.storage_metadata},
+        metadata=scoped_memory_metadata(principal, request.metadata),
         tenant_id=tenant,
         workspace_id=workspace,
-        idempotency_key=request.idempotency_key,
+        idempotency_key=(
+            request_memory_idempotency_key(http_request, request.idempotency_key)
+            if http_request is not None
+            else request.idempotency_key
+        ),
     )
 
 
 @router.post("/store_novel")
-async def l22_store_novel(request: L22NovelStoreRequest):
+async def l22_store_novel(
+    request: L22NovelStoreRequest,
+    http_request: Request = None,
+):
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
 
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
+    principal = _route_memory_principal(request, http_request)
+    resolved_idempotency_key = (
+        request_memory_idempotency_key(http_request, request.idempotency_key)
+        if http_request is not None
+        else request.idempotency_key
     )
+    if resolved_idempotency_key:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "idempotent novelty writes are unavailable; use the "
+                "principal-scoped /l22/store route"
+            ),
+        )
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-    metadata = {**dict(request.metadata or {}), **principal.storage_metadata}
+    metadata = scoped_memory_metadata(principal, request.metadata)
     metadata.setdefault("type", request.type or "memory")
     if request.tags:
         metadata.setdefault("tags", request.tags)
@@ -1650,6 +1699,7 @@ async def l22_store_novel(request: L22NovelStoreRequest):
             tenant_id=tenant,
             workspace_id=workspace,
             memory_id=memory_id,
+            memory_principal_key=principal.memory_principal_key,
         )
         _finalize_memory_quota(memory_id)
     except Exception:
@@ -1670,16 +1720,13 @@ async def l22_store_novel(request: L22NovelStoreRequest):
 
 
 @router.post("/search")
-async def l22_search(request: L22SearchRequest):
+async def l22_search(
+    request: L22SearchRequest,
+    http_request: Request = None,
+):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
+    principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     result = robust_search(
         query=request.query,
@@ -1687,6 +1734,7 @@ async def l22_search(request: L22SearchRequest):
         allow_fallback=True,
         tenant_id=tenant,
         workspace_id=workspace,
+        memory_principal_key=principal.memory_principal_key,
     )
     return {
         "query": request.query,
@@ -1698,14 +1746,11 @@ async def l22_search(request: L22SearchRequest):
 
 
 @router.post("/search_novel")
-async def l22_search_novel(request: L22NovelSearchRequest):
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
+async def l22_search_novel(
+    request: L22NovelSearchRequest,
+    http_request: Request = None,
+):
+    principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     ranked = search_with_novelty(
         query=request.query,
@@ -1715,6 +1760,7 @@ async def l22_search_novel(request: L22NovelSearchRequest):
         min_novelty=request.min_novelty,
         tenant_id=tenant,
         workspace_id=workspace,
+        memory_principal_key=principal.memory_principal_key,
     )
     return {
         "query": request.query,

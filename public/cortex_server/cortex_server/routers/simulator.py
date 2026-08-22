@@ -13,6 +13,8 @@ import httpx
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
@@ -58,7 +60,7 @@ class SimulationResponse(BaseModel):
 # Augmenter/Oracle helper (strict JSON)
 # ---------------------------------------------------------------------------
 
-AUGMENTER_URL = "http://127.0.0.1:8888/augmenter/chat"
+AUGMENTER_URL = internal_url("/augmenter/chat")
 
 
 async def _call_augmenter(prompt: str, system: str, timeout_s: float) -> Dict[str, Any]:
@@ -80,7 +82,7 @@ async def _call_oracle_fallback(prompt: str, timeout_s: float) -> Dict[str, Any]
     """Fallback path when Augmenter times out: call Oracle directly."""
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         resp = await client.post(
-            "http://127.0.0.1:8888/oracle/chat",
+            internal_url("/oracle/chat"),
             json={"prompt": prompt, "response_mode": "json_only", "priority": "high"},
             headers={"x-augmenter-bypass": "1"},
         )

@@ -11,8 +11,9 @@ from datetime import datetime
 from celery import Celery
 
 # Import native modules for direct execution
+from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.ghost import Ghost
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import configured_internal_memory_headers
 from cortex_server.modules.ouroboros import Ouroboros
 
 
@@ -81,9 +82,9 @@ def process_swarm(goal: str, context: str | None = None) -> dict:
     import uuid
     import json
 
-    ORACLE_URL = "http://localhost:8888/oracle/chat"
-    QUEUE_URL = "http://localhost:8888/queue/schedule"
-    LIBRARIAN_EMBED = "http://localhost:8888/librarian/embed"
+    ORACLE_URL = internal_url("/oracle/chat")
+    QUEUE_URL = internal_url("/queue/schedule")
+    LIBRARIAN_EMBED = internal_url("/librarian/embed")
 
     context_text = context
     novelty_mode = "standard"
@@ -202,10 +203,15 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "novelty_summary": novelty_summary,
         }
     }
-    librarian_payload.update(authenticated_memory_scope_fields())
-
     try:
-        requests.post(LIBRARIAN_EMBED, json=librarian_payload, headers=_cortex_write_headers(), timeout=10)
+        memory_headers = configured_internal_memory_headers()
+        if memory_headers is not None:
+            requests.post(
+                LIBRARIAN_EMBED,
+                json=librarian_payload,
+                headers={**_cortex_write_headers(), **memory_headers},
+                timeout=10,
+            )
     except:
         pass
 
