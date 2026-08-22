@@ -1,0 +1,65 @@
+{
+  "ok": true,
+  "status": "green",
+  "packetType": "aios.verifier.evidence",
+  "generatedAt": "2026-07-11T21:33:24.066Z",
+  "evidence": [
+    {
+      "kind": "openclaw_aios_language_compile_run_smoke",
+      "language": "aios.language.v1",
+      "sourcePath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/adapter-dogfood.aios",
+      "jobPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/adapter-dogfood.compiled.job.json",
+      "processId": "aiosproc_30e1024eb3abd135",
+      "generatedAt": "2026-07-11T21:33:24.066Z"
+    }
+  ],
+  "checks": [
+    {
+      "name": "canonical_language_compile_green",
+      "ok": true,
+      "proofPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/language-compile.packet.json"
+    },
+    {
+      "name": "compiled_job_emitted",
+      "ok": true,
+      "jobPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/adapter-dogfood.compiled.job.json"
+    },
+    {
+      "name": "external_effects_blocked",
+      "ok": true
+    },
+    {
+      "name": "boot_proof_green",
+      "ok": true,
+      "proofPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/boot-proof.packet.json"
+    },
+    {
+      "name": "run_proof_green",
+      "ok": true,
+      "proofPath": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets/run-proof.packet.json"
+    },
+    {
+      "name": "internal_status_syscall_observed",
+      "ok": true,
+      "output": {
+        "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+        "observedAt": "2026-07-11T21:33:23.988Z",
+        "bootOk": true,
+        "priorRunOk": false,
+        "verifierOk": false,
+        "claimStatus": null,
+        "processCount": 0
+      }
+    },
+    {
+      "name": "process_visible",
+      "ok": true,
+      "count": 1
+    },
+    {
+      "name": "logs_visible",
+      "ok": true,
+      "count": 10
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "generatedAt": "2026-07-11T21:33:46.311Z",
+  "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+  "canonicalLanguage": "aios.language.v1",
+  "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/language-compile.packet.json",
+  "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+  "defaultOn": true,
+  "safetyBoundary": "default_on_internal_local_status_recovery_handoff_only_no_external_writes_no_runtime_replacement",
+  "processId": "aiosproc_1a982463b5d68e15",
+  "bootProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/boot-proof.packet.json",
+  "runProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/run-proof.packet.json",
+  "verifierEvidence": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/verifier-evidence.packet.json",
+  "statusSyscall": {
+    "ordinal": 2,
+    "op": "kernel.artifact.status",
+    "mediatedBy": "aios.kernel.syscall.v0",
+    "ok": true,
+    "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "output": {
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "observedAt": "2026-07-11T21:33:46.200Z",
+      "bootOk": true,
+      "priorRunOk": false,
+      "verifierOk": false,
+      "claimStatus": null,
+      "processCount": 0
+    },
+    "outputHash": "a20a95b4e55fcf3b41cd9bb56b8018fabf089924cb2d38dda2454121f833838e"
+  },
+  "psCount": 1,
+  "logCount": 10,
+  "claimStatus": "allowed",
+  "claimPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/completion-claim.packet.json",
+  "nextAction": "Canonical AIOS language compile-run is eligible to stay on by default for internal status/recovery/handoff; runtime replacement and external writes remain blocked."
+}

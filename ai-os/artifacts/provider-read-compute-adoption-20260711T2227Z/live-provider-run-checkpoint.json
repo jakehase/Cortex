@@ -1,0 +1,731 @@
+{
+  "ok": true,
+  "command": "run",
+  "packetType": "aios.run.proof",
+  "operatorUserlandModule": "aios.operator.userland.run.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "operatorRequest": {
+    "contract": "aios.operator.request.v0",
+    "command": "run",
+    "argv": [
+      "run",
+      "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+      "--artifact-root",
+      "/tmp/aios-provider-live2"
+    ],
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "operatorUserlandModule": "aios.operator.userland.run.v0",
+    "expectedPacketType": "aios.run.proof",
+    "startedAt": "2026-07-11T22:22:12.723Z",
+    "operatorScope": {
+      "contract": "aios.operator.scope.v0",
+      "tenantId": "default",
+      "role": "operator",
+      "operator": "root",
+      "roleAcceptedForCommand": true,
+      "allowedRoles": [
+        "runner",
+        "operator",
+        "admin"
+      ],
+      "scopeHash": "84d73ca0840c3f038c95e1c1de62c1f1533ac3df7c0174c8d4ccbc43dd352303"
+    },
+    "client": {
+      "cwd": "/root/clawd",
+      "node": "v22.22.1",
+      "platform": "linux",
+      "arch": "x64",
+      "pid": 273300,
+      "shell": null,
+      "operator": "root",
+      "ci": false,
+      "tty": {
+        "stdin": false,
+        "stdout": false,
+        "stderr": false
+      }
+    },
+    "requestId": "aiosreq_bc4f4bffdf6e53fd",
+    "argvHash": "724671f8cb66ae0e23edcc9d8b147f427e731b120ff60a8fb1465b7c201a5bed",
+    "handoff": {
+      "currentStage": "process_completed",
+      "nextCommands": [
+        [
+          "aios",
+          "logs",
+          "--artifact-root",
+          "/tmp/aios-provider-live2",
+          "--process",
+          "aiosproc_e79ec6bf0a3ffe48"
+        ],
+        [
+          "aios",
+          "claim",
+          "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+          "--artifact-root",
+          "/tmp/aios-provider-live2"
+        ]
+      ]
+    },
+    "artifactRoot": "/tmp/aios-provider-live2",
+    "tenantBoundary": {
+      "path": "/tmp/aios-provider-live2/.aios-tenant-boundary.json",
+      "status": "matched",
+      "tenantId": "default",
+      "tenantHash": "37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f",
+      "boundaryHash": "63a4fca27ed4a369ff877631503fa2864520fb2e94b46db0ac7f68b326bf8669",
+      "establishedBy": {
+        "requestId": "aiosreq_98148043d1fa7da9",
+        "operator": "root",
+        "role": "operator",
+        "operatorScopeHash": "baf98a7b12255cf7addb1b2de73e205babd27572fe1c85d88138d46a5ef7d17f"
+      }
+    },
+    "inputs": {
+      "artifactRoot": "/tmp/aios-provider-live2",
+      "jobPath": "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+      "tenantId": "default",
+      "lifecycleSettings": {
+        "lifecycle": "enabled",
+        "scheduler": "immediate",
+        "approvals": "required"
+      },
+      "providerContract": {
+        "path": "/tmp/aios-provider-live2/aios-provider-contract.json",
+        "hash": "69089dff09acc7f9fb36529fea6c8c69afdabca8de6a4f7b806a7a6d5629f6bb",
+        "providerId": "local-aios-cli",
+        "negotiatedCapabilities": [
+          "artifact_root_sync",
+          "process_lifecycle_write"
+        ],
+        "externalHandoff": "local_only"
+      },
+      "providerPolicy": {
+        "path": "/root/clawd/ai-os/kernel/policy/provider-read-compute.json",
+        "digest": "04aa27a8ebcfc58da397c46ef39664f5ffcb58889180cdef4e08ce5c3e0d319b",
+        "mode": "capability-gated-read-compute",
+        "outputBoundary": "internal-artifact-only"
+      }
+    },
+    "outputs": {
+      "processId": "aiosproc_e79ec6bf0a3ffe48"
+    },
+    "userVisibleContract": {
+      "contract": "aios.operator.user_visible_route_contract.v0",
+      "command": "run",
+      "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+      "packetType": "aios.run.proof",
+      "preview": {
+        "action": "Admit a job, execute mediated syscalls, and persist a process record.",
+        "target": "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+        "artifactRoot": "/tmp/aios-provider-live2",
+        "reads": [
+          "job_json",
+          "tenant_boundary",
+          "lifecycle_settings",
+          "provider_contract"
+        ],
+        "produces": "aios.run.proof"
+      },
+      "readiness": {
+        "ready": true,
+        "state": "ready_for_route_handler",
+        "missingInputs": [],
+        "requiredInputs": [
+          "artifactRoot",
+          "jobPath",
+          "tenantId"
+        ]
+      },
+      "validationSummary": {
+        "expectedInputCount": 3,
+        "presentInputCount": 3,
+        "tenantScoped": true,
+        "providerNegotiated": true,
+        "lifecycleState": {
+          "lifecycle": "enabled",
+          "scheduler": "immediate",
+          "approvals": "required"
+        }
+      },
+      "acceptance": {
+        "state": "partially_satisfied",
+        "completed": 1,
+        "total": 2,
+        "checks": [
+          {
+            "name": "process_id_available",
+            "passed": true
+          },
+          {
+            "name": "lifecycle_policy_reported",
+            "passed": false
+          }
+        ]
+      },
+      "nextStep": {
+        "state": "process_completed",
+        "commands": [
+          [
+            "aios",
+            "logs",
+            "--artifact-root",
+            "/tmp/aios-provider-live2",
+            "--process",
+            "aiosproc_e79ec6bf0a3ffe48"
+          ],
+          [
+            "aios",
+            "claim",
+            "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+            "--artifact-root",
+            "/tmp/aios-provider-live2"
+          ]
+        ],
+        "explanation": "After run, clients can follow the first listed command when its placeholders are resolved."
+      },
+      "contractHash": "42799d2df655e03a694fcd3584e325f15365329dfaba410de8b127896e873688"
+    },
+    "stateHash": "f0c3620752cb4aed33a290af4099d3d4561942bb472e55b9777aafc7d4fc0d45"
+  },
+  "generatedAt": "2026-07-11T22:22:13.494Z",
+  "artifactRoot": "/tmp/aios-provider-live2",
+  "process": {
+    "id": "aiosproc_e79ec6bf0a3ffe48",
+    "state": "completed",
+    "recordPath": "/tmp/aios-provider-live2/processes/aiosproc_e79ec6bf0a3ffe48.json",
+    "recordHash": "5f0cd51e6a4aa155f75177a27ef2101fb7a89a65e9dd0f3d411eff88de7f5e65",
+    "indexPath": "/tmp/aios-provider-live2/processes/process-index.json",
+    "indexHash": "01c4d08f4245e583071cd34f49df9da307630f77a91ce8ede093ef94cfc30dfa"
+  },
+  "job": {
+    "path": "/tmp/aios-provider-live2/capability-gated-provider.compiled.job.json",
+    "id": "local.cortexProviderAssist",
+    "title": "AIOS language job: local.cortexProviderAssist",
+    "hash": "f6c3e97c77a45903141ec76dad8e8e8c42e7a186ac2c99c69c31f09007de4e21"
+  },
+  "lifecycleSettings": {
+    "ok": true,
+    "contract": "aios.operator.lifecycle_settings.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/tmp/aios-provider-live2",
+    "source": "aios_cli_boot_flags",
+    "controls": {
+      "lifecycle": "enabled",
+      "scheduler": "immediate",
+      "approvals": "required"
+    },
+    "nextAction": {
+      "state": "ready",
+      "command": [
+        "aios",
+        "run",
+        "<job.json>",
+        "--artifact-root",
+        "<artifact-root>"
+      ],
+      "reason": "Lifecycle execution and immediate scheduling are enabled."
+    },
+    "updatedBy": {
+      "command": "boot",
+      "requestId": "aiosreq_98148043d1fa7da9",
+      "operator": "root",
+      "role": "operator",
+      "tenantId": "default"
+    },
+    "updatedAt": "2026-07-11T22:22:12.684Z",
+    "settingsHash": "1dedc861464d281564db6e7c5781833d92ece948c6ec2b5710840c859f5f86ec",
+    "path": "/tmp/aios-provider-live2/aios-lifecycle-settings.json",
+    "readable": true,
+    "missing": false
+  },
+  "kernelMediation": {
+    "processAdmission": "aios.kernel.process_table.v0",
+    "syscallMediator": "aios.kernel.syscall.v0",
+    "allowedSyscalls": [
+      "kernel.*",
+      "kernel.artifact.status",
+      "kernel.complete",
+      "kernel.echo",
+      "kernel.record",
+      "process.admit",
+      "process.transition",
+      "provider.compute",
+      "provider.read"
+    ],
+    "syscallCount": 5
+  },
+  "providerContract": {
+    "ok": true,
+    "contract": "aios.service.provider_contract.v0",
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "artifactRoot": "/tmp/aios-provider-live2",
+    "providerId": "local-aios-cli",
+    "serviceId": "aios.operator.userland.run.v0",
+    "tenantId": "default",
+    "tenantHash": "37a8eec1ce19687d132fe29051dca629d164e2c4958ba141d5f4133a33f0688f",
+    "requiredCapabilities": [
+      "artifact_root_sync",
+      "process_lifecycle_write"
+    ],
+    "supportedCapabilities": [
+      "artifact_root_sync",
+      "boot_proof_write",
+      "external_handoff_state",
+      "process_lifecycle_write",
+      "provider_compute",
+      "provider_read"
+    ],
+    "negotiatedCapabilities": [
+      "artifact_root_sync",
+      "process_lifecycle_write"
+    ],
+    "capabilityCatalog": {
+      "artifact_root_sync": "Read and update artifact-root metadata created by this CLI surface.",
+      "boot_proof_write": "Write boot proof packets and artifact layout manifests.",
+      "external_handoff_state": "Expose stable state for external provider handoff orchestration.",
+      "process_lifecycle_write": "Admit jobs, execute mediated syscalls, and persist process records.",
+      "provider_compute": "Execute capability-gated provider compute and retain results as internal artifacts.",
+      "provider_read": "Execute capability-gated provider reads and retain results as internal artifacts."
+    },
+    "sync": {
+      "contract": "aios.provider.sync_metadata.v0",
+      "mode": "refresh",
+      "revision": 2,
+      "previousContractHash": "2e097a4604a1f219c45a450c42d49139971d13c432d374a7728d7c05a88de3a3",
+      "artifactRootHash": "7f46d9ebd839829882cb9b4e6346441e6eacaf8be32d7a57d771df895d3c0a95",
+      "lastCommand": "run",
+      "lastPacketType": "aios.run.proof",
+      "lastRequestId": "aiosreq_bc4f4bffdf6e53fd",
+      "lastOperatorScopeHash": "84d73ca0840c3f038c95e1c1de62c1f1533ac3df7c0174c8d4ccbc43dd352303",
+      "syncedAt": "2026-07-11T22:22:12.727Z"
+    },
+    "externalHandoff": {
+      "contract": "aios.external_handoff_state.v0",
+      "enabled": false,
+      "state": "local_only",
+      "uri": null,
+      "command": "run",
+      "artifactRoot": "/tmp/aios-provider-live2",
+      "requestId": "aiosreq_bc4f4bffdf6e53fd",
+      "service": "aios.operator.userland.run.v0",
+      "updatedAt": "2026-07-11T22:22:12.727Z"
+    },
+    "path": "/tmp/aios-provider-live2/aios-provider-contract.json",
+    "contractHash": "69089dff09acc7f9fb36529fea6c8c69afdabca8de6a4f7b806a7a6d5629f6bb"
+  },
+  "providerPolicy": {
+    "path": "/root/clawd/ai-os/kernel/policy/provider-read-compute.json",
+    "digest": "04aa27a8ebcfc58da397c46ef39664f5ffcb58889180cdef4e08ce5c3e0d319b",
+    "mode": "capability-gated-read-compute",
+    "outputBoundary": "internal-artifact-only",
+    "externalWrites": false
+  },
+  "restartSafety": {
+    "idempotent": true,
+    "recovered": false,
+    "status": "new_process_record_written",
+    "recoveryProbe": "process_record_missing",
+    "indexRepair": {
+      "attempted": true,
+      "indexPath": "/tmp/aios-provider-live2/processes/process-index.json",
+      "indexHash": "01c4d08f4245e583071cd34f49df9da307630f77a91ce8ede093ef94cfc30dfa"
+    }
+  },
+  "analytics": {
+    "contract": "aios.operator.process_analytics.v0",
+    "generatedAt": "2026-07-11T22:22:13.494Z",
+    "summary": {
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "state": "completed",
+      "jobId": "local.cortexProviderAssist",
+      "jobHash": "f6c3e97c77a45903141ec76dad8e8e8c42e7a186ac2c99c69c31f09007de4e21",
+      "eventCount": 14,
+      "syscallCount": 5,
+      "completedSyscallCount": 5,
+      "failedSyscallCount": 0,
+      "firstEventAt": "2026-07-11T22:22:12.729Z",
+      "lastEventAt": "2026-07-11T22:22:13.489Z",
+      "durationMs": 760,
+      "terminal": true,
+      "recordPath": "/tmp/aios-provider-live2/processes/aiosproc_e79ec6bf0a3ffe48.json"
+    },
+    "counters": {
+      "lifecycleStates": {
+        "admitted": 1,
+        "completed": 1,
+        "running": 1,
+        "scheduled": 1,
+        "syscall_completed": 5,
+        "syscall_dispatched": 5
+      },
+      "syscalls": {
+        "kernel.artifact.status": 1,
+        "kernel.complete": 1,
+        "process.admit": 1,
+        "provider.compute": 1,
+        "provider.read": 1
+      }
+    },
+    "historySnapshot": {
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "jobId": "local.cortexProviderAssist",
+      "state": "completed",
+      "eventCount": 14,
+      "syscallCount": 5,
+      "firstEventAt": "2026-07-11T22:22:12.729Z",
+      "lastEventAt": "2026-07-11T22:22:13.489Z",
+      "durationMs": 760,
+      "snapshotHash": "55aab1b90dc2092096bc88940087df66e48ce61d3ac50ea5c07de11bc20ef56e"
+    },
+    "exportSummary": {
+      "format": "json",
+      "schema": "aios.operator.process_export_summary.v0",
+      "stableKey": "aiosproc_e79ec6bf0a3ffe48",
+      "columns": [
+        "processId",
+        "jobId",
+        "state",
+        "eventCount",
+        "syscallCount",
+        "durationMs",
+        "firstEventAt",
+        "lastEventAt"
+      ],
+      "row": {
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "jobId": "local.cortexProviderAssist",
+        "state": "completed",
+        "eventCount": 14,
+        "syscallCount": 5,
+        "durationMs": 760,
+        "firstEventAt": "2026-07-11T22:22:12.729Z",
+        "lastEventAt": "2026-07-11T22:22:13.489Z"
+      }
+    },
+    "timeline": [
+      {
+        "ordinal": 1,
+        "state": "admitted",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 2,
+        "state": "scheduled",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 3,
+        "state": "running",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": null,
+        "resultHash": null
+      },
+      {
+        "ordinal": 1,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "process.admit",
+        "resultHash": null
+      },
+      {
+        "ordinal": 1,
+        "state": "syscall_completed",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "process.admit",
+        "resultHash": "ccfecb5e9f96781e6808da9c01cf325a0ffba5bd4e842919b485a5808894c438"
+      },
+      {
+        "ordinal": 2,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T22:22:12.729Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "kernel.artifact.status",
+        "resultHash": null
+      },
+      {
+        "ordinal": 2,
+        "state": "syscall_completed",
+        "at": "2026-07-11T22:22:12.730Z",
+        "deltaMsFromPrevious": 1,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "kernel.artifact.status",
+        "resultHash": "adc54053674d4db936206e24a8055ff072f501540000c4d8e452388d03fdbe39"
+      },
+      {
+        "ordinal": 3,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T22:22:12.730Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "provider.read",
+        "resultHash": null
+      },
+      {
+        "ordinal": 3,
+        "state": "syscall_completed",
+        "at": "2026-07-11T22:22:13.483Z",
+        "deltaMsFromPrevious": 753,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "provider.read",
+        "resultHash": "773e95a44696a594d5bbca4eeef3e205e7ef8fc3eb4ea45549f0221bb2a8cd11"
+      },
+      {
+        "ordinal": 4,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T22:22:13.483Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "provider.compute",
+        "resultHash": null
+      },
+      {
+        "ordinal": 4,
+        "state": "syscall_completed",
+        "at": "2026-07-11T22:22:13.489Z",
+        "deltaMsFromPrevious": 6,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "provider.compute",
+        "resultHash": "fa50c157aa9e292cfd920b3741528037178fdbd9b084fc76028c1857f3eb37d3"
+      },
+      {
+        "ordinal": 5,
+        "state": "syscall_dispatched",
+        "at": "2026-07-11T22:22:13.489Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "kernel.complete",
+        "resultHash": null
+      },
+      {
+        "ordinal": 5,
+        "state": "syscall_completed",
+        "at": "2026-07-11T22:22:13.489Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": "kernel.complete",
+        "resultHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+      },
+      {
+        "ordinal": 14,
+        "state": "completed",
+        "at": "2026-07-11T22:22:13.489Z",
+        "deltaMsFromPrevious": 0,
+        "processId": "aiosproc_e79ec6bf0a3ffe48",
+        "syscall": null,
+        "resultHash": null
+      }
+    ]
+  },
+  "processIndex": {
+    "path": "/tmp/aios-provider-live2/processes/process-index.json",
+    "hash": "01c4d08f4245e583071cd34f49df9da307630f77a91ce8ede093ef94cfc30dfa",
+    "processCount": 1,
+    "updatedProcessId": "aiosproc_e79ec6bf0a3ffe48"
+  },
+  "lifecycle": [
+    {
+      "ordinal": 1,
+      "state": "admitted",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "jobId": "local.cortexProviderAssist",
+      "jobHash": "f6c3e97c77a45903141ec76dad8e8e8c42e7a186ac2c99c69c31f09007de4e21",
+      "requestId": "aiosreq_bc4f4bffdf6e53fd",
+      "admission": "aios.kernel.process_table.v0"
+    },
+    {
+      "ordinal": 2,
+      "state": "scheduled",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "scheduler": "aios.kernel.scheduler.v0"
+    },
+    {
+      "ordinal": 3,
+      "state": "running",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscallCount": 5
+    },
+    {
+      "ordinal": 1,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "process.admit"
+    },
+    {
+      "ordinal": 1,
+      "state": "syscall_completed",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "process.admit",
+      "resultHash": "ccfecb5e9f96781e6808da9c01cf325a0ffba5bd4e842919b485a5808894c438"
+    },
+    {
+      "ordinal": 2,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T22:22:12.729Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "kernel.artifact.status"
+    },
+    {
+      "ordinal": 2,
+      "state": "syscall_completed",
+      "at": "2026-07-11T22:22:12.730Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "kernel.artifact.status",
+      "resultHash": "adc54053674d4db936206e24a8055ff072f501540000c4d8e452388d03fdbe39"
+    },
+    {
+      "ordinal": 3,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T22:22:12.730Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "provider.read"
+    },
+    {
+      "ordinal": 3,
+      "state": "syscall_completed",
+      "at": "2026-07-11T22:22:13.483Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "provider.read",
+      "resultHash": "773e95a44696a594d5bbca4eeef3e205e7ef8fc3eb4ea45549f0221bb2a8cd11"
+    },
+    {
+      "ordinal": 4,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T22:22:13.483Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "provider.compute"
+    },
+    {
+      "ordinal": 4,
+      "state": "syscall_completed",
+      "at": "2026-07-11T22:22:13.489Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "provider.compute",
+      "resultHash": "fa50c157aa9e292cfd920b3741528037178fdbd9b084fc76028c1857f3eb37d3"
+    },
+    {
+      "ordinal": 5,
+      "state": "syscall_dispatched",
+      "at": "2026-07-11T22:22:13.489Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "kernel.complete"
+    },
+    {
+      "ordinal": 5,
+      "state": "syscall_completed",
+      "at": "2026-07-11T22:22:13.489Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "syscall": "kernel.complete",
+      "resultHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+    },
+    {
+      "ordinal": 14,
+      "state": "completed",
+      "at": "2026-07-11T22:22:13.489Z",
+      "processId": "aiosproc_e79ec6bf0a3ffe48",
+      "completedSyscalls": 5
+    }
+  ],
+  "syscallResults": [
+    {
+      "ordinal": 1,
+      "op": "process.admit",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "5c2b501ddb56b32c738778b816e2987d6c4f0b50d1b0a13e7a3684995557bc46",
+      "output": {
+        "admitted": "aiosproc_e79ec6bf0a3ffe48",
+        "jobId": "local.cortexProviderAssist"
+      },
+      "outputHash": "ccfecb5e9f96781e6808da9c01cf325a0ffba5bd4e842919b485a5808894c438"
+    },
+    {
+      "ordinal": 2,
+      "op": "kernel.artifact.status",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "output": {
+        "artifactRoot": "/tmp/aios-provider-live2",
+        "observedAt": "2026-07-11T22:22:12.730Z",
+        "bootOk": true,
+        "priorRunOk": false,
+        "verifierOk": false,
+        "claimStatus": null,
+        "processCount": 0
+      },
+      "outputHash": "adc54053674d4db936206e24a8055ff072f501540000c4d8e452388d03fdbe39"
+    },
+    {
+      "ordinal": 3,
+      "op": "provider.read",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "223c931b7a66676ff09c67e8713c61326a785621610f5b52ed20ca5ac58d0413",
+      "output": {
+        "provider": "cortex",
+        "operation": "read",
+        "capability": "provider.cortex.read",
+        "resultPath": "/tmp/aios-provider-live2/provider-results/aiosproc_e79ec6bf0a3ffe48/003-read.json",
+        "resultHash": "9c04a00f8f1773bf417d44909fe0ecbb993ea93f82edd54f6e9c674fbee94580",
+        "responseStatus": 200,
+        "responseBytes": 4627,
+        "outputBoundary": "internal-artifact-only",
+        "externalWrites": false
+      },
+      "outputHash": "773e95a44696a594d5bbca4eeef3e205e7ef8fc3eb4ea45549f0221bb2a8cd11"
+    },
+    {
+      "ordinal": 4,
+      "op": "provider.compute",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "b802ee083008cfbb0664bcd2d7fd03dfcdcd84e18ebb391c0f0f5c2368737412",
+      "output": {
+        "provider": "cortex",
+        "operation": "compute",
+        "capability": "provider.cortex.compute",
+        "resultPath": "/tmp/aios-provider-live2/provider-results/aiosproc_e79ec6bf0a3ffe48/004-compute.json",
+        "resultHash": "8b1d2173525375bebf0ccc4e99687a5d7d56244c94659f3b6370a2422c7c3638",
+        "responseStatus": 200,
+        "responseBytes": 2664,
+        "outputBoundary": "internal-artifact-only",
+        "externalWrites": false
+      },
+      "outputHash": "fa50c157aa9e292cfd920b3741528037178fdbd9b084fc76028c1857f3eb37d3"
+    },
+    {
+      "ordinal": 5,
+      "op": "kernel.complete",
+      "mediatedBy": "aios.kernel.syscall.v0",
+      "ok": true,
+      "argsHash": "da24bbf543925c0309d1fed442ae861ad84b6511d74ae1efe8d3593215cd3c0c",
+      "output": {
+        "completion": "completed"
+      },
+      "outputHash": "f6f51064a8294320ec621ef4d6e57ba591a4c8a49a4b930508d9a2e6dd356aa1"
+    }
+  ],
+  "proofHash": "294cc794a6b6607e50bdb3b435ebfe7f1f28b2d52be1ccc37b2d288ba3e4427a",
+  "proofPath": "/tmp/aios-provider-live2/packets/run-proof.packet.json"
+}

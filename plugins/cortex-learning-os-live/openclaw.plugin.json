@@ -1,0 +1,56 @@
+{
+  "id": "cortex-learning-os-live",
+  "name": "Cortex Learning OS Live",
+  "description": "Injects bounded signed Cortex Learning OS guidance, including the canonical 264-concept PhD mathematics transfer catalog, into applicable live prompts.",
+  "kind": "utility",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "mode": { "type": "string", "enum": ["active", "shadow"] },
+      "killSwitch": { "type": "boolean" },
+      "registryPath": { "type": "string", "minLength": 1 },
+      "registryHmacSecretPath": { "type": "string", "minLength": 1 },
+      "telemetryPath": { "type": "string", "minLength": 1 },
+      "maxLessons": { "type": "number", "minimum": 1, "maximum": 8 },
+      "maxContextChars": { "type": "number", "minimum": 512, "maximum": 8000 },
+      "telemetryMaxRecords": { "type": "number", "minimum": 10, "maximum": 10000 },
+      "transferEnabled": { "type": "boolean", "default": true },
+      "transferMode": { "type": "string", "enum": ["active", "shadow"], "default": "active" },
+      "transferKillSwitch": { "type": "boolean", "default": false },
+      "transferRegistryPath": { "type": "string", "minLength": 1 },
+      "transferRegistryHmacSecretPath": { "type": "string", "minLength": 1 },
+      "transferTelemetryPath": { "type": "string", "minLength": 1 },
+      "transferTelemetryMaxRecords": { "type": "number", "minimum": 10, "maximum": 10000, "default": 1000 },
+      "transferMaxContextChars": { "type": "number", "minimum": 1024, "maximum": 12000, "default": 8000 },
+      "allowedAgentIds": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": { "label": "Enable Cortex Learning OS live retrieval" },
+    "mode": { "label": "Learning OS retrieval mode", "advanced": true },
+    "killSwitch": { "label": "Learning OS answer-path kill switch", "advanced": true },
+    "registryPath": { "label": "Signed live lesson registry path", "advanced": true },
+    "registryHmacSecretPath": { "label": "Registry HMAC secret path", "sensitive": true, "advanced": true },
+    "telemetryPath": { "label": "Content-free learning telemetry path", "advanced": true },
+    "maxLessons": { "label": "Maximum lessons per prompt", "advanced": true },
+    "maxContextChars": { "label": "Maximum learning context characters", "advanced": true },
+    "telemetryMaxRecords": { "label": "Maximum telemetry records", "advanced": true },
+    "transferEnabled": { "label": "Enable coding-transfer observer", "advanced": true },
+    "transferMode": { "label": "Coding-transfer mode", "advanced": true },
+    "transferKillSwitch": { "label": "Coding-transfer answer-path kill switch", "advanced": true },
+    "transferRegistryPath": { "label": "Signed transfer registry path", "advanced": true },
+    "transferRegistryHmacSecretPath": { "label": "Transfer registry HMAC secret path", "sensitive": true, "advanced": true },
+    "transferTelemetryPath": { "label": "Content-free transfer telemetry path", "advanced": true },
+    "transferTelemetryMaxRecords": { "label": "Maximum transfer telemetry records", "advanced": true },
+    "transferMaxContextChars": { "label": "Maximum transfer context characters", "advanced": true },
+    "allowedAgentIds": { "label": "Agents allowed to receive learning context", "advanced": true }
+  }
+}

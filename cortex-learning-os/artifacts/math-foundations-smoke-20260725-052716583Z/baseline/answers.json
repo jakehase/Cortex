@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "cortex.learning_os.answer_set.v0",
+  "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+  "answers": [
+    {
+      "itemId": "mfc-01",
+      "answer": "426763565"
+    },
+    {
+      "itemId": "mfc-02",
+      "answer": "6975757441"
+    },
+    {
+      "itemId": "mfc-03",
+      "answer": "15890700"
+    },
+    {
+      "itemId": "mfc-04",
+      "answer": "143450"
+    },
+    {
+      "itemId": "mfc-05",
+      "answer": "171"
+    },
+    {
+      "itemId": "mfc-06",
+      "answer": "49"
+    },
+    {
+      "itemId": "mfc-07",
+      "answer": "7679/9269"
+    },
+    {
+      "itemId": "mfc-08",
+      "answer": "33250/18241"
+    },
+    {
+      "itemId": "mfc-09",
+      "answer": "5580127"
+    },
+    {
+      "itemId": "mfc-10",
+      "answer": "3678090"
+    },
+    {
+      "itemId": "mfc-11",
+      "answer": "27720"
+    },
+    {
+      "itemId": "mfc-12",
+      "answer": "12"
+    },
+    {
+      "itemId": "mfc-13",
+      "answer": "71"
+    },
+    {
+      "itemId": "mfc-14",
+      "answer": "5/33"
+    },
+    {
+      "itemId": "mfc-15",
+      "answer": "1334961"
+    },
+    {
+      "itemId": "mfc-16",
+      "answer": "18"
+    },
+    {
+      "itemId": "mfc-17",
+      "answer": "119/24"
+    },
+    {
+      "itemId": "mfc-18",
+      "answer": "20312/49"
+    },
+    {
+      "itemId": "mfc-19",
+      "answer": "250"
+    },
+    {
+      "itemId": "mfc-20",
+      "answer": "14.7786"
+    }
+  ],
+  "answerSource": {
+    "kind": "openclaw_agent",
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+    "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+    "usage": {
+      "input": 22951,
+      "output": 1766,
+      "total": 24717
+    }
+  },
+  "evidenceRole": "baseline",
+  "toolsUsed": [],
+  "startedAt": "2026-07-25T05:27:16.584Z",
+  "completedAt": "2026-07-25T05:28:02.629Z"
+}

@@ -1,0 +1,307 @@
+{
+  "schemaVersion": "claw.agent_work_graph.v0",
+  "generatedAt": "2026-07-02T03:01:12.801Z",
+  "targetPath": "/root/clawd/ai-os",
+  "policies": {
+    "budgets": {},
+    "wavePolicy": {
+      "max_waves": 2,
+      "bundle_size": 1,
+      "full_context_waves": 0,
+      "handoff": "wave_factpack"
+    },
+    "expansionPolicy": {
+      "triggers": [
+        "failed_surfaces",
+        "objective_red"
+      ],
+      "max_cycles": 1,
+      "max_surfaces": 8,
+      "strategy": "repair_failed_surfaces"
+    },
+    "evidenceSchemas": [],
+    "aiOs": {
+      "schemaVersion": "aios.agent_work_language_profile.v0.1",
+      "enabled": true,
+      "sourcePlanPath": "/root/clawd/ai-os/plan.md",
+      "milestone": "failed_surface_repair",
+      "kernelMode": "hosted_linux",
+      "owner": "Jake",
+      "processModel": [
+        "job",
+        "process",
+        "thread",
+        "owner",
+        "exit_contract"
+      ],
+      "syscalls": [
+        "fs.read",
+        "fs.write",
+        "shell.exec",
+        "git.diff",
+        "memory.search",
+        "memory.write",
+        "verifier.run",
+        "claim.submit",
+        "audit.write"
+      ],
+      "memoryMounts": [
+        "project_memory",
+        "structural_memory",
+        "episodic_log",
+        "artifact_store"
+      ],
+      "capabilityPolicy": {
+        "defaultDenyExternalWrites": true,
+        "requireApprovalFor": [
+          "external.write",
+          "deploy",
+          "destructive.action",
+          "privileged.kernel.change"
+        ]
+      },
+      "evidenceArtifacts": [
+        "repair_wave_summary.json",
+        "process_lifecycle.json",
+        "capability_audit.json",
+        "syscall_audit.json",
+        "claim_gate.json",
+        "artifact_bundle_manifest.json"
+      ],
+      "evidenceEnforcement": "deferred_boot_claim",
+      "bootCommands": [
+        "node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest"
+      ],
+      "claimGate": "verifier_green_required",
+      "truthBoundary": "Failed-surface repair for hosted AI OS v0.1 only; do not claim native OS, production readiness, or boot-proof green unless the repair wave threshold passes.",
+      "reusePrimitives": [],
+      "packageModel": [],
+      "filesystemLayout": [],
+      "metadata": {
+        "physical_wave_width": 8,
+        "standard_heavy_wave_agent_count": 45,
+        "active_codex_call_cap": 8,
+        "global_call_budget": 8
+      }
+    }
+  },
+  "templates": [],
+  "workUnits": [
+    {
+      "id": "operator_cli_boot",
+      "title": "operator_cli_boot",
+      "goal": "Repair the failed hosted boot command surface from run-20260702T003648Z: make boot orchestration, artifact-root initialization, and boot proof handoff syntactically valid and verifier-friendly.",
+      "lane": "operator_userland",
+      "domain": "operator_cli_boot",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "surfaceIds": [
+        "operator_cli_boot"
+      ],
+      "requiredVerifiers": [
+        "operator_cli_boot__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_lease_manager",
+      "title": "scheduler_lease_manager",
+      "goal": "Repair the failed lease manager surface from run-20260702T003648Z: worker leases, renewal, stale lease detection, and recovery-safe ownership contracts.",
+      "lane": "scheduler",
+      "domain": "scheduler_lease_manager",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "surfaceIds": [
+        "scheduler_lease_manager"
+      ],
+      "requiredVerifiers": [
+        "scheduler_lease_manager__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_claim_evidence_link",
+      "title": "artifact_claim_evidence_link",
+      "goal": "Repair the failed claim-to-evidence linking surface from run-20260702T003648Z so claims can trace required proof artifacts.",
+      "lane": "artifact_filesystem",
+      "domain": "artifact_claim_evidence_link",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "surfaceIds": [
+        "artifact_claim_evidence_link"
+      ],
+      "requiredVerifiers": [
+        "artifact_claim_evidence_link__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_mount",
+      "title": "memory_mount",
+      "goal": "Repair the failed memory mount descriptor surface from run-20260702T003648Z for project, structural, episodic, artifact, and volatile memory mounts.",
+      "lane": "memory_manager",
+      "domain": "memory_mount",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "surfaceIds": [
+        "memory_mount"
+      ],
+      "requiredVerifiers": [
+        "memory_mount__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_external_write_guard",
+      "title": "capability_external_write_guard",
+      "goal": "Repair the failed external-write guard surface from run-20260702T003648Z with explicit approval and draft-vs-send boundaries.",
+      "lane": "capability_security",
+      "domain": "capability_external_write_guard",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "surfaceIds": [
+        "capability_external_write_guard"
+      ],
+      "requiredVerifiers": [
+        "capability_external_write_guard__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_rate_limit",
+      "title": "capability_rate_limit",
+      "goal": "Repair the failed capability-aware rate limit surface from run-20260702T003648Z for model calls, external systems, and operator interrupts.",
+      "lane": "capability_security",
+      "domain": "capability_rate_limit",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "surfaceIds": [
+        "capability_rate_limit"
+      ],
+      "requiredVerifiers": [
+        "capability_rate_limit__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_fs_read",
+      "title": "syscall_fs_read",
+      "goal": "Repair the failed fs.read syscall surface from run-20260702T003648Z with scope checks, path policy, and audit output.",
+      "lane": "syscall_layer",
+      "domain": "syscall_fs_read",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "surfaceIds": [
+        "syscall_fs_read"
+      ],
+      "requiredVerifiers": [
+        "syscall_fs_read__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "claim_allowance",
+      "title": "claim_allowance",
+      "goal": "Repair the failed claim allowance surface from run-20260702T003648Z requiring verifier evidence, truth boundary, and contradiction checks.",
+      "lane": "verifier_claim_gate",
+      "domain": "claim_allowance",
+      "deps": [],
+      "fileAreas": [
+        "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "allowedFiles": [
+        "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "surfaceIds": [
+        "claim_allowance"
+      ],
+      "requiredVerifiers": [
+        "claim_allowance__verify_1"
+      ],
+      "acceptanceChecks": [
+        "Verifier passes: node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    }
+  ]
+}

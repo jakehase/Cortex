@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r7.step6.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step6/adaptive_effort_probe_latest.json"
+  ],
+  "gates": {
+    "successRateGte": 0.92,
+    "guardrailsRequired": true,
+    "modeRequired": true
+  }
+}

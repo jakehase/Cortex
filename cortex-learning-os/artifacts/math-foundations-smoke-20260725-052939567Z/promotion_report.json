@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "cortex.learning_os.promotion_report.v0",
+  "candidateId": "candidate_b47c4724ecde7ef6",
+  "capsuleId": "math-foundations-v0",
+  "evaluatedAt": "2026-07-25T05:31:38.879Z",
+  "promoted": true,
+  "gates": {
+    "schemasValid": true,
+    "enoughEvidence": true,
+    "distinctExamCoverage": true,
+    "sourceExamsActive": true,
+    "verifiersPassed": true,
+    "negativeExampleDocumented": true,
+    "contraindicationDocumented": true,
+    "requiredRetestPassed": true,
+    "contradictionFree": true,
+    "capsuleAllowsPromotion": true
+  },
+  "thresholds": {
+    "minEvidence": 2,
+    "minDistinctExams": 2,
+    "minScore": 1
+  },
+  "evidenceIds": [
+    "verify_940d16b4527d0669",
+    "verify_d35116c39277cbab"
+  ],
+  "sourceExamIds": [
+    "math-foundations-correction-v0",
+    "math-foundations-promotion-retest-v0"
+  ],
+  "coveredSourceExamIds": [
+    "math-foundations-correction-v0",
+    "math-foundations-promotion-retest-v0"
+  ],
+  "requiredRetestIds": [
+    "mfs-02-promotion-retest"
+  ],
+  "validationErrors": [],
+  "truthBoundary": "Promotion proves only that this lesson met the declared evidence gates; it is scoped, expiring, and does not imply domain mastery.",
+  "digest": "b23e7f7130be75d85c31bd154e00747acbd2e7860577dcb69e9589537b9a1d5c"
+}

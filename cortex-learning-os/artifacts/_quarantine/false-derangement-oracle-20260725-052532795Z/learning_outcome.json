@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "cortex.learning_os.learning_outcome.v0",
+  "generatedAt": "2026-07-25T05:26:17.350Z",
+  "status": "blocked_correction_failed",
+  "reason": "The correction item did not pass, so lesson promotion stopped.",
+  "learningLoopCompleted": false,
+  "improvementObserved": false,
+  "conceptId": "probability-combinatorics",
+  "baselineFailureItemId": "mfc-15",
+  "heldoutRetestItemId": null,
+  "promotionDigest": null,
+  "truthBoundary": "Improvement means one failed baseline concept was later passed on a different held-out item after a gated retrieval pack. It does not prove broad or durable math improvement."
+}

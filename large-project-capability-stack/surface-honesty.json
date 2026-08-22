@@ -1,0 +1,624 @@
+{
+  "version": 1,
+  "surfaces": {
+    "apps/system-benchmark/init-transfer-benchmark.mjs": {
+      "label": "PMHNP transfer benchmark preset bootstrapper",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/live-transfer-verifier.mjs": {
+      "label": "Transfer benchmark live verifier wrapper",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs": {
+      "label": "Transfer orchestrator benchmark runner",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test",
+          "tests/system-benchmark.test.mjs",
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/orchestrator-run-state.test.mjs"
+        ]
+      },
+      "notes": "Runs live transfer/orchestrator benchmarks, writes selected-run landing_evidence.json, scheduler_truth.json, run_state_truth.json, and blocks fake-green/scale-credit contradictions."
+    },
+    "packages/multi-agent-orchestrator/index.mjs": {
+      "label": "Multi-agent orchestrator supervisor and live worker farm",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test",
+          "tests/proof-carrying-claim-ledger.test.mjs",
+          "tests/canonical-landing-evidence.test.mjs",
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs"
+        ]
+      },
+      "notes": "Includes hierarchical planning, patch admission, supervisor snapshots, proof-carrying claim ledger integration, canonical landing evidence, and scheduler/concurrency truth artifacts for selected-run scale credit."
+    },
+    "apps/system-benchmark/verify-pmhnp-functional-scenario.mjs": {
+      "label": "PMHNP functional scenario endurance verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/system-benchmark/index.mjs": {
+      "label": "System benchmark duration and autonomy helpers",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/notifier.mjs": {
+      "label": "Apps Campaign Demo Notifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/supervisor.mjs": {
+      "label": "Apps Campaign Demo Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/worker.mjs": {
+      "label": "Apps Campaign Demo Worker",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/code-value-audit/run.mjs": {
+      "label": "Apps Code Value Audit Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/notify-once.mjs": {
+      "label": "Apps Full Clone Path Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/plan.mjs": {
+      "label": "Apps Full Clone Path Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/run.mjs": {
+      "label": "Apps Full Clone Path Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/supervisor.mjs": {
+      "label": "Apps Full Clone Path Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/watch.mjs": {
+      "label": "Apps Full Clone Path Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/fixture-verifier.mjs": {
+      "label": "Apps Orchestrator Qualification Fixture Verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/fixture-workspace.mjs": {
+      "label": "Apps Orchestrator Qualification Fixture Workspace",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/notify-once.mjs": {
+      "label": "Apps Orchestrator Qualification Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/plan.mjs": {
+      "label": "Apps Orchestrator Qualification Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/run.mjs": {
+      "label": "Apps Orchestrator Qualification Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/supervisor.mjs": {
+      "label": "Apps Orchestrator Qualification Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/watch.mjs": {
+      "label": "Apps Orchestrator Qualification Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/notify-once.mjs": {
+      "label": "Apps Qualification Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/plan.mjs": {
+      "label": "Apps Qualification Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/run.mjs": {
+      "label": "Apps Qualification Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/supervisor.mjs": {
+      "label": "Apps Qualification Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/watch.mjs": {
+      "label": "Apps Qualification Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/stack-cli.mjs": {
+      "label": "Apps Stack Cli",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/live-transfer-worker.mjs": {
+      "label": "Apps System Benchmark Live Transfer Worker",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/pmhnp-tier2-scenarios.mjs": {
+      "label": "Apps System Benchmark Pmhnp Tier2 Scenarios",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/render-ground-truth.mjs": {
+      "label": "Apps System Benchmark Render Ground Truth",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run-transfer-benchmark.mjs": {
+      "label": "Apps System Benchmark Run Transfer Benchmark",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run.mjs": {
+      "label": "Apps System Benchmark Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/update-scoreboard.mjs": {
+      "label": "Apps System Benchmark Update Scoreboard",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/verify-module-load.mjs": {
+      "label": "Apps System Benchmark Verify Module Load",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/verify-pmhnp-functional-catalog.mjs": {
+      "label": "Apps System Benchmark Verify Pmhnp Functional Catalog",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/campaign-runtime/index.mjs": {
+      "label": "Campaign runtime terminal-state persistence and continuation semantics",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-runtime.test.mjs",
+          "tests/orchestrator-run-state.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Process termination persistence now writes durable program_state/run_state_truth/blocker artifacts on signal, uncaught exception, and unhandled rejection payloads while preserving existing persist callbacks."
+    },
+    "packages/certification/index.mjs": {
+      "label": "Packages Certification Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/claim-integrity/index.mjs": {
+      "label": "Packages Claim Integrity Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/code-value-audit/index.mjs": {
+      "label": "Packages Code Value Audit Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/catalogs.mjs": {
+      "label": "Packages Full Clone Path Catalogs",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/evidence.mjs": {
+      "label": "Packages Full Clone Path Evidence",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/gap-analysis.mjs": {
+      "label": "Packages Full Clone Path Gap Analysis",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/index.mjs": {
+      "label": "Packages Full Clone Path Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/roadmap.mjs": {
+      "label": "Packages Full Clone Path Roadmap",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/thresholds.mjs": {
+      "label": "Packages Full Clone Path Thresholds",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/trajectory.mjs": {
+      "label": "Packages Full Clone Path Trajectory",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/issue-dag/index.mjs": {
+      "label": "Packages Issue Dag Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/parity-harness/index.mjs": {
+      "label": "Packages Parity Harness Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/recovery-ledger/index.mjs": {
+      "label": "Packages Recovery Ledger Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/surface-matrix/index.mjs": {
+      "label": "Packages Surface Matrix Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/task-contract/index.mjs": {
+      "label": "Packages Task Contract Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/proof-carrying-claim-ledger/index.mjs": {
+      "label": "Proof-carrying claim ledger and adversarial verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/proof-carrying-claim-ledger.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared orchestrator primitive that converts patch credit into claim/evidence/challenge/survival records before completion credit."
+    },
+    "packages/canonical-landing-evidence/index.mjs": {
+      "label": "Canonical selected-run landing evidence and product-diff accounting",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/canonical-landing-evidence.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared orchestration primitive that records clean baselines, verifies claimed product patches changed the canonical checkout, computes unique added-line/duplicate-line stats, and produces selected-run landing evidence so cumulative dirty overlays cannot receive selected-run credit."
+    },
+    "packages/objective-surface-decomposer/index.mjs": {
+      "label": "Generic objective-to-surface decomposition and repository survey",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/objective-surface-decomposer.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared planner primitive that surveys a repo, inventories runtime roles, names negative space, builds objective surface graphs/matrices/work graphs, and honestly blocks when requested agent tier exceeds schedulable low-overlap surfaces."
+    },
+    "apps/system-benchmark/build-objective-surface-decomposition.mjs": {
+      "label": "Objective surface decomposition artifact builder",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/objective-surface-decomposer.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "CLI writes repo_survey, surface_inventory, negative_space_inventory, surface_matrix, work_graph, report, summary, and blocker_report when a generic objective lacks enough independent surfaces."
+    },
+    "packages/orchestrator-scheduler-truth/index.mjs": {
+      "label": "Observed scheduler/concurrency truth and anti-fake-scale gate",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared scheduler truth primitive that records lane/file ownership, dependency readiness, verifier cost, collision risk, observed peak concurrency, unique agents, active worker minutes, idle gaps, assignment latency, and scale-credit eligibility requiring productive landed merges when configured."
+    },
+    "packages/orchestrator-run-state/index.mjs": {
+      "label": "Shared orchestrator run-state reducer and terminal truth semantics",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/orchestrator-run-state.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Central run-state reducer for local/remote/worker/sync/supervisor/terminalizer truth, explicit terminal states, contradiction detection, continuation decisions, and durable terminal artifact writes."
+    }
+  },
+  "policy": {
+    "changedProductFilesMustBeDeclared": true,
+    "allowedChangedStatuses": [
+      "real"
+    ],
+    "requireEvidenceTests": true,
+    "bannedPlaceholderLanguage": [
+      "coming soon",
+      "placeholder",
+      "stub",
+      "mock",
+      "fake",
+      "simulated",
+      "TODO"
+    ],
+    "bootstrapStatus": "declare_me"
+  }
+}

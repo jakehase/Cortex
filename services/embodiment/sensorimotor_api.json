@@ -1,0 +1,23 @@
+{
+  "version": "cortex.embodiment.sensorimotor.v1",
+  "observation": {
+    "fields": [
+      {"name": "position", "type": "number", "range": [-10.0, 10.0]},
+      {"name": "velocity", "type": "number", "range": [-3.0, 3.0]},
+      {"name": "goal", "type": "number", "range": [-10.0, 10.0]},
+      {"name": "hazard", "type": "number", "range": [0.0, 1.0]},
+      {"name": "intervention_active", "type": "boolean"}
+    ]
+  },
+  "action": {
+    "fields": [
+      {"name": "throttle", "type": "number", "range": [-1.0, 1.0]}
+    ]
+  },
+  "safety": {
+    "max_abs_action": 1.0,
+    "hazard_intervention_threshold": 0.82,
+    "goal_tolerance": 0.35,
+    "watchdog_step_limit": 40
+  }
+}

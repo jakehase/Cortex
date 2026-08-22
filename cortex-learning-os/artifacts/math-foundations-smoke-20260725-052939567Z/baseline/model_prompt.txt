@@ -1,0 +1,12 @@
+You are taking a bounded, recorded math exam for Cortex Learning OS.
+
+Answer independently without tools. Return only valid JSON with shape {"answers":[{"itemId":"...","answer":"..."}]}.
+
+Give exactly one answer for every item. Do not include reasoning, markdown, commentary, or confidence.
+
+No learning context is supplied for this baseline run.
+
+Exam title: Math Foundations Exact Arithmetic Stress v0
+
+Items:
+[{"itemId":"mfs-01","prompt":"Compute exactly: 242,316,285,447 × 596,068,972.","answerFormat":"integer"},{"itemId":"mfs-02","prompt":"Compute exactly: 1,182,229,432,199 × 741,852,512.","answerFormat":"integer"},{"itemId":"mfs-03","prompt":"Compute exactly: 7,690,311,723,302 × 355,191,812.","answerFormat":"integer"},{"itemId":"mfs-04","prompt":"Compute exactly: 7,382,714,949,603 × 745,249,186.","answerFormat":"integer"},{"itemId":"mfs-05","prompt":"Compute exactly: 2,655,518,242,738 × 277,611,210.","answerFormat":"integer"},{"itemId":"mfs-06","prompt":"Compute exactly: 9,685,045,517,117 × 786,471,692.","answerFormat":"integer"},{"itemId":"mfs-07","prompt":"Compute exactly: 7,840,172,424,950 × 885,874,028.","answerFormat":"integer"},{"itemId":"mfs-08","prompt":"Compute exactly: 7,560,680,515,939 × 97,742,098.","answerFormat":"integer"},{"itemId":"mfs-09","prompt":"Compute exactly: 6,866,999,326,283 × 908,222,184.","answerFormat":"integer"},{"itemId":"mfs-10","prompt":"Compute exactly: 1,772,687,138,401 × 820,949,447.","answerFormat":"integer"},{"itemId":"mfs-11","prompt":"Compute exactly: 1,164,157,481,578 × 114,728,707.","answerFormat":"integer"},{"itemId":"mfs-12","prompt":"Compute exactly: 8,970,038,320,747 × 693,178,913.","answerFormat":"integer"},{"itemId":"mfs-13","prompt":"Compute exactly: 5,030,228,617,897 × 466,535,678.","answerFormat":"integer"},{"itemId":"mfs-14","prompt":"Compute exactly: 3,313,713,214,306 × 142,675,959.","answerFormat":"integer"},{"itemId":"mfs-15","prompt":"Compute exactly: 9,418,628,209,055 × 928,593,464.","answerFormat":"integer"},{"itemId":"mfs-16","prompt":"Compute exactly: 5,123,138,617,840 × 642,612,690.","answerFormat":"integer"},{"itemId":"mfs-17","prompt":"Compute exactly: 7,376,146,528,754 × 999,281,330.","answerFormat":"integer"},{"itemId":"mfs-18","prompt":"Compute exactly: 2,998,969,632,837 × 843,480,236.","answerFormat":"integer"},{"itemId":"mfs-19","prompt":"Compute exactly: 9,792,621,049,260 × 684,198,943.","answerFormat":"integer"},{"itemId":"mfs-20","prompt":"Compute exactly: 2,806,556,040,709 × 248,752,473.","answerFormat":"integer"}]

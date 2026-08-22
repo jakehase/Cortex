@@ -1,0 +1,156 @@
+{
+  "schemaVersion": "cortex.learning_os.continuous_math_expansion_surface.v1",
+  "expansionId": "continuous-math-expansion-wave1-v1",
+  "curriculumId": "math-phd-trajectory-v1",
+  "sourceVersion": "1.0.0",
+  "targetVersion": "1.1.0",
+  "preservedConceptCount": 264,
+  "addedConceptCount": 24,
+  "selectionPolicy": {
+    "boundedWaveSize": 24,
+    "trackCount": 6,
+    "conceptsPerTrack": 4,
+    "priority": [
+      "genuine negative space in the existing graph",
+      "trusted graduate-level source coverage",
+      "clear prerequisite placement into already acquired concepts",
+      "balance between everyday applied utility and theoretical breadth",
+      "deterministically assessable bounded outcomes"
+    ],
+    "nonGoals": [
+      "claiming the added concepts are acquired",
+      "changing prior acquisition evidence",
+      "retroactively expanding required PhD-qualification gates",
+      "activating new transfer profiles before evidence exists",
+      "copying source problem sets or answer keys"
+    ]
+  },
+  "sources": [
+    {
+      "sourceId": "msc2020",
+      "title": "2020 Mathematics Subject Classification",
+      "publisher": "Mathematical Reviews and zbMATH",
+      "url": "https://mathscinet.ams.org/mathscinet/msc/msc2020.html",
+      "observedScope": "Current cross-field mathematics classification jointly maintained by MR and zbMATH.",
+      "use": "negative-space taxonomy and subject-family naming only"
+    },
+    {
+      "sourceId": "mit-6-441-information-theory",
+      "title": "MIT 6.441 Information Theory",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/6-441-information-theory-spring-2016/",
+      "observedScope": "Graduate entropy, lossless compression, hypothesis testing, channel coding, and lossy compression.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "mit-6-245-control",
+      "title": "MIT 6.245 Multivariable Control Systems",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/",
+      "observedScope": "Graduate multivariable feedback, robustness, model-based compensators, and linear-quadratic control.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "mit-6-231-stochastic-control",
+      "title": "MIT 6.231 Dynamic Programming and Stochastic Control",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/6-231-dynamic-programming-and-stochastic-control-fall-2015/",
+      "observedScope": "Sequential decision making under uncertainty over finite and infinite horizons.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "mit-18-657-math-ml",
+      "title": "MIT 18.657 Mathematics of Machine Learning",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/18-657-mathematics-of-machine-learning-fall-2015/",
+      "observedScope": "Mathematically rigorous statistical and algorithmic foundations of machine learning.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "blei-variational-inference",
+      "title": "Variational Inference: A Review for Statisticians",
+      "publisher": "Journal of the American Statistical Association / arXiv",
+      "url": "https://arxiv.org/abs/1601.00670",
+      "observedScope": "KL-based variational approximation, evidence bounds, coordinate updates, and stochastic scaling.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "peyre-cuturi-optimal-transport",
+      "title": "Computational Optimal Transport",
+      "publisher": "Foundations and Trends in Machine Learning / arXiv",
+      "url": "https://arxiv.org/abs/1803.00567",
+      "observedScope": "Optimal-transport couplings, costs, scalable regularized solvers, and data-science applications.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "boyd-vandenberghe-convex",
+      "title": "Convex Optimization",
+      "publisher": "Cambridge University Press; author-hosted web edition",
+      "url": "https://web.stanford.edu/~boyd/cvxbook/",
+      "observedScope": "Convex duality, conic formulations, algorithms, and applied examples with openly available text and slides.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "mit-18-725-algebraic-geometry",
+      "title": "MIT 18.725 Algebraic Geometry",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/18-725-algebraic-geometry-fall-2015/",
+      "observedScope": "Graduate modern algebraic geometry, including algebraic varieties and their algebraic-geometric relations.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    },
+    {
+      "sourceId": "mit-18-706-noncommutative-algebra",
+      "title": "MIT 18.706 Noncommutative Algebra",
+      "publisher": "MIT OpenCourseWare",
+      "url": "https://ocw.mit.edu/courses/18-706-noncommutative-algebra-spring-2023/",
+      "observedScope": "Graduate noncommutative algebra and its links to matrices, quantum physics, number theory, and noncommutative geometry.",
+      "use": "topic and outcome grounding; no copied assessment content"
+    }
+  ],
+  "tracks": [
+    {
+      "trackId": "information-theory",
+      "sourceIds": ["msc2020", "mit-6-441-information-theory"],
+      "conceptIds": ["information-theory-entropy-divergence", "information-theory-source-coding", "information-theory-channel-capacity", "information-theory-rate-distortion-testing"],
+      "nearestExistingConceptIds": ["probability-conditional", "measure-theory-radon-nikodym-conditional", "statistics-hypothesis-tests"],
+      "noveltyBoundary": "The old graph contains probability and statistics prerequisites but no operational coding, channel, or rate-distortion sequence."
+    },
+    {
+      "trackId": "control-decision-systems",
+      "sourceIds": ["msc2020", "mit-6-245-control", "mit-6-231-stochastic-control"],
+      "conceptIds": ["control-state-space-reachability", "control-lqr-riccati", "control-estimation-kalman", "control-dynamic-programming-stochastic"],
+      "nearestExistingConceptIds": ["differential-equations-linear-systems", "differential-equations-stability-lyapunov", "stochastic-processes-markov-chains"],
+      "noveltyBoundary": "The old graph covers dynamical stability but not controllability, estimation, Riccati recursion, or Bellman control."
+    },
+    {
+      "trackId": "mathematical-learning-inference",
+      "sourceIds": ["msc2020", "mit-18-657-math-ml", "blei-variational-inference", "peyre-cuturi-optimal-transport"],
+      "conceptIds": ["learning-theory-risk-generalization", "learning-theory-kernels-regularization", "probabilistic-inference-variational", "optimal-transport-couplings-sinkhorn"],
+      "nearestExistingConceptIds": ["statistics-bayesian-inference", "statistics-asymptotic-empirical-processes", "functional-analysis-hilbert-riesz"],
+      "noveltyBoundary": "The old graph has statistical prerequisites but no explicit generalization, kernel, variational-inference, or optimal-transport outcomes."
+    },
+    {
+      "trackId": "advanced-convex-optimization",
+      "sourceIds": ["msc2020", "boyd-vandenberghe-convex"],
+      "conceptIds": ["optimization-conic-semidefinite", "optimization-robust-distributional", "optimization-proximal-splitting", "optimization-decomposition-distributed"],
+      "nearestExistingConceptIds": ["optimization-duality-kkt", "optimization-stochastic-large-scale", "numerical-analysis-krylov-iterations"],
+      "noveltyBoundary": "The old graph stops at KKT and stochastic large-scale methods and lacks conic, robust, proximal, and distributed formulations."
+    },
+    {
+      "trackId": "algebraic-geometry",
+      "sourceIds": ["msc2020", "mit-18-725-algebraic-geometry"],
+      "conceptIds": ["algebraic-geometry-affine-varieties", "algebraic-geometry-schemes-sheaves", "algebraic-geometry-divisors-line-bundles", "algebraic-geometry-cohomology-riemann-roch"],
+      "nearestExistingConceptIds": ["commutative-algebra-spectrum-dimension", "commutative-algebra-localization", "algebraic-topology-cohomology-cup-products"],
+      "noveltyBoundary": "The old graph has commutative algebra and topology prerequisites but no algebraic-geometry track."
+    },
+    {
+      "trackId": "operator-noncommutative-algebra",
+      "sourceIds": ["msc2020", "mit-18-706-noncommutative-algebra"],
+      "conceptIds": ["operator-theory-unbounded-spectral", "operator-algebras-cstar-gelfand", "operator-algebras-von-neumann", "noncommutative-algebra-morita"],
+      "nearestExistingConceptIds": ["functional-analysis-compact-spectral", "abstract-algebra-representation-theory", "functional-analysis-weak-topologies"],
+      "noveltyBoundary": "The old graph covers bounded spectral and representation prerequisites but not unbounded operators, C-star/von Neumann algebras, or Morita equivalence."
+    }
+  ],
+  "reviewState": "operator_approved_for_bank_commissioning_and_additive_migration",
+  "truthBoundary": "This source surface proves grounded selection, prerequisite placement, and explicit overlap analysis only. The 24 concepts remain unassessed until signed acquisition evidence is applied."
+}

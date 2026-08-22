@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "aios.language-adoption.remote-validation.v1",
+  "validatedAt": "2026-07-11T21:33:24Z",
+  "executionPlane": "jake@37.27.129.239:/home/jake/clawd-remote",
+  "sourceManifestSha256": "184a0210830aef8ce332b109454604653a8943b43fb6e62d51ae0cc1305587be",
+  "sourceManifestMatched": true,
+  "npmTest": {
+    "ok": true,
+    "languageAdoptionTests": "6/6",
+    "productHealth": true,
+    "syntaxCheckedFileCount": 262,
+    "importCheckedFileCount": 259,
+    "operatorSmoke": true,
+    "operatorSmokeClaimStatus": "allowed"
+  },
+  "dogfood": {
+    "ok": true,
+    "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+    "canonicalLanguage": "aios.language.v1",
+    "processId": "aiosproc_30e1024eb3abd135",
+    "claimStatus": "allowed",
+    "remoteArtifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+    "returnedArtifactRoot": "/root/clawd/ai-os/artifacts/language-adoption-20260711T211822Z/remote-proof"
+  },
+  "truthBoundary": "Independent remote proof for the bounded canonical AIOS compile-run production slice only; no external writes, runtime replacement, native OS readiness, or full product parity."
+}

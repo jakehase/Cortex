@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.full_parity.work_graph.v0",
+  "type": "object",
+  "required": ["schemaVersion", "objectiveId", "status", "taskCount", "tasks"],
+  "properties": {"schemaVersion": {"const": "clawd.full_parity.work_graph.v0"}, "tasks": {"type": "array"}}
+}

@@ -1,0 +1,16 @@
+{
+  "version": "cortex.runtime.r5_grounded_embodiment.v1",
+  "simulator": "services/embodiment/sim_safety_sandbox.py",
+  "runner": "services/embodiment/closed_loop_runner.py",
+  "orchestrator": "services/embodiment/episode_orchestrator.py",
+  "profiles": [
+    "contract_baseline_v2",
+    "sim2real_transfer_v1",
+    "failure_taxonomy_challenge_v1"
+  ],
+  "safety": {
+    "goal_tolerance": 0.35,
+    "hazard_intervention_threshold": 0.82,
+    "watchdog_step_limit": 40
+  }
+}

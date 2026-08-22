@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.full_parity.verifier_matrix.v0",
+  "type": "object",
+  "required": ["schemaVersion", "objectiveId", "surfaceCount", "uncoveredSurfaceIds", "rows"],
+  "properties": {"schemaVersion": {"const": "clawd.full_parity.verifier_matrix.v0"}, "rows": {"type": "array"}}
+}

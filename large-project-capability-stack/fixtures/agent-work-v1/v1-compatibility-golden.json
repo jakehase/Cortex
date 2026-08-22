@@ -1,0 +1,161 @@
+{
+  "schemaVersion": "clawd.agent_work.contract_bundle.v1",
+  "objectiveContract": {
+    "schemaVersion": "clawd.agent_work.objective_contract.v1",
+    "objectiveId": "implement_and_verify_the_agent_work_v1_contract_freeze",
+    "objective": "Implement and verify the Agent Work v1 contract freeze",
+    "anchor": "Jake said: Start it",
+    "replyAnchor": "Jake said: Start it",
+    "targetPath": "/tmp/agent-work-v1-fixture-repo",
+    "fidelity": "production_slice",
+    "scope": [
+      "contract_catalog",
+      "authority_matrix"
+    ],
+    "implementationSurface": "mixed",
+    "stopCondition": "phase_1_contract_and_authority_freeze_green_or_blocker",
+    "doneWhen": [
+      "v1_contract_bundle_valid",
+      "authority_matrix_valid",
+      "no_truth_layer_overclaim"
+    ],
+    "requestedClaims": [
+      "phase_1_contract_freeze"
+    ],
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {
+      "handoffSchemaVersion": "cortex.agent_work_handoff.v0",
+      "runContractSchemaVersion": "claw.agent_benchmark_run_contract.v1",
+      "compatibilityMode": "v0_to_v1"
+    }
+  },
+  "permissionContract": {
+    "schemaVersion": "clawd.agent_work.permission_contract.v1",
+    "runId": "agent-work-v1-golden",
+    "allow": [
+      "read_repo",
+      "write_product_code",
+      "run_tests"
+    ],
+    "forbid": [
+      "external_send",
+      "touch_prod"
+    ],
+    "externalWritesAllowed": false,
+    "defaultDenyExternalWrites": true,
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {
+      "compatibilityMode": "v0_to_v1"
+    }
+  },
+  "budgetContract": {
+    "schemaVersion": "clawd.agent_work.budget_contract.v1",
+    "runId": "agent-work-v1-golden",
+    "hard": true,
+    "limits": {
+      "tokenCap": 250000,
+      "monetaryCapUsd": null,
+      "durationMinutes": 60,
+      "workerSpawns": null,
+      "retries": 2,
+      "concurrency": 2,
+      "providerCalls": 4
+    },
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {
+      "compatibilityMode": "v0_to_v1",
+      "raw": {
+        "token_cap": 250000,
+        "duration_minutes": 60,
+        "global_calls": 4,
+        "max_retries": 2
+      }
+    }
+  },
+  "runManifest": {
+    "schemaVersion": "clawd.agent_work.run_manifest.v1",
+    "runId": "agent-work-v1-golden",
+    "objectiveId": "implement_and_verify_the_agent_work_v1_contract_freeze",
+    "planDigest": "8f7f25962c1ff4ef1909bd0b35dcbf04004541e4ce2787e5bb5a8b6f259f76bf",
+    "sourceContractSchema": "claw.agent_benchmark_run_contract.v1",
+    "executionBoundary": "remote_execution_required",
+    "state": "compiled",
+    "stateVersion": 1,
+    "idempotencyKey": "agent-work-v1-golden:manifest:8f7f25962c1ff4ef1909bd0b35dcbf04004541e4ce2787e5bb5a8b6f259f76bf",
+    "artifactRoot": "/tmp/agent-work-v1-fixture-artifacts",
+    "controller": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+    "generatedAt": "2026-07-10T06:00:00.000Z"
+  },
+  "taskContracts": [
+    {
+      "schemaVersion": "clawd.agent_work.task.v1",
+      "taskId": "contract_catalog",
+      "runId": "agent-work-v1-golden",
+      "objectiveId": "implement_and_verify_the_agent_work_v1_contract_freeze",
+      "surfaceIds": [
+        "contract_catalog"
+      ],
+      "goal": "Freeze and validate the Agent Work v1 contract catalog",
+      "allowedFiles": [
+        "packages/canonical-agent-work/contracts.mjs"
+      ],
+      "requiredVerifiers": [
+        "node --test tests/agent-work-v1-contracts.test.mjs"
+      ],
+      "dependencies": [],
+      "state": "proposed",
+      "stateVersion": 1,
+      "idempotencyKey": "agent-work-v1-golden:contract_catalog:task:1",
+      "generatedAt": "2026-07-10T06:00:00.000Z",
+      "source": {
+        "schemaVersion": null,
+        "metadata": {
+          "cortexSurface": true,
+          "sourceSurfaceId": "contract_catalog",
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "cortex_agent_work",
+          "domain": "contract_catalog",
+          "deps": []
+        }
+      }
+    },
+    {
+      "schemaVersion": "clawd.agent_work.task.v1",
+      "taskId": "authority_matrix",
+      "runId": "agent-work-v1-golden",
+      "objectiveId": "implement_and_verify_the_agent_work_v1_contract_freeze",
+      "surfaceIds": [
+        "authority_matrix"
+      ],
+      "goal": "Assign one authority to each consequential orchestration decision",
+      "allowedFiles": [
+        "config/agent-work-v1/authority-matrix.json"
+      ],
+      "requiredVerifiers": [
+        "node --test tests/agent-work-v1-contracts.test.mjs"
+      ],
+      "dependencies": [
+        "contract_catalog"
+      ],
+      "state": "proposed",
+      "stateVersion": 1,
+      "idempotencyKey": "agent-work-v1-golden:authority_matrix:task:1",
+      "generatedAt": "2026-07-10T06:00:00.000Z",
+      "source": {
+        "schemaVersion": null,
+        "metadata": {
+          "cortexSurface": true,
+          "sourceSurfaceId": "authority_matrix",
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "cortex_agent_work",
+          "domain": "authority_matrix",
+          "deps": [
+            "contract_catalog"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "replace-with-iso-timestamp",
+  "benchmarkId": "replace_me_benchmark",
+  "benchmarkTier": "tier1_smoke",
+  "benchmarkClass": "brownfield_product_transfer",
+  "fidelity": "production_slice",
+  "scope": {
+    "durationTargetMinutes": 60,
+    "surfaces": [
+      {
+        "id": "replace_me_surface",
+        "label": "Replace me surface",
+        "allowedFiles": [
+          "src/replace-me.mjs"
+        ],
+        "verification": [
+          "node --test tests/replace-me.test.mjs"
+        ]
+      }
+    ],
+    "stopCondition": "supervisor_green_or_blocker_report"
+  },
+  "repoPath": "/absolute/path/to/repo",
+  "verifierSet": [
+    {
+      "kind": "node_script",
+      "command": "node --test tests/replace-me.test.mjs"
+    }
+  ],
+  "requestedAgentCount": 10,
+  "executionBoundary": "remote_execution_required",
+  "cognitionBoundary": {
+    "schemaVersion": "claw.cortex_codex_boundary.v1",
+    "behaviorChanging": false,
+    "boundaryStatement": "Cortex is the control-plane/context/routing/truth layer; Codex is the execution-plane CLI/model worker for bounded product edits. Do not call Codex worker output Cortex-agent work unless a Cortex packet/context governor is actually supplied to the worker.",
+    "cortexRole": "control_plane_context_routing_memory_truth_supervision",
+    "codexRole": "execution_plane_cli_model_worker",
+    "requiredForCreativeWorkers": true,
+    "budgetGovernorsMustRemainEnabled": true
+  },
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "scoreboardPath": "artifacts/benchmarks/scoreboard.json",
+  "runId": "replace-me-run-id",
+  "artifactRoot": "artifacts/benchmarks/replace_me_benchmark/replace-me-run-id",
+  "notes": "Fill in benchmark-specific scope, verifier, and execution details.",
+  "replyAnchor": "Replace with the user request or benchmark charter."
+}

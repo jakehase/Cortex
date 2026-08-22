@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.full_parity.supervisor_truth.v0",
+  "type": "object",
+  "required": ["schemaVersion", "status", "parityGreen", "stopAllowed", "missingSurfaceIds", "uncertainSurfaceIds", "unverifiedSurfaceIds"],
+  "properties": {"schemaVersion": {"const": "clawd.full_parity.supervisor_truth.v0"}, "parityGreen": {"type": "boolean"}, "stopAllowed": {"type": "boolean"}}
+}

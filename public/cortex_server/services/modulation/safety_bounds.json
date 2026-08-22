@@ -1,0 +1,6 @@
+{
+  "version": "modulation.bounds.v1",
+  "max_reasoning_depth": 5,
+  "max_focus_gain": 0.35,
+  "min_response_floor": 0.2
+}

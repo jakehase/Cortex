@@ -1,0 +1,13 @@
+{
+  "version": "cortex.roadmap.r7.v1",
+  "entrypoint": "scripts/cortex_r7_value_homeostasis.py",
+  "landedSteps": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json"
+  ],
+  "notes": [
+    "This aggregate currently represents the Phase E starting slice only.",
+    "Steps 2-12 remain roadmap targets until implemented."
+  ]
+}

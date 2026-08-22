@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-heldout-retest-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Held-out Retest v0",
+  "passThreshold": 1,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mfs-02-heldout-retest",
+      "prompt": "Compute exactly: 6,243,088,374 × 2,167,829.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "13533948026720046"
+      }
+    }
+  ],
+  "truthBoundary": "This one-item Math Foundations Held-out Retest v0 supports only the named concept and recorded run."
+}

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.research_reproduction_bundle.v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "fixtureOnly",
+    "status",
+    "exitCode",
+    "sourceBundleBase64",
+    "sourceBundleSha256",
+    "environment",
+    "environmentDigest",
+    "command",
+    "commandDigest",
+    "approvedResearchRuntimeSha256",
+    "daemonClosureSha256",
+    "observedEnvironmentSha256",
+    "executedArgvSha256",
+    "executableSha256",
+    "isolationSha256",
+    "stdoutBase64",
+    "stdoutSha256",
+    "stderrBase64",
+    "stderrSha256",
+    "outputs",
+    "resultOutputPath",
+    "resultBase64",
+    "resultSha256",
+    "result",
+    "resultDigest",
+    "startedAt",
+    "completedAt",
+    "executionEvidenceCore",
+    "executionEvidenceSha256",
+    "authorityRequestBytesBase64",
+    "authorityRequestSha256",
+    "attestation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.research_reproduction_bundle.v5" },
+    "fixtureOnly": { "const": false },
+    "status": { "const": "passed" },
+    "exitCode": { "const": 0 },
+    "sourceBundleBase64": { "type": "string", "minLength": 4, "contentEncoding": "base64" },
+    "sourceBundleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "environment": {
+      "$ref": "research-reproduction-authority-request.schema.json#/$defs/declaredEnvironment"
+    },
+    "environmentDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "commandDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "approvedResearchRuntimeSha256": { "$ref": "#/$defs/digest" },
+    "daemonClosureSha256": { "$ref": "#/$defs/digest" },
+    "observedEnvironmentSha256": { "$ref": "#/$defs/digest" },
+    "executedArgvSha256": { "$ref": "#/$defs/digest" },
+    "executableSha256": { "$ref": "#/$defs/digest" },
+    "isolationSha256": { "$ref": "#/$defs/digest" },
+    "stdoutBase64": { "type": "string", "contentEncoding": "base64" },
+    "stdoutSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "stderrBase64": { "type": "string", "contentEncoding": "base64" },
+    "stderrSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "bytes", "contentBase64", "sha256"],
+        "properties": {
+          "path": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+          "bytes": { "type": "integer", "minimum": 0, "maximum": 33554432 },
+          "contentBase64": { "type": "string", "contentEncoding": "base64" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "resultOutputPath": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+    "resultBase64": { "type": "string", "minLength": 4, "contentEncoding": "base64" },
+    "resultSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "result": {
+      "$ref": "research-reproduction-authority-request.schema.json#/$defs/boundedJson"
+    },
+    "resultDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "executionEvidenceCore": { "$ref": "execution-evidence-core.schema.json" },
+    "executionEvidenceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "authorityRequestBytesBase64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 89478488,
+      "contentEncoding": "base64"
+    },
+    "authorityRequestSha256": { "$ref": "#/$defs/digest" },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "attestationId", "authorityId", "payload", "signature"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "cortex.learning_os.authority_attestation.v1" },
+        "attestationId": { "$ref": "#/$defs/id" },
+        "authorityId": { "$ref": "#/$defs/id" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schemaVersion", "requestSha256", "reproductionPayload",
+            "authorityMeasurement"
+          ],
+          "properties": {
+            "schemaVersion": {
+              "const": "cortex.learning_os.research_reproduction_authority_payload.v2"
+            },
+            "requestSha256": { "$ref": "#/$defs/digest" },
+            "reproductionPayload": {
+              "$ref": "research-reproduction-authority-request.schema.json#/$defs/reproductionPayload"
+            },
+            "authorityMeasurement": {
+              "$ref": "#/$defs/authorityMeasurement"
+            }
+          }
+        },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "keyId", "valueBase64"],
+          "properties": {
+            "algorithm": { "const": "ed25519" },
+            "keyId": { "$ref": "#/$defs/digest" },
+            "valueBase64": {
+              "type": "string",
+              "minLength": 88,
+              "maxLength": 88,
+              "contentEncoding": "base64"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "authorityMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "requestSha256", "approvedResearchRuntimeSha256",
+        "authorityResearchRuntime", "authorityResearchRuntimeSha256",
+        "daemonClosureSha256", "daemonMeasurements", "imageId",
+        "imageInspectSha256", "containerInspectSha256",
+        "effectiveIsolationSha256", "isolation", "isolationSha256",
+        "replayExecutionEvidenceCore",
+        "replayExecutionEvidenceSha256", "replayOutputsDigest",
+        "replayResultDigest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "cortex.learning_os.research_reproduction_authority_measurement.v1"
+        },
+        "requestSha256": { "$ref": "#/$defs/digest" },
+        "approvedResearchRuntimeSha256": { "$ref": "#/$defs/digest" },
+        "authorityResearchRuntime": {
+          "$ref": "approved-research-runtime.schema.json"
+        },
+        "authorityResearchRuntimeSha256": { "$ref": "#/$defs/digest" },
+        "daemonClosureSha256": { "$ref": "#/$defs/digest" },
+        "daemonMeasurements": {
+          "$ref": "research-reproduction-authority-request.schema.json#/$defs/observedEnvironment/oneOf/0/properties/daemonMeasurements"
+        },
+        "imageId": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "imageInspectSha256": { "$ref": "#/$defs/digest" },
+        "containerInspectSha256": { "$ref": "#/$defs/digest" },
+        "effectiveIsolationSha256": { "$ref": "#/$defs/digest" },
+        "isolation": {
+          "$ref": "research-reproduction-authority-request.schema.json#/$defs/observedEnvironment/oneOf/0/properties/isolation"
+        },
+        "isolationSha256": { "$ref": "#/$defs/digest" },
+        "replayExecutionEvidenceCore": {
+          "$ref": "execution-evidence-core.schema.json"
+        },
+        "replayExecutionEvidenceSha256": { "$ref": "#/$defs/digest" },
+        "replayOutputsDigest": { "$ref": "#/$defs/digest" },
+        "replayResultDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

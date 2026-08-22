@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "contract": "aios.operator.lifecycle_settings.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+  "source": "aios_cli_boot_flags",
+  "controls": {
+    "lifecycle": "enabled",
+    "scheduler": "immediate",
+    "approvals": "required"
+  },
+  "nextAction": {
+    "state": "ready",
+    "command": [
+      "aios",
+      "run",
+      "<job.json>",
+      "--artifact-root",
+      "<artifact-root>"
+    ],
+    "reason": "Lifecycle execution and immediate scheduling are enabled."
+  },
+  "updatedBy": {
+    "command": "boot",
+    "requestId": "aiosreq_802c48b3f2e66a0e",
+    "operator": "jake",
+    "role": "operator",
+    "tenantId": "openclaw-local"
+  },
+  "updatedAt": "2026-07-11T21:33:23.934Z",
+  "settingsHash": "2a548161b4fc57b413e1d6bdbb7490332ea65d822b5505fe1f6ec01e0ef9c292",
+  "path": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/aios-lifecycle-settings.json",
+  "readable": true,
+  "missing": false
+}

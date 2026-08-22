@@ -1,0 +1,6 @@
+{
+  "version": "plasticity.anchor_protection.v1",
+  "anchor_priority_weight": 2.0,
+  "hard_anchor_confidence_floor": 0.85,
+  "rollback_trigger_violation_count": 1
+}

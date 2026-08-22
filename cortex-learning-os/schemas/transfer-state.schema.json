@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_state.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "revision", "curriculumId", "capsuleId", "policyDigest",
+    "updatedAt", "concepts", "appliedRunReceipts", "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_state.v1" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "curriculumId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "capsuleId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "policyDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "concepts": {
+      "type": "object", "minProperties": 36, "maxProperties": 36,
+      "additionalProperties": { "$ref": "#/$defs/conceptState" }
+    },
+    "appliedRunReceipts": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["runId", "artifactManifestDigest", "outcome"],
+        "properties": {
+          "runId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+          "artifactManifestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "outcome": { "enum": ["qualified", "candidate", "no-transfer", "invalid", "blocked", "underpowered", "null"] }
+        }
+      }
+    },
+    "signature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "conceptState": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "state", "profileIds", "profileDigests", "reasonCode", "qualificationRunId",
+        "artifactManifestDigest", "evidenceDigest", "qualifiedAt", "expiresAt"
+      ],
+      "properties": {
+        "state": { "enum": ["unassessed", "candidate", "qualified", "expired", "revoked", "no_qualified_transfer"] },
+        "profileIds": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9-]*$" }
+        },
+        "profileDigests": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "reasonCode": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "qualificationRunId": { "type": ["string", "null"], "maxLength": 160 },
+        "artifactManifestDigest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "evidenceDigest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "qualifiedAt": { "type": ["string", "null"], "format": "date-time" },
+        "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "signature": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "digest"],
+      "properties": {
+        "algorithm": { "const": "hmac-sha256" },
+        "keyId": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

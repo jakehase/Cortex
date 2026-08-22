@@ -1,0 +1,12 @@
+{
+  "version": "cortex.roadmap.r7.step10.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_probe_latest.json"
+  ],
+  "gates": {
+    "weightsBounded": true,
+    "intentKillSwitchesPresent": true,
+    "validationRequired": true
+  }
+}

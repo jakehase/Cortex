@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.continuous_math_bank_author_output.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["batchId", "items"],
+  "properties": {
+    "batchId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemKey", "conceptId", "assessmentRole", "variant", "prompt", "answerFormat", "checker", "authorRationale", "outcomeCoverage"],
+        "properties": {
+          "itemKey": { "type": "string", "minLength": 1, "maxLength": 320 },
+          "conceptId": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "assessmentRole": { "enum": ["acquisition", "correction", "validity-direct", "validity-compositional", "retention"] },
+          "variant": { "type": "integer", "minimum": 1, "maximum": 2 },
+          "prompt": { "type": "string", "minLength": 20, "maxLength": 12000 },
+          "answerFormat": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "checker": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "expectedJson", "tolerance", "caseSensitive"],
+            "properties": {
+              "mode": { "enum": ["exact_number", "exact_integer_string", "numeric_tolerance", "exact_string", "multiple_choice", "set_equality", "ordered_numeric_tuple"] },
+              "expectedJson": { "type": "string", "minLength": 1, "maxLength": 12000 },
+              "tolerance": { "type": "number", "minimum": 0 },
+              "caseSensitive": { "type": "boolean" }
+            }
+          },
+          "authorRationale": { "type": "string", "minLength": 10, "maxLength": 4000 },
+          "outcomeCoverage": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    }
+  }
+}

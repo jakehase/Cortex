@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_policy.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyId", "version", "budgets", "evidenceRequirements", "gates", "qualificationTtlDays", "truthBoundary"],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_policy.v1" },
+    "policyId": { "const": "coding-transfer-v0.9" },
+    "version": { "const": "0.9.0" },
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["maxProfilesPerRun", "maxTasks", "maxTrials", "maxArtifactFiles", "maxArtifactBytes"],
+      "properties": {
+        "maxProfilesPerRun": { "const": 1 },
+        "maxTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "maxTrials": { "type": "integer", "minimum": 1, "maximum": 80 },
+        "maxArtifactFiles": { "type": "integer", "minimum": 4, "maximum": 256 },
+        "maxArtifactBytes": { "type": "integer", "minimum": 1, "maximum": 4194304 }
+      }
+    },
+    "evidenceRequirements": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimumValidCandidateTrials", "minimumValidNoTransferTrials", "minimumHeldOutTasks", "minimumNegativeSemanticTasks", "minimumAssumptionViolationTasks", "minimumRegressionTasks"],
+      "properties": {
+        "minimumValidCandidateTrials": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumValidNoTransferTrials": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumHeldOutTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumNegativeSemanticTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumAssumptionViolationTasks": { "type": "integer", "minimum": 1, "maximum": 40 },
+        "minimumRegressionTasks": { "type": "integer", "minimum": 1, "maximum": 40 }
+      }
+    },
+    "gates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimumCandidateAccuracy", "minimumNoTransferAccuracy", "minimumAccuracyLift", "minimumNegativeSemanticAccuracy", "minimumAssumptionViolationAccuracy", "minimumRegressionAccuracy", "requireAllExactOracles", "maximumInvalidTrialFraction"],
+      "properties": {
+        "minimumCandidateAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumNoTransferAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumAccuracyLift": { "type": "number", "minimum": -1, "maximum": 1 },
+        "minimumNegativeSemanticAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumAssumptionViolationAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "minimumRegressionAccuracy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "requireAllExactOracles": { "type": "boolean" },
+        "maximumInvalidTrialFraction": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "qualificationTtlDays": { "type": "integer", "minimum": 1, "maximum": 365 },
+    "truthBoundary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  }
+}

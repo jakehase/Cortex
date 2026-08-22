@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "aios.language-adoption.validation-summary.v1",
+  "completedAt": "2026-07-11T21:30:34Z",
+  "status": "green",
+  "implementation": {
+    "canonicalLanguage": "aios.language.v1",
+    "canonicalGrammar": "job-block-v1",
+    "canonicalCompiler": "aios.language.compiler.canonical.v1",
+    "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+    "defaultMode": "always_on_internal_aios_language_status_recovery_handoff",
+    "workflow": ".aios source -> canonical compile proof -> runtime-compatible job -> mediated kernel syscall -> verifier -> bounded claim"
+  },
+  "local": {
+    "npmTest": true,
+    "contractTests": "7/7",
+    "languageAdoptionTests": "6/6",
+    "productHealth": { "ok": true, "syntaxChecked": 262, "importsChecked": 259 },
+    "operatorSmoke": true,
+    "claimStatus": "allowed",
+    "defaultStatus": true,
+    "recoveryStatus": "green",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "returnedProof": "local-proof"
+  },
+  "remote": {
+    "host": "37.27.129.239",
+    "workspace": "/home/jake/clawd-remote",
+    "sourceManifestMatched": true,
+    "sourceManifestSha256": "184a0210830aef8ce332b109454604653a8943b43fb6e62d51ae0cc1305587be",
+    "npmTest": true,
+    "contractTests": "7/7",
+    "languageAdoptionTests": "6/6",
+    "productHealth": { "ok": true, "syntaxChecked": 262, "importsChecked": 259 },
+    "operatorSmoke": true,
+    "dogfoodClaimStatus": "allowed",
+    "processId": "aiosproc_30e1024eb3abd135",
+    "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+    "returnedProof": "remote-proof"
+  },
+  "truthBoundary": {
+    "allowedClaim": "Canonical AIOS v1 is the default compile-to-execute path for bounded internal OpenClaw adapter workflows.",
+    "notProven": [
+      "Cortex or OpenClaw runtime replacement",
+      "external provider or user-visible writes",
+      "native operating-system readiness",
+      "full AI OS product parity",
+      "benchmark promotion"
+    ]
+  }
+}

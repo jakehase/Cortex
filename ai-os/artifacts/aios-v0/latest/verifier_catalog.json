@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "aios.verifier-catalog.v0.1",
+  "truthBoundary": "Wave 0 verifier catalog for contracts; runtime verifiers come in later waves.",
+  "verifiers": [
+    {
+      "id": "verifier_contract_schema_static",
+      "type": "static",
+      "command": "node --test tests/contracts.test.mjs",
+      "required": true,
+      "inputs": [
+        "kernel/contracts/*.json",
+        "artifacts/aios-v0/latest/*.json"
+      ],
+      "outputs": [
+        "node test output"
+      ],
+      "passCriteria": [
+        "all contract JSON parses",
+        "required identifiers are stable",
+        "run contract references existing verifiers"
+      ],
+      "failClosed": true,
+      "claimTypesAuthorized": [
+        "release_candidate"
+      ]
+    }
+  ]
+}

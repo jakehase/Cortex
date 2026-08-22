@@ -1,0 +1,1019 @@
+{
+  "schemaVersion": "claw.transfer_surface_matrix.v1",
+  "generatedAt": "2026-07-02T02:30:01.083Z",
+  "benchmarkId": "aioshosted_kernel_boot_proof",
+  "runId": "aios-hosted-boot-language-45wave-repair-v0_1",
+  "status": "pending",
+  "evidenceSchemas": [],
+  "aiOsLanguage": {
+    "schemaVersion": "aios.agent_work_language_profile.v0.1",
+    "enabled": true,
+    "sourcePlanPath": "/root/clawd/ai-os/plan.md",
+    "milestone": "hosted_kernel_boot_proof",
+    "kernelMode": "hosted_linux",
+    "owner": "Jake",
+    "processModel": [
+      "job",
+      "process",
+      "thread",
+      "owner",
+      "exit_contract"
+    ],
+    "syscalls": [
+      "fs.read",
+      "fs.write",
+      "shell.exec",
+      "git.diff",
+      "memory.search",
+      "memory.write",
+      "verifier.run",
+      "claim.submit",
+      "audit.write"
+    ],
+    "memoryMounts": [
+      "project_memory",
+      "structural_memory",
+      "episodic_log",
+      "artifact_store"
+    ],
+    "capabilityPolicy": {
+      "defaultDenyExternalWrites": true,
+      "requireApprovalFor": [
+        "external.write",
+        "deploy",
+        "destructive.action",
+        "privileged.kernel.change"
+      ]
+    },
+    "evidenceArtifacts": [
+      "boot_proof.json",
+      "process_lifecycle.json",
+      "capability_audit.json",
+      "syscall_audit.json",
+      "claim_gate.json",
+      "artifact_bundle_manifest.json"
+    ],
+    "evidenceEnforcement": "deferred_boot_claim",
+    "bootCommands": [
+      "node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest"
+    ],
+    "claimGate": "verifier_green_required",
+    "truthBoundary": "Hosted AI OS v0.1 boot proof only; do not claim native OS, production readiness, or general autonomous completion.",
+    "reusePrimitives": [],
+    "packageModel": [],
+    "filesystemLayout": [],
+    "metadata": {
+      "physical_wave_width": 45,
+      "standard_heavy_wave_agent_count": 45,
+      "active_codex_call_cap": 12,
+      "global_call_budget": 55
+    }
+  },
+  "surfaces": [
+    {
+      "id": "app_cli_entrypoint",
+      "label": "app_cli_entrypoint",
+      "status": "pending",
+      "productFiles": [
+        "apps/aios-cli.mjs"
+      ],
+      "verification": [
+        "node --check apps/aios-cli.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check apps/aios-cli.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_boot",
+      "label": "operator_cli_boot",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/cli-boot.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_run",
+      "label": "operator_cli_run",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/cli-run.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-run.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/cli-run.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_claim",
+      "label": "operator_cli_claim",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/cli-claim.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-claim.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/cli-claim.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_ps",
+      "label": "operator_cli_ps",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/cli-ps.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-ps.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/cli-ps.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_logs",
+      "label": "operator_cli_logs",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/cli-logs.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-logs.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/cli-logs.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_approval_console",
+      "label": "operator_approval_console",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/approval-console.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/approval-console.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/approval-console.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_dashboard_model",
+      "label": "operator_dashboard_model",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/operator-userland/dashboard-model.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/dashboard-model.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/operator-userland/dashboard-model.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_process_admission",
+      "label": "kernel_process_admission",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_state_transition",
+      "label": "kernel_state_transition",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_exit_contract",
+      "label": "kernel_exit_contract",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_owner_identity",
+      "label": "kernel_owner_identity",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_process_snapshot",
+      "label": "kernel_process_snapshot",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_panic_stop",
+      "label": "kernel_panic_stop",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_admission_queue",
+      "label": "scheduler_admission_queue",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/admission-queue.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/admission-queue.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/admission-queue.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_budget_manager",
+      "label": "scheduler_budget_manager",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/budget-manager.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/budget-manager.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/budget-manager.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_context_pack",
+      "label": "scheduler_context_pack",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/context-pack.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/context-pack.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/context-pack.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_dependency_graph",
+      "label": "scheduler_dependency_graph",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/dependency-graph.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/dependency-graph.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/dependency-graph.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_execution_plane_registry",
+      "label": "scheduler_execution_plane_registry",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_lease_manager",
+      "label": "scheduler_lease_manager",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/lease-manager.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_model_policy",
+      "label": "scheduler_model_policy",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/model-policy.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/model-policy.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/model-policy.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_usage_backoff",
+      "label": "scheduler_usage_backoff",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/scheduler/usage-backoff.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/usage-backoff.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/scheduler/usage-backoff.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_root",
+      "label": "artifact_root",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_bundle_manifest",
+      "label": "artifact_bundle_manifest",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_content_address",
+      "label": "artifact_content_address",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/content-address.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/content-address.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/content-address.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_path_policy",
+      "label": "artifact_path_policy",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_claim_evidence_link",
+      "label": "artifact_claim_evidence_link",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_replay_index",
+      "label": "artifact_replay_index",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_mount",
+      "label": "memory_mount",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/memory-manager/memory-mount.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_project_adapter",
+      "label": "memory_project_adapter",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_structural_adapter",
+      "label": "memory_structural_adapter",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_episodic_log",
+      "label": "memory_episodic_log",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_freshness_gate",
+      "label": "memory_freshness_gate",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/memory-manager/freshness-gate.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/freshness-gate.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/memory-manager/freshness-gate.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_token",
+      "label": "capability_token",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/capability-security/capability-token.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/capability-token.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/capability-security/capability-token.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_policy_evaluator",
+      "label": "capability_policy_evaluator",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/capability-security/policy-evaluator.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/policy-evaluator.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/capability-security/policy-evaluator.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_external_write_guard",
+      "label": "capability_external_write_guard",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/capability-security/external-write-guard.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_destructive_action_guard",
+      "label": "capability_destructive_action_guard",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_rate_limit",
+      "label": "capability_rate_limit",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/capability-security/rate-limit.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_registry",
+      "label": "syscall_registry",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_fs_read",
+      "label": "syscall_fs_read",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/syscall-layer/fs-read.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_fs_write",
+      "label": "syscall_fs_write",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/syscall-layer/fs-write.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/fs-write.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/syscall-layer/fs-write.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_shell_exec",
+      "label": "syscall_shell_exec",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/syscall-layer/shell-exec.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/shell-exec.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/syscall-layer/shell-exec.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "claim_allowance",
+      "label": "claim_allowance",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "verifier_result",
+      "label": "verifier_result",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "release_packet",
+      "label": "release_packet",
+      "status": "pending",
+      "productFiles": [
+        "packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+      ],
+      "requiredArtifacts": [
+        {
+          "kind": "verifier_command",
+          "command": "node --check packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+        }
+      ],
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    }
+  ]
+}

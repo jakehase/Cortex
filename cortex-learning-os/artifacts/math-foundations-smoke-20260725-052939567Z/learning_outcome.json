@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "cortex.learning_os.learning_outcome.v0",
+  "generatedAt": "2026-07-25T05:31:52.232Z",
+  "status": "green",
+  "reason": null,
+  "learningLoopCompleted": true,
+  "improvementObserved": true,
+  "conceptId": "number-fractions",
+  "baselineFailureItemId": "mfs-02",
+  "heldoutRetestItemId": "mfs-02-heldout-retest",
+  "promotionDigest": "b23e7f7130be75d85c31bd154e00747acbd2e7860577dcb69e9589537b9a1d5c",
+  "comparisonLimitations": [
+    "The baseline is a multi-item batch while correction and retest phases contain one item each.",
+    "The held-out item differs from the failed baseline item and may differ in difficulty.",
+    "The observed sequence does not isolate retrieval-pack causality from added focus or repeated practice."
+  ],
+  "truthBoundary": "Improvement means one failed baseline concept was followed by a pass on a different held-out item after a gated retrieval pack. It does not isolate causality or prove broad or durable math improvement."
+}

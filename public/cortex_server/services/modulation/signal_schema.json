@@ -1,0 +1,9 @@
+{
+  "version": "modulation.signals.v1",
+  "signals": {
+    "salience": {"min": 0.0, "max": 1.0},
+    "novelty": {"min": 0.0, "max": 1.0},
+    "uncertainty": {"min": 0.0, "max": 1.0},
+    "urgency": {"min": 0.0, "max": 1.0}
+  }
+}

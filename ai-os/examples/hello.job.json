@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "aios.example-job.v0.1",
+  "id": "hello-aios",
+  "objective": "Prove the hosted AI OS kernel can run and truth-gate a tiny job.",
+  "truthBoundary": "Example contract only until Wave 1 runtime exists."
+}

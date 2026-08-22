@@ -1,0 +1,17 @@
+{
+  "version": "world_state.v1",
+  "entity": {
+    "entity_id": "string",
+    "kind": "string",
+    "state": "object",
+    "confidence": "number",
+    "provenance": [
+      {
+        "source": "string",
+        "event_id": "string",
+        "ts": "iso8601"
+      }
+    ],
+    "updated_at": "iso8601"
+  }
+}

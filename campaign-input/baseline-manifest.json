@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cortex.whole-system-green.worker-baseline.v1",
+  "generatedAt": "2026-08-22T21:48:05.394475Z",
+  "campaign": "cortex-whole-system-green-20260821T2321Z",
+  "sourceHead": "89835188c13a3dd4d666d4973984bdbba73ec572",
+  "sourceArchiveSha256": "3a3db494d1be42772a322b89b6695316a7b10826c4b0b98afa92281d58e5e951",
+  "sourceArchiveBytes": 10813194,
+  "sourceFileCount": 2079,
+  "excludedHistoricalData": [
+    "public/cortex_server/artifacts/memory_codec_quality",
+    "public/cortex_server/artifacts/benchmarks",
+    "public/cortex_graph.db"
+  ],
+  "truthBoundary": "Curated executable source, tests, control-plane scripts, plugins, and AI OS inputs for isolated repair workers; historical bulk benchmark data is excluded."
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.phd_trajectory_graph.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "curriculumId",
+    "capsuleId",
+    "domain",
+    "version",
+    "legacyPrefix",
+    "concepts",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.phd_trajectory_graph.v1"
+    },
+    "curriculumId": {
+      "const": "math-phd-trajectory-v1"
+    },
+    "capsuleId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "domain": {
+      "const": "mathematics"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^1\\."
+    },
+    "legacyPrefix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "curriculumId",
+        "version",
+        "conceptCount",
+        "preservationRule"
+      ],
+      "properties": {
+        "curriculumId": {
+          "const": "math-continuous-acquisition-v1"
+        },
+        "version": {
+          "type": "string"
+        },
+        "conceptCount": {
+          "const": 84
+        },
+        "preservationRule": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "concepts": {
+      "type": "array",
+      "minItems": 256,
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "conceptId",
+          "title",
+          "category",
+          "prerequisites",
+          "outcomes"
+        ],
+        "properties": {
+          "conceptId": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prerequisites": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "outcomes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 12
+            }
+          }
+        }
+      }
+    },
+    "truthBoundary": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

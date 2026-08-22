@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.authority_attestation.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "attestationId",
+    "authorityId",
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "enum": [
+        "cortex.learning_os.authority_attestation.v1",
+        "cortex.learning_os.execution_attestation.v2"
+      ]
+    },
+    "attestationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "authorityId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "keyId",
+        "valueBase64"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "ed25519"
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "valueBase64": {
+          "type": "string",
+          "minLength": 88,
+          "maxLength": 88,
+          "contentEncoding": "base64"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": { "const": "cortex.learning_os.execution_attestation.v2" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "boundaryId",
+              "executionId",
+              "ledgerPreviousSha256",
+              "executionEvidenceCore",
+              "executionEvidenceSha256"
+            ],
+            "properties": {
+              "boundaryId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              },
+              "executionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              },
+              "ledgerPreviousSha256": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "executionEvidenceCore": {
+                "$ref": "execution-evidence-core.schema.json"
+              },
+              "executionEvidenceSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

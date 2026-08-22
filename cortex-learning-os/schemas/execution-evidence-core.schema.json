@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.execution_evidence_core.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "executionKind",
+    "bindings",
+    "environment",
+    "command",
+    "process",
+    "input",
+    "outputs",
+    "model"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.execution_evidence_core.v1" },
+    "executionKind": { "enum": ["model", "process"] },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateId",
+        "candidateSessionId",
+        "candidateSha256",
+        "taskId",
+        "taskSha256",
+        "jobId",
+        "jobSha256",
+        "campaignId",
+        "campaignSha256",
+        "deploymentSha256",
+        "sourceSha256"
+      ],
+      "properties": {
+        "candidateId": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "candidateSessionId": { "$ref": "#/$defs/identifier" },
+        "candidateSha256": { "$ref": "#/$defs/digest" },
+        "taskId": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "taskSha256": { "$ref": "#/$defs/digest" },
+        "jobId": { "$ref": "#/$defs/identifier" },
+        "jobSha256": { "$ref": "#/$defs/digest" },
+        "campaignId": { "$ref": "#/$defs/identifier" },
+        "campaignSha256": { "$ref": "#/$defs/digest" },
+        "deploymentSha256": { "$ref": "#/$defs/digest" },
+        "sourceSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared",
+        "declaredSha256",
+        "observed",
+        "observedSha256"
+      ],
+      "properties": {
+        "declared": { "type": "object", "minProperties": 1 },
+        "declaredSha256": { "$ref": "#/$defs/digest" },
+        "observed": { "type": "object", "minProperties": 1 },
+        "observedSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestedArgv",
+        "requestedArgvSha256",
+        "executedArgv",
+        "executedArgvSha256",
+        "executable",
+        "cwd"
+      ],
+      "properties": {
+        "requestedArgv": { "$ref": "#/$defs/argv" },
+        "requestedArgvSha256": { "$ref": "#/$defs/digest" },
+        "executedArgv": { "$ref": "#/$defs/argv" },
+        "executedArgvSha256": { "$ref": "#/$defs/digest" },
+        "executable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["invoked", "resolvedPath", "bytes", "sha256"],
+          "properties": {
+            "invoked": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "resolvedPath": { "type": "string", "pattern": "^/" },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1073741824
+            },
+            "sha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "cwd": { "type": "string", "pattern": "^/" }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt", "completedAt", "exitCode", "signal", "error"],
+      "properties": {
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "exitCode": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "signal": { "type": ["string", "null"], "minLength": 1, "maxLength": 64 },
+        "error": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "input": { "$ref": "#/$defs/byteRecord" },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw", "files"],
+      "properties": {
+        "raw": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/byteRecord" }
+        },
+        "files": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/fileByteRecord" }
+        }
+      }
+    },
+    "model": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "model",
+            "thinking",
+            "sandbox",
+            "toolsAllowed",
+            "toolsUsed",
+            "usage",
+            "providerRequestId",
+            "providerSessionId",
+            "plannedSessionId"
+          ],
+          "properties": {
+            "provider": { "$ref": "#/$defs/identifier" },
+            "model": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "thinking": { "enum": ["xhigh", "ultra"] },
+            "sandbox": { "const": "read-only" },
+            "toolsAllowed": { "const": false },
+            "toolsUsed": { "type": "array", "maxItems": 0 },
+            "usage": { "type": "object", "minProperties": 1 },
+            "providerRequestId": {
+              "oneOf": [
+                { "$ref": "#/$defs/identifier" },
+                { "type": "null" }
+              ]
+            },
+            "providerSessionId": { "$ref": "#/$defs/identifier" },
+            "plannedSessionId": { "$ref": "#/$defs/identifier" }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "executionKind": { "const": "process" } },
+        "required": ["executionKind"]
+      },
+      "then": {
+        "properties": { "model": { "type": "null" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "executionKind": { "const": "model" } },
+        "required": ["executionKind"]
+      },
+      "then": {
+        "properties": {
+          "model": { "type": "object" },
+          "outputs": {
+            "properties": {
+              "files": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "properties": {
+                    "bytes": { "minimum": 1 }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "byteRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mediaType", "bytes", "sha256"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "mediaType": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "fileByteRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "mediaType", "bytes", "sha256"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._/-]+$"
+        },
+        "mediaType": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

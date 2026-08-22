@@ -1,0 +1,4765 @@
+{
+  "schemaVersion": "cortex.learning_os.phd_math_transfer_catalog.v1",
+  "catalogId": "phd-math-transfer-full-spectrum-v1",
+  "version": "1.0.0",
+  "source": {
+    "curriculumId": "math-phd-trajectory-v1",
+    "curriculumVersion": "1.0.0",
+    "sha256": "7ad786eb5a5a4a3b0dc209c8fdc2b2e0b1f5593e3b470f691f88e2717a5bbc5c"
+  },
+  "conceptCount": 264,
+  "concepts": [
+    {
+      "ordinal": 1,
+      "conceptId": "number-fractions",
+      "title": "Fractions and rational numbers",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Compute and compare rational values exactly."
+      ]
+    },
+    {
+      "ordinal": 2,
+      "conceptId": "algebra-inverse-operations",
+      "title": "Inverse operations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Isolate variables without changing solution sets."
+      ]
+    },
+    {
+      "ordinal": 3,
+      "conceptId": "algebra-linear-equations",
+      "title": "Linear equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-inverse-operations"
+      ],
+      "outcomes": [
+        "Solve one-variable linear equations."
+      ]
+    },
+    {
+      "ordinal": 4,
+      "conceptId": "algebra-factoring",
+      "title": "Polynomial factoring",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Factor simple quadratics."
+      ]
+    },
+    {
+      "ordinal": 5,
+      "conceptId": "algebra-quadratics",
+      "title": "Quadratic equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-factoring"
+      ],
+      "outcomes": [
+        "Find quadratic roots."
+      ]
+    },
+    {
+      "ordinal": 6,
+      "conceptId": "algebra-absolute-value",
+      "title": "Absolute-value equations",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Split absolute-value equations into valid cases."
+      ]
+    },
+    {
+      "ordinal": 7,
+      "conceptId": "functions-evaluation",
+      "title": "Function evaluation",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Evaluate functions at signed inputs."
+      ]
+    },
+    {
+      "ordinal": 8,
+      "conceptId": "functions-inverse",
+      "title": "Inverse functions",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-evaluation",
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Solve for inverse outputs."
+      ]
+    },
+    {
+      "ordinal": 9,
+      "conceptId": "functions-transformations",
+      "title": "Function transformations",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-evaluation"
+      ],
+      "outcomes": [
+        "Reason about shifted and scaled functions."
+      ]
+    },
+    {
+      "ordinal": 10,
+      "conceptId": "series-geometric",
+      "title": "Geometric series",
+      "category": "functions",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Recognize convergence and compute finite or infinite sums."
+      ]
+    },
+    {
+      "ordinal": 11,
+      "conceptId": "probability-counting",
+      "title": "Counting outcomes",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Count equally likely outcomes without duplication."
+      ]
+    },
+    {
+      "ordinal": 12,
+      "conceptId": "probability-binomial",
+      "title": "Binomial probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Compute exact success-count probabilities."
+      ]
+    },
+    {
+      "ordinal": 13,
+      "conceptId": "probability-complements",
+      "title": "Complement rule",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Compute at-least-one probabilities."
+      ]
+    },
+    {
+      "ordinal": 14,
+      "conceptId": "probability-conditional",
+      "title": "Conditional probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Condition on the declared sample space."
+      ]
+    },
+    {
+      "ordinal": 15,
+      "conceptId": "probability-bayes",
+      "title": "Bayes rule and base rates",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Combine sensitivity, specificity, and prevalence."
+      ]
+    },
+    {
+      "ordinal": 16,
+      "conceptId": "probability-independence",
+      "title": "Independence",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Use product rules only when independence is given."
+      ]
+    },
+    {
+      "ordinal": 17,
+      "conceptId": "probability-inclusion-exclusion",
+      "title": "Inclusion-exclusion",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Correctly subtract overlap."
+      ]
+    },
+    {
+      "ordinal": 18,
+      "conceptId": "probability-waiting-time",
+      "title": "Pattern waiting times",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Account for pattern self-overlap."
+      ]
+    },
+    {
+      "ordinal": 19,
+      "conceptId": "probability-combinatorics",
+      "title": "Combinatorial probability",
+      "category": "probability",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Use combinations for unordered samples."
+      ]
+    },
+    {
+      "ordinal": 20,
+      "conceptId": "statistics-mean",
+      "title": "Arithmetic mean",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Compute sample means."
+      ]
+    },
+    {
+      "ordinal": 21,
+      "conceptId": "statistics-weighted-mean",
+      "title": "Weighted mean",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-mean"
+      ],
+      "outcomes": [
+        "Apply normalized weights."
+      ]
+    },
+    {
+      "ordinal": 22,
+      "conceptId": "statistics-median",
+      "title": "Median and robust center",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Find ordered middle values."
+      ]
+    },
+    {
+      "ordinal": 23,
+      "conceptId": "statistics-variance",
+      "title": "Variance",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-mean"
+      ],
+      "outcomes": [
+        "Connect moments and spread."
+      ]
+    },
+    {
+      "ordinal": 24,
+      "conceptId": "statistics-bernoulli",
+      "title": "Bernoulli moments",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-variance"
+      ],
+      "outcomes": [
+        "Use p(1-p) for Bernoulli variance."
+      ]
+    },
+    {
+      "ordinal": 25,
+      "conceptId": "statistics-z-score",
+      "title": "Standardization",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-mean",
+        "statistics-variance"
+      ],
+      "outcomes": [
+        "Convert observations to z-scores."
+      ]
+    },
+    {
+      "ordinal": 26,
+      "conceptId": "statistics-causation",
+      "title": "Association versus causation",
+      "category": "statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Reject unsupported causal inference."
+      ]
+    },
+    {
+      "ordinal": 27,
+      "conceptId": "calculus-derivative",
+      "title": "Derivatives",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Differentiate elementary polynomials."
+      ]
+    },
+    {
+      "ordinal": 28,
+      "conceptId": "optimization-quadratic",
+      "title": "Quadratic optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative"
+      ],
+      "outcomes": [
+        "Use vertices or stationary points."
+      ]
+    },
+    {
+      "ordinal": 29,
+      "conceptId": "optimization-multivariate",
+      "title": "Multivariate optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative"
+      ],
+      "outcomes": [
+        "Solve separable stationary conditions."
+      ]
+    },
+    {
+      "ordinal": 30,
+      "conceptId": "optimization-constraints",
+      "title": "Constrained optimization",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-quadratic"
+      ],
+      "outcomes": [
+        "Translate constraints before optimizing."
+      ]
+    },
+    {
+      "ordinal": 31,
+      "conceptId": "reasoning-percent-base",
+      "title": "Percent-change bases",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Use the original quantity as denominator."
+      ]
+    },
+    {
+      "ordinal": 32,
+      "conceptId": "reasoning-expected-value",
+      "title": "Expected value",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Weight every payoff by its probability."
+      ]
+    },
+    {
+      "ordinal": 33,
+      "conceptId": "reasoning-sample-space",
+      "title": "Sample-space conditioning",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Rebuild the sample space after conditioning."
+      ]
+    },
+    {
+      "ordinal": 34,
+      "conceptId": "reasoning-self-overlap",
+      "title": "Sequence self-overlap",
+      "category": "error-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-waiting-time"
+      ],
+      "outcomes": [
+        "Include proper prefix-suffix overlaps."
+      ]
+    },
+    {
+      "ordinal": 35,
+      "conceptId": "linear-algebra-determinant",
+      "title": "Determinants",
+      "category": "algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Compute a 3x3 determinant reproducibly."
+      ]
+    },
+    {
+      "ordinal": 36,
+      "conceptId": "reasoning-truth-boundary",
+      "title": "Capability truth boundaries",
+      "category": "error-analysis",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Separate an observed exam result from broad mastery."
+      ]
+    },
+    {
+      "ordinal": 37,
+      "conceptId": "algebra-polynomial-arithmetic",
+      "title": "Polynomial arithmetic",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-linear-equations",
+        "algebra-factoring"
+      ],
+      "outcomes": [
+        "Combine polynomial terms and evaluate coefficient operations exactly."
+      ]
+    },
+    {
+      "ordinal": 38,
+      "conceptId": "algebra-rational-expressions",
+      "title": "Rational expressions",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-polynomial-arithmetic",
+        "algebra-factoring"
+      ],
+      "outcomes": [
+        "Simplify rational expressions while respecting excluded values."
+      ]
+    },
+    {
+      "ordinal": 39,
+      "conceptId": "algebra-complex-numbers",
+      "title": "Complex-number arithmetic",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-quadratics"
+      ],
+      "outcomes": [
+        "Compute exact real and imaginary components of complex products."
+      ]
+    },
+    {
+      "ordinal": 40,
+      "conceptId": "functions-composition",
+      "title": "Function composition",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-evaluation"
+      ],
+      "outcomes": [
+        "Evaluate nested function composition in the correct order."
+      ]
+    },
+    {
+      "ordinal": 41,
+      "conceptId": "functions-polynomial-behavior",
+      "title": "Polynomial end behavior",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-polynomial-arithmetic",
+        "functions-transformations"
+      ],
+      "outcomes": [
+        "Infer polynomial end behavior from degree parity and leading sign."
+      ]
+    },
+    {
+      "ordinal": 42,
+      "conceptId": "precalculus-exponential-functions",
+      "title": "Exponential functions",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-evaluation"
+      ],
+      "outcomes": [
+        "Evaluate and interpret integer-power exponential functions."
+      ]
+    },
+    {
+      "ordinal": 43,
+      "conceptId": "precalculus-logarithms",
+      "title": "Logarithms",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "precalculus-exponential-functions",
+        "functions-inverse"
+      ],
+      "outcomes": [
+        "Use logarithms as inverses of exponentiation."
+      ]
+    },
+    {
+      "ordinal": 44,
+      "conceptId": "precalculus-unit-circle",
+      "title": "Unit-circle trigonometry",
+      "category": "algebra-precalculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-transformations",
+        "number-fractions"
+      ],
+      "outcomes": [
+        "Evaluate sine and cosine at cardinal unit-circle angles."
+      ]
+    },
+    {
+      "ordinal": 45,
+      "conceptId": "calculus-limits",
+      "title": "Polynomial limits",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functions-polynomial-behavior"
+      ],
+      "outcomes": [
+        "Evaluate polynomial limits by justified substitution."
+      ]
+    },
+    {
+      "ordinal": 46,
+      "conceptId": "calculus-continuity",
+      "title": "Continuity and removable discontinuities",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-limits"
+      ],
+      "outcomes": [
+        "Choose the value that makes a removable discontinuity continuous."
+      ]
+    },
+    {
+      "ordinal": 47,
+      "conceptId": "calculus-product-rule",
+      "title": "Product rule",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative",
+        "algebra-polynomial-arithmetic"
+      ],
+      "outcomes": [
+        "Differentiate products without dropping either term."
+      ]
+    },
+    {
+      "ordinal": 48,
+      "conceptId": "calculus-chain-rule",
+      "title": "Chain rule",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative",
+        "functions-composition"
+      ],
+      "outcomes": [
+        "Differentiate a composition using inner and outer derivatives."
+      ]
+    },
+    {
+      "ordinal": 49,
+      "conceptId": "calculus-implicit-differentiation",
+      "title": "Implicit differentiation",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-chain-rule",
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Compute tangent slopes from implicit relations."
+      ]
+    },
+    {
+      "ordinal": 50,
+      "conceptId": "calculus-antiderivatives",
+      "title": "Antiderivatives",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative"
+      ],
+      "outcomes": [
+        "Reverse elementary power-rule derivatives."
+      ]
+    },
+    {
+      "ordinal": 51,
+      "conceptId": "calculus-definite-integrals",
+      "title": "Definite integrals",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-antiderivatives"
+      ],
+      "outcomes": [
+        "Evaluate exact definite polynomial integrals."
+      ]
+    },
+    {
+      "ordinal": 52,
+      "conceptId": "calculus-fundamental-theorem",
+      "title": "Fundamental theorem of calculus",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-continuity",
+        "calculus-definite-integrals"
+      ],
+      "outcomes": [
+        "Differentiate accumulation functions using their integrands."
+      ]
+    },
+    {
+      "ordinal": 53,
+      "conceptId": "calculus-substitution",
+      "title": "Integration by substitution",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-chain-rule",
+        "calculus-definite-integrals"
+      ],
+      "outcomes": [
+        "Recognize and apply a matching differential substitution."
+      ]
+    },
+    {
+      "ordinal": 54,
+      "conceptId": "calculus-series-convergence",
+      "title": "Series convergence",
+      "category": "calculus",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "series-geometric",
+        "calculus-limits"
+      ],
+      "outcomes": [
+        "Classify geometric series from the magnitude of their ratio."
+      ]
+    },
+    {
+      "ordinal": 55,
+      "conceptId": "linear-algebra-vectors",
+      "title": "Vector arithmetic",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-inverse-operations"
+      ],
+      "outcomes": [
+        "Add and scale finite-dimensional vectors coordinatewise."
+      ]
+    },
+    {
+      "ordinal": 56,
+      "conceptId": "linear-algebra-dot-product",
+      "title": "Dot products",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-vectors"
+      ],
+      "outcomes": [
+        "Compute dot products and use their geometric meaning."
+      ]
+    },
+    {
+      "ordinal": 57,
+      "conceptId": "linear-algebra-matrix-multiplication",
+      "title": "Matrix multiplication",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-vectors"
+      ],
+      "outcomes": [
+        "Multiply matrices and vectors with compatible dimensions."
+      ]
+    },
+    {
+      "ordinal": 58,
+      "conceptId": "linear-algebra-linear-systems",
+      "title": "Linear systems in matrix form",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-matrix-multiplication",
+        "algebra-linear-equations"
+      ],
+      "outcomes": [
+        "Solve small nonsingular systems exactly."
+      ]
+    },
+    {
+      "ordinal": 59,
+      "conceptId": "linear-algebra-row-reduction",
+      "title": "Row reduction",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-linear-systems"
+      ],
+      "outcomes": [
+        "Apply elementary row operations without changing the solution set."
+      ]
+    },
+    {
+      "ordinal": 60,
+      "conceptId": "linear-algebra-independence",
+      "title": "Linear independence",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-determinant",
+        "linear-algebra-vectors"
+      ],
+      "outcomes": [
+        "Recognize independence using exact determinant evidence."
+      ]
+    },
+    {
+      "ordinal": 61,
+      "conceptId": "linear-algebra-eigenvalues",
+      "title": "Eigenvalues",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-determinant",
+        "linear-algebra-matrix-multiplication"
+      ],
+      "outcomes": [
+        "Find eigenvalues of diagonal and triangular matrices."
+      ]
+    },
+    {
+      "ordinal": 62,
+      "conceptId": "linear-algebra-orthogonal-projection",
+      "title": "Orthogonal projection",
+      "category": "linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-dot-product"
+      ],
+      "outcomes": [
+        "Project vectors onto coordinate axes and simple directions."
+      ]
+    },
+    {
+      "ordinal": 63,
+      "conceptId": "probability-random-variables",
+      "title": "Discrete random variables",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Represent finite outcomes as random-variable values."
+      ]
+    },
+    {
+      "ordinal": 64,
+      "conceptId": "probability-expectation-linearity",
+      "title": "Linearity of expectation",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-random-variables",
+        "reasoning-expected-value"
+      ],
+      "outcomes": [
+        "Transform expectations without assuming independence."
+      ]
+    },
+    {
+      "ordinal": 65,
+      "conceptId": "probability-discrete-distributions",
+      "title": "Discrete distributions",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-binomial",
+        "probability-random-variables"
+      ],
+      "outcomes": [
+        "Compute exact distribution moments from declared parameters."
+      ]
+    },
+    {
+      "ordinal": 66,
+      "conceptId": "statistics-covariance-correlation",
+      "title": "Covariance and correlation",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-variance",
+        "probability-expectation-linearity"
+      ],
+      "outcomes": [
+        "Apply exact covariance transformations and distinguish correlation."
+      ]
+    },
+    {
+      "ordinal": 67,
+      "conceptId": "statistics-sampling-distributions",
+      "title": "Sampling distributions",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-variance",
+        "probability-random-variables"
+      ],
+      "outcomes": [
+        "Compute the standard error of a sample mean."
+      ]
+    },
+    {
+      "ordinal": 68,
+      "conceptId": "statistics-confidence-intervals",
+      "title": "Confidence intervals",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-sampling-distributions",
+        "statistics-z-score"
+      ],
+      "outcomes": [
+        "Construct a declared normal-approximation interval."
+      ]
+    },
+    {
+      "ordinal": 69,
+      "conceptId": "statistics-hypothesis-tests",
+      "title": "Hypothesis testing",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-confidence-intervals",
+        "probability-conditional"
+      ],
+      "outcomes": [
+        "Apply a prespecified significance rule without reversing it."
+      ]
+    },
+    {
+      "ordinal": 70,
+      "conceptId": "statistics-linear-regression",
+      "title": "Simple linear regression",
+      "category": "probability-statistics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "statistics",
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-covariance-correlation",
+        "statistics-mean"
+      ],
+      "outcomes": [
+        "Compute and interpret an exact line slope from paired points."
+      ]
+    },
+    {
+      "ordinal": 71,
+      "conceptId": "discrete-logic",
+      "title": "Propositional logic",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [],
+      "outcomes": [
+        "Evaluate implications and basic logical connectives."
+      ]
+    },
+    {
+      "ordinal": 72,
+      "conceptId": "discrete-proof-induction",
+      "title": "Mathematical induction",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-logic",
+        "series-geometric"
+      ],
+      "outcomes": [
+        "Use a base case and inductive step for finite-sum identities."
+      ]
+    },
+    {
+      "ordinal": 73,
+      "conceptId": "discrete-sets-relations",
+      "title": "Sets and relations",
+      "category": "discrete-mathematics",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-logic"
+      ],
+      "outcomes": [
+        "Compute exact set operations and relation properties."
+      ]
+    },
+    {
+      "ordinal": 74,
+      "conceptId": "discrete-graph-theory",
+      "title": "Graph theory foundations",
+      "category": "discrete-mathematics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-sets-relations",
+        "probability-counting"
+      ],
+      "outcomes": [
+        "Count edges and degrees in elementary finite graphs."
+      ]
+    },
+    {
+      "ordinal": 75,
+      "conceptId": "discrete-recurrences",
+      "title": "Recurrence relations",
+      "category": "discrete-mathematics",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-proof-induction"
+      ],
+      "outcomes": [
+        "Unroll and evaluate elementary recurrences."
+      ]
+    },
+    {
+      "ordinal": 76,
+      "conceptId": "number-theory-modular-arithmetic",
+      "title": "Modular arithmetic",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-inverse-operations"
+      ],
+      "outcomes": [
+        "Compute exact residues and respect congruence operations."
+      ]
+    },
+    {
+      "ordinal": 77,
+      "conceptId": "number-theory-gcd",
+      "title": "Greatest common divisors",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-modular-arithmetic"
+      ],
+      "outcomes": [
+        "Use Euclidean structure to compute greatest common divisors."
+      ]
+    },
+    {
+      "ordinal": 78,
+      "conceptId": "number-theory-prime-factorization",
+      "title": "Prime factorization",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-gcd"
+      ],
+      "outcomes": [
+        "Recover exact prime factors of bounded semiprimes."
+      ]
+    },
+    {
+      "ordinal": 79,
+      "conceptId": "optimization-convexity",
+      "title": "Convexity",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative",
+        "optimization-quadratic"
+      ],
+      "outcomes": [
+        "Classify elementary functions from curvature evidence."
+      ]
+    },
+    {
+      "ordinal": 80,
+      "conceptId": "optimization-gradients",
+      "title": "Gradients",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-derivative",
+        "linear-algebra-vectors"
+      ],
+      "outcomes": [
+        "Compute exact gradients of separable quadratic functions."
+      ]
+    },
+    {
+      "ordinal": 81,
+      "conceptId": "optimization-hessian",
+      "title": "Hessian matrices",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-gradients",
+        "optimization-multivariate"
+      ],
+      "outcomes": [
+        "Compute and interpret Hessians of quadratic objectives."
+      ]
+    },
+    {
+      "ordinal": 82,
+      "conceptId": "optimization-lagrange-multipliers",
+      "title": "Lagrange multipliers",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-gradients",
+        "optimization-constraints"
+      ],
+      "outcomes": [
+        "Solve smooth equality-constrained quadratic problems."
+      ]
+    },
+    {
+      "ordinal": 83,
+      "conceptId": "optimization-linear-programming",
+      "title": "Linear programming",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-linear-equations",
+        "optimization-constraints"
+      ],
+      "outcomes": [
+        "Optimize a linear objective over a bounded polygonal region."
+      ]
+    },
+    {
+      "ordinal": 84,
+      "conceptId": "optimization-gradient-descent",
+      "title": "Gradient descent",
+      "category": "optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-gradients",
+        "optimization-convexity"
+      ],
+      "outcomes": [
+        "Compute bounded deterministic gradient-descent updates."
+      ]
+    },
+    {
+      "ordinal": 85,
+      "conceptId": "proof-quantifiers-and-scope",
+      "title": "Quantifiers, scope, and negation",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-logic",
+        "discrete-sets-relations"
+      ],
+      "outcomes": [
+        "Translate a quantified mathematical statement and write its logically correct negation."
+      ]
+    },
+    {
+      "ordinal": 86,
+      "conceptId": "graph-theory-matchings-flows",
+      "title": "Matchings, cuts, and network flows",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-graph-theory",
+        "optimization-linear-programming"
+      ],
+      "outcomes": [
+        "Produce a maximum matching or flow and a dual certificate proving optimality."
+      ]
+    },
+    {
+      "ordinal": 87,
+      "conceptId": "number-theory-chinese-remainder",
+      "title": "Chinese remainder theorem",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-modular-arithmetic",
+        "number-theory-gcd"
+      ],
+      "outcomes": [
+        "Construct the unique residue class solving a system of coprime congruences."
+      ]
+    },
+    {
+      "ordinal": 88,
+      "conceptId": "numerical-analysis-floating-point-error",
+      "title": "Floating-point error and stability",
+      "category": "numerical-analysis-optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-fractions",
+        "calculus-limits"
+      ],
+      "outcomes": [
+        "Propagate a floating-point error bound and distinguish backward stability from forward accuracy."
+      ]
+    },
+    {
+      "ordinal": 89,
+      "conceptId": "proof-direct-and-contrapositive",
+      "title": "Direct and contrapositive proof",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-quantifiers-and-scope"
+      ],
+      "outcomes": [
+        "Produce direct and contrapositive arguments with every implication dependency identified."
+      ]
+    },
+    {
+      "ordinal": 90,
+      "conceptId": "proof-strong-and-structural-induction",
+      "title": "Strong and structural induction",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-proof-induction",
+        "proof-quantifiers-and-scope"
+      ],
+      "outcomes": [
+        "Complete a strong or structural induction with an explicit induction measure and exhaustive constructors."
+      ]
+    },
+    {
+      "ordinal": 91,
+      "conceptId": "proof-counterexample-construction",
+      "title": "Counterexample construction",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-quantifiers-and-scope",
+        "functions-transformations"
+      ],
+      "outcomes": [
+        "Construct and verify a counterexample that falsifies the weakest failed hypothesis."
+      ]
+    },
+    {
+      "ordinal": 92,
+      "conceptId": "topology-spaces-bases",
+      "title": "Topological spaces and bases",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-sets-relations",
+        "proof-quantifiers-and-scope"
+      ],
+      "outcomes": [
+        "Verify the topology or basis axioms and compute closures and interiors from definitions."
+      ]
+    },
+    {
+      "ordinal": 93,
+      "conceptId": "combinatorics-matroids",
+      "title": "Matroids and greedy structure",
+      "category": "combinatorics-graph-theory",
+      "stage": "specialization",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "linear-algebra-independence",
+        "graph-theory-matchings-flows"
+      ],
+      "outcomes": [
+        "Verify basis exchange and prove when a greedy algorithm is optimal."
+      ]
+    },
+    {
+      "ordinal": 94,
+      "conceptId": "logic-first-order-syntax-semantics",
+      "title": "First-order syntax and semantics",
+      "category": "logic-set-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-logic",
+        "proof-quantifiers-and-scope"
+      ],
+      "outcomes": [
+        "Evaluate satisfaction of a first-order formula in a finite structure and distinguish syntax from semantics."
+      ]
+    },
+    {
+      "ordinal": 95,
+      "conceptId": "proof-contradiction-and-minimal-counterexample",
+      "title": "Contradiction and minimal-counterexample arguments",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-direct-and-contrapositive",
+        "number-theory-gcd"
+      ],
+      "outcomes": [
+        "Close a contradiction or minimal-counterexample proof by exhibiting the impossible consequence."
+      ]
+    },
+    {
+      "ordinal": 96,
+      "conceptId": "proof-equivalence-and-biconditionals",
+      "title": "Equivalence and biconditional proofs",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-direct-and-contrapositive"
+      ],
+      "outcomes": [
+        "Prove an if-and-only-if statement in both directions without assuming the conclusion."
+      ]
+    },
+    {
+      "ordinal": 97,
+      "conceptId": "proof-pigeonhole-and-double-counting",
+      "title": "Pigeonhole and double-counting proofs",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations",
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-counting",
+        "proof-direct-and-contrapositive"
+      ],
+      "outcomes": [
+        "Count one finite incidence set in two ways to derive a stated identity or bound."
+      ]
+    },
+    {
+      "ordinal": 98,
+      "conceptId": "topology-continuous-quotient-product-maps",
+      "title": "Continuous, quotient, and product maps",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-spaces-bases",
+        "functions-composition"
+      ],
+      "outcomes": [
+        "Prove continuity through inverse images and test a map against quotient or product universal properties."
+      ]
+    },
+    {
+      "ordinal": 99,
+      "conceptId": "topology-separation-axioms",
+      "title": "Separation axioms",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-spaces-bases",
+        "proof-counterexample-construction"
+      ],
+      "outcomes": [
+        "Classify a space by separation axioms and supply separating neighborhoods or a counterexample."
+      ]
+    },
+    {
+      "ordinal": 100,
+      "conceptId": "combinatorics-probabilistic-method",
+      "title": "The probabilistic method",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-expectation-linearity",
+        "proof-counterexample-construction"
+      ],
+      "outcomes": [
+        "Use first moment, alteration, or local-lemma evidence to prove existence without constructing the object."
+      ]
+    },
+    {
+      "ordinal": 101,
+      "conceptId": "set-theory-ordinals-transfinite",
+      "title": "Ordinals and transfinite recursion",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "logic-first-order-syntax-semantics",
+        "proof-strong-and-structural-induction"
+      ],
+      "outcomes": [
+        "Define a function by transfinite recursion and prove its property by transfinite induction."
+      ]
+    },
+    {
+      "ordinal": 102,
+      "conceptId": "proof-existence-and-uniqueness",
+      "title": "Existence and uniqueness proofs",
+      "category": "proof-foundations",
+      "stage": "proof_foundations",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-equivalence-and-biconditionals",
+        "functions-inverse"
+      ],
+      "outcomes": [
+        "Separate construction from uniqueness and verify that the constructed object satisfies the specification."
+      ]
+    },
+    {
+      "ordinal": 103,
+      "conceptId": "proof-invariants-and-extremal-principles",
+      "title": "Invariants and extremal principles",
+      "category": "proof-foundations",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "proof-foundations"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-contradiction-and-minimal-counterexample",
+        "discrete-recurrences"
+      ],
+      "outcomes": [
+        "Identify an invariant or extremal object and use it to rule out all forbidden transitions."
+      ]
+    },
+    {
+      "ordinal": 104,
+      "conceptId": "linear-algebra-vector-spaces-subspaces",
+      "title": "Vector spaces and subspaces",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-vectors",
+        "proof-equivalence-and-biconditionals"
+      ],
+      "outcomes": [
+        "Verify the subspace axioms and describe a span by an explicit basis."
+      ]
+    },
+    {
+      "ordinal": 105,
+      "conceptId": "real-analysis-completeness",
+      "title": "Completeness of the real numbers",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-limits",
+        "proof-contradiction-and-minimal-counterexample"
+      ],
+      "outcomes": [
+        "Use the least-upper-bound property to prove convergence of a bounded monotone sequence."
+      ]
+    },
+    {
+      "ordinal": 106,
+      "conceptId": "abstract-algebra-groups-homomorphisms",
+      "title": "Groups and homomorphisms",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-sets-relations",
+        "number-theory-modular-arithmetic",
+        "proof-equivalence-and-biconditionals"
+      ],
+      "outcomes": [
+        "Verify a group homomorphism and compute its kernel, image, and quotient relation."
+      ]
+    },
+    {
+      "ordinal": 107,
+      "conceptId": "topology-connectedness-paths",
+      "title": "Connectedness and path components",
+      "category": "topology",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-continuous-quotient-product-maps"
+      ],
+      "outcomes": [
+        "Compute connected and path components and prove their preservation under continuous images."
+      ]
+    },
+    {
+      "ordinal": 108,
+      "conceptId": "algebraic-topology-simplicial-cell-complexes",
+      "title": "Simplicial and cell complexes",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-continuous-quotient-product-maps",
+        "proof-strong-and-structural-induction"
+      ],
+      "outcomes": [
+        "Build a finite CW or simplicial model and record its attaching data."
+      ]
+    },
+    {
+      "ordinal": 109,
+      "conceptId": "combinatorics-bijections-generating-functions",
+      "title": "Bijections and generating functions",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-combinatorics",
+        "discrete-recurrences",
+        "proof-pigeonhole-and-double-counting"
+      ],
+      "outcomes": [
+        "Encode a counting class by a generating function and recover a coefficient by a justified bijection."
+      ]
+    },
+    {
+      "ordinal": 110,
+      "conceptId": "number-theory-diophantine-equations",
+      "title": "Diophantine equations",
+      "category": "number-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-gcd",
+        "proof-contradiction-and-minimal-counterexample"
+      ],
+      "outcomes": [
+        "Determine all integer solutions of a bounded Diophantine equation with divisibility proved."
+      ]
+    },
+    {
+      "ordinal": 111,
+      "conceptId": "set-theory-cardinal-arithmetic",
+      "title": "Cardinal arithmetic and the continuum",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "set-theory-ordinals-transfinite",
+        "proof-pigeonhole-and-double-counting"
+      ],
+      "outcomes": [
+        "Compare infinite cardinalities by explicit injections and compute a stated cardinal exponent."
+      ]
+    },
+    {
+      "ordinal": 112,
+      "conceptId": "proof-dependency-audit",
+      "title": "Proof dependency auditing",
+      "category": "proof-foundations",
+      "stage": "qualifying",
+      "tracks": [
+        "proof-foundations",
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "proof-existence-and-uniqueness",
+        "proof-strong-and-structural-induction",
+        "proof-counterexample-construction"
+      ],
+      "outcomes": [
+        "Rewrite a proof as a dependency ledger that distinguishes definitions, hypotheses, lemmas, and conclusions."
+      ]
+    },
+    {
+      "ordinal": 113,
+      "conceptId": "linear-algebra-linear-maps-kernel-image",
+      "title": "Linear maps, kernels, and images",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-vector-spaces-subspaces",
+        "linear-algebra-matrix-multiplication"
+      ],
+      "outcomes": [
+        "Compute kernels and images and prove that each has the required subspace structure."
+      ]
+    },
+    {
+      "ordinal": 114,
+      "conceptId": "real-analysis-epsilon-delta-limits",
+      "title": "Epsilon-delta limits",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-completeness",
+        "calculus-continuity"
+      ],
+      "outcomes": [
+        "Produce an explicit delta for a stated epsilon and verify the resulting limit inequality."
+      ]
+    },
+    {
+      "ordinal": 115,
+      "conceptId": "abstract-algebra-group-actions",
+      "title": "Group actions and orbit-stabilizer",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-groups-homomorphisms",
+        "proof-pigeonhole-and-double-counting"
+      ],
+      "outcomes": [
+        "Compute orbits and stabilizers and reconcile their sizes by orbit-stabilizer."
+      ]
+    },
+    {
+      "ordinal": 116,
+      "conceptId": "abstract-algebra-rings-ideals-quotients",
+      "title": "Rings, ideals, and quotient rings",
+      "category": "abstract-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-polynomial-arithmetic",
+        "abstract-algebra-groups-homomorphisms"
+      ],
+      "outcomes": [
+        "Test whether a subset is an ideal and compute operations in the quotient ring."
+      ]
+    },
+    {
+      "ordinal": 117,
+      "conceptId": "topology-topological-manifolds",
+      "title": "Topological manifolds",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-separation-axioms",
+        "topology-connectedness-paths"
+      ],
+      "outcomes": [
+        "Verify local Euclidean charts, Hausdorffness, and second countability for a candidate manifold."
+      ]
+    },
+    {
+      "ordinal": 118,
+      "conceptId": "algebraic-topology-homotopy-fundamental-group",
+      "title": "Homotopy and fundamental groups",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-connectedness-paths",
+        "abstract-algebra-groups-homomorphisms"
+      ],
+      "outcomes": [
+        "Compute a fundamental group from explicit loops and verify homotopy invariance of the assignment."
+      ]
+    },
+    {
+      "ordinal": 119,
+      "conceptId": "measure-theory-sigma-algebras-measures",
+      "title": "Sigma algebras and measures",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-sets-relations",
+        "real-analysis-completeness"
+      ],
+      "outcomes": [
+        "Generate a sigma algebra and verify countable additivity on a declared measurable space."
+      ]
+    },
+    {
+      "ordinal": 120,
+      "conceptId": "combinatorics-extremal-set-systems",
+      "title": "Extremal set systems",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-pigeonhole-and-double-counting",
+        "combinatorics-bijections-generating-functions"
+      ],
+      "outcomes": [
+        "Prove a sharp finite-family bound and exhibit a construction attaining equality."
+      ]
+    },
+    {
+      "ordinal": 121,
+      "conceptId": "graph-theory-connectivity-planarity",
+      "title": "Graph connectivity and planarity",
+      "category": "combinatorics-graph-theory",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-graph-theory",
+        "proof-invariants-and-extremal-principles"
+      ],
+      "outcomes": [
+        "Find a cut structure or planar obstruction and justify it with a graph invariant."
+      ]
+    },
+    {
+      "ordinal": 122,
+      "conceptId": "number-theory-quadratic-residues",
+      "title": "Quadratic residues and reciprocity",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-chinese-remainder",
+        "abstract-algebra-groups-homomorphisms"
+      ],
+      "outcomes": [
+        "Decide quadratic residuosity and justify the result using reciprocity and supplementary laws."
+      ]
+    },
+    {
+      "ordinal": 123,
+      "conceptId": "linear-algebra-basis-dimension",
+      "title": "Bases, dimension, and coordinates",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-linear-maps-kernel-image",
+        "linear-algebra-independence"
+      ],
+      "outcomes": [
+        "Extend an independent set to a basis and convert a vector between declared coordinate systems."
+      ]
+    },
+    {
+      "ordinal": 124,
+      "conceptId": "real-analysis-cauchy-sequences",
+      "title": "Cauchy sequences and completeness criteria",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-epsilon-delta-limits"
+      ],
+      "outcomes": [
+        "Prove a sequence is Cauchy and identify exactly where completeness yields its limit."
+      ]
+    },
+    {
+      "ordinal": 125,
+      "conceptId": "real-analysis-mean-value-theorems",
+      "title": "Mean-value theorems and differentiability",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-epsilon-delta-limits",
+        "calculus-chain-rule"
+      ],
+      "outcomes": [
+        "Derive a quantitative function bound from the mean-value theorem with hypotheses checked."
+      ]
+    },
+    {
+      "ordinal": 126,
+      "conceptId": "abstract-algebra-sylow-theory",
+      "title": "Sylow theory",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-group-actions",
+        "number-theory-prime-factorization"
+      ],
+      "outcomes": [
+        "Restrict a finite group structure using all three Sylow conclusions."
+      ]
+    },
+    {
+      "ordinal": 127,
+      "conceptId": "abstract-algebra-field-extensions",
+      "title": "Field extensions and minimal polynomials",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-rings-ideals-quotients",
+        "algebra-complex-numbers"
+      ],
+      "outcomes": [
+        "Compute an extension degree and prove irreducibility of a candidate minimal polynomial."
+      ]
+    },
+    {
+      "ordinal": 128,
+      "conceptId": "algebraic-topology-covering-spaces",
+      "title": "Covering spaces and lifting",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebraic-topology-homotopy-fundamental-group",
+        "topology-topological-manifolds"
+      ],
+      "outcomes": [
+        "Apply path and homotopy lifting to classify a connected covering."
+      ]
+    },
+    {
+      "ordinal": 129,
+      "conceptId": "measure-theory-measurable-functions",
+      "title": "Measurable functions",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-sigma-algebras-measures",
+        "topology-spaces-bases"
+      ],
+      "outcomes": [
+        "Prove measurability from inverse images or approximation by simple functions."
+      ]
+    },
+    {
+      "ordinal": 130,
+      "conceptId": "combinatorics-posets-mobius",
+      "title": "Partially ordered sets and Mobius inversion",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "discrete-sets-relations",
+        "abstract-algebra-rings-ideals-quotients"
+      ],
+      "outcomes": [
+        "Compute an incidence-algebra inverse and apply Mobius inversion on a finite poset."
+      ]
+    },
+    {
+      "ordinal": 131,
+      "conceptId": "graph-theory-coloring-ramsey",
+      "title": "Graph coloring and Ramsey theory",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "graph-theory-connectivity-planarity",
+        "combinatorics-probabilistic-method"
+      ],
+      "outcomes": [
+        "Prove a coloring or Ramsey bound and give a construction establishing the complementary bound."
+      ]
+    },
+    {
+      "ordinal": 132,
+      "conceptId": "logic-completeness-compactness",
+      "title": "Logical completeness and compactness",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "logic-first-order-syntax-semantics",
+        "proof-dependency-audit"
+      ],
+      "outcomes": [
+        "Use a completeness or compactness argument to build a model or derive a finite inconsistency."
+      ]
+    },
+    {
+      "ordinal": 133,
+      "conceptId": "research-practice-literature-corpus",
+      "title": "Bounded literature-corpus protocol",
+      "category": "research-practice",
+      "stage": "graduate_core",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "proof-dependency-audit",
+        "reasoning-truth-boundary"
+      ],
+      "outcomes": [
+        "Freeze a searchable corpus with inclusion dates, query strings, exclusions, and a content digest."
+      ]
+    },
+    {
+      "ordinal": 134,
+      "conceptId": "linear-algebra-rank-nullity",
+      "title": "Rank-nullity theorem",
+      "category": "advanced-linear-algebra",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-basis-dimension",
+        "linear-algebra-row-reduction"
+      ],
+      "outcomes": [
+        "Derive rank plus nullity from a basis adapted to the kernel."
+      ]
+    },
+    {
+      "ordinal": 135,
+      "conceptId": "real-analysis-continuity-compactness",
+      "title": "Continuity on compact sets",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-cauchy-sequences",
+        "proof-existence-and-uniqueness"
+      ],
+      "outcomes": [
+        "Prove uniform continuity or attainment of extrema from sequential compactness."
+      ]
+    },
+    {
+      "ordinal": 136,
+      "conceptId": "real-analysis-metric-spaces",
+      "title": "Metric spaces, completeness, and compactness",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-cauchy-sequences",
+        "discrete-sets-relations"
+      ],
+      "outcomes": [
+        "Classify a metric subspace as complete, compact, or neither using an explicit sequence or cover."
+      ]
+    },
+    {
+      "ordinal": 137,
+      "conceptId": "abstract-algebra-solvable-nilpotent-groups",
+      "title": "Solvable and nilpotent groups",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-sylow-theory"
+      ],
+      "outcomes": [
+        "Compute a derived or central series and classify the resulting group property."
+      ]
+    },
+    {
+      "ordinal": 138,
+      "conceptId": "abstract-algebra-galois-theory",
+      "title": "Galois theory",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-field-extensions",
+        "abstract-algebra-group-actions"
+      ],
+      "outcomes": [
+        "Determine a Galois group and match intermediate fields to subgroups."
+      ]
+    },
+    {
+      "ordinal": 139,
+      "conceptId": "number-theory-arithmetic-functions",
+      "title": "Arithmetic functions and Dirichlet convolution",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "number-theory-prime-factorization",
+        "combinatorics-posets-mobius"
+      ],
+      "outcomes": [
+        "Compute a Dirichlet convolution and invert a multiplicative arithmetic function."
+      ]
+    },
+    {
+      "ordinal": 140,
+      "conceptId": "logic-computability-incompleteness",
+      "title": "Computability and incompleteness",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "logic-completeness-compactness",
+        "discrete-recurrences"
+      ],
+      "outcomes": [
+        "Encode a bounded computation and identify the diagonal step behind an undecidability or incompleteness result."
+      ]
+    },
+    {
+      "ordinal": 141,
+      "conceptId": "logic-model-theory-types",
+      "title": "Model theory, types, and elementary extensions",
+      "category": "logic-set-theory",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "logic-completeness-compactness",
+        "abstract-algebra-field-extensions"
+      ],
+      "outcomes": [
+        "Realize or omit a type in a declared theory and test an embedding for elementarity."
+      ]
+    },
+    {
+      "ordinal": 142,
+      "conceptId": "research-practice-conjecture-counterexample",
+      "title": "Conjecture refinement and counterexample search",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "proof-counterexample-construction",
+        "research-practice-literature-corpus"
+      ],
+      "outcomes": [
+        "Refine a conjecture after documenting exhaustive bounded tests and the first counterexample class."
+      ]
+    },
+    {
+      "ordinal": 143,
+      "conceptId": "research-practice-computational-reproducibility",
+      "title": "Reproducible mathematical computation",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "numerical-analysis-floating-point-error",
+        "research-practice-literature-corpus"
+      ],
+      "outcomes": [
+        "Package a deterministic computation with environment, input, source, and result digests that an independent runner reproduces."
+      ]
+    },
+    {
+      "ordinal": 144,
+      "conceptId": "linear-algebra-quotients-and-duals",
+      "title": "Quotient spaces and duality",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-rank-nullity",
+        "proof-existence-and-uniqueness"
+      ],
+      "outcomes": [
+        "Construct a quotient-space map and compute its induced action on dual functionals."
+      ]
+    },
+    {
+      "ordinal": 145,
+      "conceptId": "real-analysis-riemann-integration",
+      "title": "Riemann integration and Darboux sums",
+      "category": "real-analysis",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-continuity-compactness",
+        "calculus-fundamental-theorem"
+      ],
+      "outcomes": [
+        "Prove integrability by controlling upper and lower Darboux sums."
+      ]
+    },
+    {
+      "ordinal": 146,
+      "conceptId": "real-analysis-multivariable-differentiation",
+      "title": "Multivariable differentiation and inverse mappings",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-mean-value-theorems",
+        "linear-algebra-rank-nullity",
+        "optimization-hessian"
+      ],
+      "outcomes": [
+        "Verify the hypotheses of an inverse or implicit function theorem and compute the local derivative."
+      ]
+    },
+    {
+      "ordinal": 147,
+      "conceptId": "topology-compactness-local-compactness",
+      "title": "Compactness and local compactness",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-continuous-quotient-product-maps",
+        "real-analysis-continuity-compactness"
+      ],
+      "outcomes": [
+        "Extract a finite subcover or construct an open cover witnessing noncompactness."
+      ]
+    },
+    {
+      "ordinal": 148,
+      "conceptId": "topology-nets-filters",
+      "title": "Nets, filters, and general convergence",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-spaces-bases",
+        "real-analysis-metric-spaces"
+      ],
+      "outcomes": [
+        "Use a net or filter to characterize closure or compactness beyond first-countable spaces."
+      ]
+    },
+    {
+      "ordinal": 149,
+      "conceptId": "differential-equations-ode-existence-uniqueness",
+      "title": "ODE existence and uniqueness",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-fundamental-theorem",
+        "real-analysis-continuity-compactness"
+      ],
+      "outcomes": [
+        "Verify a Lipschitz condition and bound the interval on which an initial-value problem has a unique solution."
+      ]
+    },
+    {
+      "ordinal": 150,
+      "conceptId": "linear-algebra-canonical-forms",
+      "title": "Canonical forms of linear operators",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-quotients-and-duals",
+        "linear-algebra-eigenvalues",
+        "algebra-polynomial-arithmetic"
+      ],
+      "outcomes": [
+        "Determine invariant factors or Jordan blocks and verify the resulting similarity class."
+      ]
+    },
+    {
+      "ordinal": 151,
+      "conceptId": "linear-algebra-tensors-and-exterior-powers",
+      "title": "Tensors and exterior powers",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-quotients-and-duals",
+        "linear-algebra-determinant"
+      ],
+      "outcomes": [
+        "Use a universal property to define a tensor map and compute an exterior product."
+      ]
+    },
+    {
+      "ordinal": 152,
+      "conceptId": "real-analysis-uniform-convergence",
+      "title": "Uniform convergence of function sequences",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-riemann-integration",
+        "calculus-series-convergence"
+      ],
+      "outcomes": [
+        "Use a uniform convergence criterion to justify exchanging a limit with continuity or integration."
+      ]
+    },
+    {
+      "ordinal": 153,
+      "conceptId": "complex-analysis-holomorphic-functions",
+      "title": "Holomorphic functions and Cauchy-Riemann equations",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebra-complex-numbers",
+        "real-analysis-multivariable-differentiation"
+      ],
+      "outcomes": [
+        "Determine complex differentiability and compute the derivative from the Cauchy-Riemann equations."
+      ]
+    },
+    {
+      "ordinal": 154,
+      "conceptId": "functional-analysis-normed-banach-spaces",
+      "title": "Normed and Banach spaces",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-metric-spaces",
+        "linear-algebra-quotients-and-duals"
+      ],
+      "outcomes": [
+        "Prove completeness or exhibit a Cauchy sequence that leaves a specified normed space."
+      ]
+    },
+    {
+      "ordinal": 155,
+      "conceptId": "topology-urysohn-tietze",
+      "title": "Urysohn lemma and Tietze extension",
+      "category": "topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-separation-axioms",
+        "topology-compactness-local-compactness"
+      ],
+      "outcomes": [
+        "Construct a separating function or continuous extension with normality hypotheses verified."
+      ]
+    },
+    {
+      "ordinal": 156,
+      "conceptId": "differential-geometry-smooth-manifolds-tangent",
+      "title": "Smooth manifolds and tangent bundles",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "topology-topological-manifolds",
+        "real-analysis-multivariable-differentiation"
+      ],
+      "outcomes": [
+        "Check chart compatibility and compute a tangent map in overlapping coordinates."
+      ]
+    },
+    {
+      "ordinal": 157,
+      "conceptId": "measure-theory-lebesgue-integration",
+      "title": "Lebesgue integration and convergence theorems",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-measurable-functions",
+        "real-analysis-riemann-integration"
+      ],
+      "outcomes": [
+        "Apply monotone, Fatou, or dominated convergence with every domination hypothesis checked."
+      ]
+    },
+    {
+      "ordinal": 158,
+      "conceptId": "numerical-analysis-quadrature-ode",
+      "title": "Numerical quadrature and ODE integration",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-equations-ode-existence-uniqueness",
+        "numerical-analysis-floating-point-error"
+      ],
+      "outcomes": [
+        "Derive consistency and stability orders and bound the global error of a time-stepping rule."
+      ]
+    },
+    {
+      "ordinal": 159,
+      "conceptId": "linear-algebra-spectral-theorem",
+      "title": "Finite-dimensional spectral theorem",
+      "category": "advanced-linear-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "advanced-linear-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-canonical-forms",
+        "linear-algebra-orthogonal-projection"
+      ],
+      "outcomes": [
+        "Orthogonally diagonalize a normal operator and reconstruct it from spectral projections."
+      ]
+    },
+    {
+      "ordinal": 160,
+      "conceptId": "real-analysis-arzela-ascoli",
+      "title": "Arzela-Ascoli compactness",
+      "category": "real-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "real-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-uniform-convergence",
+        "real-analysis-metric-spaces"
+      ],
+      "outcomes": [
+        "Extract a uniformly convergent subsequence by proving equicontinuity and pointwise boundedness."
+      ]
+    },
+    {
+      "ordinal": 161,
+      "conceptId": "complex-analysis-contour-integration",
+      "title": "Contour integration",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "complex-analysis-holomorphic-functions",
+        "calculus-substitution"
+      ],
+      "outcomes": [
+        "Parametrize a contour and evaluate the associated complex line integral with orientation recorded."
+      ]
+    },
+    {
+      "ordinal": 162,
+      "conceptId": "complex-analysis-mobius-conformal-maps",
+      "title": "Mobius transformations and conformal maps",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "complex-analysis-holomorphic-functions",
+        "functions-composition"
+      ],
+      "outcomes": [
+        "Construct a Mobius map sending three marked points to prescribed targets."
+      ]
+    },
+    {
+      "ordinal": 163,
+      "conceptId": "functional-analysis-sobolev-spaces",
+      "title": "Sobolev spaces and weak derivatives",
+      "category": "functional-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis",
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "functional-analysis-normed-banach-spaces",
+        "real-analysis-riemann-integration"
+      ],
+      "outcomes": [
+        "Verify a weak derivative identity and bound a Sobolev norm for a concrete function."
+      ]
+    },
+    {
+      "ordinal": 164,
+      "conceptId": "abstract-algebra-modules-structure",
+      "title": "Modules and finitely generated structure",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-rings-ideals-quotients",
+        "linear-algebra-canonical-forms"
+      ],
+      "outcomes": [
+        "Decompose a finitely generated module over a principal ideal domain into invariant factors."
+      ]
+    },
+    {
+      "ordinal": 165,
+      "conceptId": "topology-paracompact-partitions",
+      "title": "Paracompactness and partitions of unity",
+      "category": "topology",
+      "stage": "specialization",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "topology-topological-manifolds",
+        "topology-urysohn-tietze"
+      ],
+      "outcomes": [
+        "Build a locally finite refinement and state how its partition of unity glues local data."
+      ]
+    },
+    {
+      "ordinal": 166,
+      "conceptId": "differential-geometry-differential-forms-stokes",
+      "title": "Differential forms and Stokes theorem",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-geometry-smooth-manifolds-tangent",
+        "linear-algebra-tensors-and-exterior-powers"
+      ],
+      "outcomes": [
+        "Compute an exterior derivative and verify Stokes theorem on an oriented bounded example."
+      ]
+    },
+    {
+      "ordinal": 167,
+      "conceptId": "differential-geometry-lie-groups-algebras",
+      "title": "Lie groups and Lie algebras",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-geometry-smooth-manifolds-tangent",
+        "abstract-algebra-group-actions"
+      ],
+      "outcomes": [
+        "Compute a Lie bracket and relate a one-parameter subgroup to its infinitesimal generator."
+      ]
+    },
+    {
+      "ordinal": 168,
+      "conceptId": "differential-equations-linear-systems",
+      "title": "Linear ODE systems and fundamental matrices",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-equations-ode-existence-uniqueness",
+        "linear-algebra-canonical-forms"
+      ],
+      "outcomes": [
+        "Construct a fundamental matrix and solve an inhomogeneous linear system by variation of constants."
+      ]
+    },
+    {
+      "ordinal": 169,
+      "conceptId": "measure-theory-product-fubini",
+      "title": "Product measures and Fubini-Tonelli",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-lebesgue-integration",
+        "proof-dependency-audit"
+      ],
+      "outcomes": [
+        "Construct an iterated integral and justify exchanging its order by Tonelli or Fubini."
+      ]
+    },
+    {
+      "ordinal": 170,
+      "conceptId": "probability-measure-spaces-laws",
+      "title": "Probability spaces and distribution laws",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-lebesgue-integration",
+        "probability-random-variables"
+      ],
+      "outcomes": [
+        "Push a probability measure through a random variable and compute its induced law."
+      ]
+    },
+    {
+      "ordinal": 171,
+      "conceptId": "numerical-analysis-interpolation-approximation",
+      "title": "Interpolation and approximation theory",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "real-analysis-uniform-convergence",
+        "linear-algebra-linear-systems"
+      ],
+      "outcomes": [
+        "Construct an interpolant and bound its error using nodes and function regularity."
+      ]
+    },
+    {
+      "ordinal": 172,
+      "conceptId": "linear-algebra-matrix-decompositions",
+      "title": "Matrix decompositions and operator norms",
+      "category": "advanced-linear-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "advanced-linear-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "linear-algebra-spectral-theorem",
+        "optimization-gradients"
+      ],
+      "outcomes": [
+        "Compute an SVD or polar decomposition and certify the associated operator-norm bound."
+      ]
+    },
+    {
+      "ordinal": 173,
+      "conceptId": "real-analysis-theorem-synthesis",
+      "title": "Real-analysis theorem synthesis",
+      "category": "real-analysis",
+      "stage": "qualifying",
+      "tracks": [
+        "real-analysis",
+        "proof-foundations"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "real-analysis-arzela-ascoli",
+        "real-analysis-multivariable-differentiation"
+      ],
+      "outcomes": [
+        "Select and chain compactness, completeness, and convergence theorems to close a novel multi-lemma argument."
+      ]
+    },
+    {
+      "ordinal": 174,
+      "conceptId": "complex-analysis-cauchy-theory",
+      "title": "Cauchy theorem and integral formula",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "complex-analysis-contour-integration",
+        "real-analysis-continuity-compactness"
+      ],
+      "outcomes": [
+        "Apply the Cauchy integral formula on a verified domain to compute derivatives or prove vanishing integrals."
+      ]
+    },
+    {
+      "ordinal": 175,
+      "conceptId": "abstract-algebra-representation-theory",
+      "title": "Representations and characters of finite groups",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-group-actions",
+        "linear-algebra-spectral-theorem"
+      ],
+      "outcomes": [
+        "Decompose a finite-group representation using character inner products."
+      ]
+    },
+    {
+      "ordinal": 176,
+      "conceptId": "abstract-algebra-category-functor-natural",
+      "title": "Categories, functors, and natural transformations",
+      "category": "abstract-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-modules-structure",
+        "proof-dependency-audit"
+      ],
+      "outcomes": [
+        "Verify functoriality and naturality by checking the required identity and commuting square."
+      ]
+    },
+    {
+      "ordinal": 177,
+      "conceptId": "commutative-algebra-noetherian-modules",
+      "title": "Noetherian rings and modules",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-modules-structure"
+      ],
+      "outcomes": [
+        "Prove an ascending-chain condition and propagate finite generation through an exact sequence."
+      ]
+    },
+    {
+      "ordinal": 178,
+      "conceptId": "topology-theorem-synthesis",
+      "title": "General-topology theorem synthesis",
+      "category": "topology",
+      "stage": "qualifying",
+      "tracks": [
+        "topology"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "topology-nets-filters",
+        "topology-paracompact-partitions"
+      ],
+      "outcomes": [
+        "Resolve a topology problem by coordinating separation, compactness, convergence, and quotient arguments."
+      ]
+    },
+    {
+      "ordinal": 179,
+      "conceptId": "differential-geometry-vector-bundles",
+      "title": "Vector bundles and sections",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-geometry-smooth-manifolds-tangent",
+        "topology-paracompact-partitions"
+      ],
+      "outcomes": [
+        "Specify transition functions and glue local sections into a global bundle section."
+      ]
+    },
+    {
+      "ordinal": 180,
+      "conceptId": "differential-equations-stability-lyapunov",
+      "title": "Lyapunov stability",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-equations-linear-systems",
+        "optimization-convexity"
+      ],
+      "outcomes": [
+        "Propose a Lyapunov function and derive an invariant stability or decay region."
+      ]
+    },
+    {
+      "ordinal": 181,
+      "conceptId": "differential-equations-pde-classification",
+      "title": "Classification of second-order PDE",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "calculus-implicit-differentiation",
+        "linear-algebra-spectral-theorem"
+      ],
+      "outcomes": [
+        "Reduce a second-order operator to canonical elliptic, parabolic, or hyperbolic form."
+      ]
+    },
+    {
+      "ordinal": 182,
+      "conceptId": "probability-convergence-laws-large-numbers",
+      "title": "Modes of convergence and laws of large numbers",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-measure-spaces-laws",
+        "statistics-sampling-distributions"
+      ],
+      "outcomes": [
+        "Distinguish almost-sure, probability, and distribution convergence and prove a stated law of large numbers."
+      ]
+    },
+    {
+      "ordinal": 183,
+      "conceptId": "stochastic-processes-markov-chains",
+      "title": "Markov chains and stationary distributions",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-measure-spaces-laws",
+        "linear-algebra-eigenvalues"
+      ],
+      "outcomes": [
+        "Classify communicating states and compute a stationary distribution with recurrence conditions stated."
+      ]
+    },
+    {
+      "ordinal": 184,
+      "conceptId": "statistics-decision-sufficiency",
+      "title": "Statistical decision theory and sufficiency",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-measure-spaces-laws",
+        "statistics-hypothesis-tests"
+      ],
+      "outcomes": [
+        "Identify a sufficient statistic and compare decision rules through an explicit risk function."
+      ]
+    },
+    {
+      "ordinal": 185,
+      "conceptId": "graph-theory-spectral-random-graphs",
+      "title": "Spectral and random graph methods",
+      "category": "combinatorics-graph-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "linear-algebra-spectral-theorem",
+        "combinatorics-probabilistic-method",
+        "graph-theory-coloring-ramsey"
+      ],
+      "outcomes": [
+        "Relate eigenvalue or concentration bounds to expansion, connectivity, or chromatic behavior."
+      ]
+    },
+    {
+      "ordinal": 186,
+      "conceptId": "complex-analysis-laurent-residues",
+      "title": "Laurent series and residues",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "complex-analysis-cauchy-theory",
+        "calculus-series-convergence"
+      ],
+      "outcomes": [
+        "Classify an isolated singularity and calculate its residue from a Laurent expansion."
+      ]
+    },
+    {
+      "ordinal": 187,
+      "conceptId": "complex-analysis-maximum-open-mapping",
+      "title": "Maximum modulus and open mapping principles",
+      "category": "complex-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "complex-analysis-cauchy-theory",
+        "real-analysis-continuity-compactness"
+      ],
+      "outcomes": [
+        "Use a maximum or open-mapping argument to prove a rigidity statement for a holomorphic function."
+      ]
+    },
+    {
+      "ordinal": 188,
+      "conceptId": "functional-analysis-bounded-operators-duals",
+      "title": "Bounded operators and continuous duals",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-normed-banach-spaces",
+        "linear-algebra-matrix-decompositions"
+      ],
+      "outcomes": [
+        "Compute an operator norm and prove equivalence between boundedness and continuity."
+      ]
+    },
+    {
+      "ordinal": 189,
+      "conceptId": "functional-analysis-baire-mapping-theorems",
+      "title": "Baire category and mapping theorems",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-normed-banach-spaces",
+        "real-analysis-theorem-synthesis"
+      ],
+      "outcomes": [
+        "Derive uniform boundedness, open mapping, or closed graph conclusions from a verified Baire argument."
+      ]
+    },
+    {
+      "ordinal": 190,
+      "conceptId": "abstract-algebra-homological-exactness",
+      "title": "Exact sequences and derived constructions",
+      "category": "abstract-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "abstract-algebra-category-functor-natural",
+        "linear-algebra-quotients-and-duals"
+      ],
+      "outcomes": [
+        "Compute kernels and cokernels in a short exact sequence and verify exactness at every object."
+      ]
+    },
+    {
+      "ordinal": 191,
+      "conceptId": "abstract-algebra-structure-synthesis",
+      "title": "Algebraic structure synthesis",
+      "category": "abstract-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "abstract-algebra"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "abstract-algebra-galois-theory",
+        "abstract-algebra-representation-theory",
+        "abstract-algebra-modules-structure"
+      ],
+      "outcomes": [
+        "Select group, ring, module, or field invariants that decide a multi-part classification problem."
+      ]
+    },
+    {
+      "ordinal": 192,
+      "conceptId": "commutative-algebra-localization",
+      "title": "Localization of rings and modules",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "commutative-algebra-noetherian-modules",
+        "abstract-algebra-rings-ideals-quotients"
+      ],
+      "outcomes": [
+        "Construct a localization and determine which elements, ideals, or modules vanish."
+      ]
+    },
+    {
+      "ordinal": 193,
+      "conceptId": "commutative-algebra-grobner-bases",
+      "title": "Grobner bases and computational ideals",
+      "category": "commutative-algebra",
+      "stage": "qualifying",
+      "tracks": [
+        "commutative-algebra",
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "commutative-algebra-noetherian-modules",
+        "algebra-polynomial-arithmetic"
+      ],
+      "outcomes": [
+        "Run Buchberger reductions on a finite ideal and decide membership from the normal form."
+      ]
+    },
+    {
+      "ordinal": 194,
+      "conceptId": "differential-geometry-riemannian-metrics-connections",
+      "title": "Riemannian metrics and connections",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-geometry-vector-bundles",
+        "linear-algebra-spectral-theorem"
+      ],
+      "outcomes": [
+        "Compute the Levi-Civita connection from a metric and verify torsion-free metric compatibility."
+      ]
+    },
+    {
+      "ordinal": 195,
+      "conceptId": "differential-equations-flows-bifurcations",
+      "title": "Flows and local bifurcations",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-equations-stability-lyapunov",
+        "real-analysis-multivariable-differentiation"
+      ],
+      "outcomes": [
+        "Classify a local bifurcation from linearization and the first nonvanishing nonlinear term."
+      ]
+    },
+    {
+      "ordinal": 196,
+      "conceptId": "differential-equations-characteristics",
+      "title": "First-order PDE and characteristics",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-equations-ode-existence-uniqueness",
+        "differential-equations-pde-classification"
+      ],
+      "outcomes": [
+        "Solve a first-order PDE along characteristic curves and detect characteristic crossing."
+      ]
+    },
+    {
+      "ordinal": 197,
+      "conceptId": "differential-equations-weak-solutions",
+      "title": "Weak solutions and variational formulations",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-sobolev-spaces",
+        "differential-equations-pde-classification"
+      ],
+      "outcomes": [
+        "Derive a weak formulation by integration by parts and state its trial and test spaces."
+      ]
+    },
+    {
+      "ordinal": 198,
+      "conceptId": "statistics-likelihood-estimation",
+      "title": "Likelihood and M-estimation",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-decision-sufficiency",
+        "optimization-gradients"
+      ],
+      "outcomes": [
+        "Derive an estimating equation and verify consistency conditions for a bounded parametric model."
+      ]
+    },
+    {
+      "ordinal": 199,
+      "conceptId": "statistics-neyman-pearson-testing",
+      "title": "Neyman-Pearson testing theory",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-decision-sufficiency",
+        "statistics-hypothesis-tests"
+      ],
+      "outcomes": [
+        "Construct a most-powerful test and calculate its size and power functions."
+      ]
+    },
+    {
+      "ordinal": 200,
+      "conceptId": "numerical-analysis-conditioning",
+      "title": "Conditioning of mathematical problems",
+      "category": "numerical-analysis-optimization",
+      "stage": "undergraduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "numerical-analysis-floating-point-error",
+        "linear-algebra-matrix-decompositions"
+      ],
+      "outcomes": [
+        "Compute an absolute or relative condition number and predict attainable accuracy."
+      ]
+    },
+    {
+      "ordinal": 201,
+      "conceptId": "research-practice-proof-architecture",
+      "title": "Proof architecture and formal specifications",
+      "category": "research-practice",
+      "stage": "qualifying",
+      "tracks": [
+        "research-practice",
+        "proof-foundations"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "proof-dependency-audit",
+        "abstract-algebra-category-functor-natural"
+      ],
+      "outcomes": [
+        "Decompose a research claim into formally stated lemmas with explicit assumptions and interfaces."
+      ]
+    },
+    {
+      "ordinal": 202,
+      "conceptId": "complex-analysis-analytic-continuation",
+      "title": "Analytic continuation and identity principles",
+      "category": "complex-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "complex-analysis-laurent-residues",
+        "complex-analysis-maximum-open-mapping"
+      ],
+      "outcomes": [
+        "Prove uniqueness of an analytic continuation along a specified connected domain."
+      ]
+    },
+    {
+      "ordinal": 203,
+      "conceptId": "functional-analysis-hahn-banach",
+      "title": "Hahn-Banach extension theorem",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-bounded-operators-duals",
+        "proof-existence-and-uniqueness"
+      ],
+      "outcomes": [
+        "Construct a dominated functional extension and state the exact use of choice."
+      ]
+    },
+    {
+      "ordinal": 204,
+      "conceptId": "functional-analysis-hilbert-riesz",
+      "title": "Hilbert spaces and Riesz representation",
+      "category": "functional-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-bounded-operators-duals",
+        "linear-algebra-spectral-theorem"
+      ],
+      "outcomes": [
+        "Represent a continuous linear functional by an inner product and compute the representing vector."
+      ]
+    },
+    {
+      "ordinal": 205,
+      "conceptId": "commutative-algebra-integral-dependence",
+      "title": "Integral dependence and normalization",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "commutative-algebra-localization",
+        "abstract-algebra-field-extensions"
+      ],
+      "outcomes": [
+        "Verify integrality and compute the integral closure in a bounded extension."
+      ]
+    },
+    {
+      "ordinal": 206,
+      "conceptId": "commutative-algebra-primary-decomposition",
+      "title": "Primary decomposition",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "commutative-algebra-noetherian-modules",
+        "commutative-algebra-localization"
+      ],
+      "outcomes": [
+        "Decompose an explicit ideal into primary components and recover its associated primes."
+      ]
+    },
+    {
+      "ordinal": 207,
+      "conceptId": "commutative-algebra-spectrum-dimension",
+      "title": "Prime spectra and Krull dimension",
+      "category": "commutative-algebra",
+      "stage": "graduate_core",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "commutative-algebra-localization",
+        "topology-spaces-bases"
+      ],
+      "outcomes": [
+        "Compute chains of prime ideals and interpret basic Zariski closed and open sets."
+      ]
+    },
+    {
+      "ordinal": 208,
+      "conceptId": "commutative-algebra-completions",
+      "title": "Adic filtrations and completions",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "commutative-algebra-localization",
+        "real-analysis-cauchy-sequences"
+      ],
+      "outcomes": [
+        "Construct an adic completion and verify compatibility of its inverse-system projections."
+      ]
+    },
+    {
+      "ordinal": 209,
+      "conceptId": "algebraic-topology-singular-homology",
+      "title": "Singular homology and exact sequences",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebraic-topology-simplicial-cell-complexes",
+        "abstract-algebra-homological-exactness"
+      ],
+      "outcomes": [
+        "Compute homology groups and verify boundary, cycle, and exact-sequence maps."
+      ]
+    },
+    {
+      "ordinal": 210,
+      "conceptId": "differential-geometry-geodesics-curvature",
+      "title": "Geodesics and curvature tensors",
+      "category": "differential-geometry",
+      "stage": "graduate_core",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "differential-geometry-riemannian-metrics-connections",
+        "differential-equations-ode-existence-uniqueness"
+      ],
+      "outcomes": [
+        "Derive a geodesic equation and calculate sectional or Ricci curvature for a declared metric."
+      ]
+    },
+    {
+      "ordinal": 211,
+      "conceptId": "differential-equations-chaos-symbolic-dynamics",
+      "title": "Chaos and symbolic dynamics",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-flows-bifurcations",
+        "topology-compactness-local-compactness"
+      ],
+      "outcomes": [
+        "Construct a symbolic coding and verify sensitive or mixing behavior on an invariant set."
+      ]
+    },
+    {
+      "ordinal": 212,
+      "conceptId": "statistics-nonparametric-methods",
+      "title": "Nonparametric estimation and testing",
+      "category": "statistics",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "statistics-likelihood-estimation",
+        "real-analysis-uniform-convergence"
+      ],
+      "outcomes": [
+        "Construct a kernel or rank-based procedure and bound its bias, variance, or null distribution."
+      ]
+    },
+    {
+      "ordinal": 213,
+      "conceptId": "combinatorics-analytic-asymptotics",
+      "title": "Analytic combinatorics and coefficient asymptotics",
+      "category": "combinatorics-graph-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "combinatorics-graph-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "combinatorics-bijections-generating-functions",
+        "complex-analysis-laurent-residues"
+      ],
+      "outcomes": [
+        "Locate a dominant singularity and derive an asymptotic coefficient estimate."
+      ]
+    },
+    {
+      "ordinal": 214,
+      "conceptId": "numerical-analysis-direct-linear-solvers",
+      "title": "Direct linear-system solvers",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "linear-algebra-row-reduction",
+        "numerical-analysis-conditioning"
+      ],
+      "outcomes": [
+        "Factor a matrix by LU or QR and certify the residual and backward error."
+      ]
+    },
+    {
+      "ordinal": 215,
+      "conceptId": "optimization-unconstrained-convex-algorithms",
+      "title": "Unconstrained convex algorithms",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-gradient-descent",
+        "optimization-hessian",
+        "numerical-analysis-conditioning"
+      ],
+      "outcomes": [
+        "Prove a rate for gradient or Newton iterations under declared smoothness and convexity constants."
+      ]
+    },
+    {
+      "ordinal": 216,
+      "conceptId": "research-practice-seminar-exposition",
+      "title": "Research exposition and oral defense",
+      "category": "research-practice",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "research-practice-proof-architecture",
+        "proof-dependency-audit"
+      ],
+      "outcomes": [
+        "Present a theorem, proof strategy, limitations, and responses to recorded technical objections."
+      ]
+    },
+    {
+      "ordinal": 217,
+      "conceptId": "complex-analysis-riemann-mapping",
+      "title": "Riemann mapping methods",
+      "category": "complex-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "complex-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "complex-analysis-mobius-conformal-maps",
+        "complex-analysis-analytic-continuation",
+        "real-analysis-arzela-ascoli"
+      ],
+      "outcomes": [
+        "Normalize a conformal-map family and identify the compactness argument required for an extremal map."
+      ]
+    },
+    {
+      "ordinal": 218,
+      "conceptId": "functional-analysis-compact-spectral",
+      "title": "Compact operators and spectral theory",
+      "category": "functional-analysis",
+      "stage": "qualifying",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "functional-analysis-hilbert-riesz",
+        "real-analysis-arzela-ascoli"
+      ],
+      "outcomes": [
+        "Establish compactness of an operator and decompose its nonzero spectrum into eigenspaces."
+      ]
+    },
+    {
+      "ordinal": 219,
+      "conceptId": "functional-analysis-weak-topologies",
+      "title": "Weak topologies and Banach-Alaoglu compactness",
+      "category": "functional-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "functional-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "functional-analysis-hahn-banach",
+        "functional-analysis-baire-mapping-theorems"
+      ],
+      "outcomes": [
+        "Distinguish weak from norm convergence and invoke weak-star compactness with its topology stated."
+      ]
+    },
+    {
+      "ordinal": 220,
+      "conceptId": "harmonic-analysis-fourier-series",
+      "title": "Fourier series and orthogonal expansions",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "functional-analysis-hilbert-riesz",
+        "calculus-series-convergence"
+      ],
+      "outcomes": [
+        "Compute Fourier coefficients and certify convergence in a declared norm."
+      ]
+    },
+    {
+      "ordinal": 221,
+      "conceptId": "commutative-algebra-dedekind-domains",
+      "title": "Discrete valuations and Dedekind domains",
+      "category": "commutative-algebra",
+      "stage": "specialization",
+      "tracks": [
+        "commutative-algebra",
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "commutative-algebra-integral-dependence",
+        "number-theory-prime-factorization"
+      ],
+      "outcomes": [
+        "Factor a fractional ideal into prime ideals and compute the corresponding valuations."
+      ]
+    },
+    {
+      "ordinal": 222,
+      "conceptId": "algebraic-topology-excision-mayer-vietoris",
+      "title": "Excision and Mayer-Vietoris",
+      "category": "algebraic-topology",
+      "stage": "graduate_core",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "algebraic-topology-singular-homology",
+        "topology-compactness-local-compactness"
+      ],
+      "outcomes": [
+        "Choose an admissible decomposition and calculate homology through Mayer-Vietoris exactness."
+      ]
+    },
+    {
+      "ordinal": 223,
+      "conceptId": "algebraic-topology-cohomology-cup-products",
+      "title": "Cohomology and cup products",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "algebraic-topology-singular-homology",
+        "abstract-algebra-rings-ideals-quotients"
+      ],
+      "outcomes": [
+        "Compute a cohomology ring and use a cup product to distinguish spaces."
+      ]
+    },
+    {
+      "ordinal": 224,
+      "conceptId": "differential-equations-elliptic-variational",
+      "title": "Elliptic variational methods",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-weak-solutions",
+        "functional-analysis-hahn-banach"
+      ],
+      "outcomes": [
+        "Check coercivity and boundedness and apply a variational theorem to obtain a unique weak solution."
+      ]
+    },
+    {
+      "ordinal": 225,
+      "conceptId": "measure-theory-radon-nikodym-conditional",
+      "title": "Radon-Nikodym derivatives and conditional expectation",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-product-fubini",
+        "functional-analysis-hilbert-riesz"
+      ],
+      "outcomes": [
+        "Compute a Radon-Nikodym derivative and verify the defining conditional-expectation identities."
+      ]
+    },
+    {
+      "ordinal": 226,
+      "conceptId": "number-theory-prime-distribution",
+      "title": "Prime distribution and zeta methods",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "number-theory-arithmetic-functions",
+        "complex-analysis-analytic-continuation"
+      ],
+      "outcomes": [
+        "Relate an Euler product or zeta singularity to a quantitative statement about primes."
+      ]
+    },
+    {
+      "ordinal": 227,
+      "conceptId": "number-theory-algebraic-number-fields",
+      "title": "Algebraic number fields",
+      "category": "number-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "abstract-algebra-field-extensions",
+        "commutative-algebra-integral-dependence"
+      ],
+      "outcomes": [
+        "Compute the ring of integers, discriminant, and embeddings of a bounded number field."
+      ]
+    },
+    {
+      "ordinal": 228,
+      "conceptId": "number-theory-p-adic-analysis",
+      "title": "p-adic numbers and local methods",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "commutative-algebra-completions",
+        "number-theory-quadratic-residues"
+      ],
+      "outcomes": [
+        "Compute a p-adic valuation and lift a modular root using a verified local criterion."
+      ]
+    },
+    {
+      "ordinal": 229,
+      "conceptId": "set-theory-choice-equivalents",
+      "title": "Axiom of choice and equivalent principles",
+      "category": "logic-set-theory",
+      "stage": "graduate_core",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "set-theory-ordinals-transfinite",
+        "functional-analysis-hahn-banach"
+      ],
+      "outcomes": [
+        "Derive one choice principle from another and identify where selection is nonconstructive."
+      ]
+    },
+    {
+      "ordinal": 230,
+      "conceptId": "numerical-analysis-krylov-iterations",
+      "title": "Krylov and iterative linear solvers",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "numerical-analysis-direct-linear-solvers",
+        "linear-algebra-spectral-theorem"
+      ],
+      "outcomes": [
+        "Run a bounded Krylov iteration and derive convergence from spectral information."
+      ]
+    },
+    {
+      "ordinal": 231,
+      "conceptId": "optimization-duality-kkt",
+      "title": "Convex duality and KKT conditions",
+      "category": "numerical-analysis-optimization",
+      "stage": "graduate_core",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "optimization-lagrange-multipliers",
+        "optimization-linear-programming",
+        "functional-analysis-hahn-banach"
+      ],
+      "outcomes": [
+        "Derive a dual problem and verify primal feasibility, dual feasibility, and complementary slackness."
+      ]
+    },
+    {
+      "ordinal": 232,
+      "conceptId": "research-practice-peer-review-response",
+      "title": "Peer review and revision ledger",
+      "category": "research-practice",
+      "stage": "specialization",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "research-practice-seminar-exposition",
+        "research-practice-computational-reproducibility"
+      ],
+      "outcomes": [
+        "Resolve each reviewer objection through a traceable change, counterargument, or declared open limitation."
+      ]
+    },
+    {
+      "ordinal": 233,
+      "conceptId": "harmonic-analysis-fourier-transform",
+      "title": "Fourier transform on Schwartz space",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "harmonic-analysis-fourier-series",
+        "real-analysis-uniform-convergence"
+      ],
+      "outcomes": [
+        "Transform a Schwartz function and verify inversion under the stated normalization."
+      ]
+    },
+    {
+      "ordinal": 234,
+      "conceptId": "algebraic-topology-degree-hurewicz",
+      "title": "Degree theory and the Hurewicz map",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "algebraic-topology-excision-mayer-vietoris",
+        "algebraic-topology-homotopy-fundamental-group"
+      ],
+      "outcomes": [
+        "Compute a map degree or a first nontrivial Hurewicz homomorphism and state its invariant consequence."
+      ]
+    },
+    {
+      "ordinal": 235,
+      "conceptId": "algebraic-topology-spectral-sequences",
+      "title": "Spectral-sequence convergence and filtrations",
+      "category": "algebraic-topology",
+      "stage": "specialization",
+      "tracks": [
+        "algebraic-topology"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "algebraic-topology-cohomology-cup-products",
+        "abstract-algebra-homological-exactness"
+      ],
+      "outcomes": [
+        "Compute bounded pages and extension data of a convergent spectral sequence."
+      ]
+    },
+    {
+      "ordinal": 236,
+      "conceptId": "differential-geometry-de-rham-cohomology",
+      "title": "De Rham cohomology",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-geometry-differential-forms-stokes",
+        "algebraic-topology-cohomology-cup-products"
+      ],
+      "outcomes": [
+        "Classify closed forms modulo exact forms and compare the result with a topological invariant."
+      ]
+    },
+    {
+      "ordinal": 237,
+      "conceptId": "differential-equations-parabolic-semigroups",
+      "title": "Parabolic equations and semigroups",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-weak-solutions",
+        "functional-analysis-compact-spectral"
+      ],
+      "outcomes": [
+        "Represent a parabolic evolution by a semigroup and prove an energy decay estimate."
+      ]
+    },
+    {
+      "ordinal": 238,
+      "conceptId": "stochastic-processes-martingales-stopping",
+      "title": "Martingales and stopping times",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "measure-theory-radon-nikodym-conditional",
+        "probability-convergence-laws-large-numbers"
+      ],
+      "outcomes": [
+        "Verify the martingale property and apply an optional-stopping theorem with integrability conditions checked."
+      ]
+    },
+    {
+      "ordinal": 239,
+      "conceptId": "statistics-bayesian-inference",
+      "title": "Bayesian posterior inference",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-bayes",
+        "measure-theory-radon-nikodym-conditional"
+      ],
+      "outcomes": [
+        "Derive a posterior distribution and report sensitivity to its stated prior."
+      ]
+    },
+    {
+      "ordinal": 240,
+      "conceptId": "number-theory-ideal-class-groups",
+      "title": "Ideal factorization and class groups",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "number-theory-algebraic-number-fields",
+        "commutative-algebra-dedekind-domains"
+      ],
+      "outcomes": [
+        "Factor ideals and calculate a bounded class-group relation measuring nonprincipal behavior."
+      ]
+    },
+    {
+      "ordinal": 241,
+      "conceptId": "number-theory-elliptic-curves",
+      "title": "Elliptic curves and rational points",
+      "category": "number-theory",
+      "stage": "specialization",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "number-theory-algebraic-number-fields",
+        "complex-analysis-holomorphic-functions"
+      ],
+      "outcomes": [
+        "Apply the elliptic-curve group law and verify the arithmetic of a bounded rational point."
+      ]
+    },
+    {
+      "ordinal": 242,
+      "conceptId": "set-theory-forcing-independence",
+      "title": "Forcing and independence",
+      "category": "logic-set-theory",
+      "stage": "specialization",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "set-theory-choice-equivalents",
+        "set-theory-cardinal-arithmetic",
+        "logic-computability-incompleteness"
+      ],
+      "outcomes": [
+        "Describe a forcing extension and verify the preservation and forcing relation needed for a bounded independence claim."
+      ]
+    },
+    {
+      "ordinal": 243,
+      "conceptId": "numerical-analysis-finite-elements",
+      "title": "Finite-element approximation",
+      "category": "numerical-analysis-optimization",
+      "stage": "specialization",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-elliptic-variational",
+        "numerical-analysis-interpolation-approximation"
+      ],
+      "outcomes": [
+        "Assemble a finite-element system and prove a mesh-dependent approximation estimate."
+      ]
+    },
+    {
+      "ordinal": 244,
+      "conceptId": "optimization-stochastic-large-scale",
+      "title": "Stochastic and large-scale optimization",
+      "category": "numerical-analysis-optimization",
+      "stage": "qualifying",
+      "tracks": [
+        "numerical-analysis-optimization"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "optimization-unconstrained-convex-algorithms",
+        "optimization-duality-kkt",
+        "probability-convergence-laws-large-numbers"
+      ],
+      "outcomes": [
+        "Choose step sizes and derive an expected convergence or regret bound for a stochastic method."
+      ]
+    },
+    {
+      "ordinal": 245,
+      "conceptId": "research-practice-bounded-artifact",
+      "title": "Bounded mathematical research artifact",
+      "category": "research-practice",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "research-practice-conjecture-counterexample",
+        "research-practice-proof-architecture",
+        "research-practice-peer-review-response"
+      ],
+      "outcomes": [
+        "Deliver a finite theorem-and-computation artifact whose proofs kernel-check and whose declared results reproduce independently."
+      ]
+    },
+    {
+      "ordinal": 246,
+      "conceptId": "harmonic-analysis-convolution-approximation",
+      "title": "Convolution and approximate identities",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "harmonic-analysis-fourier-transform",
+        "real-analysis-riemann-integration"
+      ],
+      "outcomes": [
+        "Prove convergence of an approximate identity in a specified function norm."
+      ]
+    },
+    {
+      "ordinal": 247,
+      "conceptId": "harmonic-analysis-plancherel",
+      "title": "Plancherel and Fourier inversion",
+      "category": "harmonic-analysis",
+      "stage": "graduate_core",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "harmonic-analysis-fourier-transform",
+        "functional-analysis-hilbert-riesz"
+      ],
+      "outcomes": [
+        "Extend the Fourier transform to an isometry and use it to solve an L2 identity."
+      ]
+    },
+    {
+      "ordinal": 248,
+      "conceptId": "differential-geometry-gauss-bonnet",
+      "title": "Gauss-Bonnet theory",
+      "category": "differential-geometry",
+      "stage": "specialization",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-geometry-geodesics-curvature",
+        "differential-geometry-de-rham-cohomology"
+      ],
+      "outcomes": [
+        "Relate an integrated curvature calculation to the Euler characteristic with boundary terms identified."
+      ]
+    },
+    {
+      "ordinal": 249,
+      "conceptId": "probability-characteristic-functions-clt",
+      "title": "Characteristic functions and central limit theory",
+      "category": "measure-probability-stochastic",
+      "stage": "graduate_core",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "probability-convergence-laws-large-numbers",
+        "harmonic-analysis-fourier-transform"
+      ],
+      "outcomes": [
+        "Use characteristic functions to establish convergence to a normal law under declared hypotheses."
+      ]
+    },
+    {
+      "ordinal": 250,
+      "conceptId": "number-theory-modular-forms-l-functions",
+      "title": "Modular forms and L-functions",
+      "category": "number-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "number-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "number-theory-prime-distribution",
+        "number-theory-elliptic-curves",
+        "harmonic-analysis-fourier-series"
+      ],
+      "outcomes": [
+        "Compute a Fourier coefficient relation and state the analytic continuation or functional equation used."
+      ]
+    },
+    {
+      "ordinal": 251,
+      "conceptId": "logic-foundations-theorem-synthesis",
+      "title": "Foundational theorem synthesis",
+      "category": "logic-set-theory",
+      "stage": "qualifying",
+      "tracks": [
+        "logic-set-theory"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "set-theory-forcing-independence",
+        "logic-model-theory-types"
+      ],
+      "outcomes": [
+        "Separate metatheory from object theory while completing a compactness, definability, or independence argument."
+      ]
+    },
+    {
+      "ordinal": 252,
+      "conceptId": "research-practice-novelty-adjudication",
+      "title": "External novelty adjudication",
+      "category": "research-practice",
+      "stage": "research",
+      "tracks": [
+        "research-practice"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "research-practice-bounded-artifact",
+        "research-practice-literature-corpus"
+      ],
+      "outcomes": [
+        "Record novelty as unestablished, bounded-corpus-only, or externally established with the supporting scope and evidence digest."
+      ]
+    },
+    {
+      "ordinal": 253,
+      "conceptId": "harmonic-analysis-distributions",
+      "title": "Tempered distributions",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "harmonic-analysis-plancherel",
+        "functional-analysis-sobolev-spaces"
+      ],
+      "outcomes": [
+        "Differentiate a tempered distribution and compute its Fourier transform by duality."
+      ]
+    },
+    {
+      "ordinal": 254,
+      "conceptId": "harmonic-analysis-singular-integrals",
+      "title": "Singular integral operators",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "harmonic-analysis-convolution-approximation",
+        "functional-analysis-compact-spectral"
+      ],
+      "outcomes": [
+        "Verify cancellation for a kernel and derive a boundedness estimate on a declared function class."
+      ]
+    },
+    {
+      "ordinal": 255,
+      "conceptId": "differential-geometry-theorem-synthesis",
+      "title": "Differential-geometry theorem synthesis",
+      "category": "differential-geometry",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-geometry"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-geometry-gauss-bonnet",
+        "differential-geometry-lie-groups-algebras"
+      ],
+      "outcomes": [
+        "Combine coordinate, bundle, curvature, and topological arguments into a complete geometric proof."
+      ]
+    },
+    {
+      "ordinal": 256,
+      "conceptId": "differential-equations-hyperbolic-energy",
+      "title": "Hyperbolic equations and energy methods",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "specialization",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-weak-solutions",
+        "harmonic-analysis-plancherel"
+      ],
+      "outcomes": [
+        "Derive a conserved or controlled energy and use it to prove uniqueness."
+      ]
+    },
+    {
+      "ordinal": 257,
+      "conceptId": "stochastic-processes-brownian-ito",
+      "title": "Brownian motion and Ito calculus",
+      "category": "measure-probability-stochastic",
+      "stage": "specialization",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "stochastic-processes-martingales-stopping",
+        "probability-characteristic-functions-clt"
+      ],
+      "outcomes": [
+        "Apply Ito formula to a smooth functional and compute its drift and quadratic-variation terms."
+      ]
+    },
+    {
+      "ordinal": 258,
+      "conceptId": "statistics-linear-models",
+      "title": "Linear models and projection geometry",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-linear-regression",
+        "linear-algebra-orthogonal-projection",
+        "probability-characteristic-functions-clt"
+      ],
+      "outcomes": [
+        "Derive least-squares estimators and their covariance from the projection matrix."
+      ]
+    },
+    {
+      "ordinal": 259,
+      "conceptId": "statistics-asymptotic-empirical-processes",
+      "title": "Asymptotic statistics and empirical processes",
+      "category": "statistics",
+      "stage": "specialization",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "statistics-likelihood-estimation",
+        "probability-characteristic-functions-clt",
+        "functional-analysis-weak-topologies"
+      ],
+      "outcomes": [
+        "Establish an estimator limit law using tightness and a declared functional delta method."
+      ]
+    },
+    {
+      "ordinal": 260,
+      "conceptId": "harmonic-analysis-wavelets-frequency-localization",
+      "title": "Wavelets and frequency localization",
+      "category": "harmonic-analysis",
+      "stage": "specialization",
+      "tracks": [
+        "harmonic-analysis"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "harmonic-analysis-plancherel",
+        "harmonic-analysis-singular-integrals"
+      ],
+      "outcomes": [
+        "Decompose a function into frequency bands and certify an energy or regularity estimate."
+      ]
+    },
+    {
+      "ordinal": 261,
+      "conceptId": "differential-equations-theorem-synthesis",
+      "title": "Differential-equations theorem synthesis",
+      "category": "differential-equations-dynamical-systems",
+      "stage": "qualifying",
+      "tracks": [
+        "differential-equations-dynamical-systems"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "differential-equations-elliptic-variational",
+        "differential-equations-parabolic-semigroups",
+        "differential-equations-hyperbolic-energy"
+      ],
+      "outcomes": [
+        "Choose existence, regularity, stability, and energy tools for a multi-stage ODE or PDE argument."
+      ]
+    },
+    {
+      "ordinal": 262,
+      "conceptId": "stochastic-processes-sde",
+      "title": "Stochastic differential equations",
+      "category": "measure-probability-stochastic",
+      "stage": "qualifying",
+      "tracks": [
+        "measure-probability-stochastic"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "stochastic-processes-brownian-ito",
+        "differential-equations-ode-existence-uniqueness"
+      ],
+      "outcomes": [
+        "Prove well-posedness under Lipschitz growth bounds and derive a moment estimate for an SDE."
+      ]
+    },
+    {
+      "ordinal": 263,
+      "conceptId": "statistics-generalized-linear-models",
+      "title": "Generalized linear models",
+      "category": "statistics",
+      "stage": "graduate_core",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": true,
+      "prerequisites": [
+        "statistics-linear-models",
+        "optimization-convexity"
+      ],
+      "outcomes": [
+        "Specify a link and exponential-family likelihood and compute one Fisher-scoring update."
+      ]
+    },
+    {
+      "ordinal": 264,
+      "conceptId": "statistics-causal-identification",
+      "title": "Causal identification and semiparametric reasoning",
+      "category": "statistics",
+      "stage": "qualifying",
+      "tracks": [
+        "statistics"
+      ],
+      "requiredForQualification": false,
+      "prerequisites": [
+        "statistics-causation",
+        "statistics-asymptotic-empirical-processes",
+        "measure-theory-radon-nikodym-conditional"
+      ],
+      "outcomes": [
+        "State an estimand, verify identification assumptions, and derive an observable identification formula."
+      ]
+    }
+  ],
+  "truthBoundary": "A complete catalog supplies deterministic retrieval surfaces for all 264 declared concepts. It does not establish retention, efficacy, formal qualification, research ability, human PhD equivalence, or model-weight change."
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "cortex.learning_os.verifier_result.v0",
+  "verifierResultId": "verify-algebra-1",
+  "attemptId": "attempt-algebra-1",
+  "examId": "algebra-baseline",
+  "itemId": "algebra-correction-item",
+  "verifierId": "deterministic-symbolic-check",
+  "status": "passed",
+  "score": 1,
+  "reproducible": true,
+  "evidenceRole": "correction",
+  "evidence": ["artifacts/math/algebra-1.json"]
+}

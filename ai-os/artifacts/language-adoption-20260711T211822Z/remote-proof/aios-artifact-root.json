@@ -1,0 +1,53 @@
+{
+  "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323",
+  "initializedBy": "aios-cli boot",
+  "layoutVersion": 1,
+  "tenantBoundary": {
+    "path": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/.aios-tenant-boundary.json",
+    "status": "established",
+    "tenantId": "openclaw-local",
+    "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+    "boundaryHash": "e2ddca2c86097db0ef325521760e0fa75903c234dc4f6776e00360c7d9009075",
+    "establishedBy": {
+      "requestId": "aiosreq_802c48b3f2e66a0e",
+      "operator": "jake",
+      "role": "operator",
+      "operatorScopeHash": "cf0feb3e82327f13434069137153bd66798951dea3a9b56ee79a8af958200772"
+    }
+  },
+  "lifecycleSettings": {
+    "path": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/aios-lifecycle-settings.json",
+    "hash": "2a548161b4fc57b413e1d6bdbb7490332ea65d822b5505fe1f6ec01e0ef9c292",
+    "controls": {
+      "lifecycle": "enabled",
+      "scheduler": "immediate",
+      "approvals": "required"
+    },
+    "nextAction": {
+      "state": "ready",
+      "command": [
+        "aios",
+        "run",
+        "<job.json>",
+        "--artifact-root",
+        "<artifact-root>"
+      ],
+      "reason": "Lifecycle execution and immediate scheduling are enabled."
+    }
+  },
+  "providerContract": {
+    "path": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/aios-provider-contract.json",
+    "hash": "1aa86ecfdd419b840465c3760eabb127bb9f6bab4281bd7df59b7968d552ee37",
+    "providerId": "local-aios-cli",
+    "serviceId": "aios.operator.userland.boot.v0",
+    "negotiatedCapabilities": [
+      "artifact_root_sync",
+      "boot_proof_write"
+    ],
+    "externalHandoffState": "local_only"
+  },
+  "directories": {
+    "boot": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/boot",
+    "packets": "/home/jake/clawd-remote/ai-os/artifacts/openclaw-dogfood/language-v1-final-qualification-20260711213323/packets"
+  }
+}

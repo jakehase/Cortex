@@ -1,0 +1,177 @@
+{
+  "objectiveContract": {
+    "schemaVersion": "clawd.agent_work.objective_contract.v1",
+    "objectiveId": "fixture_objective",
+    "objective": "Implement and verify the fixture objective",
+    "anchor": "Fixture objective anchor",
+    "replyAnchor": null,
+    "targetPath": "/tmp/fixture",
+    "fidelity": "production_slice",
+    "scope": ["fixture_surface"],
+    "implementationSurface": "product_code",
+    "stopCondition": "supervisor_green_or_blocker_report",
+    "doneWhen": ["fixture_verified"],
+    "requestedClaims": ["fixture_scope_verified"],
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {}
+  },
+  "budgetContract": {
+    "schemaVersion": "clawd.agent_work.budget_contract.v1",
+    "runId": "fixture-run",
+    "hard": true,
+    "limits": {
+      "tokenCap": 1000,
+      "monetaryCapUsd": null,
+      "durationMinutes": 10,
+      "workerSpawns": 2,
+      "retries": 1,
+      "concurrency": 2,
+      "providerCalls": 2
+    },
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {}
+  },
+  "permissionContract": {
+    "schemaVersion": "clawd.agent_work.permission_contract.v1",
+    "runId": "fixture-run",
+    "allow": ["read_repo", "run_tests"],
+    "forbid": ["external_send"],
+    "externalWritesAllowed": false,
+    "defaultDenyExternalWrites": true,
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {}
+  },
+  "runManifest": {
+    "schemaVersion": "clawd.agent_work.run_manifest.v1",
+    "runId": "fixture-run",
+    "objectiveId": "fixture_objective",
+    "planDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceContractSchema": "claw.agent_benchmark_run_contract.v1",
+    "executionBoundary": "remote_execution_required",
+    "state": "compiled",
+    "stateVersion": 1,
+    "idempotencyKey": "fixture-run:manifest:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "artifactRoot": "/tmp/fixture-artifacts",
+    "controller": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+    "generatedAt": "2026-07-10T06:00:00.000Z"
+  },
+  "event": {
+    "schemaVersion": "clawd.agent_work.event.v1",
+    "eventId": "event-1",
+    "runId": "fixture-run",
+    "sequence": 1,
+    "entityType": "run",
+    "entityId": "fixture-run",
+    "eventType": "run_compiled",
+    "occurredAt": "2026-07-10T06:00:00.000Z",
+    "idempotencyKey": "fixture-run:compile:1",
+    "stateVersion": 1,
+    "payload": {}
+  },
+  "task": {
+    "schemaVersion": "clawd.agent_work.task.v1",
+    "taskId": "fixture-task",
+    "runId": "fixture-run",
+    "objectiveId": "fixture_objective",
+    "surfaceIds": ["fixture_surface"],
+    "goal": "Implement the fixture surface",
+    "allowedFiles": ["src/fixture.mjs"],
+    "requiredVerifiers": ["node --test tests/fixture.test.mjs"],
+    "dependencies": [],
+    "state": "proposed",
+    "stateVersion": 1,
+    "idempotencyKey": "fixture-run:fixture-task:task:1",
+    "generatedAt": "2026-07-10T06:00:00.000Z",
+    "source": {}
+  },
+  "lease": {
+    "schemaVersion": "clawd.agent_work.lease.v1",
+    "leaseId": "lease-1",
+    "runId": "fixture-run",
+    "taskId": "fixture-task",
+    "workerId": "worker-1",
+    "fencingToken": 1,
+    "state": "active",
+    "acquiredAt": "2026-07-10T06:00:00.000Z",
+    "expiresAt": "2026-07-10T06:05:00.000Z",
+    "idempotencyKey": "fixture-task:lease:1"
+  },
+  "workerCall": {
+    "schemaVersion": "clawd.agent_work.worker_call.v1",
+    "callId": "call-1",
+    "runId": "fixture-run",
+    "taskId": "fixture-task",
+    "workerId": "worker-1",
+    "adapter": "codex",
+    "command": "codex exec fixture",
+    "model": "fixture-model",
+    "startedAt": "2026-07-10T06:00:00.000Z",
+    "completedAt": "2026-07-10T06:01:00.000Z",
+    "status": "completed",
+    "exitCode": 0,
+    "idempotencyKey": "fixture-run:fixture-task:call:1",
+    "usage": {
+      "inputTokens": 100,
+      "outputTokens": 50,
+      "totalTokens": 150,
+      "providerObserved": true
+    },
+    "resultArtifact": "tasks/fixture-task/worker_result.json"
+  },
+  "verifierResult": {
+    "schemaVersion": "clawd.agent_work.verifier_result.v1",
+    "verifierResultId": "verify-1",
+    "runId": "fixture-run",
+    "taskId": "fixture-task",
+    "verifierId": "fixture-test",
+    "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "passed",
+    "independent": true,
+    "startedAt": "2026-07-10T06:01:00.000Z",
+    "completedAt": "2026-07-10T06:02:00.000Z",
+    "evidence": [
+      {
+        "path": "tasks/fixture-task/verifier_results.json",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "stateTruth": {
+    "schemaVersion": "clawd.agent_work.state_truth.v1",
+    "runId": "fixture-run",
+    "state": "green",
+    "stateVersion": 5,
+    "terminal": true,
+    "ok": true,
+    "generatedAt": "2026-07-10T06:02:00.000Z",
+    "evidenceComplete": true,
+    "contradictions": [],
+    "nextAction": "write_completion_packet"
+  },
+  "blocker": {
+    "schemaVersion": "clawd.agent_work.blocker.v1",
+    "blockerId": "blocker-1",
+    "runId": "fixture-run",
+    "family": "provider",
+    "code": "provider_unavailable",
+    "summary": "Provider fixture unavailable",
+    "observedEvidence": ["provider returned unavailable"],
+    "reproductionSteps": ["run fixture provider call"],
+    "nextAction": "retry after provider recovery",
+    "retryable": true,
+    "terminal": false,
+    "generatedAt": "2026-07-10T06:02:00.000Z"
+  },
+  "completionPacket": {
+    "schemaVersion": "clawd.agent_work.completion_packet.v1",
+    "runId": "fixture-run",
+    "status": "green",
+    "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "objectiveTruth": "green",
+    "requiredArtifacts": ["supervisor_truth.json", "claim_packet.json"],
+    "allowedClaims": ["fixture_scope_verified"],
+    "rejectedClaims": ["full_clone"],
+    "reviewerStatus": "passed",
+    "generatedAt": "2026-07-10T06:02:00.000Z"
+  }
+}

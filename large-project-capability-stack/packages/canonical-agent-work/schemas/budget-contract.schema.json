@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.budget_contract.v1",
+  "title": "Agent Work v1 budget contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "hard", "limits", "generatedAt", "source"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.budget_contract.v1" },
+    "runId": { "type": "string", "minLength": 1 },
+    "hard": { "type": "boolean" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokenCap", "monetaryCapUsd", "durationMinutes", "workerSpawns", "retries", "concurrency", "providerCalls"],
+      "properties": {
+        "tokenCap": { "type": ["integer", "null"], "minimum": 0 },
+        "monetaryCapUsd": { "type": ["number", "null"], "minimum": 0 },
+        "durationMinutes": { "type": ["number", "null"], "minimum": 0 },
+        "workerSpawns": { "type": ["integer", "null"], "minimum": 0 },
+        "retries": { "type": ["integer", "null"], "minimum": 0 },
+        "concurrency": { "type": ["integer", "null"], "minimum": 1 },
+        "providerCalls": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "object", "additionalProperties": true }
+  }
+}

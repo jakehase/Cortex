@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.verifier_result.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "verifierResultId",
+    "attemptId",
+    "examId",
+    "itemId",
+    "verifierId",
+    "status",
+    "score",
+    "reproducible",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.verifier_result.v0"
+    }
+  },
+  "additionalProperties": true
+}

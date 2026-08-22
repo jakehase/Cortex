@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "aios.language.freeze-policy.v1",
+  "status": "frozen",
+  "languageVersion": "aios.language.v1",
+  "allowedChangeClasses": [
+    "bugfix",
+    "security",
+    "compatibility"
+  ],
+  "blockedWithoutApprovedEvidence": [
+    "new-keyword",
+    "new-symbol",
+    "new-runtime-operation",
+    "new-provider-operation",
+    "grammar-version-change"
+  ],
+  "frozenSurface": {
+    "languageVersion": "aios.language.v1",
+    "grammar": "job-block-v1",
+    "compiler": "aios.language.compiler.canonical.v1",
+    "sourceExtension": ".aios",
+    "keywords": [
+      "adapter",
+      "as",
+      "audit",
+      "backoff",
+      "capability",
+      "degraded",
+      "emits",
+      "error",
+      "from",
+      "handoff",
+      "idempotency",
+      "job",
+      "key",
+      "max",
+      "memory",
+      "on",
+      "permissions",
+      "recover",
+      "retry",
+      "role",
+      "rollback",
+      "scope",
+      "status",
+      "tenant",
+      "truth",
+      "verify",
+      "with",
+      "workspace"
+    ],
+    "symbols": [
+      "(",
+      ")",
+      ",",
+      ".",
+      ":",
+      ";",
+      "=",
+      "[",
+      "]",
+      "{",
+      "}"
+    ],
+    "runtimeOperations": [
+      "kernel.echo",
+      "kernel.record",
+      "kernel.artifact.status",
+      "kernel.complete",
+      "process.admit",
+      "process.transition",
+      "provider.read",
+      "provider.compute"
+    ]
+  },
+  "v1_1Review": {
+    "minimumSuccessfulRuns": 20,
+    "minimumCandidateOccurrences": 3,
+    "minimumDistinctRuns": 3,
+    "minimumDistinctWorkflows": 2,
+    "automaticLanguageChangeAllowed": false,
+    "explicitOperatorApprovalRequired": true
+  }
+}

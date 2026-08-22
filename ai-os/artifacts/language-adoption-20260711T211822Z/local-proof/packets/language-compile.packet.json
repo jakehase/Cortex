@@ -1,0 +1,228 @@
+{
+  "ok": true,
+  "command": "compile",
+  "packetType": "aios.language.compile.proof",
+  "operatorUserlandModule": "aios.operator.userland.compile.v1",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "operatorRequest": {
+    "contract": "aios.operator.request.v0",
+    "command": "compile",
+    "argv": [
+      "compile",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+      "--artifact-root",
+      "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "--workspace",
+      "openclaw"
+    ],
+    "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+    "operatorUserlandModule": "aios.operator.userland.compile.v1",
+    "expectedPacketType": "aios.language.compile.proof",
+    "startedAt": "2026-07-11T21:33:46.130Z",
+    "operatorScope": {
+      "contract": "aios.operator.scope.v0",
+      "tenantId": "openclaw-local",
+      "role": "operator",
+      "operator": "root",
+      "roleAcceptedForCommand": true,
+      "allowedRoles": [
+        "runner",
+        "operator",
+        "admin"
+      ],
+      "scopeHash": "ee315c8ab80ef25ff0c3e69e9f6e30a6a145ef39a0e88e0c2923145aa0d85a5a"
+    },
+    "client": {
+      "cwd": "/root/clawd/ai-os",
+      "node": "v22.22.1",
+      "platform": "linux",
+      "arch": "x64",
+      "pid": 271476,
+      "shell": null,
+      "operator": "root",
+      "ci": false,
+      "tty": {
+        "stdin": false,
+        "stdout": false,
+        "stderr": false
+      }
+    },
+    "requestId": "aiosreq_b6344c64bd3ce8a3",
+    "argvHash": "224bcf0a31d92f61a9ec14f3e1a18678907edc080ee64d10361ae673bf9ae61f",
+    "handoff": {
+      "currentStage": "operator_help",
+      "nextCommands": [
+        [
+          "aios",
+          "boot",
+          "--artifact-root",
+          "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+        ]
+      ]
+    },
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "tenantBoundary": null,
+    "inputs": {
+      "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+      "workspaceId": "openclaw",
+      "tenantId": "openclaw-local"
+    },
+    "outputs": {
+      "jobPaths": [
+        "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json"
+      ],
+      "compileState": "ready"
+    },
+    "userVisibleContract": {
+      "contract": "aios.operator.user_visible_route_contract.v0",
+      "command": "compile",
+      "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+      "packetType": "aios.operator.help",
+      "preview": {
+        "action": "Describe available AI OS operator commands.",
+        "target": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "reads": [],
+        "produces": "aios.operator.help"
+      },
+      "readiness": {
+        "ready": true,
+        "state": "ready_for_route_handler",
+        "missingInputs": [],
+        "requiredInputs": []
+      },
+      "validationSummary": {
+        "expectedInputCount": 0,
+        "presentInputCount": 0,
+        "tenantScoped": true,
+        "providerNegotiated": false,
+        "lifecycleState": null
+      },
+      "acceptance": {
+        "state": "not_applicable",
+        "completed": 0,
+        "total": 0,
+        "checks": []
+      },
+      "nextStep": {
+        "state": "operator_help",
+        "commands": [
+          [
+            "aios",
+            "boot",
+            "--artifact-root",
+            "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+          ]
+        ],
+        "explanation": "After compile, clients can follow the first listed command when its placeholders are resolved."
+      },
+      "contractHash": "bd73673c3a00c81c345fc440f99fbd53e7c3d8286a82cb0ba7bf2e4872c6b82c"
+    },
+    "stateHash": "23a8679c2324a4cfe8a8ba4499d7bb8be8709d369c3578a2f800bd5cef94aa13"
+  },
+  "generatedAt": "2026-07-11T21:33:46.139Z",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+  "jobPaths": [
+    "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json"
+  ],
+  "language": {
+    "version": "aios.language.v1",
+    "grammar": "job-block-v1",
+    "sourceExtension": ".aios"
+  },
+  "boundary": {
+    "mode": "internal-only",
+    "tenantId": "openclaw-local",
+    "workspaceId": "openclaw",
+    "externalWrites": false,
+    "runtimeReplacement": false
+  },
+  "status": {
+    "state": "ready",
+    "exportReady": true,
+    "jobCount": 1,
+    "diagnosticCount": 0,
+    "blockingDiagnosticCount": 0,
+    "nextAction": "run-compiled-language-job"
+  },
+  "diagnostics": [],
+  "compilerEvidence": {
+    "frontendProtocol": "aios.language.compiler.v1",
+    "frontendStatus": {
+      "protocol": "aios.language.compiler.status.v1",
+      "state": "ready",
+      "exportReady": true,
+      "nextAction": "export-kernel-job-contracts",
+      "recovery": {
+        "available": false,
+        "plans": [
+          {
+            "descriptorId": "local.adapterStatus",
+            "mode": "runtime-retry",
+            "restartSafe": true
+          }
+        ]
+      }
+    },
+    "restartStatus": {
+      "protocol": "aios.language.compiler.restart-status.v1",
+      "state": "restart-safe",
+      "restartSafe": true,
+      "exportReady": true,
+      "pendingKeys": [],
+      "nextAction": "handoff-runtime-adapter"
+    },
+    "boundary": {
+      "protocol": "aios.language.compiler.boundary.v1",
+      "ok": true,
+      "state": "ready",
+      "tenantId": "openclaw-local",
+      "workspaceId": "openclaw",
+      "actor": {
+        "id": "root",
+        "role": "operator"
+      },
+      "providers": {
+        "requested": [
+          "runtime"
+        ],
+        "allowed": [
+          "internal",
+          "kernel",
+          "process",
+          "runtime"
+        ],
+        "denied": [],
+        "accepted": []
+      },
+      "routeHandoff": {
+        "route": "runtime.preview",
+        "params": [
+          "descriptorId",
+          "sourceName"
+        ],
+        "cacheKey": "1535061b"
+      },
+      "audit": {
+        "event": "runtime-handoff-boundary-ready",
+        "subject": "openclaw-local/openclaw",
+        "actorId": "root",
+        "providers": [
+          "runtime"
+        ],
+        "violations": []
+      },
+      "commandControls": {
+        "enabled": [
+          "exportRuntimeHandoff",
+          "persistRuntimeState"
+        ],
+        "disabled": []
+      },
+      "nextAction": "persist-runtime-state"
+    },
+    "kernelContractCount": 1
+  },
+  "proofHash": "5e78fee8ba9ccb16a89b9ad1c0c85c3756bf8107374ede7bfd9ac617ddfb8ce2"
+}

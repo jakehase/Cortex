@@ -1,0 +1,169 @@
+{
+  "ok": true,
+  "status": "green",
+  "generatedAt": "2026-07-11T21:33:46.312Z",
+  "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "safetyBoundary": "default_on_internal_local_status_recovery_handoff_only_no_external_writes_no_runtime_replacement",
+  "statusSummary": {
+    "ok": true,
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "defaultOn": true,
+    "defaultMode": "always_on_internal_aios_language_status_recovery_handoff",
+    "canonicalLanguage": "aios.language.v1",
+    "languageSourcePresent": true,
+    "languageSources": [
+      "adapter-dogfood.aios"
+    ],
+    "languageCompileOk": true,
+    "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/language-compile.packet.json",
+    "defaultConfigFile": "/root/clawd/config/ai-os-adapter/default.json",
+    "adapterReportPresent": true,
+    "adapterReportSource": "adapter-report.json",
+    "statusReportPresent": false,
+    "rollbackPlanPresent": false,
+    "recoveryReportPresent": false,
+    "recoveryPlanPresent": false,
+    "verifierEvidenceOk": true,
+    "bootOk": true,
+    "runOk": true,
+    "claimStatus": "allowed",
+    "processCount": 1,
+    "adapterReport": {
+      "ok": true,
+      "generatedAt": "2026-07-11T21:33:46.311Z",
+      "adapter": "openclaw-aios-adapter.v0.4-language-v1",
+      "canonicalLanguage": "aios.language.v1",
+      "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/language-compile.packet.json",
+      "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "defaultOn": true,
+      "safetyBoundary": "default_on_internal_local_status_recovery_handoff_only_no_external_writes_no_runtime_replacement",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "bootProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/boot-proof.packet.json",
+      "runProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/run-proof.packet.json",
+      "verifierEvidence": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/verifier-evidence.packet.json",
+      "statusSyscall": {
+        "ordinal": 2,
+        "op": "kernel.artifact.status",
+        "mediatedBy": "aios.kernel.syscall.v0",
+        "ok": true,
+        "argsHash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "output": {
+          "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+          "observedAt": "2026-07-11T21:33:46.200Z",
+          "bootOk": true,
+          "priorRunOk": false,
+          "verifierOk": false,
+          "claimStatus": null,
+          "processCount": 0
+        },
+        "outputHash": "a20a95b4e55fcf3b41cd9bb56b8018fabf089924cb2d38dda2454121f833838e"
+      },
+      "psCount": 1,
+      "logCount": 10,
+      "claimStatus": "allowed",
+      "claimPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/completion-claim.packet.json",
+      "nextAction": "Canonical AIOS language compile-run is eligible to stay on by default for internal status/recovery/handoff; runtime replacement and external writes remain blocked."
+    }
+  },
+  "checks": [
+    {
+      "name": "artifact_root_inside_ai_os_workspace",
+      "ok": true,
+      "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346"
+    },
+    {
+      "name": "boot_proof_green",
+      "ok": true,
+      "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/boot-proof.packet.json"
+    },
+    {
+      "name": "run_proof_green",
+      "ok": true,
+      "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/run-proof.packet.json"
+    },
+    {
+      "name": "verifier_evidence_green",
+      "ok": true,
+      "packet": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/verifier-evidence.packet.json"
+    },
+    {
+      "name": "completion_claim_allowed",
+      "ok": true,
+      "claimStatus": "allowed"
+    },
+    {
+      "name": "process_index_present",
+      "ok": true,
+      "processIndexPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/processes/process-index.json",
+      "processCount": 1
+    },
+    {
+      "name": "status_or_adapter_report_present_or_generated",
+      "ok": true,
+      "source": "adapter-report.json",
+      "recoveryReportGeneratedByThisCommand": true
+    },
+    {
+      "name": "rollback_or_recovery_plan_present_or_generated",
+      "ok": true,
+      "rollbackPlanPresent": false,
+      "recoveryPlanPresent": false,
+      "recoveryPlanGeneratedByThisCommand": true,
+      "rollbackPlan": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/reports/rollback-plan.md",
+      "recoveryPlan": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/reports/recovery-plan.md"
+    },
+    {
+      "name": "job_descriptor_present",
+      "ok": true,
+      "jobCandidates": [
+        "adapter-dogfood.compiled.job.json"
+      ]
+    },
+    {
+      "name": "canonical_language_compile_present_when_required",
+      "ok": true,
+      "canonicalLanguage": "aios.language.v1",
+      "languageSources": [
+        "adapter-dogfood.aios"
+      ],
+      "languageCompileProof": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/language-compile.packet.json"
+    }
+  ],
+  "actions": [
+    {
+      "name": "boot",
+      "required": false,
+      "command": "node scripts/aios-adapter.mjs boot --artifact-root ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "rationale": "Boot proof is missing or not green."
+    },
+    {
+      "name": "run",
+      "required": false,
+      "command": "node scripts/aios-adapter.mjs run ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json --artifact-root ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "rationale": "Run proof is missing or not green."
+    },
+    {
+      "name": "verify",
+      "required": false,
+      "command": "write verifier evidence under ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/verifier-evidence.packet.json",
+      "rationale": "Verifier evidence is missing or not green, so claims should stay blocked."
+    },
+    {
+      "name": "claim",
+      "required": false,
+      "command": "node scripts/aios-adapter.mjs claim ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json --artifact-root ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "rationale": "Completion claim is not allowed yet."
+    },
+    {
+      "name": "rollback-plan",
+      "required": false,
+      "command": "node scripts/aios-adapter.mjs recover --artifact-root ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+      "rationale": "Recovery command writes a local recovery plan for this artifact root."
+    }
+  ],
+  "nextAction": "Adapter artifact root is recoverable; safe to use as bounded dogfood evidence.",
+  "recoveryPlanPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/reports/recovery-plan.md"
+}

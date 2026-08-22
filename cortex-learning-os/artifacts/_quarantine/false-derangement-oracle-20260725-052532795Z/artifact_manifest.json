@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "cortex.learning_os.run_manifest.v0",
+  "runId": "math-foundations-smoke-20260725-052532795Z",
+  "generatedAt": "2026-07-25T05:26:17.350Z",
+  "files": [
+    {
+      "path": "baseline/answers.json",
+      "sha256": "df07d8e7153527d1909f01b2eb2f0af18547e35b27a1622c7566c8edc24b9bb7"
+    },
+    {
+      "path": "baseline/attempts.json",
+      "sha256": "e78d61975de1b1d81e3aedf93ac92749daf860582817111df0067c97971fa621"
+    },
+    {
+      "path": "baseline/exam.json",
+      "sha256": "183fe9124463434289eefa7a98230f0e53ee9825478d130c2d1bcf9153e03d46"
+    },
+    {
+      "path": "baseline/model_call.json",
+      "sha256": "f3ac3ee7535e178e441f978a0f48091da005ffe827e42998d2f2eca50b862291"
+    },
+    {
+      "path": "baseline/model_prompt.txt",
+      "sha256": "71c6d2f18debb4e279de5259ad5dda44431a89343ce84bd333c64906e236d78e"
+    },
+    {
+      "path": "baseline/score_summary.json",
+      "sha256": "471698402e247a11074153012f41a9b4aa70f9ff0c754fd0b4d98a605b18fe1f"
+    },
+    {
+      "path": "baseline/verifier_results.json",
+      "sha256": "a0a5bd5234bbf9f70159590cdce276f501963802de0fc40f3eec69ce9294f976"
+    },
+    {
+      "path": "capability_report.json",
+      "sha256": "a5887332fa6e26848ea21e6b5ed3867ead6cd9f5b7ebb3cefefe8aed31f56f9c"
+    },
+    {
+      "path": "correction/answers.json",
+      "sha256": "757379156f2a7780e2a7d10dc56b7a6fdfb36ad643b79f952706d0555345525c"
+    },
+    {
+      "path": "correction/attempts.json",
+      "sha256": "9bc5cd8075305aba68758576f05306e2abe0c267d7c5a69b2a37d251e2a1876c"
+    },
+    {
+      "path": "correction/exam.json",
+      "sha256": "f938df2e02c7fd4e57b8784813708660110f3f58bdbaa6f62356bfc35c54e0f8"
+    },
+    {
+      "path": "correction/model_call.json",
+      "sha256": "a7e005873d167ca81ef6ed2cf0d59dc6e74ce11397262334bb1e6a0eb398b38b"
+    },
+    {
+      "path": "correction/model_prompt.txt",
+      "sha256": "a3151475d5217adbe5be2266af4c9c8e0695af3a38f7a3eb41c0d7aa5677a898"
+    },
+    {
+      "path": "correction/score_summary.json",
+      "sha256": "abc2bce5d20958fc09cb0973bc62236d6d5d919fb67013ea9f16d25ece8ed012"
+    },
+    {
+      "path": "correction/verifier_results.json",
+      "sha256": "c0773227b62ce80fd0becdbc9cf2a7559ca7b56ae7572fb17a35383df29cf6f1"
+    },
+    {
+      "path": "learning_outcome.json",
+      "sha256": "e0e682a8e806b5cb2f7b674884aafae3bd57374c12095fe0be4d5f03f9e48dce"
+    },
+    {
+      "path": "mistakes.json",
+      "sha256": "7a8eb60b243b4d5887f732643b9f7573632d9bc96cead03c3b5f1c0d32e5e11e"
+    },
+    {
+      "path": "run_summary.json",
+      "sha256": "e086ec27ef638eec3b1d9910457b1a7a5824d43490b61c67bf15a289841fe240"
+    }
+  ],
+  "commands": [
+    "\"/usr/bin/node\" \"/root/clawd/worktrees/cortex-learning-os-v0-20260725/cortex-learning-os/src/run-learning-smoke.mjs\" \"--exam\" \"exams/math-foundations/reliability-challenge.exam.json\" \"--promote-default\""
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

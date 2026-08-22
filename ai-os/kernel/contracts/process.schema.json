@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://kernel/contracts/process.schema.json",
+  "title": "AI OS Process Contract",
+  "description": "v0.1 contract for AI OS jobs/processes/threads. A process is an owned objective with scoped capabilities, memory mounts, syscall permissions, verifiers, audit, artifacts, and a truth-gated stop condition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "kind",
+    "owner",
+    "objective",
+    "state",
+    "capabilities",
+    "memoryMounts",
+    "allowedSyscalls",
+    "verifiers",
+    "stopCondition",
+    "artifacts",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "aios.process.v0.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^proc_[a-z0-9][a-z0-9_-]{2,96}$"
+    },
+    "parentId": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "job",
+        "process",
+        "thread"
+      ]
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "human",
+            "system",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        }
+      }
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fidelityTarget": {
+      "type": "string",
+      "enum": [
+        "prototype",
+        "production_slice",
+        "parity_for_scope",
+        "full_clone",
+        "platform",
+        "research"
+      ]
+    },
+    "riskClass": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "external_write",
+        "destructive",
+        "privileged"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "created",
+        "admitted",
+        "running",
+        "waiting_on_tool",
+        "waiting_on_human",
+        "blocked",
+        "review_ready",
+        "completed",
+        "killed",
+        "quarantined",
+        "panic"
+      ]
+    },
+    "modelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowedProviders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requiresTokenLedger": {
+          "type": "boolean"
+        }
+      }
+    },
+    "contextBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxInputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retrievalPolicy": {
+          "type": "string"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "memoryMounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "mode",
+          "source",
+          "trust"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "readwrite"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "live",
+              "curated",
+              "cached",
+              "untrusted",
+              "generated"
+            ]
+          },
+          "volatile": {
+            "type": "boolean"
+          },
+          "freshnessRequired": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "allowedSyscalls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "verifiers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "stopCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "artifactRequired"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "artifactRequired": {
+          "type": "boolean"
+        },
+        "greenStates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blockerPath": {
+          "type": "string"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claimId": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,620 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_181065d26c0fed18",
+    "attemptId": "attempt_f15b1f2891a6cd48",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-01",
+    "conceptIds": [
+      "algebra-linear-equations",
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4.222222222222222,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_181065d26c0fed18"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_bcf7fb32dc160abe",
+    "attemptId": "attempt_00a295bdf16f61f9",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-02",
+    "conceptIds": [
+      "algebra-factoring",
+      "algebra-quadratics"
+    ],
+    "verifierId": "deterministic:set_equality:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": [
+      "2",
+      "3"
+    ],
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_bcf7fb32dc160abe"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_b87bb79450cf12d1",
+    "attemptId": "attempt_56e514a2f3f360d8",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-03",
+    "conceptIds": [
+      "functions-evaluation"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 11,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_b87bb79450cf12d1"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_241ef17129136d0b",
+    "attemptId": "attempt_4991f51136f61983",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-04",
+    "conceptIds": [
+      "functions-inverse",
+      "algebra-linear-equations"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 6,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_241ef17129136d0b"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_2ca4d32b461b14e1",
+    "attemptId": "attempt_38d6832dbfe555a5",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-05",
+    "conceptIds": [
+      "series-geometric"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 6,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_2ca4d32b461b14e1"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_6e1057f9180d56fd",
+    "attemptId": "attempt_660b15cb5b763c3a",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-06",
+    "conceptIds": [
+      "algebra-absolute-value"
+    ],
+    "verifierId": "deterministic:set_equality:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": [
+      "-2",
+      "5"
+    ],
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_6e1057f9180d56fd"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_089676b8c25def98",
+    "attemptId": "attempt_79d4e65f458d029e",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-07",
+    "conceptIds": [
+      "probability-binomial"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.375,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_089676b8c25def98"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_5568e7412c23c26f",
+    "attemptId": "attempt_e6fc49c508b869f8",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-08",
+    "conceptIds": [
+      "probability-complements"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.4212962962962963,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_5568e7412c23c26f"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_5d52e53a0d1a77c6",
+    "attemptId": "attempt_1216478462b0400a",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-09",
+    "conceptIds": [
+      "probability-bayes"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.16666666666666666,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_5d52e53a0d1a77c6"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_730959fad83fc078",
+    "attemptId": "attempt_9685fb42a66df0b3",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-10",
+    "conceptIds": [
+      "probability-independence",
+      "probability-inclusion-exclusion"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.7,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_730959fad83fc078"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_ca6a4613e094a247",
+    "attemptId": "attempt_269b7738f45dcb8f",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-11",
+    "conceptIds": [
+      "statistics-bernoulli",
+      "statistics-variance"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.21,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_ca6a4613e094a247"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_301e8faef645615c",
+    "attemptId": "attempt_b6ebd9e1589e5f65",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-12",
+    "conceptIds": [
+      "statistics-mean"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 7.5,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_301e8faef645615c"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_068cef8ec6835e3a",
+    "attemptId": "attempt_5137715466228886",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-13",
+    "conceptIds": [
+      "statistics-weighted-mean"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 89,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_068cef8ec6835e3a"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_acf3c6671c33ab7e",
+    "attemptId": "attempt_553f42f3d5302a2e",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-14",
+    "conceptIds": [
+      "statistics-median"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_acf3c6671c33ab7e"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_ce97b0c818476936",
+    "attemptId": "attempt_0aaa46dc2e74b5a0",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-15",
+    "conceptIds": [
+      "statistics-z-score"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 3,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_ce97b0c818476936"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_0b87394395848037",
+    "attemptId": "attempt_4671bece17b67cfa",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-16",
+    "conceptIds": [
+      "calculus-derivative"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": -3,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_0b87394395848037"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_ca538c5b52551bc4",
+    "attemptId": "attempt_671fb22b5cc79970",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-17",
+    "conceptIds": [
+      "optimization-quadratic"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_ca538c5b52551bc4"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_88b0a979a151c9c9",
+    "attemptId": "attempt_fc60ba33ecc531f2",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-18",
+    "conceptIds": [
+      "optimization-multivariate"
+    ],
+    "verifierId": "deterministic:set_equality:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": [
+      "-2",
+      "3"
+    ],
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_88b0a979a151c9c9"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_7613251bdbf037f1",
+    "attemptId": "attempt_bbeb4d54369779af",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-19",
+    "conceptIds": [
+      "reasoning-percent-base"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 25,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_7613251bdbf037f1"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_7694b3f0296db8a5",
+    "attemptId": "attempt_f1159b35d433bf5d",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-20",
+    "conceptIds": [
+      "reasoning-expected-value"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": -0.4,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_7694b3f0296db8a5"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_57c69c6136e7852a",
+    "attemptId": "attempt_121b4bc9313fff12",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-21",
+    "conceptIds": [
+      "probability-conditional"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.6,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_57c69c6136e7852a"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_57005de7f0e5bbd1",
+    "attemptId": "attempt_488bffbc234f9c14",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-22",
+    "conceptIds": [
+      "probability-waiting-time",
+      "reasoning-self-overlap"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_57005de7f0e5bbd1"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_8b678d1aa1941f24",
+    "attemptId": "attempt_ea0fe9626418c159",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-23",
+    "conceptIds": [
+      "probability-conditional",
+      "reasoning-sample-space"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.09090909090909091,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_8b678d1aa1941f24"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_8b36cd6c0161ff58",
+    "attemptId": "attempt_acd5302d3e193c7d",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-24",
+    "conceptIds": [
+      "probability-combinatorics"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.004524886877828055,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_8b36cd6c0161ff58"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_6160010f9cb9dba1",
+    "attemptId": "attempt_486299997c725711",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-25",
+    "conceptIds": [
+      "probability-conditional",
+      "reasoning-sample-space"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.6666666666666666,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_6160010f9cb9dba1"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_9cfaa04cdfd7e104",
+    "attemptId": "attempt_c82d461ede8803c6",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-26",
+    "conceptIds": [
+      "statistics-variance"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_9cfaa04cdfd7e104"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_9c02c4b4447a5d62",
+    "attemptId": "attempt_c8c6e12dfd422407",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-27",
+    "conceptIds": [
+      "optimization-constraints"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 25,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_9c02c4b4447a5d62"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_c40f1b4db4312b74",
+    "attemptId": "attempt_d234f9ddc84b4d5c",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-28",
+    "conceptIds": [
+      "linear-algebra-determinant"
+    ],
+    "verifierId": "deterministic:exact_number:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 16,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_c40f1b4db4312b74"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_9b8467c5e5fe1faf",
+    "attemptId": "attempt_94e75a4645e98cf9",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-29",
+    "conceptIds": [
+      "probability-inclusion-exclusion"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 0.8,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_9b8467c5e5fe1faf"
+    ]
+  },
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_c080654e8d095270",
+    "attemptId": "attempt_4dcfaf76786df50b",
+    "examId": "math-foundations-baseline-v0",
+    "itemId": "mf-30",
+    "conceptIds": [
+      "reasoning-expected-value",
+      "probability-counting"
+    ],
+    "verifierId": "deterministic:numeric_tolerance:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": 4.472222222222222,
+    "failureReason": null,
+    "evidenceRole": "baseline",
+    "evidence": [
+      "./verifier_results.json#verify_c080654e8d095270"
+    ]
+  }
+]

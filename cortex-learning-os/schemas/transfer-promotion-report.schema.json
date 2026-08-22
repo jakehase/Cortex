@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_promotion_report.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "profileId", "evaluatedAt", "outcome",
+    "artifactManifestDigest", "frozenDigests", "counts", "metrics", "gates",
+    "applicabilityReasonCounts", "evidenceDigest", "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_promotion_report.v1" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "profileId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "evaluatedAt": { "type": "string", "format": "date-time" },
+    "outcome": { "enum": ["qualified", "candidate", "no-transfer", "invalid", "blocked", "underpowered", "null"] },
+    "artifactManifestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "frozenDigests": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "policy", "source", "tasks", "plan"],
+      "properties": {
+        "profile": { "$ref": "#/$defs/digest" }, "policy": { "$ref": "#/$defs/digest" },
+        "source": { "$ref": "#/$defs/digest" }, "tasks": { "$ref": "#/$defs/digest" },
+        "plan": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["total", "valid", "invalid", "candidate", "noTransfer", "heldOut", "negativeSemantic", "assumptionViolation", "regression"],
+      "properties": {
+        "total": { "$ref": "#/$defs/count" }, "valid": { "$ref": "#/$defs/count" }, "invalid": { "$ref": "#/$defs/count" },
+        "candidate": { "$ref": "#/$defs/count" }, "noTransfer": { "$ref": "#/$defs/count" },
+        "heldOut": { "$ref": "#/$defs/count" }, "negativeSemantic": { "$ref": "#/$defs/count" },
+        "assumptionViolation": { "$ref": "#/$defs/count" }, "regression": { "$ref": "#/$defs/count" }
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidateAccuracy", "noTransferAccuracy", "accuracyLift", "negativeSemanticAccuracy", "assumptionViolationAccuracy", "regressionAccuracy"],
+      "properties": {
+        "candidateAccuracy": { "$ref": "#/$defs/rate" }, "noTransferAccuracy": { "$ref": "#/$defs/rate" },
+        "accuracyLift": { "type": "number", "minimum": -1, "maximum": 1 },
+        "negativeSemanticAccuracy": { "$ref": "#/$defs/rate" }, "assumptionViolationAccuracy": { "$ref": "#/$defs/rate" },
+        "regressionAccuracy": { "$ref": "#/$defs/rate" }
+      }
+    },
+    "gates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["providerEvidence", "powered", "validTrials", "candidateAccuracy", "lift", "negativeSemantic", "assumptionViolation", "noRegression", "exactOracles"],
+      "properties": {
+        "providerEvidence": { "type": "boolean" },
+        "powered": { "type": "boolean" }, "validTrials": { "type": "boolean" },
+        "candidateAccuracy": { "type": "boolean" }, "lift": { "type": "boolean" },
+        "negativeSemantic": { "type": "boolean" }, "assumptionViolation": { "type": "boolean" },
+        "noRegression": { "type": "boolean" }, "exactOracles": { "type": "boolean" }
+      }
+    },
+    "applicabilityReasonCounts": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["reasonCode", "count"],
+        "properties": {
+          "reasonCode": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "count": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "evidenceDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "truthBoundary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
+    "rate": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

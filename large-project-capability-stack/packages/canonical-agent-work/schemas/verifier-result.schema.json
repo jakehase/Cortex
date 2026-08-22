@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.verifier_result.v1",
+  "title": "Agent Work v1 independent verifier result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "verifierResultId", "runId", "taskId", "verifierId", "sourceDigest", "status", "independent", "startedAt", "completedAt", "evidence"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.verifier_result.v1" },
+    "verifierResultId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "verifierId": { "type": "string", "minLength": 1 },
+    "sourceDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "enum": ["passed", "failed", "not_run", "blocked", "tampered"] },
+    "independent": { "const": true },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "evidence": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } }
+  }
+}

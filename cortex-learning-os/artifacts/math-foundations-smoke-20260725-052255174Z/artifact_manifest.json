@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "cortex.learning_os.run_manifest.v0",
+  "runId": "math-foundations-smoke-20260725-052255174Z",
+  "generatedAt": "2026-07-25T05:23:16.246Z",
+  "files": [
+    {
+      "path": "baseline/answers.json",
+      "sha256": "f73b4e7333f6b277457d45866575bd6efb6b10a0fbb2ab1aa09371b53091a140"
+    },
+    {
+      "path": "baseline/attempts.json",
+      "sha256": "d756063a02003318a42af7711bea03a272baf47819598ab503f32ea7eb4e3996"
+    },
+    {
+      "path": "baseline/exam.json",
+      "sha256": "9409070471847fb2b20e528fb89cd0a54e4335459030bd6bc529b2faef2f8307"
+    },
+    {
+      "path": "baseline/model_call.json",
+      "sha256": "0f76aec140e2dc07c221755ef2346294eb306a0f31a7790fb492d90d720d83e9"
+    },
+    {
+      "path": "baseline/model_prompt.txt",
+      "sha256": "910024aef8c93eb0b4ae745963934f1ce0bece13ab2430c22ce12da2b4895aa6"
+    },
+    {
+      "path": "baseline/score_summary.json",
+      "sha256": "b66be4d8bcc61f7d92a1b329f74c3248e4be965e18969d57d97a168394a13058"
+    },
+    {
+      "path": "baseline/verifier_results.json",
+      "sha256": "2bbd0f579d7791ffb4eabca82c6462e697f7aa5bb119c6091ed7e61d288f0994"
+    },
+    {
+      "path": "capability_report.json",
+      "sha256": "080efd46211d7f738f1d7800a86af720bf4f27ff0e1c67016abb1cb8161b3b4e"
+    },
+    {
+      "path": "learning_outcome.json",
+      "sha256": "1809420a6f9855223b0bd51b0d9228b626e4f2f52ed921440cec1c6d9639e04c"
+    },
+    {
+      "path": "run_summary.json",
+      "sha256": "23c3593cc469489565262d05fac0a9fdb2e101d272b85bd681c18d5e613c26c5"
+    }
+  ],
+  "commands": [
+    "\"/usr/bin/node\" \"/root/clawd/worktrees/cortex-learning-os-v0-20260725/cortex-learning-os/src/run-learning-smoke.mjs\" \"--promote-default\""
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

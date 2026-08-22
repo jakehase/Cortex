@@ -1,0 +1,1212 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-exact-arithmetic-stress-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Exact Arithmetic Stress v0",
+  "passThreshold": 0.9,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mfs-01",
+      "prompt": "Compute exactly: 242,316,285,447 \u00d7 596,068,972.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "144437219165251850484"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-01-correction",
+          "prompt": "Compute exactly: 410,087 \u00d7 70,805.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "29036210035"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-01-promotion-retest",
+          "prompt": "Compute exactly: 43,749,348 \u00d7 275,317.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "12044939243316"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-01-heldout-retest",
+          "prompt": "Compute exactly: 1,540,555,411 \u00d7 6,215,392.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "9575155777086112"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-02",
+      "prompt": "Compute exactly: 1,182,229,432,199 \u00d7 741,852,512.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "877039874037161833888"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-02-correction",
+          "prompt": "Compute exactly: 683,279 \u00d7 35,120.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "23996758480"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-02-promotion-retest",
+          "prompt": "Compute exactly: 85,638,100 \u00d7 592,398.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "50731839163800"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-02-heldout-retest",
+          "prompt": "Compute exactly: 6,243,088,374 \u00d7 2,167,829.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "13533948026720046"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-03",
+      "prompt": "Compute exactly: 7,690,311,723,302 \u00d7 355,191,812.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "2731535755844480003224"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-03-correction",
+          "prompt": "Compute exactly: 898,074 \u00d7 10,316.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "9264531384"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-03-promotion-retest",
+          "prompt": "Compute exactly: 67,128,604 \u00d7 232,094.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "15580146216776"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-03-heldout-retest",
+          "prompt": "Compute exactly: 2,202,779,752 \u00d7 8,087,471.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "17814917363687192"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-04",
+      "prompt": "Compute exactly: 7,382,714,949,603 \u00d7 745,249,186.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "5501962306661666773158"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-04-correction",
+          "prompt": "Compute exactly: 628,885 \u00d7 47,967.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "30165726795"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-04-promotion-retest",
+          "prompt": "Compute exactly: 27,638,311 \u00d7 189,467.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "5236547870237"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-04-heldout-retest",
+          "prompt": "Compute exactly: 3,236,977,643 \u00d7 8,462,002.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "27391311289021286"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-05",
+      "prompt": "Compute exactly: 2,655,518,242,738 \u00d7 277,611,210.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "737201632543569892980"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-05-correction",
+          "prompt": "Compute exactly: 933,996 \u00d7 48,294.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "45106402824"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-05-promotion-retest",
+          "prompt": "Compute exactly: 33,374,724 \u00d7 746,946.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "24929116592904"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-05-heldout-retest",
+          "prompt": "Compute exactly: 1,547,169,632 \u00d7 8,165,869.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "12633984535690208"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-06",
+      "prompt": "Compute exactly: 9,685,045,517,117 \u00d7 786,471,692.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "7617014134944021951964"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-06-correction",
+          "prompt": "Compute exactly: 584,873 \u00d7 77,984.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "45610736032"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-06-promotion-retest",
+          "prompt": "Compute exactly: 19,068,409 \u00d7 339,605.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "6475727038445"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-06-heldout-retest",
+          "prompt": "Compute exactly: 9,713,860,925 \u00d7 9,854,887.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "95729001749590475"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-07",
+      "prompt": "Compute exactly: 7,840,172,424,950 \u00d7 885,874,028.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "6945405126304984198600"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-07-correction",
+          "prompt": "Compute exactly: 593,353 \u00d7 32,007.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "18991449471"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-07-promotion-retest",
+          "prompt": "Compute exactly: 29,121,384 \u00d7 435,393.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "12679246743912"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-07-heldout-retest",
+          "prompt": "Compute exactly: 2,203,033,374 \u00d7 5,798,019.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "12773229360086106"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-08",
+      "prompt": "Compute exactly: 7,560,680,515,939 \u00d7 97,742,098.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "738996775935600300022"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-08-correction",
+          "prompt": "Compute exactly: 617,268 \u00d7 52,465.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "32384965620"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-08-promotion-retest",
+          "prompt": "Compute exactly: 34,708,822 \u00d7 792,649.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "27511913049478"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-08-heldout-retest",
+          "prompt": "Compute exactly: 5,188,286,055 \u00d7 6,178,419.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "32055405139647045"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-09",
+      "prompt": "Compute exactly: 6,866,999,326,283 \u00d7 908,222,184.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "6236761125643274862072"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-09-correction",
+          "prompt": "Compute exactly: 634,223 \u00d7 96,026.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "60901897798"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-09-promotion-retest",
+          "prompt": "Compute exactly: 44,390,729 \u00d7 595,834.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "26449505622986"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-09-heldout-retest",
+          "prompt": "Compute exactly: 9,160,916,010 \u00d7 1,987,875.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "18210755913378750"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-10",
+      "prompt": "Compute exactly: 1,772,687,138,401 \u00d7 820,949,447.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "1455286525974313414247"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-10-correction",
+          "prompt": "Compute exactly: 586,878 \u00d7 52,089.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "30569888142"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-10-promotion-retest",
+          "prompt": "Compute exactly: 68,502,635 \u00d7 552,180.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "37825784994300"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-10-heldout-retest",
+          "prompt": "Compute exactly: 9,518,004,325 \u00d7 9,355,793.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "89048478237804725"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-11",
+      "prompt": "Compute exactly: 1,164,157,481,578 \u00d7 114,728,707.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "133562282605820259646"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-11-correction",
+          "prompt": "Compute exactly: 863,955 \u00d7 80,730.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "69747087150"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-11-promotion-retest",
+          "prompt": "Compute exactly: 24,336,622 \u00d7 226,264.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "5506501440208"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-11-heldout-retest",
+          "prompt": "Compute exactly: 5,710,559,881 \u00d7 4,032,423.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "23027393007021663"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-12",
+      "prompt": "Compute exactly: 8,970,038,320,747 \u00d7 693,178,913.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "6217841412743750808011"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-12-correction",
+          "prompt": "Compute exactly: 564,103 \u00d7 89,261.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "50352397883"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-12-promotion-retest",
+          "prompt": "Compute exactly: 74,570,055 \u00d7 426,866.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "31831421097630"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-12-heldout-retest",
+          "prompt": "Compute exactly: 4,384,146,714 \u00d7 2,366,371.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "10374517643754894"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-13",
+      "prompt": "Compute exactly: 5,030,228,617,897 \u00d7 466,535,678.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "2346781118745579829166"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-13-correction",
+          "prompt": "Compute exactly: 402,766 \u00d7 99,749.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "40175505734"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-13-promotion-retest",
+          "prompt": "Compute exactly: 75,024,891 \u00d7 677,526.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "50831314299666"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-13-heldout-retest",
+          "prompt": "Compute exactly: 9,340,991,569 \u00d7 5,282,940.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "49347897999532860"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-14",
+      "prompt": "Compute exactly: 3,313,713,214,306 \u00d7 142,675,959.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "472787210702081069454"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-14-correction",
+          "prompt": "Compute exactly: 597,923 \u00d7 73,053.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "43680068919"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-14-promotion-retest",
+          "prompt": "Compute exactly: 76,842,718 \u00d7 120,686.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "9273840264548"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-14-heldout-retest",
+          "prompt": "Compute exactly: 5,712,568,920 \u00d7 9,360,157.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "53470541964520440"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-15",
+      "prompt": "Compute exactly: 9,418,628,209,055 \u00d7 928,593,464.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "8746076594774498616520"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-15-correction",
+          "prompt": "Compute exactly: 384,664 \u00d7 40,479.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "15570814056"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-15-promotion-retest",
+          "prompt": "Compute exactly: 86,652,926 \u00d7 673,179.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "58332930071754"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-15-heldout-retest",
+          "prompt": "Compute exactly: 3,574,260,030 \u00d7 6,572,981.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "23493543266249430"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-16",
+      "prompt": "Compute exactly: 5,123,138,617,840 \u00d7 642,612,690.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "3292193888453044389600"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-16-correction",
+          "prompt": "Compute exactly: 503,817 \u00d7 89,339.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "45010506963"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-16-promotion-retest",
+          "prompt": "Compute exactly: 39,271,240 \u00d7 832,084.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "32676970464160"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-16-heldout-retest",
+          "prompt": "Compute exactly: 9,785,288,146 \u00d7 2,932,481.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "28695171567670226"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-17",
+      "prompt": "Compute exactly: 7,376,146,528,754 \u00d7 999,281,330.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "7370845513528180362820"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-17-correction",
+          "prompt": "Compute exactly: 727,480 \u00d7 45,665.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "33220374200"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-17-promotion-retest",
+          "prompt": "Compute exactly: 74,922,368 \u00d7 462,501.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "34651670122368"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-17-heldout-retest",
+          "prompt": "Compute exactly: 5,513,147,797 \u00d7 1,406,813.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "7755967991740961"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-18",
+      "prompt": "Compute exactly: 2,998,969,632,837 \u00d7 843,480,236.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "2529571613662186109532"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-18-correction",
+          "prompt": "Compute exactly: 911,952 \u00d7 26,444.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "24115658688"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-18-promotion-retest",
+          "prompt": "Compute exactly: 17,837,725 \u00d7 528,514.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "9427487390650"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-18-heldout-retest",
+          "prompt": "Compute exactly: 2,054,096,183 \u00d7 8,278,382.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "17004592867615906"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-19",
+      "prompt": "Compute exactly: 9,792,621,049,260 \u00d7 684,198,943.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "6700100971103242932180"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-19-correction",
+          "prompt": "Compute exactly: 769,646 \u00d7 22,056.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "16975312176"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-19-promotion-retest",
+          "prompt": "Compute exactly: 70,471,048 \u00d7 634,925.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "44743830151400"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-19-heldout-retest",
+          "prompt": "Compute exactly: 2,521,726,474 \u00d7 5,554,913.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "14007971172866762"
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfs-20",
+      "prompt": "Compute exactly: 2,806,556,040,709 \u00d7 248,752,473.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "stress",
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "698137755739452423357"
+      },
+      "mistakeCategory": "multi_digit_arithmetic_error",
+      "lessonRule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+      "remediation": {
+        "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+        "lessonTemplate": {
+          "rule": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+          "contraindications": [
+            "This procedure checks exact deterministic products; estimation or residue checks alone are not the final answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfs-20-correction",
+          "prompt": "Compute exactly: 508,945 \u00d7 65,396.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "33282967220"
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfs-20-promotion-retest",
+          "prompt": "Compute exactly: 94,220,615 \u00d7 552,127.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "52021745498105"
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfs-20-heldout-retest",
+          "prompt": "Compute exactly: 8,932,877,402 \u00d7 4,041,275.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "integer",
+          "checker": {
+            "mode": "exact_integer_string",
+            "expected": "36100214122767550"
+          }
+        }
+      }
+    }
+  ],
+  "truthBoundary": "This no-tool batch deliberately stresses exact multi-digit arithmetic. Follow-up items are smaller and single-item, so any pass sequence is bounded and causally confounded."
+}

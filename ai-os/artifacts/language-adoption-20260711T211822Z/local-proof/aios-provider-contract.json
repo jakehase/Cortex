@@ -1,0 +1,61 @@
+{
+  "ok": true,
+  "contract": "aios.service.provider_contract.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "providerId": "local-aios-cli",
+  "serviceId": "aios.operator.userland.claim.v0",
+  "tenantId": "openclaw-local",
+  "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+  "requiredCapabilities": [
+    "artifact_root_sync",
+    "completion_claim"
+  ],
+  "supportedCapabilities": [
+    "artifact_root_sync",
+    "boot_proof_write",
+    "completion_claim",
+    "external_handoff_state",
+    "lifecycle_log_read",
+    "process_lifecycle_write",
+    "process_table_read"
+  ],
+  "negotiatedCapabilities": [
+    "artifact_root_sync",
+    "completion_claim"
+  ],
+  "capabilityCatalog": {
+    "artifact_root_sync": "Read and update artifact-root metadata created by this CLI surface.",
+    "boot_proof_write": "Write boot proof packets and artifact layout manifests.",
+    "completion_claim": "Validate green artifacts and produce completion claim packets.",
+    "external_handoff_state": "Expose stable state for external provider handoff orchestration.",
+    "lifecycle_log_read": "Read lifecycle events and logs analytics for operator review.",
+    "process_lifecycle_write": "Admit jobs, execute mediated syscalls, and persist process records.",
+    "process_table_read": "Read process records, health, reconciliation, and fleet analytics."
+  },
+  "sync": {
+    "contract": "aios.provider.sync_metadata.v0",
+    "mode": "refresh",
+    "revision": 5,
+    "previousContractHash": "08b28957a23514a505d4fbda854a4a53ea9a2ce2f84acc73867fa804a96349f0",
+    "artifactRootHash": "6df6222ab9b922b05a7ab862019c1bc27bb2339b796b49da5101737387faea4f",
+    "lastCommand": "claim",
+    "lastPacketType": "aios.completion.claim",
+    "lastRequestId": "aiosreq_9edd2d838f94fa66",
+    "lastOperatorScopeHash": "e4e2f9f41ec24b9d072c4b7730a1f58d3bd8a9f2c1316ad4340e716abd122b36",
+    "syncedAt": "2026-07-11T21:33:46.304Z"
+  },
+  "externalHandoff": {
+    "contract": "aios.external_handoff_state.v0",
+    "enabled": false,
+    "state": "local_only",
+    "uri": null,
+    "command": "claim",
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+    "requestId": "aiosreq_9edd2d838f94fa66",
+    "service": "aios.operator.userland.claim.v0",
+    "updatedAt": "2026-07-11T21:33:46.304Z"
+  },
+  "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+  "contractHash": "90e0f963840eef4ffe2c7d46aad181d531db7b4b63d4152995a3d66e13287472"
+}

@@ -1,0 +1,1236 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-reliability-challenge-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Exactness and Reliability Challenge v0",
+  "passThreshold": 0.9,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mfc-01",
+      "prompt": "Compute exactly: 98,765 × 4,321.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 426763565
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+      "remediation": {
+        "correction": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+        "lessonTemplate": {
+          "rule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-01-correction",
+          "prompt": "Compute exactly: 12,345 × 678.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 8369910
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-01-promotion-retest",
+          "prompt": "Compute exactly: 54,321 × 1,234.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 67032114
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-01-heldout-retest",
+          "prompt": "Compute exactly: 31,415 × 2,718.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 85385970
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-02",
+      "prompt": "Compute exactly: 17^8.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 6975757441
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+      "remediation": {
+        "correction": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+        "lessonTemplate": {
+          "rule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-02-correction",
+          "prompt": "Compute exactly: 13^7.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 62748517
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-02-promotion-retest",
+          "prompt": "Compute exactly: 19^6.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 47045881
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-02-heldout-retest",
+          "prompt": "Compute exactly: 23^5.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 6436343
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-03",
+      "prompt": "Compute the integer binomial coefficient C(50,6).",
+      "conceptIds": [
+        "probability-combinatorics"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 15890700
+      },
+      "mistakeCategory": "combinatorial_denominator_error",
+      "lessonRule": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+      "remediation": {
+        "correction": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+        "lessonTemplate": {
+          "rule": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-03-correction",
+          "prompt": "Compute C(30,4).",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 27405
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-03-promotion-retest",
+          "prompt": "Compute C(40,5).",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 658008
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-03-heldout-retest",
+          "prompt": "Compute C(35,6).",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 1623160
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-04",
+      "prompt": "Compute exactly the sum 1^2+2^2+...+75^2.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 143450
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+      "remediation": {
+        "correction": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+        "lessonTemplate": {
+          "rule": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-04-correction",
+          "prompt": "Compute 1^2+...+30^2.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 9455
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-04-promotion-retest",
+          "prompt": "Compute 1^2+...+60^2.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 73810
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-04-heldout-retest",
+          "prompt": "Compute 1^2+...+90^2.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 247065
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-05",
+      "prompt": "Compute the determinant of [[3, 1, 4, 2], [0, 5, 2, 1], [2, 0, 3, 6], [1, 2, 0, 4]].",
+      "conceptIds": [
+        "linear-algebra-determinant"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 171
+      },
+      "mistakeCategory": "determinant_sign_error",
+      "lessonRule": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+      "remediation": {
+        "correction": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+        "lessonTemplate": {
+          "rule": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-05-correction",
+          "prompt": "Compute det([[2, 1, 0], [3, 4, 1], [1, 0, 5]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 26
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-05-promotion-retest",
+          "prompt": "Compute det([[4, 2, 1], [0, 3, 5], [2, 1, 6]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 66
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-05-heldout-retest",
+          "prompt": "Compute det([[5, 1, 2], [2, 4, 0], [1, 3, 6]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 112
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-06",
+      "prompt": "Compute the least nonnegative residue of 7^222 modulo 1000.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 49
+      },
+      "mistakeCategory": "modular_reduction_error",
+      "lessonRule": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+      "remediation": {
+        "correction": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+        "lessonTemplate": {
+          "rule": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-06-correction",
+          "prompt": "Compute 3^77 modulo 100.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 63
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-06-promotion-retest",
+          "prompt": "Compute 11^123 modulo 1000.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 531
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-06-heldout-retest",
+          "prompt": "Compute 13^101 modulo 1000.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 13
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-07",
+      "prompt": "Compute exactly: 17/23 + 29/31 - 11/13. Give a fraction or decimal.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.8284604595965045,
+        "tolerance": 1e-9
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+      "remediation": {
+        "correction": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+        "lessonTemplate": {
+          "rule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-07-correction",
+          "prompt": "Compute 5/7+11/13-2/3.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.8937728937728938,
+            "tolerance": 1e-9
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-07-promotion-retest",
+          "prompt": "Compute 19/29+7/11-3/5.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.6915360501567398,
+            "tolerance": 1e-9
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-07-heldout-retest",
+          "prompt": "Compute 23/37+13/17-5/9.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.8307719484190073,
+            "tolerance": 1e-9
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-08",
+      "prompt": "Solve exactly for x: (17/19)x - 23/29 = 31/37. Give a fraction or decimal.",
+      "conceptIds": [
+        "algebra-linear-equations"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 1.822816731538841,
+        "tolerance": 1e-9
+      },
+      "mistakeCategory": "algebraic_transformation_error",
+      "lessonRule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+      "remediation": {
+        "correction": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+        "lessonTemplate": {
+          "rule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-08-correction",
+          "prompt": "Solve (5/7)x-2/9=11/13.",
+          "conceptIds": [
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 1.4957264957264957,
+            "tolerance": 1e-9
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-08-promotion-retest",
+          "prompt": "Solve (13/17)x+5/11=19/23.",
+          "conceptIds": [
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.48586196412283367,
+            "tolerance": 1e-9
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-08-heldout-retest",
+          "prompt": "Solve (29/31)x-7/13=41/43.",
+          "conceptIds": [
+            "algebra-linear-equations"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 1.5948430078341866,
+            "tolerance": 1e-9
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-09",
+      "prompt": "Compute exactly the finite sum 7+21+63+...+7×3^12.",
+      "conceptIds": [
+        "series-geometric"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 5580127
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+      "remediation": {
+        "correction": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+        "lessonTemplate": {
+          "rule": "For a finite series, identify the exact formula and endpoint count before substituting; cross-check with a small case.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-09-correction",
+          "prompt": "Compute 5+10+...+5×2^9.",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5115
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-09-promotion-retest",
+          "prompt": "Compute 4+12+...+4×3^8.",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 39364
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-09-heldout-retest",
+          "prompt": "Compute 6+24+...+6×4^7.",
+          "conceptIds": [
+            "series-geometric"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 131070
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-10",
+      "prompt": "Evaluate exactly 3x^5-7x^4+11x^2-13 at x=17.",
+      "conceptIds": [
+        "functions-evaluation"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 3678090
+      },
+      "mistakeCategory": "arithmetic_slip",
+      "lessonRule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+      "remediation": {
+        "correction": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+        "lessonTemplate": {
+          "rule": "For exact arithmetic, decompose the calculation into small auditable parts, preserve exact intermediates, and independently cross-check magnitude and residues before answering.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-10-correction",
+          "prompt": "Evaluate 2x^5-3x^3+7 at x=11.",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 318116
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-10-promotion-retest",
+          "prompt": "Evaluate 5x^4-9x^2+4 at x=19.",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 648360
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-10-heldout-retest",
+          "prompt": "Evaluate 4x^5-2x^4+3x-8 at x=13.",
+          "conceptIds": [
+            "functions-evaluation"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 1428081
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-11",
+      "prompt": "Compute lcm(168, 180, 231).",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 27720
+      },
+      "mistakeCategory": "factorization_error",
+      "lessonRule": "For an LCM, factor each integer and take each prime at its maximum exponent; verify divisibility by every input.",
+      "remediation": {
+        "correction": "For an LCM, factor each integer and take each prime at its maximum exponent; verify divisibility by every input.",
+        "lessonTemplate": {
+          "rule": "For an LCM, factor each integer and take each prime at its maximum exponent; verify divisibility by every input.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-11-correction",
+          "prompt": "Compute lcm(72,90,120).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 360
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-11-promotion-retest",
+          "prompt": "Compute lcm(84,126,198).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 2772
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-11-heldout-retest",
+          "prompt": "Compute lcm(144,210,330).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 55440
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-12",
+      "prompt": "Compute gcd(123456, 789012).",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 12
+      },
+      "mistakeCategory": "euclidean_algorithm_error",
+      "lessonRule": "For a GCD, use the Euclidean algorithm and verify the result divides every input.",
+      "remediation": {
+        "correction": "For a GCD, use the Euclidean algorithm and verify the result divides every input.",
+        "lessonTemplate": {
+          "rule": "For a GCD, use the Euclidean algorithm and verify the result divides every input.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-12-correction",
+          "prompt": "Compute gcd(98765,43210).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 5
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-12-promotion-retest",
+          "prompt": "Compute gcd(314159,271828).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 1
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-12-heldout-retest",
+          "prompt": "Compute gcd(765432,123456).",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 24
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-13",
+      "prompt": "Find the least positive integer x such that 37x ≡ 1 (mod 101).",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 71
+      },
+      "mistakeCategory": "modular_inverse_error",
+      "lessonRule": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+      "remediation": {
+        "correction": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+        "lessonTemplate": {
+          "rule": "For modular powers, reduce after every multiplication and use repeated squaring rather than expanding the full power.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-13-correction",
+          "prompt": "Find inverse of 17 modulo 43.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 38
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-13-promotion-retest",
+          "prompt": "Find inverse of 29 modulo 97.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 87
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-13-heldout-retest",
+          "prompt": "Find inverse of 41 modulo 113.",
+          "conceptIds": [
+            "number-fractions"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 102
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-14",
+      "prompt": "A 12-person committee chooses 5 members uniformly. What is the probability two specified people are both selected?",
+      "conceptIds": [
+        "probability-combinatorics"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 0.15151515151515152,
+        "tolerance": 1e-9
+      },
+      "mistakeCategory": "combinatorial_denominator_error",
+      "lessonRule": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+      "remediation": {
+        "correction": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+        "lessonTemplate": {
+          "rule": "For combinatorial counts, write the exact counting formula, cancel factors before multiplying, and cross-check symmetry or a smaller case.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-14-correction",
+          "prompt": "From 10 choose 4, probability two specified both selected?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.13333333333333333,
+            "tolerance": 1e-9
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-14-promotion-retest",
+          "prompt": "From 15 choose 6, probability three specified all selected?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.04395604395604396,
+            "tolerance": 1e-9
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-14-heldout-retest",
+          "prompt": "From 20 choose 5, probability two specified both selected?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 0.05263157894736842,
+            "tolerance": 1e-9
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-15",
+      "prompt": "How many derangements are there of 10 distinct objects?",
+      "conceptIds": [
+        "probability-combinatorics"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 0
+      },
+      "mistakeCategory": "recurrence_error",
+      "lessonRule": "For derangements, use the recurrence D_n=(n-1)(D_{n-1}+D_{n-2}) with D_0=1,D_1=0, and cross-check parity/magnitude.",
+      "remediation": {
+        "correction": "For derangements, use the recurrence D_n=(n-1)(D_{n-1}+D_{n-2}) with D_0=1,D_1=0, and cross-check parity/magnitude.",
+        "lessonTemplate": {
+          "rule": "For derangements, use the recurrence D_n=(n-1)(D_{n-1}+D_{n-2}) with D_0=1,D_1=0, and cross-check parity/magnitude.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-15-correction",
+          "prompt": "How many derangements of 6 objects?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-15-promotion-retest",
+          "prompt": "How many derangements of 8 objects?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-15-heldout-retest",
+          "prompt": "How many derangements of 9 objects?",
+          "conceptIds": [
+            "probability-combinatorics"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 0
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-16",
+      "prompt": "For fair coin tosses, what is the expected waiting time until HHTH first appears?",
+      "conceptIds": [
+        "probability-waiting-time"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 18
+      },
+      "mistakeCategory": "pattern_overlap_error",
+      "lessonRule": "For a single fair-coin pattern, expected waiting time is the sum of 2^k over lengths k whose prefix equals the suffix, including the full pattern.",
+      "remediation": {
+        "correction": "For a single fair-coin pattern, expected waiting time is the sum of 2^k over lengths k whose prefix equals the suffix, including the full pattern.",
+        "lessonTemplate": {
+          "rule": "For a single fair-coin pattern, expected waiting time is the sum of 2^k over lengths k whose prefix equals the suffix, including the full pattern.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-16-correction",
+          "prompt": "Expected wait for HHHH?",
+          "conceptIds": [
+            "probability-waiting-time"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 30
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-16-promotion-retest",
+          "prompt": "Expected wait for HTHT?",
+          "conceptIds": [
+            "probability-waiting-time"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 20
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-16-heldout-retest",
+          "prompt": "Expected wait for THHT?",
+          "conceptIds": [
+            "probability-waiting-time"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 16
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-17",
+      "prompt": "Three fair six-sided dice are rolled. Compute the expected value of their maximum.",
+      "conceptIds": [
+        "reasoning-expected-value"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 4.958333333333333,
+        "tolerance": 1e-9
+      },
+      "mistakeCategory": "maximum_distribution_error",
+      "lessonRule": "For a discrete maximum M, use P(M≤k)=(k/s)^n and a tail sum or differences, preserving exact fractions.",
+      "remediation": {
+        "correction": "For a discrete maximum M, use P(M≤k)=(k/s)^n and a tail sum or differences, preserving exact fractions.",
+        "lessonTemplate": {
+          "rule": "For a discrete maximum M, use P(M≤k)=(k/s)^n and a tail sum or differences, preserving exact fractions.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-17-correction",
+          "prompt": "Expected maximum of two fair 3-sided dice?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 2.4444444444444446,
+            "tolerance": 1e-9
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-17-promotion-retest",
+          "prompt": "Expected maximum of three fair 4-sided dice?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 3.4375,
+            "tolerance": 1e-9
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-17-heldout-retest",
+          "prompt": "Expected maximum of two fair 5-sided dice?",
+          "conceptIds": [
+            "reasoning-expected-value"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 3.8,
+            "tolerance": 1e-9
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-18",
+      "prompt": "Compute the population variance of [12, 17, 23, 31, 44, 58, 71]. Give a fraction or decimal.",
+      "conceptIds": [
+        "statistics-variance"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 414.53061224489795,
+        "tolerance": 1e-8
+      },
+      "mistakeCategory": "variance_formula_error",
+      "lessonRule": "For population variance, compute the exact mean, sum every squared deviation, and divide by N rather than N-1.",
+      "remediation": {
+        "correction": "For population variance, compute the exact mean, sum every squared deviation, and divide by N rather than N-1.",
+        "lessonTemplate": {
+          "rule": "For population variance, compute the exact mean, sum every squared deviation, and divide by N rather than N-1.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-18-correction",
+          "prompt": "Compute the population variance of [2, 5, 9, 14].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 20.25,
+            "tolerance": 1e-8
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-18-promotion-retest",
+          "prompt": "Compute the population variance of [3, 8, 15, 24, 35].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 130.8,
+            "tolerance": 1e-8
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-18-heldout-retest",
+          "prompt": "Compute the population variance of [10, 20, 35, 55].",
+          "conceptIds": [
+            "statistics-variance"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 287.5,
+            "tolerance": 1e-8
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-19",
+      "prompt": "Compute det([[7, 2, 1], [3, 5, 4], [6, 0, 8]]).",
+      "conceptIds": [
+        "linear-algebra-determinant"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "exact_number",
+        "expected": 250
+      },
+      "mistakeCategory": "determinant_sign_error",
+      "lessonRule": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+      "remediation": {
+        "correction": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+        "lessonTemplate": {
+          "rule": "For determinants, use a consistent elimination or cofactor method, track every sign/row operation, and cross-check with a second expansion.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-19-correction",
+          "prompt": "Compute det([[3, 1, 2], [2, 6, 1], [1, 0, 4]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 53
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-19-promotion-retest",
+          "prompt": "Compute det([[8, 2, 0], [1, 7, 3], [4, 1, 5]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 270
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-19-heldout-retest",
+          "prompt": "Compute det([[6, 1, 4], [0, 5, 2], [3, 2, 7]]).",
+          "conceptIds": [
+            "linear-algebra-determinant"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "exact_number",
+            "expected": 132
+          }
+        }
+      }
+    },
+    {
+      "itemId": "mfc-20",
+      "prompt": "A value increases by 37%, then decreases by 29%, then increases by 18%. What is the net percent change from the original? Give the signed percentage number.",
+      "conceptIds": [
+        "reasoning-percent-base"
+      ],
+      "difficulty": "challenge",
+      "answerFormat": "number",
+      "checker": {
+        "mode": "numeric_tolerance",
+        "expected": 14.778599999999997,
+        "tolerance": 1e-8
+      },
+      "mistakeCategory": "percent_compounding_error",
+      "lessonRule": "For sequential percentage changes, multiply the growth factors and compare the final factor with one; never add signed percentages directly.",
+      "remediation": {
+        "correction": "For sequential percentage changes, multiply the growth factors and compare the final factor with one; never add signed percentages directly.",
+        "lessonTemplate": {
+          "rule": "For sequential percentage changes, multiply the growth factors and compare the final factor with one; never add signed percentages directly.",
+          "contraindications": [
+            "Use the decomposition/checking procedure only for exact deterministic calculations; do not treat estimation as the final exact answer."
+          ]
+        },
+        "correctionItem": {
+          "itemId": "mfc-20-correction",
+          "prompt": "Increase 20%, decrease 10%, increase 5%: net percent change?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 13.400000000000013,
+            "tolerance": 1e-8
+          }
+        },
+        "promotionRetestItem": {
+          "itemId": "mfc-20-promotion-retest",
+          "prompt": "Decrease 25%, increase 40%: net percent change?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 4.999999999999982,
+            "tolerance": 1e-8
+          }
+        },
+        "heldoutRetestItem": {
+          "itemId": "mfc-20-heldout-retest",
+          "prompt": "Increase 50%, decrease 20%, decrease 10%: net percent change?",
+          "conceptIds": [
+            "reasoning-percent-base"
+          ],
+          "answerFormat": "number",
+          "checker": {
+            "mode": "numeric_tolerance",
+            "expected": 8.000000000000028,
+            "tolerance": 1e-8
+          }
+        }
+      }
+    }
+  ],
+  "truthBoundary": "This deliberately difficult no-tool calculation challenge probes exactness and error checking; it does not represent broad math mastery."
+}

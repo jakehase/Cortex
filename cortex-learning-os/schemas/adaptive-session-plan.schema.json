@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.adaptive_session_plan.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "generatedAt",
+    "sourceCommit",
+    "seed",
+    "curriculumId",
+    "capsuleId",
+    "curriculumDigest",
+    "policyId",
+    "policyDigest",
+    "masteryRevision",
+    "masterySnapshotDigest",
+    "operatorDirective",
+    "action",
+    "assessmentSelection",
+    "budgets",
+    "modelRuntime",
+    "pairedEvaluation",
+    "terminalStates",
+    "truthBoundary",
+    "controlPlaneSignature"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.adaptive_session_plan.v1"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "curriculumId": {
+      "type": "string"
+    },
+    "capsuleId": {
+      "type": "string"
+    },
+    "curriculumDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policyId": {
+      "type": "string"
+    },
+    "policyDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "masteryRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "masterySnapshotDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "operatorDirective": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "scope", "authorizedAt", "truthBoundary"],
+          "properties": {
+            "type": { "const": "owner_authorized_early_review" },
+            "scope": { "const": "single_session" },
+            "authorizedAt": { "type": "string", "format": "date-time" },
+            "truthBoundary": { "const": "This is explicitly early practice, not a due or overdue retention review." }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object"
+    },
+    "assessmentSelection": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bankId",
+            "bankDigest",
+            "itemId",
+            "itemContentDigest",
+            "checkerSpecificationSha256",
+            "campaign"
+          ],
+          "properties": {
+            "bankId": { "type": "string" },
+            "bankDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "itemId": { "type": "string" },
+            "itemContentDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "checkerSpecificationSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "campaign": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "budgets": {
+      "type": "object"
+    },
+    "modelRuntime": {
+      "type": "object"
+    },
+    "pairedEvaluation": {
+      "type": "object"
+    },
+    "terminalStates": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "string"
+      }
+    },
+    "truthBoundary": {
+      "type": "string"
+    },
+    "controlPlaneSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "keyId",
+        "digest"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "hmac-sha256"
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

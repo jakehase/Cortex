@@ -1,0 +1,14 @@
+{
+  "version": "cortex.roadmap.r9.step12.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/claim_map_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/reproducibility_pack_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_brief_latest.md",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json"
+  ],
+  "gates": {
+    "supported_claims_at_least": 4,
+    "not_supported_claims_at_least": 1,
+    "claim_discipline_required": true
+  }
+}

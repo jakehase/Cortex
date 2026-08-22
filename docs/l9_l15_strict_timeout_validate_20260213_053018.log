@@ -1,0 +1,36 @@
+# strict-timeout validation 20260213_053018
+darwin_pid=145434
+2026-02-13T05:30:19+00:00
+HEALTH_HTTP=000 TOTAL=2.002311 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:22+00:00
+HEALTH_HTTP=000 TOTAL=2.002346 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:25+00:00
+HEALTH_HTTP=000 TOTAL=2.002328 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:28+00:00
+HEALTH_HTTP=000 TOTAL=2.002308 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:31+00:00
+HEALTH_HTTP=000 TOTAL=2.002297 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:34+00:00
+HEALTH_HTTP=000 TOTAL=2.002340 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:37+00:00
+HEALTH_HTTP=000 TOTAL=2.002320 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:40+00:00
+HEALTH_HTTP=000 TOTAL=2.002337 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:43+00:00
+HEALTH_HTTP=000 TOTAL=2.002312 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:46+00:00
+HEALTH_HTTP=000 TOTAL=2.002304 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:49+00:00
+HEALTH_HTTP=000 TOTAL=2.002329 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:52+00:00
+HEALTH_HTTP=000 TOTAL=2.002089 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:30:55+00:00
+HEALTH_HTTP=000 TOTAL=2.001849 ERR=Operation timed out after 2001 milliseconds with 0 bytes received
+2026-02-13T05:30:58+00:00
+HEALTH_HTTP=000 TOTAL=2.001604 ERR=Operation timed out after 2001 milliseconds with 0 bytes received
+2026-02-13T05:31:01+00:00
+HEALTH_HTTP=000 TOTAL=2.002339 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+--- DARWIN OUTPUT ---
+curl: (52) Empty reply from server
+
+DARWIN_HTTP=000 TOTAL=49.274163

@@ -1,0 +1,12 @@
+{
+  "version": "cortex.roadmap.r7.step3.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_compiled_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_probe_latest.json"
+  ],
+  "gates": {
+    "objectiveOrder": ["safety", "truth", "user_intent", "reliability", "efficiency"],
+    "hierarchyViolations": 0,
+    "replayAllValid": true
+  }
+}

@@ -1,0 +1,598 @@
+{
+  "schemaVersion": "cortex.learning_os.curriculum_graph.v1",
+  "curriculumId": "math-continuous-acquisition-v1",
+  "capsuleId": "math-foundations-v0",
+  "domain": "math-foundations",
+  "version": "1.0.0",
+  "concepts": [
+    {
+      "conceptId": "number-fractions",
+      "title": "Fractions and rational numbers",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": ["Compute and compare rational values exactly."]
+    },
+    {
+      "conceptId": "algebra-inverse-operations",
+      "title": "Inverse operations",
+      "category": "algebra",
+      "prerequisites": ["number-fractions"],
+      "outcomes": ["Isolate variables without changing solution sets."]
+    },
+    {
+      "conceptId": "algebra-linear-equations",
+      "title": "Linear equations",
+      "category": "algebra",
+      "prerequisites": ["algebra-inverse-operations"],
+      "outcomes": ["Solve one-variable linear equations."]
+    },
+    {
+      "conceptId": "algebra-factoring",
+      "title": "Polynomial factoring",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": ["Factor simple quadratics."]
+    },
+    {
+      "conceptId": "algebra-quadratics",
+      "title": "Quadratic equations",
+      "category": "algebra",
+      "prerequisites": ["algebra-factoring"],
+      "outcomes": ["Find quadratic roots."]
+    },
+    {
+      "conceptId": "algebra-absolute-value",
+      "title": "Absolute-value equations",
+      "category": "algebra",
+      "prerequisites": ["algebra-linear-equations"],
+      "outcomes": ["Split absolute-value equations into valid cases."]
+    },
+    {
+      "conceptId": "functions-evaluation",
+      "title": "Function evaluation",
+      "category": "functions",
+      "prerequisites": [],
+      "outcomes": ["Evaluate functions at signed inputs."]
+    },
+    {
+      "conceptId": "functions-inverse",
+      "title": "Inverse functions",
+      "category": "functions",
+      "prerequisites": ["functions-evaluation", "algebra-linear-equations"],
+      "outcomes": ["Solve for inverse outputs."]
+    },
+    {
+      "conceptId": "functions-transformations",
+      "title": "Function transformations",
+      "category": "functions",
+      "prerequisites": ["functions-evaluation"],
+      "outcomes": ["Reason about shifted and scaled functions."]
+    },
+    {
+      "conceptId": "series-geometric",
+      "title": "Geometric series",
+      "category": "functions",
+      "prerequisites": ["number-fractions"],
+      "outcomes": ["Recognize convergence and compute finite or infinite sums."]
+    },
+    {
+      "conceptId": "probability-counting",
+      "title": "Counting outcomes",
+      "category": "probability",
+      "prerequisites": [],
+      "outcomes": ["Count equally likely outcomes without duplication."]
+    },
+    {
+      "conceptId": "probability-binomial",
+      "title": "Binomial probability",
+      "category": "probability",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Compute exact success-count probabilities."]
+    },
+    {
+      "conceptId": "probability-complements",
+      "title": "Complement rule",
+      "category": "probability",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Compute at-least-one probabilities."]
+    },
+    {
+      "conceptId": "probability-conditional",
+      "title": "Conditional probability",
+      "category": "probability",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Condition on the declared sample space."]
+    },
+    {
+      "conceptId": "probability-bayes",
+      "title": "Bayes rule and base rates",
+      "category": "probability",
+      "prerequisites": ["probability-conditional"],
+      "outcomes": ["Combine sensitivity, specificity, and prevalence."]
+    },
+    {
+      "conceptId": "probability-independence",
+      "title": "Independence",
+      "category": "probability",
+      "prerequisites": ["probability-conditional"],
+      "outcomes": ["Use product rules only when independence is given."]
+    },
+    {
+      "conceptId": "probability-inclusion-exclusion",
+      "title": "Inclusion-exclusion",
+      "category": "probability",
+      "prerequisites": ["probability-conditional"],
+      "outcomes": ["Correctly subtract overlap."]
+    },
+    {
+      "conceptId": "probability-waiting-time",
+      "title": "Pattern waiting times",
+      "category": "probability",
+      "prerequisites": ["probability-conditional"],
+      "outcomes": ["Account for pattern self-overlap."]
+    },
+    {
+      "conceptId": "probability-combinatorics",
+      "title": "Combinatorial probability",
+      "category": "probability",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Use combinations for unordered samples."]
+    },
+    {
+      "conceptId": "statistics-mean",
+      "title": "Arithmetic mean",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": ["Compute sample means."]
+    },
+    {
+      "conceptId": "statistics-weighted-mean",
+      "title": "Weighted mean",
+      "category": "statistics",
+      "prerequisites": ["statistics-mean"],
+      "outcomes": ["Apply normalized weights."]
+    },
+    {
+      "conceptId": "statistics-median",
+      "title": "Median and robust center",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": ["Find ordered middle values."]
+    },
+    {
+      "conceptId": "statistics-variance",
+      "title": "Variance",
+      "category": "statistics",
+      "prerequisites": ["statistics-mean"],
+      "outcomes": ["Connect moments and spread."]
+    },
+    {
+      "conceptId": "statistics-bernoulli",
+      "title": "Bernoulli moments",
+      "category": "statistics",
+      "prerequisites": ["statistics-variance"],
+      "outcomes": ["Use p(1-p) for Bernoulli variance."]
+    },
+    {
+      "conceptId": "statistics-z-score",
+      "title": "Standardization",
+      "category": "statistics",
+      "prerequisites": ["statistics-mean", "statistics-variance"],
+      "outcomes": ["Convert observations to z-scores."]
+    },
+    {
+      "conceptId": "statistics-causation",
+      "title": "Association versus causation",
+      "category": "statistics",
+      "prerequisites": [],
+      "outcomes": ["Reject unsupported causal inference."]
+    },
+    {
+      "conceptId": "calculus-derivative",
+      "title": "Derivatives",
+      "category": "optimization",
+      "prerequisites": [],
+      "outcomes": ["Differentiate elementary polynomials."]
+    },
+    {
+      "conceptId": "optimization-quadratic",
+      "title": "Quadratic optimization",
+      "category": "optimization",
+      "prerequisites": ["calculus-derivative"],
+      "outcomes": ["Use vertices or stationary points."]
+    },
+    {
+      "conceptId": "optimization-multivariate",
+      "title": "Multivariate optimization",
+      "category": "optimization",
+      "prerequisites": ["calculus-derivative"],
+      "outcomes": ["Solve separable stationary conditions."]
+    },
+    {
+      "conceptId": "optimization-constraints",
+      "title": "Constrained optimization",
+      "category": "optimization",
+      "prerequisites": ["optimization-quadratic"],
+      "outcomes": ["Translate constraints before optimizing."]
+    },
+    {
+      "conceptId": "reasoning-percent-base",
+      "title": "Percent-change bases",
+      "category": "error-analysis",
+      "prerequisites": ["number-fractions"],
+      "outcomes": ["Use the original quantity as denominator."]
+    },
+    {
+      "conceptId": "reasoning-expected-value",
+      "title": "Expected value",
+      "category": "error-analysis",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Weight every payoff by its probability."]
+    },
+    {
+      "conceptId": "reasoning-sample-space",
+      "title": "Sample-space conditioning",
+      "category": "error-analysis",
+      "prerequisites": ["probability-conditional"],
+      "outcomes": ["Rebuild the sample space after conditioning."]
+    },
+    {
+      "conceptId": "reasoning-self-overlap",
+      "title": "Sequence self-overlap",
+      "category": "error-analysis",
+      "prerequisites": ["probability-waiting-time"],
+      "outcomes": ["Include proper prefix-suffix overlaps."]
+    },
+    {
+      "conceptId": "linear-algebra-determinant",
+      "title": "Determinants",
+      "category": "algebra",
+      "prerequisites": [],
+      "outcomes": ["Compute a 3x3 determinant reproducibly."]
+    },
+    {
+      "conceptId": "reasoning-truth-boundary",
+      "title": "Capability truth boundaries",
+      "category": "error-analysis",
+      "prerequisites": [],
+      "outcomes": ["Separate an observed exam result from broad mastery."]
+    },
+    {
+      "conceptId": "algebra-polynomial-arithmetic",
+      "title": "Polynomial arithmetic",
+      "category": "algebra-precalculus",
+      "prerequisites": ["algebra-linear-equations", "algebra-factoring"],
+      "outcomes": ["Combine polynomial terms and evaluate coefficient operations exactly."]
+    },
+    {
+      "conceptId": "algebra-rational-expressions",
+      "title": "Rational expressions",
+      "category": "algebra-precalculus",
+      "prerequisites": ["algebra-polynomial-arithmetic", "algebra-factoring"],
+      "outcomes": ["Simplify rational expressions while respecting excluded values."]
+    },
+    {
+      "conceptId": "algebra-complex-numbers",
+      "title": "Complex-number arithmetic",
+      "category": "algebra-precalculus",
+      "prerequisites": ["algebra-quadratics"],
+      "outcomes": ["Compute exact real and imaginary components of complex products."]
+    },
+    {
+      "conceptId": "functions-composition",
+      "title": "Function composition",
+      "category": "algebra-precalculus",
+      "prerequisites": ["functions-evaluation"],
+      "outcomes": ["Evaluate nested function composition in the correct order."]
+    },
+    {
+      "conceptId": "functions-polynomial-behavior",
+      "title": "Polynomial end behavior",
+      "category": "algebra-precalculus",
+      "prerequisites": ["algebra-polynomial-arithmetic", "functions-transformations"],
+      "outcomes": ["Infer polynomial end behavior from degree parity and leading sign."]
+    },
+    {
+      "conceptId": "precalculus-exponential-functions",
+      "title": "Exponential functions",
+      "category": "algebra-precalculus",
+      "prerequisites": ["functions-evaluation"],
+      "outcomes": ["Evaluate and interpret integer-power exponential functions."]
+    },
+    {
+      "conceptId": "precalculus-logarithms",
+      "title": "Logarithms",
+      "category": "algebra-precalculus",
+      "prerequisites": ["precalculus-exponential-functions", "functions-inverse"],
+      "outcomes": ["Use logarithms as inverses of exponentiation."]
+    },
+    {
+      "conceptId": "precalculus-unit-circle",
+      "title": "Unit-circle trigonometry",
+      "category": "algebra-precalculus",
+      "prerequisites": ["functions-transformations", "number-fractions"],
+      "outcomes": ["Evaluate sine and cosine at cardinal unit-circle angles."]
+    },
+    {
+      "conceptId": "calculus-limits",
+      "title": "Polynomial limits",
+      "category": "calculus",
+      "prerequisites": ["functions-polynomial-behavior"],
+      "outcomes": ["Evaluate polynomial limits by justified substitution."]
+    },
+    {
+      "conceptId": "calculus-continuity",
+      "title": "Continuity and removable discontinuities",
+      "category": "calculus",
+      "prerequisites": ["calculus-limits"],
+      "outcomes": ["Choose the value that makes a removable discontinuity continuous."]
+    },
+    {
+      "conceptId": "calculus-product-rule",
+      "title": "Product rule",
+      "category": "calculus",
+      "prerequisites": ["calculus-derivative", "algebra-polynomial-arithmetic"],
+      "outcomes": ["Differentiate products without dropping either term."]
+    },
+    {
+      "conceptId": "calculus-chain-rule",
+      "title": "Chain rule",
+      "category": "calculus",
+      "prerequisites": ["calculus-derivative", "functions-composition"],
+      "outcomes": ["Differentiate a composition using inner and outer derivatives."]
+    },
+    {
+      "conceptId": "calculus-implicit-differentiation",
+      "title": "Implicit differentiation",
+      "category": "calculus",
+      "prerequisites": ["calculus-chain-rule", "algebra-linear-equations"],
+      "outcomes": ["Compute tangent slopes from implicit relations."]
+    },
+    {
+      "conceptId": "calculus-antiderivatives",
+      "title": "Antiderivatives",
+      "category": "calculus",
+      "prerequisites": ["calculus-derivative"],
+      "outcomes": ["Reverse elementary power-rule derivatives."]
+    },
+    {
+      "conceptId": "calculus-definite-integrals",
+      "title": "Definite integrals",
+      "category": "calculus",
+      "prerequisites": ["calculus-antiderivatives"],
+      "outcomes": ["Evaluate exact definite polynomial integrals."]
+    },
+    {
+      "conceptId": "calculus-fundamental-theorem",
+      "title": "Fundamental theorem of calculus",
+      "category": "calculus",
+      "prerequisites": ["calculus-continuity", "calculus-definite-integrals"],
+      "outcomes": ["Differentiate accumulation functions using their integrands."]
+    },
+    {
+      "conceptId": "calculus-substitution",
+      "title": "Integration by substitution",
+      "category": "calculus",
+      "prerequisites": ["calculus-chain-rule", "calculus-definite-integrals"],
+      "outcomes": ["Recognize and apply a matching differential substitution."]
+    },
+    {
+      "conceptId": "calculus-series-convergence",
+      "title": "Series convergence",
+      "category": "calculus",
+      "prerequisites": ["series-geometric", "calculus-limits"],
+      "outcomes": ["Classify geometric series from the magnitude of their ratio."]
+    },
+    {
+      "conceptId": "linear-algebra-vectors",
+      "title": "Vector arithmetic",
+      "category": "linear-algebra",
+      "prerequisites": ["algebra-inverse-operations"],
+      "outcomes": ["Add and scale finite-dimensional vectors coordinatewise."]
+    },
+    {
+      "conceptId": "linear-algebra-dot-product",
+      "title": "Dot products",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-vectors"],
+      "outcomes": ["Compute dot products and use their geometric meaning."]
+    },
+    {
+      "conceptId": "linear-algebra-matrix-multiplication",
+      "title": "Matrix multiplication",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-vectors"],
+      "outcomes": ["Multiply matrices and vectors with compatible dimensions."]
+    },
+    {
+      "conceptId": "linear-algebra-linear-systems",
+      "title": "Linear systems in matrix form",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-matrix-multiplication", "algebra-linear-equations"],
+      "outcomes": ["Solve small nonsingular systems exactly."]
+    },
+    {
+      "conceptId": "linear-algebra-row-reduction",
+      "title": "Row reduction",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-linear-systems"],
+      "outcomes": ["Apply elementary row operations without changing the solution set."]
+    },
+    {
+      "conceptId": "linear-algebra-independence",
+      "title": "Linear independence",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-determinant", "linear-algebra-vectors"],
+      "outcomes": ["Recognize independence using exact determinant evidence."]
+    },
+    {
+      "conceptId": "linear-algebra-eigenvalues",
+      "title": "Eigenvalues",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-determinant", "linear-algebra-matrix-multiplication"],
+      "outcomes": ["Find eigenvalues of diagonal and triangular matrices."]
+    },
+    {
+      "conceptId": "linear-algebra-orthogonal-projection",
+      "title": "Orthogonal projection",
+      "category": "linear-algebra",
+      "prerequisites": ["linear-algebra-dot-product"],
+      "outcomes": ["Project vectors onto coordinate axes and simple directions."]
+    },
+    {
+      "conceptId": "probability-random-variables",
+      "title": "Discrete random variables",
+      "category": "probability-statistics",
+      "prerequisites": ["probability-counting"],
+      "outcomes": ["Represent finite outcomes as random-variable values."]
+    },
+    {
+      "conceptId": "probability-expectation-linearity",
+      "title": "Linearity of expectation",
+      "category": "probability-statistics",
+      "prerequisites": ["probability-random-variables", "reasoning-expected-value"],
+      "outcomes": ["Transform expectations without assuming independence."]
+    },
+    {
+      "conceptId": "probability-discrete-distributions",
+      "title": "Discrete distributions",
+      "category": "probability-statistics",
+      "prerequisites": ["probability-binomial", "probability-random-variables"],
+      "outcomes": ["Compute exact distribution moments from declared parameters."]
+    },
+    {
+      "conceptId": "statistics-covariance-correlation",
+      "title": "Covariance and correlation",
+      "category": "probability-statistics",
+      "prerequisites": ["statistics-variance", "probability-expectation-linearity"],
+      "outcomes": ["Apply exact covariance transformations and distinguish correlation."]
+    },
+    {
+      "conceptId": "statistics-sampling-distributions",
+      "title": "Sampling distributions",
+      "category": "probability-statistics",
+      "prerequisites": ["statistics-variance", "probability-random-variables"],
+      "outcomes": ["Compute the standard error of a sample mean."]
+    },
+    {
+      "conceptId": "statistics-confidence-intervals",
+      "title": "Confidence intervals",
+      "category": "probability-statistics",
+      "prerequisites": ["statistics-sampling-distributions", "statistics-z-score"],
+      "outcomes": ["Construct a declared normal-approximation interval."]
+    },
+    {
+      "conceptId": "statistics-hypothesis-tests",
+      "title": "Hypothesis testing",
+      "category": "probability-statistics",
+      "prerequisites": ["statistics-confidence-intervals", "probability-conditional"],
+      "outcomes": ["Apply a prespecified significance rule without reversing it."]
+    },
+    {
+      "conceptId": "statistics-linear-regression",
+      "title": "Simple linear regression",
+      "category": "probability-statistics",
+      "prerequisites": ["statistics-covariance-correlation", "statistics-mean"],
+      "outcomes": ["Compute and interpret an exact line slope from paired points."]
+    },
+    {
+      "conceptId": "discrete-logic",
+      "title": "Propositional logic",
+      "category": "discrete-mathematics",
+      "prerequisites": [],
+      "outcomes": ["Evaluate implications and basic logical connectives."]
+    },
+    {
+      "conceptId": "discrete-proof-induction",
+      "title": "Mathematical induction",
+      "category": "discrete-mathematics",
+      "prerequisites": ["discrete-logic", "series-geometric"],
+      "outcomes": ["Use a base case and inductive step for finite-sum identities."]
+    },
+    {
+      "conceptId": "discrete-sets-relations",
+      "title": "Sets and relations",
+      "category": "discrete-mathematics",
+      "prerequisites": ["discrete-logic"],
+      "outcomes": ["Compute exact set operations and relation properties."]
+    },
+    {
+      "conceptId": "discrete-graph-theory",
+      "title": "Graph theory foundations",
+      "category": "discrete-mathematics",
+      "prerequisites": ["discrete-sets-relations", "probability-counting"],
+      "outcomes": ["Count edges and degrees in elementary finite graphs."]
+    },
+    {
+      "conceptId": "discrete-recurrences",
+      "title": "Recurrence relations",
+      "category": "discrete-mathematics",
+      "prerequisites": ["discrete-proof-induction"],
+      "outcomes": ["Unroll and evaluate elementary recurrences."]
+    },
+    {
+      "conceptId": "number-theory-modular-arithmetic",
+      "title": "Modular arithmetic",
+      "category": "number-theory",
+      "prerequisites": ["algebra-inverse-operations"],
+      "outcomes": ["Compute exact residues and respect congruence operations."]
+    },
+    {
+      "conceptId": "number-theory-gcd",
+      "title": "Greatest common divisors",
+      "category": "number-theory",
+      "prerequisites": ["number-theory-modular-arithmetic"],
+      "outcomes": ["Use Euclidean structure to compute greatest common divisors."]
+    },
+    {
+      "conceptId": "number-theory-prime-factorization",
+      "title": "Prime factorization",
+      "category": "number-theory",
+      "prerequisites": ["number-theory-gcd"],
+      "outcomes": ["Recover exact prime factors of bounded semiprimes."]
+    },
+    {
+      "conceptId": "optimization-convexity",
+      "title": "Convexity",
+      "category": "optimization",
+      "prerequisites": ["calculus-derivative", "optimization-quadratic"],
+      "outcomes": ["Classify elementary functions from curvature evidence."]
+    },
+    {
+      "conceptId": "optimization-gradients",
+      "title": "Gradients",
+      "category": "optimization",
+      "prerequisites": ["calculus-derivative", "linear-algebra-vectors"],
+      "outcomes": ["Compute exact gradients of separable quadratic functions."]
+    },
+    {
+      "conceptId": "optimization-hessian",
+      "title": "Hessian matrices",
+      "category": "optimization",
+      "prerequisites": ["optimization-gradients", "optimization-multivariate"],
+      "outcomes": ["Compute and interpret Hessians of quadratic objectives."]
+    },
+    {
+      "conceptId": "optimization-lagrange-multipliers",
+      "title": "Lagrange multipliers",
+      "category": "optimization",
+      "prerequisites": ["optimization-gradients", "optimization-constraints"],
+      "outcomes": ["Solve smooth equality-constrained quadratic problems."]
+    },
+    {
+      "conceptId": "optimization-linear-programming",
+      "title": "Linear programming",
+      "category": "optimization",
+      "prerequisites": ["algebra-linear-equations", "optimization-constraints"],
+      "outcomes": ["Optimize a linear objective over a bounded polygonal region."]
+    },
+    {
+      "conceptId": "optimization-gradient-descent",
+      "title": "Gradient descent",
+      "category": "optimization",
+      "prerequisites": ["optimization-gradients", "optimization-convexity"],
+      "outcomes": ["Compute bounded deterministic gradient-descent updates."]
+    }
+  ],
+  "truthBoundary": "This 84-concept declaration defines coherent acquisition surfaces only. One verified pass records covered-once acquisition, not durable retention, general math mastery, or model-weight learning."
+}

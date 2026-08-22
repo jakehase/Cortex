@@ -1,0 +1,14 @@
+# Capability-gated provider read + compute workflow.
+# Provider responses are retained inside the AIOS artifact root; external writes stay blocked.
+job cortexProviderAssist {
+  capability aios.status: read @internal;
+  capability provider.cortex.read: read @external;
+  capability provider.cortex.compute: compute @external;
+  memory providerArtifacts: persistent;
+  step inspect uses kernel.artifact.status() reads [providerArtifacts] -> status recover halt;
+  step recall uses provider.read(provider: "cortex", query: "canonical AIOS language adoption", n_results: 3) writes [providerArtifacts] -> recallReceipt recover halt;
+  step summarize uses provider.compute(provider: "cortex", prompt: "Return exactly: AIOS_PROVIDER_COMPUTE_OK", model: "tinyllama", response_mode: "default") writes [providerArtifacts] -> computeReceipt recover halt;
+  verify provider result artifacts exist;
+  truth providerState: source="provider-result-artifacts", confidence="observed";
+  rollback retain_artifacts;
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "aios.provider-workflow-catalog.v1",
+  "provider": "cortex",
+  "policy": "kernel/policy/provider-read-compute.json",
+  "outputBoundary": "internal-artifact-only",
+  "externalWrites": false,
+  "workflows": [
+    {
+      "id": "research-synthesis",
+      "title": "Grounded research synthesis",
+      "phases": ["provider.read", "provider.compute", "verify", "claim"]
+    },
+    {
+      "id": "contradiction-review",
+      "title": "Contradiction and stale-claim review",
+      "phases": ["provider.read", "provider.compute", "verify", "claim"]
+    },
+    {
+      "id": "implementation-brief",
+      "title": "Grounded implementation brief",
+      "phases": ["provider.read", "provider.compute", "verify", "claim"]
+    }
+  ],
+  "requiredProof": {
+    "readResponseStatus": 200,
+    "computeResponseStatus": 200,
+    "restartSafeReuse": true,
+    "blockedWriteProbe": true,
+    "claimStatus": "allowed"
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "claw.workspace_quarantine.synthetic_labor_os_legacy.v1",
+  "generatedAt": "2026-07-07T15:02:00.000Z",
+  "activePath": "large-project-capability-stack/apps/synthetic-labor-os",
+  "quarantineRoot": "_quarantine/synthetic-labor-os-legacy-20260707",
+  "movedCount": 29,
+  "entries": [
+    {
+      "originalPath": "apps/synthetic-labor-os/codex-agent-work-item.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-agent-work-item.mjs",
+      "sha256": "57ec6677635dfc27ce2905dc916a433b087d9ad8394519dc3f3b536e273d93df",
+      "bytes": 18196,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/codex-patch-proposal-work-item.mjs",
+      "sha256": "56b980705d153201cfff119281c878d79ad533b4f28f1978fe61ea7bb17eda06",
+      "bytes": 22844,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v1-pilot.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v1-pilot.mjs",
+      "sha256": "4365eaead7f2c8e13651c06283aa1db733f330db98ea0930d404adda6329c405",
+      "bytes": 5943,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v10-scale-smoke.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v10-scale-smoke.mjs",
+      "sha256": "e3c62b14bcdd140c4fbea71c5d341beea84cae368f9dad564bd699f7efe1d674",
+      "bytes": 8340,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v11-release-bundle.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v11-release-bundle.mjs",
+      "sha256": "2541e87b59412fe2dae3050ed2033ad77b9689519670ba28561c9f38bab46be3",
+      "bytes": 11954,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v12-fresh-replay.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v12-fresh-replay.mjs",
+      "sha256": "0502bcf4110a23d645dc2cff34d2d4fd01c60d39211a50d5c3e63c34acd70f9a",
+      "bytes": 16370,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v13-operator-doctor.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v13-operator-doctor.mjs",
+      "sha256": "ca7cb641dfad8d55c0c7590d038da1aa1112dc6632c04f194f4fb44783237f60",
+      "bytes": 7928,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v14-multi-job-smoke.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v14-multi-job-smoke.mjs",
+      "sha256": "2651a46c2108852b69c96dad0017840374f38bc9c1909836284ef9740fdc6bba",
+      "bytes": 8766,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v15-release-candidate.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v15-release-candidate.mjs",
+      "sha256": "ec5edd2e5db6434961730eddf0076268853c2d988105af68932407795c9f9630",
+      "bytes": 7797,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v16-iteration-tournament.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v16-iteration-tournament.mjs",
+      "sha256": "baa7cd92ea66d2e8ca74db09f9a0c6c3f5ec1ae6a84839f2cf2942760f4a1154",
+      "bytes": 16953,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v16-iteration-worker.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v16-iteration-worker.mjs",
+      "sha256": "686493779f1bba8303d8bbf55280e9ee607002f785fa78fb890bb71c8b94575f",
+      "bytes": 10597,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v17-role-catalog.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-catalog.mjs",
+      "sha256": "273af9ffa45b7194b4bf8013c946b2b5338d9443fb74417592aeeb55cb511959",
+      "bytes": 4266,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v17-role-implementation.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-implementation.mjs",
+      "sha256": "4abbf2861fe68e6d788a4ab95bb519fef44b223241ce825d0b008ef3c747bf96",
+      "bytes": 12626,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v17-role-tournament-remote.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-tournament-remote.mjs",
+      "sha256": "095316fee468efba4a67b346d863ce7c6921bc406ec5e8042ba46593ba4457dd",
+      "bytes": 17372,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v17-role-tournament.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-tournament.mjs",
+      "sha256": "495b67fd26ea7c01b1f800c2a71ddac02088c7b68c87b484b3a4fd8399148122",
+      "bytes": 18755,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v17-role-verifier.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v17-role-verifier.mjs",
+      "sha256": "179b629a3e47754021433e4c7e60be2a08167411cdbe05416daa64dc261f90f7",
+      "bytes": 7989,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v18-whole-os-catalog.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-catalog.mjs",
+      "sha256": "bf0c7a2b0a7d65b26ffeb828c052863f5ffbd95d25f587f39ec45a15d07cbec7",
+      "bytes": 6423,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v18-whole-os-implementation.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-implementation.mjs",
+      "sha256": "3dd2f0957474f10a30cc9efc27329dd50f830ab5114b89d1091b9395a0c89064",
+      "bytes": 15082,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v18-whole-os-tournament-remote.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-tournament-remote.mjs",
+      "sha256": "dab31631251790b6bd04dd8f607cca869db1d2307487df230eb1523cbf8a3405",
+      "bytes": 20142,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v18-whole-os-tournament.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-tournament.mjs",
+      "sha256": "495325036fad03ebcd36c912abe6d90f54b208e78842d19ece1695f0cacd2ddf",
+      "bytes": 19726,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v18-whole-os-verifier.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v18-whole-os-verifier.mjs",
+      "sha256": "1aa4262868f35a4f89c06ccf4bc14022d27371cb932fa7e8764625b3a140ccc7",
+      "bytes": 14639,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v2-remote-pilot.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v2-remote-pilot.mjs",
+      "sha256": "489631d951873e5f6b06fe4263300bdaf127ba0aa33a10e3696917a07a4ea8f1",
+      "bytes": 7410,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v3-remote-codex-pilot.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v3-remote-codex-pilot.mjs",
+      "sha256": "07ded1251ff5395ee40c9adb27b7c8870e1225df78916a7ec297ef679bb1521c",
+      "bytes": 11523,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v4-remote-patch-pilot.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v4-remote-patch-pilot.mjs",
+      "sha256": "0d2e285926dffa94b86fb0e3f1ce50cf1c087c63fc37ee71cd706ea3b8c704ac",
+      "bytes": 12057,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v5-apply-pilot.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v5-apply-pilot.mjs",
+      "sha256": "fdece1deecceb4dc4b368ac4decd797b2391654e3be642d224262157d1f68681",
+      "bytes": 6417,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v6-provenance-chain.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v6-provenance-chain.mjs",
+      "sha256": "109fcdcb7b2821d2ed6367dedd41213d7010fbf52e737f0858acf8047e9c2541",
+      "bytes": 12328,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v7-replay-rollback-audit.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v7-replay-rollback-audit.mjs",
+      "sha256": "d8cbad04dcb1913db0655bb8cebd30ee2382d213df427f15b9f5cd0d6951f331",
+      "bytes": 9562,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v8-e2e-demo.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v8-e2e-demo.mjs",
+      "sha256": "a52d591e4aa7db5ea7bc5112e49748084a4eeac3d7de3eac67e39ecb7bdb937b",
+      "bytes": 8469,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    },
+    {
+      "originalPath": "apps/synthetic-labor-os/v9-finished-claim-report.mjs",
+      "quarantinePath": "_quarantine/synthetic-labor-os-legacy-20260707/apps/synthetic-labor-os/v9-finished-claim-report.mjs",
+      "sha256": "598a6a4c4a686577b5515fd4516ec600cef46bf95c738de83ff6e4b98e76053f",
+      "bytes": 7388,
+      "reason": "Legacy SLOS/Codex-era pilot or tournament moved out of active app path; recoverable for audit/replay only."
+    }
+  ],
+  "truthBoundary": "Recoverable quarantine only. These files are not deleted, not active defaults, and not proof that all legacy SLOS/Codex duplication has been removed."
+}

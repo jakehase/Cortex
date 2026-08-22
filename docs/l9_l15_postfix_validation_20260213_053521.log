@@ -1,0 +1,31 @@
+# L9-L15 strict validation 20260213_053521
+{"success": true, "level": 9, "name": "Architect", "status": "active", "capabilities": ["extend", "reload"], "_hud": "\ud83d\udd35 L9 (Architect)", "_activated": [{"level": 9, "name": "Architect"}]}
+HTTP=200 TOTAL=0.002049
+---
+{"success": true, "data": {"level": 10, "name": "Listener", "status": "active", "stt_available": false, "stt_reason": "Whisper is not installed on this system", "text_analysis": true, "text_analysis_via": "Oracle (cloud reasoning)", "transcribe_requests": 0, "analysis_requests": 0, "analysis_successes": 0, "capabilities": ["audio_metadata_guidance", "text_sentiment_analysis", "text_summarization", "action_item_extraction", "key_point_extraction"], "timestamp": "2026-02-13T05:35:21.918277"}, "error": null, "_hud": "\ud83d\udd35 L10 (Listener)", "_activated": [{"level": 10, "name": "Listener"}]}
+HTTP=200 TOTAL=0.001556
+---
+{"success": true, "level": 11, "name": "Catalyst", "status": "active", "consciousness_integrated": true, "event_subscribed": true, "auto_optimize_enabled": true, "optimization_count": 0, "slow_response_count": 0, "profile_history_size": 0, "recent_analyses": 0, "capabilities": ["real_system_profiling", "oracle_optimization", "historical_tracking", "psutil_metrics", "performance_alerting", "slow_response_profiling"], "_hud": "\ud83d\udd35 L11 (Catalyst)", "_activated": [{"level": 11, "name": "Catalyst"}]}
+HTTP=200 TOTAL=0.001531
+---
+{"status": "active", "services": {"oracle": "online", "lab": "offline"}, "capabilities": ["code_read", "oracle_consult", "syntax_validate", "human_approval", "deploy_patch"], "security": "HUMAN_APPROVAL_REQUIRED", "version": "12.2-ASYNC-SAFE", "_hud": "\ud83d\udd35 L12 (Darwin)", "_activated": [{"level": 12, "name": "Darwin"}]}
+HTTP=200 TOTAL=0.011860
+---
+{"success": true, "data": {"level": 13, "name": "The Dreamer", "role": "Visionary System Analysis", "status": "active", "oracle_powered": true, "consciousness_integrated": true, "event_subscribed": true, "auto_dream_enabled": true, "dreams_generated": 0, "idle_dreams": 0, "has_latest": false, "timestamp": "2026-02-13T05:35:21.946919"}, "_hud": "\ud83d\udd35 L13 (Dreamer)", "_activated": [{"level": 13, "name": "Dreamer"}]}
+HTTP=200 TOTAL=0.001430
+---
+{"success":true,"level":14,"name":"Chronos (Night Shift)","status":"running","last_run_date":null,"next_scheduled_run":"2026-02-14T03:00:00","capabilities":["nightly_evolution_cycle","dream_gap_detection","council_review","skill_materialization","diplomat_briefing","geneticist_dna_evolution"]}
+HTTP=200 TOTAL=0.001102
+---
+{"success": true, "data": {"level": 15, "name": "The Council", "role": "Multi-Perspective Analysis", "status": "active", "oracle_powered": true, "consciousness_integrated": true, "deliberations_count": 0, "timestamp": "2026-02-13T05:35:21.957902"}, "_hud": "\ud83d\udd35 L15 (Council)", "_activated": [{"level": 15, "name": "Council"}]}
+HTTP=200 TOTAL=0.001056
+---
+# action checks
+{"detail": [{"type": "missing", "loc": ["query", "endpoint"], "msg": "Field required", "input": null}], "_hud": "\ud83d\udd35 L11 (Catalyst)", "_activated": [{"level": 11, "name": "Catalyst"}]}
+HTTP=422 TOTAL=0.001715
+---
+{"success": false, "data": null, "error": "Oracle consultation timed out", "_hud": "\ud83d\udd35 L12 (Darwin)", "_activated": [{"level": 12, "name": "Darwin"}]}
+HTTP=504 TOTAL=25.010212
+---
+{"success": true, "deliberation": {"deliberation_id": "delib_0_1770960946", "topic": "Give concise verdicts for L9-L15 after strict-timeout remediation", "perspectives": [{"perspective": "Technical feasibility", "score": 7, "reasoning": ": Score 7/10 - Proposal appears implementable with bounded changes."}, {"perspective": "Risk/security", "score": 4, "reasoning": ": Score 4/10 - Apply strict timeout limits, approval gates, and rollback plan."}, {"perspective": "Risk/Security", "score": 4, "reasoning": ": Score 4/10 - Apply strict timeout limits, approval gates, and rollback plan."}, {"perspective": "Ethical implications", "score": 8, "reasoning": ": Score 8/10 - No direct user harm expected if safeguards remain enabled."}, {"perspective": "Ethical Implications", "score": 8, "reasoning": ": Score 8/10 - No direct user harm expected if safeguards remain enabled."}, {"perspective": "Resource cost", "score": 6, "reasoning": ": Score 6/10 - Moderate engineering and validation effort."}, {"perspective": "Resource Cost", "score": 6, "reasoning": ": Score 6/10 - Moderate engineering and validation effort."}, {"perspective": "User impact", "score": 8, "reasoning": ": Score 8/10 - Improves reliability under strict timeout constraints."}, {"perspective": "User Impact", "score": 8, "reasoning": ": Score 8/10 - Improves reliability under strict timeout constraints."}], "risk_score": 0.4, "overall_recommendation": "Overall recommendation: Conditional GO with minimal, reversible changes and post-change validation.", "raw_response": "Technical feasibility: Score 7/10 - Proposal appears implementable with bounded changes.\nRisk/security: Score 4/10 - Apply strict timeout limits, approval gates, and rollback plan.\nEthical implications: Score 8/10 - No direct user harm expected if safeguards remain enabled.\nResource cost: Score 6/10 - Moderate engineering and validation effort.\nUser impact: Score 8/10 - Improves reliability under strict timeout constraints.\n\nOverall recommendation: Conditional GO with minimal, reversible changes and post-change validation.", "ethical_review": null, "timestamp": "2026-02-13T05:36:06.992495"}, "_hud": "\ud83d\udd35 L15 (Council)", "_activated": [{"level": 15, "name": "Council"}]}
+HTTP=200 TOTAL=20.010240

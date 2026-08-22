@@ -1,0 +1,10 @@
+{
+  "version": "cortex.roadmap.r9.step9.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/canary_probe_latest.json"
+  ],
+  "gates": {
+    "canary_probe_present": true,
+    "requires_rollout_guardrails": true
+  }
+}

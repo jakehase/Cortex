@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "cortex.learning_os.capability_report.v0",
+  "generatedAt": "2026-07-25T05:28:02.633Z",
+  "capsuleId": "math-foundations-v0",
+  "examMatrix": [
+    {
+      "examId": "math-foundations-reliability-challenge-v0",
+      "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+      "score": 1,
+      "passed": true,
+      "itemCount": 20,
+      "evidenceRefs": [
+        "baseline/score_summary.json"
+      ]
+    }
+  ],
+  "learningOutcome": {
+    "schemaVersion": "cortex.learning_os.learning_outcome.v0",
+    "generatedAt": "2026-07-25T05:28:02.633Z",
+    "status": "blocked_no_observed_mistake",
+    "reason": "The recorded baseline contained no remediable failed item; no mistake or lesson was fabricated.",
+    "learningLoopCompleted": false,
+    "improvementObserved": false,
+    "conceptId": null,
+    "baselineFailureItemId": null,
+    "heldoutRetestItemId": null,
+    "promotionDigest": null,
+    "truthBoundary": "Improvement means one failed baseline concept was later passed on a different held-out item after a gated retrieval pack. It does not prove broad or durable math improvement."
+  },
+  "allowedClaims": [
+    "learning_capsule_initialized"
+  ],
+  "rejectedClaims": [
+    "general_domain_mastery",
+    "expert_mathematician",
+    "model_weight_learning",
+    "broad_math_improvement"
+  ],
+  "openGaps": [
+    "More held-out items and repeated sessions are required to establish durable transfer.",
+    "One bounded lesson cannot establish broad domain competence.",
+    "Model weights were not changed."
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

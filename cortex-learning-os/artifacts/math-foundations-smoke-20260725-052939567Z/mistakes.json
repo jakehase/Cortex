@@ -1,0 +1,20 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.mistake.v0",
+    "mistakeId": "mistake_48f93a3160efe7e5",
+    "attemptId": "attempt_b0a1e57030ddc43f",
+    "verifierResultId": "verify_36e69c4d2d428538",
+    "itemId": "mfs-02",
+    "observedAnswer": "877136039874037161833888",
+    "rootCause": "multi_digit_arithmetic_error",
+    "correction": "For exact multi-digit multiplication, decompose one factor into place-value chunks, sum exact partial products, and cross-check the final magnitude and at least one modular residue before answering.",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "recurrenceCount": 1,
+    "relatedAttempts": [
+      "attempt_b0a1e57030ddc43f"
+    ],
+    "createdAt": "2026-07-25T05:31:15.534Z"
+  }
+]

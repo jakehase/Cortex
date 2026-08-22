@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "aios.provider-read-compute-adoption.validation.v1",
+  "generatedAt": "2026-07-11T22:27:21.768Z",
+  "status": "green",
+  "implementation": {
+    "canonicalLanguage": "aios.language.v1",
+    "adapter": "openclaw-aios-adapter.v0.5-provider-read-compute",
+    "policy": "/root/clawd/ai-os/kernel/policy/provider-read-compute.json",
+    "policySchema": "aios.provider-read-compute-policy.v1",
+    "operations": [
+      "provider.read",
+      "provider.compute"
+    ],
+    "workflow": ".aios source -> capability/policy compile grant -> mediated provider syscall -> internal provider-result artifact -> verifier -> bounded claim"
+  },
+  "boundary": {
+    "outputs": "internal-artifact-only",
+    "externalWrites": false,
+    "runtimeReplacement": false,
+    "replacesCortexOpenClawRouting": false,
+    "userVisibleActions": false,
+    "explicitlyBlocked": [
+      "provider.write",
+      "send",
+      "post",
+      "email",
+      "schedule",
+      "publish",
+      "deploy",
+      "arbitrary URL",
+      "unallowlisted model",
+      "unallowlisted argument"
+    ]
+  },
+  "systemsTouched": {
+    "live": [
+      {
+        "system": "Cortex",
+        "endpoint": "http://127.0.0.1:8000/knowledge/search",
+        "effect": "read",
+        "status": 200
+      },
+      {
+        "system": "Cortex",
+        "endpoint": "http://127.0.0.1:8000/oracle/chat",
+        "effect": "compute",
+        "status": 200
+      }
+    ],
+    "remoteValidation": {
+      "host": "37.27.129.239",
+      "workspace": "/home/jake/clawd-remote",
+      "effect": "source mirror and test execution only"
+    }
+  },
+  "validation": {
+    "local": {
+      "npmTest": true,
+      "contracts": "7/7",
+      "languageAdoption": "10/10",
+      "syntax": "263/263",
+      "imports": "260/260",
+      "operatorClaim": "allowed",
+      "log": "/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/local-npm-test.log"
+    },
+    "hetzner": {
+      "npmTest": true,
+      "contracts": "7/7",
+      "languageAdoption": "10/10",
+      "syntax": "263/263",
+      "imports": "260/260",
+      "operatorClaim": "allowed",
+      "log": "/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/remote-npm-test.log"
+    },
+    "exactSourceMirror": true,
+    "sourceManifestDigest": "f203f78e3175e8a9281574e660229075591b6cc569cc052bdd4585d06c803c40",
+    "deterministicLocalHttpFixture": true,
+    "liveProviderOperations": [
+      {
+        "operation": "provider.read",
+        "responseStatus": 200,
+        "outputBoundary": "internal-artifact-only",
+        "externalWrites": false,
+        "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/003-read.json",
+        "resultHash": "40ec156c824a9c58de821e4a623b0dfbe5a57a489a8657ca29ec5f3f6ea5291c"
+      },
+      {
+        "operation": "provider.compute",
+        "responseStatus": 200,
+        "outputBoundary": "internal-artifact-only",
+        "externalWrites": false,
+        "resultPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614/provider-results/aiosproc_2e3f6b9b9b13bb1b/004-compute.json",
+        "resultHash": "f24e4a12cc57dcc920966da6c566ab8434659732fadc98075c37eae246b3616d"
+      }
+    ]
+  },
+  "promotion": {
+    "defaultOn": true,
+    "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/provider-read-compute-default-20260711222614",
+    "claimStatus": "allowed",
+    "verifierEvidenceOk": true,
+    "bootOk": true,
+    "runOk": true,
+    "defaultConfig": "/root/clawd/config/ai-os-adapter/default.json",
+    "defaultState": "/root/clawd/state/ai-os-adapter/default-on-state.json",
+    "pointer": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json"
+  }
+}

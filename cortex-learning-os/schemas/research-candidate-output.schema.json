@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.research_candidate_output.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact", "result", "novelty"],
+  "properties": {
+    "artifact": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64
+    },
+    "result": {},
+    "novelty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "scope", "globalNoveltyClaim"],
+      "properties": {
+        "status": { "enum": ["unestablished", "bounded_corpus_only"] },
+        "scope": { "type": "string", "minLength": 20, "maxLength": 4000 },
+        "globalNoveltyClaim": { "const": false }
+      }
+    }
+  }
+}

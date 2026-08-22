@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.adaptive_candidate.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "createdAt",
+    "status",
+    "conceptId",
+    "failedItemId",
+    "failureVerifierId",
+    "rule",
+    "scope",
+    "contraindications",
+    "likelyRootCause",
+    "provenance",
+    "validationErrors",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.adaptive_candidate.v1"
+    },
+    "candidateId": {
+      "type": "string"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "validated",
+        "quarantined"
+      ]
+    },
+    "conceptId": {
+      "type": "string"
+    },
+    "failedItemId": {
+      "type": "string"
+    },
+    "failureVerifierId": {
+      "type": "string"
+    },
+    "rule": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "contraindications": {
+      "type": "array"
+    },
+    "likelyRootCause": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object"
+    },
+    "validationErrors": {
+      "type": "array"
+    },
+    "truthBoundary": {
+      "type": "string"
+    }
+  }
+}

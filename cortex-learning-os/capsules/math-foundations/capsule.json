@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "cortex.learning_os.capsule.v0",
+  "capsuleId": "math-foundations-v0",
+  "domain": "math-foundations",
+  "version": "1.0.0",
+  "trustState": "candidate",
+  "activeCurriculumId": "math-phd-trajectory-v1",
+  "activeExamIds": [
+    "math-foundations-baseline-v0",
+    "math-foundations-reliability-challenge-v0",
+    "math-foundations-exact-arithmetic-stress-v0",
+    "math-foundations-correction-v0",
+    "math-foundations-promotion-retest-v0",
+    "math-foundations-heldout-retest-v0"
+  ],
+  "promotionThresholds": {
+    "minEvidence": 2,
+    "minDistinctExams": 2,
+    "minScore": 1,
+    "retestDays": 90
+  },
+  "truthBoundary": "Covered-once acquisition requires recorded attempts and deterministic verifier evidence. It is not durable retention, general math mastery, or model-weight learning.",
+  "lastQualifiedRun": "artifacts/math-foundations-smoke-20260725-052939567Z",
+  "updatedAt": "2026-07-27T15:39:00.000Z"
+}

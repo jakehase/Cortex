@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r7.step8.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step8/shadow_governor_probe_latest.json"
+  ],
+  "gates": {
+    "safetyRegressionCount": 0,
+    "averageEstimatedUpliftGte": 0.0,
+    "shadowCaseCount": 8
+  }
+}

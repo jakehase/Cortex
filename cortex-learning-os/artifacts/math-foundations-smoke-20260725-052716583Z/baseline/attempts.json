@@ -1,0 +1,562 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_325bdbb69f20d548",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-01",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "ab73062b2624f6a383a2967cbe6f544adcf28193ba66252e9c6ecb096bd552c5",
+    "answer": "426763565",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_4b765827558e562f",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-02",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "ee46676ccb78c769905cb2dcf716d7428032dde5dac04a882932c942390481a8",
+    "answer": "6975757441",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_c8388fd0c96bf26c",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-03",
+    "conceptIds": [
+      "probability-combinatorics"
+    ],
+    "promptDigest": "e7375870286dc8eabe01d7c30e4902f68437dee1cec2136fb08de3fcc51f7ecc",
+    "answer": "15890700",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_e9b603cfa81f13f6",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-04",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "9ac5de7a19039a21d847833202cb40979449a3ae6c6df9ad06988bc702deda2c",
+    "answer": "143450",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_f1b8736071cb7e87",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-05",
+    "conceptIds": [
+      "linear-algebra-determinant"
+    ],
+    "promptDigest": "11cc6036bb37eea5d11d1ec34dd2302f015dc7023de66dec6d2bced7a16f330f",
+    "answer": "171",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_fc27e410b8dabdb2",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-06",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "1894a479b1161395e7cac70ece40c500ef9efc6b47c9d0a23b84c2f4565aea82",
+    "answer": "49",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_743239be3afce40a",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-07",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "fb1ce891251b560e882b26fb0faadcfe4669e3b86cf98005638f8799f46e3f96",
+    "answer": "7679/9269",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_e222c72009206a82",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-08",
+    "conceptIds": [
+      "algebra-linear-equations"
+    ],
+    "promptDigest": "8b10ff22be3b849cb9880440b166dc4814920f8a2ef011e37f44dfd2450ceb88",
+    "answer": "33250/18241",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_9d7e1ca9f7d34b6e",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-09",
+    "conceptIds": [
+      "series-geometric"
+    ],
+    "promptDigest": "1911c2980fd0ee598fb505c2ad11d601df06514084f776e14908f8f9755bd907",
+    "answer": "5580127",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_edd6b2dac561d985",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-10",
+    "conceptIds": [
+      "functions-evaluation"
+    ],
+    "promptDigest": "d16fb4ece4b926e3efbfa7c40862b15f295d915f65ae3fa5f8ecbf347631c633",
+    "answer": "3678090",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_7723024e4fc7e957",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-11",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "e8f639ee4045e01c85bf77d32d190ec91c9a1ce2241a117314a8f7b492b8b33c",
+    "answer": "27720",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_7d96ad78dc875683",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-12",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "ef31cc976bf7ed0078e700771e5ee3ebea6c1ce18190a5c49aece8d29f0b5715",
+    "answer": "12",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_3dd0fab21129ad76",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-13",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "487c181fc160116ac0b1de16d48103c8fa8b3cdd4698697840fc8dda367e80ea",
+    "answer": "71",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_917164a5fbcd1876",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-14",
+    "conceptIds": [
+      "probability-combinatorics"
+    ],
+    "promptDigest": "ad01c6e605c867cac8ae9db9d2b920c895cbbd4f719e068e1e0a2bcbbf8028c8",
+    "answer": "5/33",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_1d96d759b04ca88a",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-15",
+    "conceptIds": [
+      "probability-combinatorics"
+    ],
+    "promptDigest": "c7faa886846b45743b147ff26f44f1296a213ce792ad0142be607e6be3f1cfb3",
+    "answer": "1334961",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_731cfbb213f30241",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-16",
+    "conceptIds": [
+      "probability-waiting-time"
+    ],
+    "promptDigest": "3c6bb8e22969a7ca50721c1426eee8ea5ba8b3440b13ac74b33ced18bf17452a",
+    "answer": "18",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_0768018d6f78c296",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-17",
+    "conceptIds": [
+      "reasoning-expected-value"
+    ],
+    "promptDigest": "b400a546f23dc796a9f50e5f481b8b2df5b6074c455ab2a9497bff52d05b605d",
+    "answer": "119/24",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_4db6caa8e2d0bb6a",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-18",
+    "conceptIds": [
+      "statistics-variance"
+    ],
+    "promptDigest": "b1e2c409bb1bd7e2bcdc7d4e5a01cf5308085d6cbe6cda7cdfd05a566ffb2bcf",
+    "answer": "20312/49",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_2ee5f40e845bf661",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-19",
+    "conceptIds": [
+      "linear-algebra-determinant"
+    ],
+    "promptDigest": "0895e61a3b7c4f19712509555998ce66c609e22067830050bcba445223de1c61",
+    "answer": "250",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_ef26472cfedc032d",
+    "runId": "math-foundations-smoke-20260725-052716583Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-reliability-challenge-v0",
+    "itemId": "mfc-20",
+    "conceptIds": [
+      "reasoning-percent-base"
+    ],
+    "promptDigest": "e46e326d5ef931d61e447027521efa95a2553b47d4bfa970043a4810a1421667",
+    "answer": "14.7786",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "ff19e554-45df-45c1-92fa-3f220c18ecaf",
+      "sessionId": "b2e7fea1-296a-4194-8b80-a694f060d0fc",
+      "usage": {
+        "input": 22951,
+        "output": 1766,
+        "total": 24717
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:27:16.584Z",
+    "completedAt": "2026-07-25T05:28:02.629Z"
+  }
+]

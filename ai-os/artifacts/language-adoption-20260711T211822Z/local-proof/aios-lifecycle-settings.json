@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "contract": "aios.operator.lifecycle_settings.v0",
+  "route": "L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor",
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "source": "aios_cli_boot_flags",
+  "controls": {
+    "lifecycle": "enabled",
+    "scheduler": "immediate",
+    "approvals": "required"
+  },
+  "nextAction": {
+    "state": "ready",
+    "command": [
+      "aios",
+      "run",
+      "<job.json>",
+      "--artifact-root",
+      "<artifact-root>"
+    ],
+    "reason": "Lifecycle execution and immediate scheduling are enabled."
+  },
+  "updatedBy": {
+    "command": "boot",
+    "requestId": "aiosreq_8b83d046192a2348",
+    "operator": "root",
+    "role": "operator",
+    "tenantId": "openclaw-local"
+  },
+  "updatedAt": "2026-07-11T21:33:46.167Z",
+  "settingsHash": "fa42b1a0549112249372b8236a1fac3c42681f73891b190091d994977d9c0113",
+  "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-lifecycle-settings.json",
+  "readable": true,
+  "missing": false
+}

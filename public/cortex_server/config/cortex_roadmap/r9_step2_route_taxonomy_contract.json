@@ -1,0 +1,9 @@
+{
+  "version": "cortex.roadmap.r9.step2.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/route_taxonomy_schema_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/route_taxonomy_validation_latest.json"
+  ],
+  "requiredIntents": ["qa", "coding", "planning", "research", "creative", "reminder"],
+  "riskTiers": ["low", "medium", "high", "critical"]
+}

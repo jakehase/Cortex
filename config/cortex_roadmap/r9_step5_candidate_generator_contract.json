@@ -1,0 +1,12 @@
+{
+  "version": "cortex.roadmap.r9.step5.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step5/chain_probe_latest.json"
+  ],
+  "gates": {
+    "all_constraints_valid": true,
+    "duplicate_chain_ids": false,
+    "missing_core_levels": false,
+    "disallowed_chains": false
+  }
+}

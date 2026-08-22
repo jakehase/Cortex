@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r9.step7.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/rollback_probe_latest.json"
+  ],
+  "gates": {
+    "all_expectations_met": true,
+    "sla_met": true,
+    "max_recovery_seconds_lte": 60
+  }
+}

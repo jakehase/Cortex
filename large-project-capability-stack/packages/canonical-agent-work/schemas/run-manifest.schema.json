@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.run_manifest.v1",
+  "title": "Agent Work v1 run manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "objectiveId", "planDigest", "sourceContractSchema", "executionBoundary", "state", "stateVersion", "idempotencyKey", "artifactRoot", "controller", "generatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.run_manifest.v1" },
+    "runId": { "type": "string", "minLength": 1 },
+    "objectiveId": { "type": "string", "minLength": 1 },
+    "planDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceContractSchema": { "type": "string", "minLength": 1 },
+    "executionBoundary": { "enum": ["control_plane_allowed", "remote_execution_required"] },
+    "state": { "enum": ["draft", "compiled", "awaiting_plan_approval", "admitted", "queued", "running", "verifying", "replanning", "green", "blocked", "cancelled", "failed"] },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "artifactRoot": { "type": "string", "minLength": 1 },
+    "controller": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" }
+  }
+}

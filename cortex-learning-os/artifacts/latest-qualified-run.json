@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "cortex.learning_os.latest_qualified_run.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z",
+  "artifactRoot": "artifacts/math-foundations-smoke-20260725-052939567Z",
+  "status": "green",
+  "learningLoopCompleted": true,
+  "improvementObserved": true,
+  "defaultPromoted": true,
+  "manifestSha256": "2c99fcbd0945ae313edfe5612629af33127c6e018e6774608ec28964ecaada72",
+  "allowedClaims": [
+    "learning_capsule_initialized",
+    "bounded_learning_loop_completed_for_number-fractions",
+    "baseline_failure_followed_by_heldout_pass_for_number-fractions"
+  ],
+  "rejectedClaims": [
+    "general_domain_mastery",
+    "expert_mathematician",
+    "model_weight_learning",
+    "broad_math_improvement"
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

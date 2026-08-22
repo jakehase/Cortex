@@ -1,0 +1,12 @@
+{
+  "version": "cortex.roadmap.r7.step1.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json"
+  ],
+  "gates": {
+    "baseline_snapshot_complete": true,
+    "drift_stable": true,
+    "telemetry_sections_required": ["quality", "latency", "reliability", "cost", "safety", "operator"]
+  }
+}

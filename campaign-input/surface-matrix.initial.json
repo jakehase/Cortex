@@ -1,0 +1,625 @@
+{
+  "schemaVersion": "cortex.whole-system-green.surface-matrix.v1",
+  "createdAt": "2026-08-22T04:22:58.102730Z",
+  "baseCommit": "aaf4b14a6784d1ae69e3dfdc5e9a639bb3f71014",
+  "findingCount": 71,
+  "focusedVerifiedFindingCount": 6,
+  "findings": [
+    {
+      "id": "AGG-F001",
+      "severity": "high",
+      "title": "Readiness and component status remain false-green under degradation",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F002",
+      "severity": "critical",
+      "title": "Internal Cortex composition targets an unbound legacy port",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F003",
+      "severity": "high",
+      "title": "Canonical level and topology identity is duplicated and stale",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F004",
+      "severity": "medium",
+      "title": "Audit evidence is byte-valid but not self-contained or directly replayable",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F005",
+      "severity": "critical",
+      "title": "Oracle defaults to a synthetic done=true completion",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F006",
+      "severity": "high",
+      "title": "Worker completion and handoff lack a required result and integrity binding",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F007",
+      "severity": "high",
+      "title": "OpenClaw Cortex plugins lack one principal-derivation contract",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F008",
+      "severity": "critical",
+      "title": "Memory principal enforcement is absent from compatibility and Codec routes",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F009",
+      "severity": "high",
+      "title": "Loopback and a shared bearer token are treated as principal authority",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F010",
+      "severity": "high",
+      "title": "Direct send and device sinks bypass policy and the claimed hard send gate",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F011",
+      "severity": "high",
+      "title": "AI OS status and claim authority trust stale, self-attested, cross-job evidence",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F012",
+      "severity": "high",
+      "title": "Public response and provider contracts are weaker than their consumers",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F013",
+      "severity": "high",
+      "title": "No explicit capability manifest governs discovery, loading, and safe mode",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F014",
+      "severity": "high",
+      "title": "Mutable runtime state uses non-atomic overwrite without recoverable corruption handling",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F015",
+      "severity": "critical",
+      "title": "Host and model-generated execution lack a constrained capability boundary",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F016",
+      "severity": "high",
+      "title": "Untrusted prompt text bypasses mandatory route gating",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F017",
+      "severity": "high",
+      "title": "Route-gate cap silently removes five Nexus always-on levels",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F018",
+      "severity": "high",
+      "title": "Packed route provenance conflates provider, local mandatory, governor, and cache decisions",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F019",
+      "severity": "medium",
+      "title": "Adaptive routing learns success without output or causal level execution",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F020",
+      "severity": "medium",
+      "title": "Hard tool budget admits concurrent calls beyond its ceiling",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F021",
+      "severity": "high",
+      "title": "Reported Oracle model identity is not bound to the executed OpenClaw command",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F022",
+      "severity": "medium",
+      "title": "Oracle provider followers and Ollama accept empty completion text",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F023",
+      "severity": "high",
+      "title": "Synthetic Nexus retrieval and answer clear the 0.84 early-exit gate at 0.98 confidence",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F024",
+      "severity": "high",
+      "title": "Nexus accepts an empty provider object as semantic success and bypasses standing model policy",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F025",
+      "severity": "high",
+      "title": "Deliberative routes present repaired or fallback text as unmarked model success",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F026",
+      "severity": "high",
+      "title": "Council interprets negated approval as APPROVE",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F027",
+      "severity": "medium",
+      "title": "Simulator's strict contract accepts duplicate labels and 999 percent probability",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F028",
+      "severity": "medium",
+      "title": "Fractal node ID collisions inflate merge coverage",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F029",
+      "severity": "medium",
+      "title": "Oracle sandbox reports unverified health and wraps upstream failures",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F030",
+      "severity": "medium",
+      "title": "Configured service tier is neither transmitted nor provider-confirmed",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F031",
+      "severity": "high",
+      "title": "AI OS accepts empty or emergency Oracle JSON as provider.compute success",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F032",
+      "severity": "high",
+      "title": "Chain selection, termination, and activation evidence disagree",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F033",
+      "severity": "medium",
+      "title": "Readiness validates required paths without methods or collision safety",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F034",
+      "severity": "high",
+      "title": "Import and schema-load paths mutate persistence and read ambient configuration",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F035",
+      "severity": "medium",
+      "title": "Nine binary/static endpoints advertise JSON success media",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F036",
+      "severity": "medium",
+      "title": "Root discovery advertises four nonexistent exact endpoints",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F037",
+      "severity": "low",
+      "title": "OpenAPI tags contain duplicates and naming aliases",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F038",
+      "severity": "high",
+      "title": "Semantic L22 accepts unbounded content and retains an unbounded idempotency ledger",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F039",
+      "severity": "high",
+      "title": "L22 recency pruning overrides Codec's utility-aware retention contract",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F040",
+      "severity": "medium",
+      "title": "Runtime offload notes are append-only and health has no retention contract",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F041",
+      "severity": "high",
+      "title": "Structural index health ignores age and source provenance",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F042",
+      "severity": "medium",
+      "title": "File/governance health overstates independently verified authority",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F043",
+      "severity": "high",
+      "title": "Lesson promotion accepts duplicate evidence and emits a content-unbound proof digest",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F044",
+      "severity": "medium",
+      "title": "Retrieval-pack builder can return data above its declared token bound",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F045",
+      "severity": "high",
+      "title": "Transfer matcher/profile drift disables legacy qualification and rejects its registry entries",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F046",
+      "severity": "high",
+      "title": "Operator-direct transfer bypasses qualification and injects outside software context",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F047",
+      "severity": "low",
+      "title": "Transfer catalog omits provenance for derived routing metadata",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F048",
+      "severity": "high",
+      "title": "AI OS labels arbitrary provider POSTs as no external writes",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F049",
+      "severity": "high",
+      "title": "AI OS default promotion enables a candidate before recovery succeeds",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F050",
+      "severity": "medium",
+      "title": "Frozen evidence omits replay prerequisites for AI OS, Learning OS, and service guards",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F051",
+      "severity": "medium",
+      "title": "Remote model and sandbox arguments lack a strict remote-shell transport contract",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F052",
+      "severity": "critical",
+      "title": "Required Sentinel preflight fails open on dependency failure",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F053",
+      "severity": "high",
+      "title": "Synchronous provider and queue work defeats async timeouts",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F054",
+      "severity": "high",
+      "title": "Workflow retry attempts and backoff are unbounded",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F055",
+      "severity": "high",
+      "title": "Queue outage looks online and scheduling has no admission/idempotency/cancellation contract",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F056",
+      "severity": "high",
+      "title": "Background tasks and cron schedules lack coordinated shutdown and restart recovery",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F057",
+      "severity": "high",
+      "title": "Sentinel reports healthy while monitoring is stopped",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F058",
+      "severity": "medium",
+      "title": "Watchdog records restart completion without verifying recovery",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F059",
+      "severity": "medium",
+      "title": "Resource enforcement and expensive health-probe safety are not established",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F060",
+      "severity": "high",
+      "title": "Detached notifier can claim terminal success without valid state or delivery acknowledgement",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F061",
+      "severity": "high",
+      "title": "Notifier dedupe suppresses revisions and duplicates crash-window sends",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F062",
+      "severity": "high",
+      "title": "Retention can select a promoted pointer target without checking required backup",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F063",
+      "severity": "medium",
+      "title": "Redis startup success is overstated and omitted from readiness",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F064",
+      "severity": "critical",
+      "title": "Workflow approvals accept caller-forged grants and fail open on unknown actions",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "focused_verified_pending_broad_requalification",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F065",
+      "severity": "high",
+      "title": "Outbound URL boundaries admit loopback, link-local, and caller-controlled targets",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F066",
+      "severity": "high",
+      "title": "Schedulers and autonomy paths can defer or amplify unapproved writes",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F067",
+      "severity": "high",
+      "title": "Sensitive GET and WebSocket surfaces bypass the write-only authorization middleware",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F068",
+      "severity": "high",
+      "title": "Queries, headers, errors, tool output, and external responses can retain secrets or PHI",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F069",
+      "severity": "medium",
+      "title": "Browser notary falls back to provider/public key and exposes a signing oracle",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F070",
+      "severity": "medium",
+      "title": "Alternate launcher binds all interfaces despite loopback-bound frozen service",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    },
+    {
+      "id": "AGG-F071",
+      "severity": "medium",
+      "title": "Runtime validators can admit nonlocal unsigned development configuration",
+      "originalStatus": "open_candidate_repair_undeployed",
+      "campaignStatus": "pending_current_code_revalidation",
+      "evidence": []
+    }
+  ],
+  "gates": [
+    {
+      "id": "GATE-PYTEST-FULL",
+      "surface": "public/cortex_server full pytest",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-AUDIT-71",
+      "surface": "all 71 aggregate audit findings revalidated and closed with replay evidence",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-SECURITY",
+      "surface": "security/action-boundary negative regressions",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-PROVIDER",
+      "surface": "provider/read-compute contract and standing-model-policy checks",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-PERSISTENCE",
+      "surface": "memory, Codec, persistence, retention, and recovery checks",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-RESILIENCE",
+      "surface": "queue, scheduler, worker, notifier, shutdown/recovery checks",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-OPENAPI",
+      "surface": "OpenAPI and exact route/media contracts",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-AIOS",
+      "surface": "AI OS adapter frozen-v1 status/recovery/provider workflows",
+      "status": "pending"
+    },
+    {
+      "id": "GATE-PRODUCTION",
+      "surface": "qualified deploy, restart, health, readiness, self-reachability, and post-deploy smoke",
+      "status": "pending"
+    }
+  ],
+  "completionRule": "All findings must be verified_fixed or evidence_backed_not_applicable on current code; every gate must pass; required gates may not be skipped. Broad pytest must have zero failed/errors/xpass and every skip must be enumerated and justified."
+}

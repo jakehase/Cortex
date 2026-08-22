@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.research_reproduction_output.fixture.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "Synthetic no-tools model output for fixture mechanics only. Production reproduction requires research-reproduction-bundle.schema.json.",
+  "required": ["status", "result", "notes", "fixtureOnly"],
+  "properties": {
+    "status": { "enum": ["passed", "failed"] },
+    "result": {},
+    "notes": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "fixtureOnly": { "const": true }
+  }
+}

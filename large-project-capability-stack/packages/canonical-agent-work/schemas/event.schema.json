@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.event.v1",
+  "title": "Agent Work v1 durable event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "runId", "sequence", "entityType", "entityId", "eventType", "occurredAt", "idempotencyKey", "stateVersion", "payload"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.event.v1" },
+    "eventId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "entityType": { "enum": ["run", "task", "lease", "worker_call", "patch", "verifier", "budget", "claim"] },
+    "entityId": { "type": "string", "minLength": 1 },
+    "eventType": { "type": "string", "minLength": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "stateVersion": { "type": "integer", "minimum": 1 },
+    "payload": { "type": "object", "additionalProperties": true }
+  }
+}

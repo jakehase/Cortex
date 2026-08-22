@@ -1,0 +1,20 @@
+{
+  "version": "cortex.roadmap.r7.step2.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_snapshot_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json"
+  ],
+  "gates": {
+    "signal_complete": true,
+    "signal_stable": true,
+    "requiredFields": [
+      "urgency",
+      "risk_pressure",
+      "fatigue",
+      "timeout_pressure",
+      "error_pressure",
+      "budget_pressure",
+      "escalation_debt"
+    ]
+  }
+}

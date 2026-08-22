@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "cortex.learning_os.exam.v0",
+  "examId": "math-foundations-correction-v0",
+  "capsuleId": "math-foundations-v0",
+  "version": "0.1.0",
+  "title": "Math Foundations Correction v0",
+  "passThreshold": 1,
+  "allowedTools": [],
+  "items": [
+    {
+      "itemId": "mfs-02-correction",
+      "prompt": "Compute exactly: 683,279 × 35,120.",
+      "conceptIds": [
+        "number-fractions"
+      ],
+      "answerFormat": "integer",
+      "checker": {
+        "mode": "exact_integer_string",
+        "expected": "23996758480"
+      }
+    }
+  ],
+  "truthBoundary": "This one-item Math Foundations Correction v0 supports only the named concept and recorded run."
+}

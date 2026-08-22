@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "aios.kernel-contract.v0.1",
+  "status": "wave0_contract_slice",
+  "truthBoundary": "Defines v0.1 contracts only. This is not a running AI OS kernel or boot proof.",
+  "trustedKernelInvariants": [
+    "A process cannot exit as completed unless its verifier contract is green or a blocker claim is written.",
+    "Every syscall requires an explicit capability and writes request/result audit events.",
+    "External user-visible writes are blocked unless approval evidence exists.",
+    "Memory records are orientation unless marked live and freshly verified.",
+    "Claims must link to evidence artifacts and pass a claim gate before user-facing wording is allowed."
+  ],
+  "processStates": [
+    "created",
+    "admitted",
+    "running",
+    "waiting_on_tool",
+    "waiting_on_human",
+    "blocked",
+    "review_ready",
+    "completed",
+    "killed",
+    "quarantined",
+    "panic"
+  ],
+  "allowedTransitions": [
+    [
+      "created",
+      "admitted"
+    ],
+    [
+      "admitted",
+      "running"
+    ],
+    [
+      "running",
+      "waiting_on_tool"
+    ],
+    [
+      "waiting_on_tool",
+      "running"
+    ],
+    [
+      "running",
+      "waiting_on_human"
+    ],
+    [
+      "waiting_on_human",
+      "running"
+    ],
+    [
+      "running",
+      "review_ready"
+    ],
+    [
+      "review_ready",
+      "completed"
+    ],
+    [
+      "running",
+      "blocked"
+    ],
+    [
+      "created",
+      "killed"
+    ],
+    [
+      "admitted",
+      "killed"
+    ],
+    [
+      "running",
+      "killed"
+    ],
+    [
+      "running",
+      "quarantined"
+    ],
+    [
+      "created",
+      "panic"
+    ],
+    [
+      "admitted",
+      "panic"
+    ],
+    [
+      "running",
+      "panic"
+    ]
+  ],
+  "v0_1Syscalls": [
+    "fs.read",
+    "fs.write",
+    "shell.exec",
+    "git.diff",
+    "memory.search",
+    "memory.write",
+    "verifier.run",
+    "claim.submit",
+    "audit.write"
+  ],
+  "contractFiles": [
+    "kernel/contracts/process.schema.json",
+    "kernel/contracts/capability.schema.json",
+    "kernel/contracts/syscall.schema.json",
+    "kernel/contracts/claim.schema.json",
+    "kernel/contracts/verifier.schema.json"
+  ]
+}

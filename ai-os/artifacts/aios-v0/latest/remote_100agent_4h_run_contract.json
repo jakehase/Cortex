@@ -1,0 +1,3175 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "2026-06-30T20:31:00-05:00",
+  "benchmarkId": "aios_100agent_4h_plan_continuation",
+  "benchmarkTier": "tier3_scale",
+  "benchmarkClass": "ai_os_plan_continuation_real_codex_product_work",
+  "fidelity": "production_slice",
+  "repoPath": "/home/jake/clawd-remote/ai-os",
+  "requestedAgentCount": 100,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "runId": "aios-100agent-4h-plan-continuation-20260630T2031",
+  "artifactRoot": "/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/aios_100agent_4h_plan_continuation/aios-100agent-4h-plan-continuation-20260630T2031",
+  "scoreboardPath": "/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/scoreboard.json",
+  "scope": {
+    "durationTargetMinutes": 240,
+    "productDiffMode": "creative_product_work",
+    "requireRealProductDiffs": true,
+    "requireSemanticProductAdmission": true,
+    "creativeProductWork": {
+      "required": true,
+      "promptMode": "compact",
+      "workerCommand": "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/codex-creative-worker.mjs",
+      "minIterations": 1,
+      "minWorkerRuntimeMs": 0
+    },
+    "semanticProductAdmission": {
+      "required": true,
+      "mode": "creative_product_work"
+    },
+    "contextGovernor": {
+      "enabled": true,
+      "hardGate": true,
+      "maxWorkerTokens": 8000,
+      "workerPromptMode": "compact",
+      "workerModel": "cheap_implementation_worker"
+    },
+    "budgets": {
+      "max_runtime_ms": 14400000,
+      "worker_timeout_ms": 1200000,
+      "lease_ttl_ms": 1500000,
+      "global_calls": 400,
+      "worker_prompt_tokens": 8000
+    },
+    "wavePolicy": {
+      "maxWaves": 8,
+      "fullContextWaves": 0
+    },
+    "canonicalLandingEvidence": {
+      "enabled": true,
+      "mode": "block_on_failed_landing",
+      "minAddedLineCount": 10,
+      "minUniqueNormalizedAddedLineCount": 8,
+      "duplicateLineRatioMax": 0.55,
+      "duplicateLineCheckMinAddedLines": 10
+    },
+    "surfaces": [
+      {
+        "id": "aios_kernel-lifecycle_process-admission_001",
+        "label": "AI OS kernel-lifecycle process-admission product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/process-admission. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-admission.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_state-transition_002",
+        "label": "AI OS kernel-lifecycle state-transition product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/state-transition. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/state-transition.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_panic-stop_003",
+        "label": "AI OS kernel-lifecycle panic-stop product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/panic-stop. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/panic-stop.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_blocker-claim_004",
+        "label": "AI OS kernel-lifecycle blocker-claim product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/blocker-claim. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/blocker-claim.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/blocker-claim.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/blocker-claim.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/blocker-claim.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_owner-identity_005",
+        "label": "AI OS kernel-lifecycle owner-identity product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/owner-identity. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/owner-identity.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_job-thread-link_006",
+        "label": "AI OS kernel-lifecycle job-thread-link product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/job-thread-link. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/job-thread-link.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/job-thread-link.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/job-thread-link.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/job-thread-link.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_process-snapshot_007",
+        "label": "AI OS kernel-lifecycle process-snapshot product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/process-snapshot. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_exit-contract_008",
+        "label": "AI OS kernel-lifecycle exit-contract product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/exit-contract. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/exit-contract.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_kill-quarantine_009",
+        "label": "AI OS kernel-lifecycle kill-quarantine product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/kill-quarantine. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/kill-quarantine.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/kill-quarantine.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/kill-quarantine.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/kill-quarantine.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_kernel-lifecycle_review-ready_010",
+        "label": "AI OS kernel-lifecycle review-ready product surface",
+        "lane": "kernel-lifecycle",
+        "productGoal": "Continue AI OS plan implementation for kernel-lifecycle/review-ready. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/kernel-lifecycle/review-ready.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/kernel-lifecycle/review-ready.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/kernel-lifecycle/review-ready.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/kernel-lifecycle/review-ready.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_capability-token_011",
+        "label": "AI OS capability-security capability-token product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/capability-token. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/capability-token.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/capability-token.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/capability-token.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/capability-token.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_policy-evaluator_012",
+        "label": "AI OS capability-security policy-evaluator product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/policy-evaluator. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/policy-evaluator.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/policy-evaluator.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/policy-evaluator.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/policy-evaluator.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_approval-requirement_013",
+        "label": "AI OS capability-security approval-requirement product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/approval-requirement. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/approval-requirement.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/approval-requirement.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/approval-requirement.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/approval-requirement.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_revocation_014",
+        "label": "AI OS capability-security revocation product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/revocation. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/revocation.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/revocation.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/revocation.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/revocation.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_rate-limit_015",
+        "label": "AI OS capability-security rate-limit product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/rate-limit. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/rate-limit.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/rate-limit.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/rate-limit.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/rate-limit.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_external-write-guard_016",
+        "label": "AI OS capability-security external-write-guard product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/external-write-guard. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/external-write-guard.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/external-write-guard.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/external-write-guard.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/external-write-guard.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_destructive-action-guard_017",
+        "label": "AI OS capability-security destructive-action-guard product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/destructive-action-guard. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/destructive-action-guard.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_privileged-kernel-change_018",
+        "label": "AI OS capability-security privileged-kernel-change product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/privileged-kernel-change. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/privileged-kernel-change.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/privileged-kernel-change.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/privileged-kernel-change.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/privileged-kernel-change.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_audit-redaction_019",
+        "label": "AI OS capability-security audit-redaction product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/audit-redaction. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/audit-redaction.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/audit-redaction.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/audit-redaction.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/audit-redaction.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_capability-security_scope-matcher_020",
+        "label": "AI OS capability-security scope-matcher product surface",
+        "lane": "capability-security",
+        "productGoal": "Continue AI OS plan implementation for capability-security/scope-matcher. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/scope-matcher.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/capability-security/scope-matcher.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/capability-security/scope-matcher.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/capability-security/scope-matcher.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_syscall-registry_021",
+        "label": "AI OS syscall-layer syscall-registry product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/syscall-registry. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/syscall-registry.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_fs-read_022",
+        "label": "AI OS syscall-layer fs-read product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/fs-read. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/fs-read.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/fs-read.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/fs-read.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/fs-read.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_fs-write_023",
+        "label": "AI OS syscall-layer fs-write product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/fs-write. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/fs-write.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/fs-write.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/fs-write.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/fs-write.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_shell-exec_024",
+        "label": "AI OS syscall-layer shell-exec product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/shell-exec. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/shell-exec.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/shell-exec.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/shell-exec.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/shell-exec.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_git-diff_025",
+        "label": "AI OS syscall-layer git-diff product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/git-diff. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/git-diff.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/git-diff.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/git-diff.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/git-diff.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_memory-search_026",
+        "label": "AI OS syscall-layer memory-search product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/memory-search. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/memory-search.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/memory-search.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/memory-search.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/memory-search.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_memory-write_027",
+        "label": "AI OS syscall-layer memory-write product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/memory-write. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/memory-write.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/memory-write.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/memory-write.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/memory-write.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_verifier-run_028",
+        "label": "AI OS syscall-layer verifier-run product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/verifier-run. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/verifier-run.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/verifier-run.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/verifier-run.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/verifier-run.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_claim-submit_029",
+        "label": "AI OS syscall-layer claim-submit product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/claim-submit. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/claim-submit.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/claim-submit.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/claim-submit.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/claim-submit.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_syscall-layer_audit-write_030",
+        "label": "AI OS syscall-layer audit-write product surface",
+        "lane": "syscall-layer",
+        "productGoal": "Continue AI OS plan implementation for syscall-layer/audit-write. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/audit-write.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/syscall-layer/audit-write.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/syscall-layer/audit-write.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/syscall-layer/audit-write.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_artifact-root_031",
+        "label": "AI OS artifact-filesystem artifact-root product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/artifact-root. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-root.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_content-address_032",
+        "label": "AI OS artifact-filesystem content-address product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/content-address. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/content-address.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/content-address.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/content-address.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/content-address.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_bundle-manifest_033",
+        "label": "AI OS artifact-filesystem bundle-manifest product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/bundle-manifest. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_claim-evidence-link_034",
+        "label": "AI OS artifact-filesystem claim-evidence-link product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/claim-evidence-link. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_quarantine-record_035",
+        "label": "AI OS artifact-filesystem quarantine-record product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/quarantine-record. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/quarantine-record.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/quarantine-record.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/quarantine-record.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/quarantine-record.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_working-directory-lease_036",
+        "label": "AI OS artifact-filesystem working-directory-lease product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/working-directory-lease. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/working-directory-lease.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/working-directory-lease.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/working-directory-lease.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/working-directory-lease.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_tamper-check_037",
+        "label": "AI OS artifact-filesystem tamper-check product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/tamper-check. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/tamper-check.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/tamper-check.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/tamper-check.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/tamper-check.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_replay-index_038",
+        "label": "AI OS artifact-filesystem replay-index product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/replay-index. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/replay-index.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_path-policy_039",
+        "label": "AI OS artifact-filesystem path-policy product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/path-policy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/path-policy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_artifact-filesystem_artifact-retention_040",
+        "label": "AI OS artifact-filesystem artifact-retention product surface",
+        "lane": "artifact-filesystem",
+        "productGoal": "Continue AI OS plan implementation for artifact-filesystem/artifact-retention. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-retention.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-retention.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/artifact-filesystem/artifact-retention.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/artifact-filesystem/artifact-retention.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_memory-mount_041",
+        "label": "AI OS memory-manager memory-mount product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/memory-mount. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/memory-mount.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/memory-mount.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/memory-mount.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/memory-mount.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_trust-metadata_042",
+        "label": "AI OS memory-manager trust-metadata product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/trust-metadata. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/trust-metadata.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/trust-metadata.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/trust-metadata.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/trust-metadata.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_volatile-fact-check_043",
+        "label": "AI OS memory-manager volatile-fact-check product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/volatile-fact-check. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/volatile-fact-check.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/volatile-fact-check.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/volatile-fact-check.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/volatile-fact-check.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_project-memory-adapter_044",
+        "label": "AI OS memory-manager project-memory-adapter product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/project-memory-adapter. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/project-memory-adapter.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_structural-memory-adapter_045",
+        "label": "AI OS memory-manager structural-memory-adapter product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/structural-memory-adapter. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/structural-memory-adapter.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_episodic-log-adapter_046",
+        "label": "AI OS memory-manager episodic-log-adapter product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/episodic-log-adapter. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/episodic-log-adapter.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_writeback-policy_047",
+        "label": "AI OS memory-manager writeback-policy product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/writeback-policy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/writeback-policy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/writeback-policy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/writeback-policy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/writeback-policy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_supersession_048",
+        "label": "AI OS memory-manager supersession product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/supersession. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/supersession.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/supersession.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/supersession.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/supersession.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_freshness-gate_049",
+        "label": "AI OS memory-manager freshness-gate product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/freshness-gate. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/freshness-gate.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/freshness-gate.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/freshness-gate.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/freshness-gate.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_memory-manager_memory-audit_050",
+        "label": "AI OS memory-manager memory-audit product surface",
+        "lane": "memory-manager",
+        "productGoal": "Continue AI OS plan implementation for memory-manager/memory-audit. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/memory-audit.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/memory-manager/memory-audit.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/memory-manager/memory-audit.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/memory-manager/memory-audit.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_admission-queue_051",
+        "label": "AI OS scheduler admission-queue product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/admission-queue. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/admission-queue.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/admission-queue.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/admission-queue.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/admission-queue.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_priority-policy_052",
+        "label": "AI OS scheduler priority-policy product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/priority-policy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/priority-policy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/priority-policy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/priority-policy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/priority-policy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_execution-plane-registry_053",
+        "label": "AI OS scheduler execution-plane-registry product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/execution-plane-registry. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/execution-plane-registry.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_lease-manager_054",
+        "label": "AI OS scheduler lease-manager product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/lease-manager. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/lease-manager.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/lease-manager.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/lease-manager.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/lease-manager.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_budget-manager_055",
+        "label": "AI OS scheduler budget-manager product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/budget-manager. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/budget-manager.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/budget-manager.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/budget-manager.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/budget-manager.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_model-policy_056",
+        "label": "AI OS scheduler model-policy product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/model-policy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/model-policy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/model-policy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/model-policy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/model-policy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_context-pack_057",
+        "label": "AI OS scheduler context-pack product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/context-pack. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/context-pack.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/context-pack.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/context-pack.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/context-pack.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_dependency-graph_058",
+        "label": "AI OS scheduler dependency-graph product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/dependency-graph. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/dependency-graph.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/dependency-graph.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/dependency-graph.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/dependency-graph.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_resume-policy_059",
+        "label": "AI OS scheduler resume-policy product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/resume-policy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/resume-policy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/resume-policy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/resume-policy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/resume-policy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_scheduler_usage-backoff_060",
+        "label": "AI OS scheduler usage-backoff product surface",
+        "lane": "scheduler",
+        "productGoal": "Continue AI OS plan implementation for scheduler/usage-backoff. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/usage-backoff.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/scheduler/usage-backoff.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/scheduler/usage-backoff.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/scheduler/usage-backoff.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_verifier-catalog_061",
+        "label": "AI OS verifier-claim-gate verifier-catalog product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/verifier-catalog. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-catalog.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-catalog.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-catalog.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/verifier-catalog.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_verifier-result_062",
+        "label": "AI OS verifier-claim-gate verifier-result product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/verifier-result. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-result.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_claim-draft_063",
+        "label": "AI OS verifier-claim-gate claim-draft product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/claim-draft. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-draft.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-draft.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-draft.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/claim-draft.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_claim-allowance_064",
+        "label": "AI OS verifier-claim-gate claim-allowance product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/claim-allowance. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_contradiction-check_065",
+        "label": "AI OS verifier-claim-gate contradiction-check product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/contradiction-check. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/contradiction-check.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/contradiction-check.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/contradiction-check.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/contradiction-check.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_release-packet_066",
+        "label": "AI OS verifier-claim-gate release-packet product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/release-packet. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/release-packet.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_blocker-report_067",
+        "label": "AI OS verifier-claim-gate blocker-report product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/blocker-report. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/blocker-report.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/blocker-report.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/blocker-report.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/blocker-report.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_evidence-replay_068",
+        "label": "AI OS verifier-claim-gate evidence-replay product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/evidence-replay. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/evidence-replay.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/evidence-replay.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/evidence-replay.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/evidence-replay.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_human-review_069",
+        "label": "AI OS verifier-claim-gate human-review product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/human-review. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/human-review.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/human-review.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/human-review.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/human-review.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_verifier-claim-gate_truth-boundary_070",
+        "label": "AI OS verifier-claim-gate truth-boundary product surface",
+        "lane": "verifier-claim-gate",
+        "productGoal": "Continue AI OS plan implementation for verifier-claim-gate/truth-boundary. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/truth-boundary.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/verifier-claim-gate/truth-boundary.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/verifier-claim-gate/truth-boundary.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/verifier-claim-gate/truth-boundary.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_audit-event_071",
+        "label": "AI OS audit-recovery audit-event product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/audit-event. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/audit-event.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/audit-event.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/audit-event.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/audit-event.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_append-only-log_072",
+        "label": "AI OS audit-recovery append-only-log product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/append-only-log. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/append-only-log.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/append-only-log.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/append-only-log.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/append-only-log.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_snapshot_073",
+        "label": "AI OS audit-recovery snapshot product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/snapshot. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/snapshot.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/snapshot.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/snapshot.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/snapshot.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_rollback-plan_074",
+        "label": "AI OS audit-recovery rollback-plan product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/rollback-plan. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/rollback-plan.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/rollback-plan.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/rollback-plan.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/rollback-plan.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_panic-inspector_075",
+        "label": "AI OS audit-recovery panic-inspector product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/panic-inspector. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/panic-inspector.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/panic-inspector.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/panic-inspector.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/panic-inspector.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_resume-token_076",
+        "label": "AI OS audit-recovery resume-token product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/resume-token. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/resume-token.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/resume-token.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/resume-token.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/resume-token.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_recovery-checkpoint_077",
+        "label": "AI OS audit-recovery recovery-checkpoint product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/recovery-checkpoint. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/recovery-checkpoint.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/recovery-checkpoint.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/recovery-checkpoint.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/recovery-checkpoint.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_event-replay_078",
+        "label": "AI OS audit-recovery event-replay product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/event-replay. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/event-replay.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/event-replay.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/event-replay.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/event-replay.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_failure-taxonomy_079",
+        "label": "AI OS audit-recovery failure-taxonomy product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/failure-taxonomy. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/failure-taxonomy.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/failure-taxonomy.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/failure-taxonomy.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/failure-taxonomy.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_audit-recovery_notifier-record_080",
+        "label": "AI OS audit-recovery notifier-record product surface",
+        "lane": "audit-recovery",
+        "productGoal": "Continue AI OS plan implementation for audit-recovery/notifier-record. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/audit-recovery/notifier-record.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/audit-recovery/notifier-record.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/audit-recovery/notifier-record.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/audit-recovery/notifier-record.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-boot_081",
+        "label": "AI OS operator-userland cli-boot product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-boot. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-boot.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-boot.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-boot.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-boot.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-run_082",
+        "label": "AI OS operator-userland cli-run product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-run. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-run.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-run.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-run.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-run.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-claim_083",
+        "label": "AI OS operator-userland cli-claim product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-claim. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-claim.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-claim.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-claim.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-claim.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-ps_084",
+        "label": "AI OS operator-userland cli-ps product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-ps. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-ps.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-ps.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-ps.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-ps.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-logs_085",
+        "label": "AI OS operator-userland cli-logs product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-logs. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-logs.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-logs.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-logs.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-logs.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_cli-approve_086",
+        "label": "AI OS operator-userland cli-approve product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/cli-approve. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-approve.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/cli-approve.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/cli-approve.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/cli-approve.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_dashboard-model_087",
+        "label": "AI OS operator-userland dashboard-model product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/dashboard-model. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/dashboard-model.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/dashboard-model.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/dashboard-model.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/dashboard-model.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_job-graph-view_088",
+        "label": "AI OS operator-userland job-graph-view product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/job-graph-view. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/job-graph-view.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/job-graph-view.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/job-graph-view.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/job-graph-view.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_approval-console_089",
+        "label": "AI OS operator-userland approval-console product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/approval-console. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/approval-console.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/approval-console.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/approval-console.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/approval-console.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_operator-userland_claim-browser_090",
+        "label": "AI OS operator-userland claim-browser product surface",
+        "lane": "operator-userland",
+        "productGoal": "Continue AI OS plan implementation for operator-userland/claim-browser. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/claim-browser.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/operator-userland/claim-browser.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/operator-userland/claim-browser.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/operator-userland/claim-browser.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_package-manifest_091",
+        "label": "AI OS package-sdk package-manifest product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/package-manifest. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/package-manifest.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/package-manifest.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/package-manifest.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/package-manifest.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_install-plan_092",
+        "label": "AI OS package-sdk install-plan product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/install-plan. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/install-plan.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/install-plan.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/install-plan.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/install-plan.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_rollback-script_093",
+        "label": "AI OS package-sdk rollback-script product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/rollback-script. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/rollback-script.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/rollback-script.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/rollback-script.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/rollback-script.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_driver-package_094",
+        "label": "AI OS package-sdk driver-package product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/driver-package. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/driver-package.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/driver-package.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/driver-package.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/driver-package.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_verifier-package_095",
+        "label": "AI OS package-sdk verifier-package product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/verifier-package. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/verifier-package.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/verifier-package.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/verifier-package.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/verifier-package.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_memory-pack_096",
+        "label": "AI OS package-sdk memory-pack product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/memory-pack. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/memory-pack.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/memory-pack.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/memory-pack.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/memory-pack.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_workflow-package_097",
+        "label": "AI OS package-sdk workflow-package product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/workflow-package. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/workflow-package.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/workflow-package.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/workflow-package.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/workflow-package.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_sdk-types_098",
+        "label": "AI OS package-sdk sdk-types product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/sdk-types. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/sdk-types.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/sdk-types.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/sdk-types.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/sdk-types.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_developer-docs_099",
+        "label": "AI OS package-sdk developer-docs product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/developer-docs. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/developer-docs.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/developer-docs.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/developer-docs.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/developer-docs.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      },
+      {
+        "id": "aios_package-sdk_compat-adapter_100",
+        "label": "AI OS package-sdk compat-adapter product surface",
+        "lane": "package-sdk",
+        "productGoal": "Continue AI OS plan implementation for package-sdk/compat-adapter. Replace the placeholder with real hosted-kernel product behavior, typed data contracts, audit/proof outputs, and integration points consistent with plan.md. This must be source-backed product code, not docs-only or marker-only work.",
+        "allowedFiles": [
+          "packages/aios-kernel/package-sdk/compat-adapter.mjs",
+          "plan.md",
+          "docs/BOOT_SEQUENCE.md",
+          "kernel/contracts/process.schema.json",
+          "kernel/contracts/capability.schema.json",
+          "kernel/contracts/syscall.schema.json",
+          "kernel/contracts/claim.schema.json",
+          "kernel/contracts/verifier.schema.json"
+        ],
+        "productFiles": [
+          "packages/aios-kernel/package-sdk/compat-adapter.mjs"
+        ],
+        "targetFiles": [
+          "packages/aios-kernel/package-sdk/compat-adapter.mjs"
+        ],
+        "verification": [
+          "node /home/jake/clawd-remote/large-project-capability-stack/apps/system-benchmark/verify-module-load.mjs packages/aios-kernel/package-sdk/compat-adapter.mjs"
+        ],
+        "metadata": {
+          "aiOsPlanWave": "Wave 1 hosted kernel boot proof / Wave 2 runtime foundation",
+          "freshProductDiffRequired": true,
+          "creativeProductWorkRequired": true,
+          "primaryFileConstrained": true
+        }
+      }
+    ],
+    "truthBoundary": "100-agent 4-hour-target AI OS plan continuation. Controller CLI owns dynamic expansion; wave contracts intentionally omit expansionPolicy because the finite transfer runner cannot expand surface graphs itself."
+  },
+  "verifierSet": [
+    {
+      "kind": "node_script",
+      "command": "node --test tests/contracts.test.mjs",
+      "purpose": "Wave 0 contract regression"
+    }
+  ],
+  "notes": "Requested by Jake: use agent orchestration, 100 agents, for 4 hours and continue through the AI OS plan. Product targets are under packages/ so shared orchestrator can credit real product work.",
+  "scaleDeclaration": {
+    "requestedAgentCount": 100,
+    "durationTargetMinutes": 240,
+    "benchmarkClass": "ai_os_plan_continuation_real_codex_product_work",
+    "truthBoundary": "Uses known tier3_scale thresholds plus explicit 100-agent launch/metering artifacts; tier name itself is not a product-domain claim."
+  }
+}

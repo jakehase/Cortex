@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.trusted_lesson.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "lessonId",
+    "candidateId",
+    "capsuleId",
+    "rule",
+    "promotionProof",
+    "promotedAt",
+    "retestAfter",
+    "sourceExamIds"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.trusted_lesson.v0"
+    }
+  },
+  "additionalProperties": true
+}

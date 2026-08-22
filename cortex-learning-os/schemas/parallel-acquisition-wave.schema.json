@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.parallel_acquisition_wave.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "waveId",
+    "generatedAt",
+    "expiresAt",
+    "concurrency",
+    "source",
+    "identities",
+    "baseAppliedRuns",
+    "selected",
+    "mergeOrder",
+    "reviewSelectionEnabled",
+    "truthBoundary",
+    "controlPlaneSignature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.parallel_acquisition_wave.v1" },
+    "waveId": { "type": "string" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "concurrency": { "type": "integer", "minimum": 1, "maximum": 8, "default": 4 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "tree"],
+      "properties": {
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "identities": { "type": "object" },
+    "baseAppliedRuns": { "type": "object" },
+    "selected": { "type": "array", "maxItems": 8 },
+    "mergeOrder": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "type": "string" } },
+    "reviewSelectionEnabled": { "const": false },
+    "truthBoundary": { "type": "string" },
+    "controlPlaneSignature": { "type": "object", "required": ["algorithm", "keyId", "digest"] }
+  }
+}

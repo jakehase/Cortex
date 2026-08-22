@@ -1,0 +1,582 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_fd3e22826d913d83",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-01",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "70f3b6f506ae5d92e593fa732102541929a7d7dad5b729e7b67951e3a207f26a",
+    "answer": "144437219165251850484",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_b0a1e57030ddc43f",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-02",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "55ca2f804b7f4f33a02313f9a7223949c6e97acad83cd831f263ddfba2acba4b",
+    "answer": "877136039874037161833888",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_3b9d4030e5fdd92c",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-03",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "796b17561aceb7029d183ebde531b537434053f97fb728163b77f71725099b9e",
+    "answer": "2731535755844480003224",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_350695b744695a40",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-04",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "2b549baaac226ff6bc20a5c73794060025b8b3acdbd40d5c51d8020f5a45abde",
+    "answer": "5501962306661666773158",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_1d62daaa99e96c12",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-05",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "a37d3d6a9aae5a9d5308fc5dc892724aceafd608aba61d81ff09a64e4b7cceed",
+    "answer": "737201632543569892980",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_f37437c6b8c21412",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-06",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "0a80b129b040b302b2b4b6c0537fdee1a87605ffd0e605cfe8b35ff9ca80bba2",
+    "answer": "7617014134944021951964",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_a3cd3a8a7a268845",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-07",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "9ea9e13c9688e34b3b2f06ca727206d7eb5ccba833e427e6dcc8da646817d30c",
+    "answer": "6945405126304984198600",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_27c81753f372d92c",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-08",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "05471b5de3021b41f36885fa8f9a7147b89e98d71f84c6aed83b99b42e17fcc7",
+    "answer": "738996775935600300022",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_505d2c41d5e2bdcf",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-09",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "3f7c1e024fceef817257e8118ba6f75d7e872f28a6aef9dd6d911a668bc4892a",
+    "answer": "6236761125643274862072",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_b47f7f23768ca086",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-10",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "6ab9f55fc8acbf3111dfe5a954530b8d371663c0177495364819f04d89ed8e2c",
+    "answer": "1455286525974313414247",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_a703ad18cf0d3352",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-11",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "4319cdddec87bf322250d088e398bface9c07e70ed0067a837c1f95ca1a245c8",
+    "answer": "133562282605820259646",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_ce0fbdc3642be0ed",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-12",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "cf77faff3468e8410b8582b413e5f838a63879052d934cf51854a7a2b6aea0a5",
+    "answer": "6217841412743750808011",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_917d880ae0aebeec",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-13",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "98fccd2f5b151d46dcf56af53ea103834124ee125a52cb38caac9c14ef907c8e",
+    "answer": "2346781118745579829166",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_3ee9b6e2eba08da0",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-14",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "c8218eafa884f30c047b32951d26848e482e8ee11e601195a5cbec9adf427747",
+    "answer": "472787210702081069454",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_adea970aaea98193",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-15",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "851630ba3be685fa44fe02dcb4c4085e50628c43ae7956b951f97c71c4aafc79",
+    "answer": "8746076594774498616520",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_2449039378c5f6d4",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-16",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "d295ded6174d285d384222c73b5c1ceabf3428a42d21b0927fa755e66cd5a4ec",
+    "answer": "3292193888453044389600",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_2325da605aab6723",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-17",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "a0c4f8e9e36b283a4bd3c2d52eb06b83d9892e49ac66696d3fe1a093d613ff52",
+    "answer": "7370845513528180362820",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_1a284add1c753d66",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-18",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "86dd107113e75655c5b3e0d6790ba6b8e77e246eb354d3273a80f0c0008208c4",
+    "answer": "2529571613662186109532",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_82a471a77cee78e4",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-19",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "b97e6a3ba56202adc6a453769dd82fd1e7827de3ed0846f23f028c88bc9909b9",
+    "answer": "6700100971103242932180",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  },
+  {
+    "schemaVersion": "cortex.learning_os.attempt.v0",
+    "attemptId": "attempt_51da1e5887011591",
+    "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+    "capsuleId": "math-foundations-v0",
+    "examId": "math-foundations-exact-arithmetic-stress-v0",
+    "itemId": "mfs-20",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "promptDigest": "00a04a94807e7d5a938e15afacb35f93d08cd2586360b86349105c7e69982073",
+    "answer": "698137755739452423357",
+    "answerSource": {
+      "kind": "openclaw_agent",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "gatewayRunId": "d3d58866-a2ed-4d69-92fd-4ec6039abf8c",
+      "sessionId": "a6a5c720-4fcc-412e-b630-f539a17c9917",
+      "usage": {
+        "input": 1943,
+        "output": 4897,
+        "cacheRead": 20992,
+        "total": 27832
+      }
+    },
+    "toolsUsed": [],
+    "startedAt": "2026-07-25T05:29:39.568Z",
+    "completedAt": "2026-07-25T05:31:15.534Z"
+  }
+]

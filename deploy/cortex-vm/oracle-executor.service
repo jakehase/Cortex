@@ -1,0 +1,36 @@
+[Unit]
+Description=Oracle VM executor bridge via CT101 OpenClaw
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cortex-oracle-bridge
+ExecStart=/usr/bin/python3 -m uvicorn oracle_executor:app --host 10.0.0.52 --port 18999
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/tmp /var/tmp
+Environment=CT101_HOST=10.0.0.220
+Environment=CT101_USER=root
+Environment=CT101_KEY=/opt/cortex-oracle-bridge/ct101_exec_key
+Environment=CT101_WORKDIR=/root/clawd/deploy/oracle-workspace-lite
+Environment=ORACLE_EXECUTOR_TIMEOUT=60
+Environment=ORACLE_EXECUTOR_AGENT=oracle
+Environment=ORACLE_EXECUTOR_THINKING=xhigh
+Environment=ORACLE_EXECUTOR_LOCAL=true
+Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
+Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY=agent:oracle:main
+Environment=ORACLE_EXECUTOR_SESSION_ID=oracle-prod-bridge
+Environment=ORACLE_EXECUTOR_REMOTE_SESSION_DIR=/root/.openclaw/agents/oracle/sessions
+Environment=ORACLE_EXECUTOR_SESSION_MODE=ephemeral
+Environment=ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES=60
+Environment=ORACLE_EXECUTOR_SESSION_RETENTION_COUNT=300
+Environment=ORACLE_EXECUTOR_SESSION_RETENTION_DAYS=7
+Environment=ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS=1800
+
+[Install]
+WantedBy=multi-user.target

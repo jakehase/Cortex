@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "cortex.learning_os.adaptive_policy.v1",
+  "policyId": "adaptive-math-v0.8",
+  "curriculumId": "math-foundations-curriculum-v0",
+  "capsuleId": "math-foundations-v0",
+  "prerequisiteGate": {
+    "allowedStates": [
+      "review",
+      "mastered"
+    ],
+    "minimumConsecutivePasses": 1,
+    "overduePassesGate": false
+  },
+  "spacingDays": [
+    0,
+    1,
+    7,
+    30,
+    90
+  ],
+  "lapse": {
+    "resetReviewStage": 0,
+    "scheduleImmediateRepair": true
+  },
+  "budgets": {
+    "maxSteps": 12,
+    "maxModelCalls": 18,
+    "maxAttemptsPerConcept": 3,
+    "maxArtifactFiles": 2000,
+    "maxArtifactBytes": 67108864
+  },
+  "modelRuntime": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-sol",
+    "thinking": "xhigh",
+    "sandbox": "read-only",
+    "toolsAllowed": false
+  },
+  "candidate": {
+    "maximumRuleChars": 1200,
+    "maximumScopeChars": 800,
+    "maximumRootCauseChars": 800,
+    "maximumContraindications": 8,
+    "maximumContraindicationChars": 500,
+    "prohibitedPhrases": [
+      "ignore previous",
+      "system prompt",
+      "expected answer",
+      "checker.expected"
+    ]
+  },
+  "pairedEvaluation": {
+    "pairCount": 6,
+    "minimumValidPairs": 6,
+    "minimumCandidateAccuracy": 0.83,
+    "minimumAbsoluteLift": 0.5,
+    "maximumNoCandidateOnlyRegressions": 0,
+    "maximumExactMcNemarP": 0.05
+  },
+  "liveActivationProfileByConcept": {
+    "algebra-linear-equations": "linear_equation",
+    "algebra-quadratics": "quadratic_roots",
+    "functions-evaluation": "function_evaluation",
+    "functions-inverse": "inverse_function",
+    "series-geometric": "geometric_series",
+    "algebra-absolute-value": "absolute_value_equation",
+    "probability-binomial": "binomial_probability",
+    "probability-complements": "complement_probability",
+    "probability-combinatorics": "combinations_permutations"
+  },
+  "lessonExpiryDays": 90,
+  "truthBoundary": "This policy gates verifier-backed adaptive evidence and narrow lesson retrieval only. It does not define model-weight learning or general mastery."
+}

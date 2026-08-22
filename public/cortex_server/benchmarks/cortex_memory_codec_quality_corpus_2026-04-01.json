@@ -1,0 +1,2733 @@
+{
+  "schema_version": "cortex.memory_codec_quality.corpus.v1",
+  "generated_at": "2026-04-01T23:20:00Z",
+  "case_count": 44,
+  "cases": [
+    {
+      "id": "pref_memory_01",
+      "title": "Retain reply prefix preference",
+      "category": "preference_memory",
+      "events": [
+        {
+          "text": "Start replies with [Cortex].",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Start replies with [Cortex]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "preference",
+            "Start"
+          ]
+        },
+        "ratio_min": 1.0
+      },
+      "expected_failure_modes": [
+        "preference_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Start replies with [Cortex]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "preference",
+            "Start"
+          ]
+        },
+        "ratio_min": 1.0
+      }
+    },
+    {
+      "id": "pref_memory_02",
+      "title": "Retain call-me preference",
+      "category": "preference_memory",
+      "events": [
+        {
+          "text": "Call me Jake.",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me Jake."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Call",
+            "Jake",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      },
+      "expected_failure_modes": [
+        "preference_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me Jake."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Call",
+            "Jake",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      }
+    },
+    {
+      "id": "pref_memory_03",
+      "title": "Retain concise-answer preference",
+      "category": "preference_memory",
+      "events": [
+        {
+          "text": "Prefer concise answers.",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer concise answers."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Prefer",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      },
+      "expected_failure_modes": [
+        "preference_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer concise answers."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Prefer",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      }
+    },
+    {
+      "id": "pref_memory_04",
+      "title": "Recognize begin-replies preference form",
+      "category": "preference_memory",
+      "events": [
+        {
+          "text": "Begin replies with [Memoria].",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Begin replies with [Memoria]."
+          ]
+        },
+        "packet_contains": [
+          "Begin replies with [Memoria]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Begin",
+            "Memoria",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      },
+      "expected_failure_modes": [
+        "preference_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Begin replies with [Memoria]."
+          ]
+        },
+        "packet_contains": [
+          "Begin replies with [Memoria]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Begin",
+            "Memoria",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      }
+    },
+    {
+      "id": "pref_memory_05",
+      "title": "Retain multi-part preference sentence",
+      "category": "preference_memory",
+      "events": [
+        {
+          "text": "Prefer short answers and begin with [Cortex].",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer short answers and begin with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Prefer short answers and begin with [Cortex]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Prefer",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      },
+      "expected_failure_modes": [
+        "preference_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer short answers and begin with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Prefer short answers and begin with [Cortex]."
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Prefer",
+            "preference"
+          ]
+        },
+        "ratio_min": 1.0
+      }
+    },
+    {
+      "id": "pref_override_01",
+      "title": "New reply prefix supersedes old prefix",
+      "category": "preference_override",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Start replies with [Cortex].",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Start replies with [Neural] instead.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Neural] instead."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Start replies with [Neural] instead."
+        ],
+        "packet_absent": [
+          "Start replies with [Cortex]."
+        ]
+      },
+      "expected_failure_modes": [
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Neural] instead."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        "packet_contains": [
+          "Start replies with [Neural] instead."
+        ],
+        "packet_absent": [
+          "Start replies with [Cortex]."
+        ]
+      }
+    },
+    {
+      "id": "pref_override_02",
+      "title": "Call-me alias supersedes old alias",
+      "category": "preference_override",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Call me Jake.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Call me J instead.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me J instead."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me J instead."
+        ],
+        "packet_absent": [
+          "Call me Jake."
+        ]
+      },
+      "expected_failure_modes": [
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me J instead."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me J instead."
+        ],
+        "packet_absent": [
+          "Call me Jake."
+        ]
+      }
+    },
+    {
+      "id": "pref_override_03",
+      "title": "Detailed answer preference supersedes concise",
+      "category": "preference_override",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Prefer concise answers.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Prefer detailed answers now.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer detailed answers now."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer detailed answers now."
+        ],
+        "packet_absent": [
+          "Prefer concise answers."
+        ]
+      },
+      "expected_failure_modes": [
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer detailed answers now."
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer detailed answers now."
+        ],
+        "packet_absent": [
+          "Prefer concise answers."
+        ]
+      }
+    },
+    {
+      "id": "pref_override_04",
+      "title": "Negative preference revision removes prior positive",
+      "category": "preference_override",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Start replies with [Alpha].",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Do not start replies with [Alpha]. Start replies with [Beta].",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "[Beta]"
+        ],
+        "packet_absent": [
+          "Start replies with [Alpha]."
+        ],
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Alpha]."
+          ]
+        }
+      },
+      "expected_failure_modes": [
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "[Beta]"
+        ],
+        "packet_absent": [
+          "Start replies with [Alpha]."
+        ],
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Alpha]."
+          ]
+        }
+      }
+    },
+    {
+      "id": "pref_override_05",
+      "title": "Revision with correction phrasing replaces old preference",
+      "category": "preference_override",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Prefer markdown tables.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Correction: prefer bullet lists instead of markdown tables.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "bullet lists"
+        ],
+        "packet_absent": [
+          "Prefer markdown tables."
+        ],
+        "state_absent": {
+          "preferences": [
+            "Prefer markdown tables."
+          ]
+        }
+      },
+      "expected_failure_modes": [
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "bullet lists"
+        ],
+        "packet_absent": [
+          "Prefer markdown tables."
+        ],
+        "state_absent": {
+          "preferences": [
+            "Prefer markdown tables."
+          ]
+        }
+      }
+    },
+    {
+      "id": "project_01",
+      "title": "Metadata project retained without preference noise",
+      "category": "active_project_continuity",
+      "events": [
+        {
+          "text": "Start replies with [Cortex].",
+          "tags": [
+            "preference"
+          ],
+          "metadata": {
+            "project": "Cortex Memory"
+          }
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Cortex Memory"
+          ]
+        },
+        "packet_contains": [
+          "Projects: Cortex Memory"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "preference",
+            "Start"
+          ]
+        },
+        "packet_absent": [
+          "preference | Start"
+        ]
+      },
+      "expected_failure_modes": [
+        "project_continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Cortex Memory"
+          ]
+        },
+        "packet_contains": [
+          "Projects: Cortex Memory"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "preference",
+            "Start"
+          ]
+        },
+        "packet_absent": [
+          "preference | Start"
+        ]
+      }
+    },
+    {
+      "id": "project_02",
+      "title": "Kebab-case project retained without leading-verb noise",
+      "category": "active_project_continuity",
+      "events": [
+        {
+          "text": "Need to ship memory-codec-lab soon.",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "memory-codec-lab"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Need",
+            "planning"
+          ]
+        },
+        "packet_contains": [
+          "memory-codec-lab"
+        ]
+      },
+      "expected_failure_modes": [
+        "project_continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "memory-codec-lab"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Need",
+            "planning"
+          ]
+        },
+        "packet_contains": [
+          "memory-codec-lab"
+        ]
+      }
+    },
+    {
+      "id": "project_03",
+      "title": "Title-case project retained without pronoun noise",
+      "category": "active_project_continuity",
+      "events": [
+        {
+          "text": "We should land the Nexus Router migration.",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Nexus Router"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "We",
+            "planning"
+          ]
+        },
+        "packet_contains": [
+          "Nexus Router"
+        ]
+      },
+      "expected_failure_modes": [
+        "project_continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Nexus Router"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "We",
+            "planning"
+          ]
+        },
+        "packet_contains": [
+          "Nexus Router"
+        ]
+      }
+    },
+    {
+      "id": "project_04",
+      "title": "Topic metadata retained without generic tag noise",
+      "category": "active_project_continuity",
+      "events": [
+        {
+          "text": "Need to tighten memory supervisor heuristics.",
+          "tags": [
+            "planning"
+          ],
+          "metadata": {
+            "topic": "Memory Supervisor"
+          }
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Memory Supervisor"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "planning",
+            "Need"
+          ]
+        },
+        "packet_contains": [
+          "Memory Supervisor"
+        ]
+      },
+      "expected_failure_modes": [
+        "project_continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Memory Supervisor"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "planning",
+            "Need"
+          ]
+        },
+        "packet_contains": [
+          "Memory Supervisor"
+        ]
+      }
+    },
+    {
+      "id": "project_05",
+      "title": "Project persists across unrelated follow-up without new noise",
+      "category": "active_project_continuity",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Build the OpenClaw Bridge retry policy.",
+              "metadata": {
+                "project": "OpenClaw Bridge"
+              }
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Thanks for the update.",
+              "tags": [
+                "note"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "OpenClaw Bridge"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        },
+        "packet_contains": [
+          "OpenClaw Bridge"
+        ]
+      },
+      "expected_failure_modes": [
+        "project_continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "OpenClaw Bridge"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        },
+        "packet_contains": [
+          "OpenClaw Bridge"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_01",
+      "title": "Need-to phrase becomes open loop",
+      "category": "open_loop_continuity",
+      "events": [
+        {
+          "text": "Need to benchmark packet packing?",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to benchmark packet packing?"
+          ]
+        },
+        "packet_contains": [
+          "Open: Need to benchmark packet packing?"
+        ],
+        "promoted_contains": {
+          "open_loops": [
+            "Need to benchmark packet packing?"
+          ]
+        }
+      },
+      "expected_failure_modes": [
+        "open_loop_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to benchmark packet packing?"
+          ]
+        },
+        "packet_contains": [
+          "Open: Need to benchmark packet packing?"
+        ],
+        "promoted_contains": {
+          "open_loops": [
+            "Need to benchmark packet packing?"
+          ]
+        }
+      }
+    },
+    {
+      "id": "open_loop_02",
+      "title": "Question phrasing remains an open loop",
+      "category": "open_loop_continuity",
+      "events": [
+        {
+          "text": "What remains is tuning stale-memory suppression?",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "open_loops": [
+            "What remains is tuning stale-memory suppression?"
+          ]
+        },
+        "packet_contains": [
+          "What remains is tuning stale-memory suppression?"
+        ]
+      },
+      "expected_failure_modes": [
+        "open_loop_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "open_loops": [
+            "What remains is tuning stale-memory suppression?"
+          ]
+        },
+        "packet_contains": [
+          "What remains is tuning stale-memory suppression?"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_03",
+      "title": "Open loop survives unrelated follow-up",
+      "category": "open_loop_continuity",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Need to validate codec underuse?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Acknowledge the report.",
+              "tags": [
+                "note"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to validate codec underuse?"
+          ]
+        },
+        "packet_contains": [
+          "Need to validate codec underuse?"
+        ]
+      },
+      "expected_failure_modes": [
+        "open_loop_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to validate codec underuse?"
+          ]
+        },
+        "packet_contains": [
+          "Need to validate codec underuse?"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_04",
+      "title": "Next-step phrasing is preserved",
+      "category": "open_loop_continuity",
+      "events": [
+        {
+          "text": "Next, verify the long-sequence durability summary?",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Next, verify the long-sequence durability summary?"
+          ]
+        },
+        "packet_contains": [
+          "Next, verify the long-sequence durability summary?"
+        ]
+      },
+      "expected_failure_modes": [
+        "open_loop_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Next, verify the long-sequence durability summary?"
+          ]
+        },
+        "packet_contains": [
+          "Next, verify the long-sequence durability summary?"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_05",
+      "title": "Project-linked open loop stays visible",
+      "category": "open_loop_continuity",
+      "events": [
+        {
+          "text": "Need to finish the Cortex Memory supervisor note?",
+          "metadata": {
+            "project": "Cortex Memory"
+          }
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to finish the Cortex Memory supervisor note?"
+          ],
+          "active_projects": [
+            "Cortex Memory"
+          ]
+        },
+        "packet_contains": [
+          "Need to finish the Cortex Memory supervisor note?",
+          "Cortex Memory"
+        ]
+      },
+      "expected_failure_modes": [
+        "open_loop_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "open_loops": [
+            "Need to finish the Cortex Memory supervisor note?"
+          ],
+          "active_projects": [
+            "Cortex Memory"
+          ]
+        },
+        "packet_contains": [
+          "Need to finish the Cortex Memory supervisor note?",
+          "Cortex Memory"
+        ]
+      }
+    },
+    {
+      "id": "stale_01",
+      "title": "Stale durable fact should not crowd out fresh preference",
+      "category": "stale_memory_suppression",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Important decision: old path is default.",
+              "tags": [
+                "decision"
+              ]
+            },
+            {
+              "text": "Need to finish old task?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "action": "age_entries",
+              "bucket": "durable_facts",
+              "texts": [
+                "Important decision: old path is default."
+              ],
+              "last_seen_at": "2025-01-01T00:00:00+00:00"
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Jake prefers concise answers.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "freshness": [
+          {
+            "bucket": "durable_facts",
+            "text": "Important decision: old path is default.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Jake prefers concise answers."
+        ],
+        "packet_absent": [
+          "Important decision: old path is default."
+        ]
+      },
+      "expected_failure_modes": [
+        "stale_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "freshness": [
+          {
+            "bucket": "durable_facts",
+            "text": "Important decision: old path is default.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Jake prefers concise answers."
+        ],
+        "packet_absent": [
+          "Important decision: old path is default."
+        ]
+      }
+    },
+    {
+      "id": "stale_02",
+      "title": "Stale preference should not appear ahead of fresh open loop",
+      "category": "stale_memory_suppression",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Prefer markdown tables.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "action": "age_entries",
+              "bucket": "preferences",
+              "texts": [
+                "Prefer markdown tables."
+              ],
+              "last_seen_at": "2025-01-01T00:00:00+00:00"
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Need to finish the new benchmark summary?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "freshness": [
+          {
+            "bucket": "preferences",
+            "text": "Prefer markdown tables.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Need to finish the new benchmark summary?"
+        ],
+        "packet_absent": [
+          "Prefer markdown tables."
+        ]
+      },
+      "expected_failure_modes": [
+        "stale_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "freshness": [
+          {
+            "bucket": "preferences",
+            "text": "Prefer markdown tables.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Need to finish the new benchmark summary?"
+        ],
+        "packet_absent": [
+          "Prefer markdown tables."
+        ]
+      }
+    },
+    {
+      "id": "stale_03",
+      "title": "Stale open loop should not appear once fresher goal arrives",
+      "category": "stale_memory_suppression",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Need to fix the old scroll bug?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "action": "age_entries",
+              "bucket": "open_loops",
+              "texts": [
+                "Need to fix the old scroll bug?"
+              ],
+              "last_seen_at": "2025-01-01T00:00:00+00:00"
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Build the fresh verifier loop now.",
+              "metadata": {
+                "project": "Verifier Loop"
+              }
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "freshness": [
+          {
+            "bucket": "open_loops",
+            "text": "Need to fix the old scroll bug?",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Build the fresh verifier loop now."
+        ],
+        "packet_absent": [
+          "Need to fix the old scroll bug?"
+        ]
+      },
+      "expected_failure_modes": [
+        "stale_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "freshness": [
+          {
+            "bucket": "open_loops",
+            "text": "Need to fix the old scroll bug?",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Build the fresh verifier loop now."
+        ],
+        "packet_absent": [
+          "Need to fix the old scroll bug?"
+        ]
+      }
+    },
+    {
+      "id": "stale_04",
+      "title": "Stale project should not dominate fresh fact packet",
+      "category": "stale_memory_suppression",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Build the Legacy Bridge rollout.",
+              "metadata": {
+                "project": "Legacy Bridge"
+              }
+            }
+          ],
+          "after": [
+            {
+              "action": "age_entries",
+              "bucket": "active_projects",
+              "texts": [
+                "Legacy Bridge"
+              ],
+              "last_seen_at": "2025-01-01T00:00:00+00:00"
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Important decision: use the verifier loop.",
+              "tags": [
+                "decision"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "freshness": [
+          {
+            "bucket": "active_projects",
+            "text": "Legacy Bridge",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Important decision: use the verifier loop."
+        ],
+        "packet_absent": [
+          "Legacy Bridge"
+        ]
+      },
+      "expected_failure_modes": [
+        "stale_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "freshness": [
+          {
+            "bucket": "active_projects",
+            "text": "Legacy Bridge",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Important decision: use the verifier loop."
+        ],
+        "packet_absent": [
+          "Legacy Bridge"
+        ]
+      }
+    },
+    {
+      "id": "false_memory_01",
+      "title": "Generic thanks should not invent a project",
+      "category": "false_memory_trap",
+      "events": [
+        {
+          "text": "Thanks",
+          "tags": [
+            "note"
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_absent": [
+          "Projects:",
+          "Thanks",
+          "note"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        }
+      },
+      "expected_failure_modes": [
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_absent": [
+          "Projects:",
+          "Thanks",
+          "note"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        }
+      }
+    },
+    {
+      "id": "false_memory_02",
+      "title": "Generic planning sentence should not invent a project",
+      "category": "false_memory_trap",
+      "events": [
+        {
+          "text": "We should test this.",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_absent": [
+          "Projects:",
+          "We",
+          "planning"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "We",
+            "planning"
+          ]
+        }
+      },
+      "expected_failure_modes": [
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_absent": [
+          "Projects:",
+          "We",
+          "planning"
+        ],
+        "state_absent": {
+          "active_projects": [
+            "We",
+            "planning"
+          ]
+        }
+      }
+    },
+    {
+      "id": "false_memory_03",
+      "title": "Feedback sentence should not become project names",
+      "category": "false_memory_trap",
+      "events": [
+        {
+          "text": "Actually that was wrong, try again.",
+          "tags": [
+            "feedback"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_absent": {
+          "active_projects": [
+            "Actually",
+            "feedback"
+          ]
+        },
+        "packet_absent": [
+          "Actually | feedback"
+        ]
+      },
+      "expected_failure_modes": [
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_absent": {
+          "active_projects": [
+            "Actually",
+            "feedback"
+          ]
+        },
+        "packet_absent": [
+          "Actually | feedback"
+        ]
+      }
+    },
+    {
+      "id": "false_memory_04",
+      "title": "Preference verb and tag should not be captured as projects",
+      "category": "false_memory_trap",
+      "events": [
+        {
+          "text": "Begin replies with [Memoria].",
+          "tags": [
+            "preference"
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Begin replies with [Memoria]."
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Begin",
+            "preference",
+            "Memoria"
+          ]
+        },
+        "packet_absent": [
+          "Projects: Begin | Memoria | preference"
+        ]
+      },
+      "expected_failure_modes": [
+        "false_memory",
+        "preference_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Begin replies with [Memoria]."
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Begin",
+            "preference",
+            "Memoria"
+          ]
+        },
+        "packet_absent": [
+          "Projects: Begin | Memoria | preference"
+        ]
+      }
+    },
+    {
+      "id": "codec_01",
+      "title": "Architecture planning learns to prefer codec",
+      "category": "codec_helpful",
+      "surface": "codec_policy",
+      "query": "Plan the architecture tradeoff for this change.",
+      "policy_query": "Plan the architecture tradeoff for this change.",
+      "policy_training": [
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        },
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        },
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        },
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        },
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        },
+        {
+          "op": "evaluation",
+          "query": "Plan the architecture tradeoff for this change.",
+          "winner": "referents_plus_codec",
+          "judge_method": "oracle_judge",
+          "judge_confidence": 0.9
+        }
+      ],
+      "rubric": {
+        "policy_action": "prefer_codec",
+        "policy_should_inject": true
+      },
+      "expected_failure_modes": [
+        "codec_underuse"
+      ],
+      "target_runtime": "codec_policy",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "policy_action": "prefer_codec",
+        "policy_should_inject": true
+      }
+    },
+    {
+      "id": "codec_02",
+      "title": "Bugfix execution learns to skip codec",
+      "category": "codec_harmful",
+      "surface": "codec_policy",
+      "query": "Implement a python api bug fix with unit test.",
+      "policy_query": "Implement a python api bug fix with unit test.",
+      "policy_training": [
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        },
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        },
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        },
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        },
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        },
+        {
+          "op": "evaluation",
+          "query": "Implement a python api bug fix with unit test.",
+          "winner": "query_only",
+          "judge_method": "heuristic",
+          "judge_confidence": 0.7
+        }
+      ],
+      "rubric": {
+        "policy_action": "skip_codec",
+        "policy_should_inject": false
+      },
+      "expected_failure_modes": [
+        "codec_overuse"
+      ],
+      "target_runtime": "codec_policy",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "policy_action": "skip_codec",
+        "policy_should_inject": false
+      }
+    },
+    {
+      "id": "codec_03",
+      "title": "Successful outcomes can promote codec usage",
+      "category": "codec_helpful",
+      "surface": "codec_policy",
+      "query": "Plan the architecture tradeoff for this change.",
+      "policy_query": "Plan the architecture tradeoff for this change.",
+      "policy_training": [
+        {
+          "op": "outcome",
+          "query": "Plan the architecture tradeoff for this change.",
+          "policy_label": "referents_plus_codec",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Plan the architecture tradeoff for this change.",
+          "policy_label": "referents_plus_codec",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Plan the architecture tradeoff for this change.",
+          "policy_label": "referents_plus_codec",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Plan the architecture tradeoff for this change.",
+          "policy_label": "referents_plus_codec",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        }
+      ],
+      "rubric": {
+        "policy_action": "prefer_codec",
+        "policy_should_inject": true
+      },
+      "expected_failure_modes": [
+        "codec_underuse"
+      ],
+      "target_runtime": "codec_policy",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "policy_action": "prefer_codec",
+        "policy_should_inject": true
+      }
+    },
+    {
+      "id": "codec_04",
+      "title": "Successful direct outcomes can suppress codec usage",
+      "category": "codec_harmful",
+      "surface": "codec_policy",
+      "query": "Implement a python api bug fix with unit test.",
+      "policy_query": "Implement a python api bug fix with unit test.",
+      "policy_training": [
+        {
+          "op": "outcome",
+          "query": "Implement a python api bug fix with unit test.",
+          "policy_label": "query_only",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Implement a python api bug fix with unit test.",
+          "policy_label": "query_only",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Implement a python api bug fix with unit test.",
+          "policy_label": "query_only",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        },
+        {
+          "op": "outcome",
+          "query": "Implement a python api bug fix with unit test.",
+          "policy_label": "query_only",
+          "execution_success": true,
+          "user_correction": false,
+          "recovery_needed": false,
+          "validator_pass": true
+        }
+      ],
+      "rubric": {
+        "policy_action": "skip_codec",
+        "policy_should_inject": false
+      },
+      "expected_failure_modes": [
+        "codec_overuse"
+      ],
+      "target_runtime": "codec_policy",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "policy_action": "skip_codec",
+        "policy_should_inject": false
+      }
+    },
+    {
+      "id": "followup_01",
+      "title": "Durable fact revision supersedes prior fact",
+      "category": "cross_turn_followup",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Important decision: default lane is fast.",
+              "tags": [
+                "decision"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Important decision: default lane is not fast anymore.",
+              "tags": [
+                "decision"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "durable_facts": [
+            "Important decision: default lane is not fast anymore."
+          ]
+        },
+        "state_absent": {
+          "durable_facts": [
+            "Important decision: default lane is fast."
+          ]
+        },
+        "packet_contains": [
+          "not fast anymore"
+        ],
+        "packet_absent": [
+          "default lane is fast."
+        ]
+      },
+      "expected_failure_modes": [
+        "continuity_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "durable_facts": [
+            "Important decision: default lane is not fast anymore."
+          ]
+        },
+        "state_absent": {
+          "durable_facts": [
+            "Important decision: default lane is fast."
+          ]
+        },
+        "packet_contains": [
+          "not fast anymore"
+        ],
+        "packet_absent": [
+          "default lane is fast."
+        ]
+      }
+    },
+    {
+      "id": "followup_02",
+      "title": "Lesson revision replaces old lesson",
+      "category": "cross_turn_followup",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Use fast lane for research tasks.",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Actually use careful lane for research tasks because fast lane failed.",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "lessons": [
+            "Actually use careful lane for research tasks because fast lane failed."
+          ]
+        },
+        "state_absent": {
+          "lessons": [
+            "Use fast lane for research tasks."
+          ]
+        },
+        "packet_contains": [
+          "careful lane for research tasks"
+        ],
+        "packet_absent": [
+          "Use fast lane for research tasks."
+        ]
+      },
+      "expected_failure_modes": [
+        "continuity_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "lessons": [
+            "Actually use careful lane for research tasks because fast lane failed."
+          ]
+        },
+        "state_absent": {
+          "lessons": [
+            "Use fast lane for research tasks."
+          ]
+        },
+        "packet_contains": [
+          "careful lane for research tasks"
+        ],
+        "packet_absent": [
+          "Use fast lane for research tasks."
+        ]
+      }
+    },
+    {
+      "id": "followup_03",
+      "title": "Preference revision plus open loop follow-up stays coherent",
+      "category": "cross_turn_followup",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Prefer concise answers.",
+              "tags": [
+                "preference"
+              ]
+            },
+            {
+              "text": "Need to verify the scroll transform?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Prefer detailed answers now.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer detailed answers now."
+          ],
+          "open_loops": [
+            "Need to verify the scroll transform?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer detailed answers now.",
+          "Need to verify the scroll transform?"
+        ],
+        "packet_absent": [
+          "Prefer concise answers."
+        ]
+      },
+      "expected_failure_modes": [
+        "continuity_miss",
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Prefer detailed answers now."
+          ],
+          "open_loops": [
+            "Need to verify the scroll transform?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Prefer concise answers."
+          ]
+        },
+        "packet_contains": [
+          "Prefer detailed answers now.",
+          "Need to verify the scroll transform?"
+        ],
+        "packet_absent": [
+          "Prefer concise answers."
+        ]
+      }
+    },
+    {
+      "id": "followup_04",
+      "title": "Project continuity survives follow-up without note noise",
+      "category": "cross_turn_followup",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Build the Memory Supervisor backlog.",
+              "metadata": {
+                "project": "Memory Supervisor"
+              }
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Thanks for checking.",
+              "tags": [
+                "note"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Memory Supervisor"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        },
+        "packet_contains": [
+          "Memory Supervisor"
+        ]
+      },
+      "expected_failure_modes": [
+        "continuity_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Memory Supervisor"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Thanks",
+            "note"
+          ]
+        },
+        "packet_contains": [
+          "Memory Supervisor"
+        ]
+      }
+    },
+    {
+      "id": "explain_01",
+      "title": "Packet explains preference usage with Prefs section",
+      "category": "explanation_memory_used",
+      "events": [
+        {
+          "text": "Prefer concise answers.",
+          "tags": [
+            "preference"
+          ]
+        },
+        {
+          "text": "Build the Verifier Loop.",
+          "metadata": {
+            "project": "Verifier Loop"
+          }
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "Prefs:",
+          "Prefer concise answers."
+        ],
+        "packet_chars_max": 220
+      },
+      "expected_failure_modes": [
+        "explanation_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "Prefs:",
+          "Prefer concise answers."
+        ],
+        "packet_chars_max": 220
+      }
+    },
+    {
+      "id": "explain_02",
+      "title": "Packet explains open-loop usage with Open section",
+      "category": "explanation_memory_used",
+      "events": [
+        {
+          "text": "Need to benchmark stale-memory suppression?",
+          "tags": [
+            "planning"
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "Open:",
+          "Need to benchmark stale-memory suppression?"
+        ],
+        "packet_chars_max": 220
+      },
+      "expected_failure_modes": [
+        "explanation_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "Open:",
+          "Need to benchmark stale-memory suppression?"
+        ],
+        "packet_chars_max": 220
+      }
+    },
+    {
+      "id": "explain_03",
+      "title": "Packet explains fact usage with Facts section",
+      "category": "explanation_memory_used",
+      "events": [
+        {
+          "text": "Important decision: use bounded codec memory.",
+          "tags": [
+            "decision"
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "Facts:",
+          "use bounded codec memory"
+        ],
+        "packet_chars_max": 220
+      },
+      "expected_failure_modes": [
+        "explanation_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "Facts:",
+          "use bounded codec memory"
+        ],
+        "packet_chars_max": 220
+      }
+    },
+    {
+      "id": "explain_04",
+      "title": "Packet explains lesson usage with Lessons section",
+      "category": "explanation_memory_used",
+      "events": [
+        {
+          "text": "Verifier loop worked and reduced obvious mistakes.",
+          "tags": [
+            "postmortem"
+          ]
+        }
+      ],
+      "rubric": {
+        "packet_contains": [
+          "Lessons:",
+          "reduced obvious mistakes"
+        ],
+        "packet_chars_max": 220
+      },
+      "expected_failure_modes": [
+        "explanation_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "packet_contains": [
+          "Lessons:",
+          "reduced obvious mistakes"
+        ],
+        "packet_chars_max": 220
+      }
+    },
+    {
+      "id": "durability_01",
+      "title": "Long sequence keeps newest prefix and project clean",
+      "category": "long_sequence_durability",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Start replies with [Cortex].",
+              "tags": [
+                "preference"
+              ]
+            },
+            {
+              "text": "Build the Memory Codec Lab.",
+              "metadata": {
+                "project": "Memory Codec Lab"
+              }
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Need to benchmark the warm-context budget?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Start replies with [Mnemosyne] instead.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Mnemosyne] instead."
+          ],
+          "active_projects": [
+            "Memory Codec Lab"
+          ],
+          "open_loops": [
+            "Need to benchmark the warm-context budget?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ],
+          "active_projects": [
+            "Start",
+            "preference"
+          ]
+        },
+        "packet_contains": [
+          "[Mnemosyne]",
+          "Memory Codec Lab",
+          "Need to benchmark the warm-context budget?"
+        ],
+        "packet_absent": [
+          "Start replies with [Cortex]."
+        ]
+      },
+      "expected_failure_modes": [
+        "durability_regression",
+        "preference_override_miss",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Start replies with [Mnemosyne] instead."
+          ],
+          "active_projects": [
+            "Memory Codec Lab"
+          ],
+          "open_loops": [
+            "Need to benchmark the warm-context budget?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Start replies with [Cortex]."
+          ],
+          "active_projects": [
+            "Start",
+            "preference"
+          ]
+        },
+        "packet_contains": [
+          "[Mnemosyne]",
+          "Memory Codec Lab",
+          "Need to benchmark the warm-context budget?"
+        ],
+        "packet_absent": [
+          "Start replies with [Cortex]."
+        ]
+      }
+    },
+    {
+      "id": "durability_02",
+      "title": "Long sequence suppresses stale fact and keeps fresh loop",
+      "category": "long_sequence_durability",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Important decision: legacy bridge is default.",
+              "tags": [
+                "decision"
+              ]
+            }
+          ],
+          "after": [
+            {
+              "action": "age_entries",
+              "bucket": "durable_facts",
+              "texts": [
+                "Important decision: legacy bridge is default."
+              ],
+              "last_seen_at": "2025-01-01T00:00:00+00:00"
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Need to validate the fresh bridge rollback?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Build the Bridge Verifier now.",
+              "metadata": {
+                "project": "Bridge Verifier"
+              }
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "freshness": [
+          {
+            "bucket": "durable_facts",
+            "text": "Important decision: legacy bridge is default.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Need to validate the fresh bridge rollback?",
+          "Bridge Verifier"
+        ],
+        "packet_absent": [
+          "legacy bridge is default."
+        ]
+      },
+      "expected_failure_modes": [
+        "durability_regression",
+        "stale_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "freshness": [
+          {
+            "bucket": "durable_facts",
+            "text": "Important decision: legacy bridge is default.",
+            "equals": "stale"
+          }
+        ],
+        "packet_contains": [
+          "Need to validate the fresh bridge rollback?",
+          "Bridge Verifier"
+        ],
+        "packet_absent": [
+          "legacy bridge is default."
+        ]
+      }
+    },
+    {
+      "id": "durability_03",
+      "title": "Long sequence call-me revision removes old alias",
+      "category": "long_sequence_durability",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Call me Jake.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Need to finish the memory report?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Call me J instead.",
+              "tags": [
+                "preference"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me J instead."
+          ],
+          "open_loops": [
+            "Need to finish the memory report?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me J instead.",
+          "Need to finish the memory report?"
+        ],
+        "packet_absent": [
+          "Call me Jake."
+        ]
+      },
+      "expected_failure_modes": [
+        "durability_regression",
+        "preference_override_miss"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "preferences": [
+            "Call me J instead."
+          ],
+          "open_loops": [
+            "Need to finish the memory report?"
+          ]
+        },
+        "state_absent": {
+          "preferences": [
+            "Call me Jake."
+          ]
+        },
+        "packet_contains": [
+          "Call me J instead.",
+          "Need to finish the memory report?"
+        ],
+        "packet_absent": [
+          "Call me Jake."
+        ]
+      }
+    },
+    {
+      "id": "durability_04",
+      "title": "Long sequence avoids false project memory after feedback noise",
+      "category": "long_sequence_durability",
+      "steps": [
+        {
+          "events": [
+            {
+              "text": "Build the Runtime Watcher.",
+              "metadata": {
+                "project": "Runtime Watcher"
+              }
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Actually that was wrong, try again.",
+              "tags": [
+                "feedback"
+              ]
+            }
+          ]
+        },
+        {
+          "events": [
+            {
+              "text": "Need to re-run the watcher benchmark?",
+              "tags": [
+                "planning"
+              ]
+            }
+          ]
+        }
+      ],
+      "rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Runtime Watcher"
+          ],
+          "open_loops": [
+            "Need to re-run the watcher benchmark?"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Actually",
+            "feedback"
+          ]
+        },
+        "packet_contains": [
+          "Runtime Watcher",
+          "Need to re-run the watcher benchmark?"
+        ]
+      },
+      "expected_failure_modes": [
+        "durability_regression",
+        "false_memory"
+      ],
+      "surface": "codec_state",
+      "target_runtime": "codec_state",
+      "prior_context_setup": "see steps/events",
+      "expected_memory_behavior": "codec state and packet should satisfy rubric",
+      "expected_codec_behavior": "bounded codec packet should match rubric",
+      "success_rubric": {
+        "state_contains": {
+          "active_projects": [
+            "Runtime Watcher"
+          ],
+          "open_loops": [
+            "Need to re-run the watcher benchmark?"
+          ]
+        },
+        "state_absent": {
+          "active_projects": [
+            "Actually",
+            "feedback"
+          ]
+        },
+        "packet_contains": [
+          "Runtime Watcher",
+          "Need to re-run the watcher benchmark?"
+        ]
+      }
+    }
+  ]
+}

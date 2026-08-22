@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "aios.language-job.v1",
+  "id": "local.adapterStatus",
+  "name": "adapterStatus",
+  "title": "AIOS language job: local.adapterStatus",
+  "source": {
+    "language": "aios.language.v1",
+    "grammar": "job-block-v1",
+    "compiler": "aios.language.compiler.canonical.v1",
+    "path": "adapter-dogfood.aios",
+    "hash": "8d1e37da96bea219c2bf332ff0b5550a12914a6a50e6d0223f18ec02d7e0e308"
+  },
+  "boundary": {
+    "mode": "internal-only",
+    "tenantId": "openclaw-local",
+    "workspaceId": "openclaw",
+    "externalWrites": false
+  },
+  "capabilities": [
+    {
+      "name": "aios.status",
+      "scope": "read",
+      "boundary": "internal"
+    }
+  ],
+  "memory": [
+    {
+      "name": "adapterArtifacts",
+      "mode": "persistent",
+      "retention": "explicit"
+    }
+  ],
+  "syscalls": [
+    {
+      "id": "inspect",
+      "op": "kernel.artifact.status",
+      "args": {},
+      "reads": [
+        "adapterArtifacts"
+      ],
+      "writes": [],
+      "recovery": "halt"
+    }
+  ],
+  "verifierContracts": [
+    "status exists"
+  ],
+  "truthBoundary": {
+    "required": true,
+    "claims": [
+      {
+        "name": "adapterState",
+        "source": "artifact-root",
+        "confidence": "observed"
+      }
+    ]
+  },
+  "recovery": {
+    "strategy": "retain_artifacts",
+    "target": null,
+    "stepRecovery": [
+      {
+        "step": "inspect",
+        "action": "halt"
+      }
+    ]
+  },
+  "handoff": {
+    "providers": [
+      "kernel"
+    ],
+    "external": false,
+    "lifecycle": {
+      "state": "draft",
+      "settings": {
+        "requestedLifecycle": "draft",
+        "requestedScheduling": "manual",
+        "effectiveSchedule": "manual",
+        "enabled": true,
+        "acceptanceRequired": false
+      },
+      "commandControls": {
+        "enabled": [
+          "preview",
+          "acceptPreview",
+          "enableWorkflow",
+          "inspectProviderContract"
+        ],
+        "disabled": [
+          "scheduleWorkflow"
+        ]
+      },
+      "schedule": {
+        "mode": "manual",
+        "queue": "operator",
+        "reason": "Workflow can be scheduled using current lifecycle settings."
+      },
+      "nextAction": {
+        "id": "schedule-workflow",
+        "label": "Schedule workflow",
+        "missing": []
+      },
+      "blockedReasons": [],
+      "provider": {
+        "mailchimp": null,
+        "contracts": [
+          {
+            "provider": "kernel",
+            "service": "local",
+            "external": false,
+            "operations": [
+              "artifact.status"
+            ],
+            "requiredScopes": [],
+            "capabilityNames": [],
+            "memoryWrites": [],
+            "handoffStages": [
+              "compile",
+              "schedule"
+            ],
+            "negotiation": {
+              "status": "ready",
+              "requiresCredential": false,
+              "adapterCount": 1
+            }
+          }
+        ]
+      }
+    }
+  }
+}

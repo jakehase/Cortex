@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.research_reproduction_task.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "campaignId",
+    "candidateJobId",
+    "candidateSessionId",
+    "candidatePromptSha256",
+    "fixtureOnly",
+    "approvedResearchRuntime",
+    "approvedResearchRuntimeSha256",
+    "sourceBundle",
+    "sourceBundleSha256",
+    "environment",
+    "environmentDigest",
+    "command",
+    "commandDigest",
+    "outputPaths",
+    "resultPath",
+    "timeoutSeconds"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.research_reproduction_task.v1" },
+    "campaignId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$" },
+    "candidateJobId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$" },
+    "candidateSessionId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$" },
+    "candidatePromptSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "fixtureOnly": { "type": "boolean" },
+    "approvedResearchRuntime": {
+      "oneOf": [
+        { "$ref": "approved-research-runtime.schema.json" },
+        { "type": "null" }
+      ]
+    },
+    "approvedResearchRuntimeSha256": {
+      "oneOf": [
+        { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "sourceBundle": { "$ref": "research-source-bundle.schema.json" },
+    "sourceBundleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "environment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "executionKind", "containerRuntime", "imageReference", "imageDigest", "imageId",
+            "lockDigest", "immutable", "networkDisabled"
+          ],
+          "properties": {
+            "executionKind": { "const": "container" },
+            "containerRuntime": { "const": "docker" },
+            "imageReference": {
+              "type": "string",
+              "pattern": "^.+@sha256:[0-9a-f]{64}$"
+            },
+            "imageDigest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "imageId": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "lockDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "immutable": { "const": true },
+            "networkDisabled": { "const": true }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "executionKind": { "const": "host_fixture" },
+            "lockDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "immutable": { "const": true },
+            "networkDisabled": { "const": true },
+            "runtime": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "method": { "type": "string", "minLength": 1, "maxLength": 256 }
+          },
+          "required": [
+            "executionKind", "lockDigest", "immutable", "networkDisabled"
+          ]
+        }
+      ]
+    },
+    "environmentDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "commandDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "outputPaths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*//)(?!.*\\./)(?!.*\\.$)(?!.*\\/$)[A-Za-z0-9._/-]+$"
+      }
+    },
+    "resultPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)(?!.*//)(?!.*\\./)(?!.*\\.$)(?!.*\\/$)[A-Za-z0-9._/-]+$"
+    },
+    "timeoutSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "fixtureOnly": { "const": true } },
+        "required": ["fixtureOnly"]
+      },
+      "then": {
+        "properties": {
+          "approvedResearchRuntime": { "type": "null" },
+          "approvedResearchRuntimeSha256": { "type": "null" },
+          "environment": {
+            "properties": { "executionKind": { "const": "host_fixture" } },
+            "required": ["executionKind"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "approvedResearchRuntime": {
+            "$ref": "approved-research-runtime.schema.json"
+          },
+          "approvedResearchRuntimeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "environment": {
+            "properties": { "executionKind": { "const": "container" } },
+            "required": ["executionKind"]
+          }
+        }
+      }
+    }
+  ]
+}

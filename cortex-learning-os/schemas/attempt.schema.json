@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.attempt.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "attemptId",
+    "runId",
+    "capsuleId",
+    "examId",
+    "itemId",
+    "promptDigest",
+    "answer",
+    "answerSource",
+    "toolsUsed",
+    "startedAt",
+    "completedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.attempt.v0"
+    }
+  },
+  "additionalProperties": true
+}

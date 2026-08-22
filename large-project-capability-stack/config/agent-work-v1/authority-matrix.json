@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "clawd.agent_work.authority_matrix.v1",
+  "generatedAt": "2026-07-10T06:00:00.000Z",
+  "truthBoundary": "One component owns each decision. Contributors may supply evidence but may not independently override the authority.",
+  "decisions": [
+    {
+      "id": "objective_grounding",
+      "authority": "cortex",
+      "authorityRule": "Cortex binds anchor, target, fidelity, scope, implementation surface, stop condition, permissions, and requested claims before compilation.",
+      "contributors": ["openclaw", "packages/cortex-agent-work-adapter"],
+      "currentDuplicateLocations": ["packages/agent-work-dsl", "packages/full-parity-engine"],
+      "migrationPhase": 4
+    },
+    {
+      "id": "contract_validation",
+      "authority": "packages/canonical-agent-work",
+      "authorityRule": "The canonical facade validates the complete cross-contract bundle and fails closed before admission.",
+      "contributors": ["packages/agent-work-dsl", "packages/full-parity-engine"],
+      "currentDuplicateLocations": ["packages/agent-work-dsl", "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs"],
+      "migrationPhase": 1
+    },
+    {
+      "id": "run_admission",
+      "authority": "packages/canonical-agent-work",
+      "authorityRule": "Only the canonical facade may convert a compiled plan into an admitted run after policy, approval, placement, and budget checks.",
+      "contributors": ["cortex", "packages/agent-work-runtime"],
+      "currentDuplicateLocations": ["packages/synthetic-labor-os", "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs"],
+      "migrationPhase": 2
+    },
+    {
+      "id": "inventory_truth",
+      "authority": "packages/full-parity-engine",
+      "authorityRule": "Full Parity Engine owns reference, implementation, negative-space, parity, and verifier inventory truth for the bound objective.",
+      "contributors": ["packages/objective-surface-decomposer", "cortex_structural_memory", "project_adapters"],
+      "currentDuplicateLocations": ["packages/objective-surface-decomposer", "benchmark-specific surface catalogs"],
+      "migrationPhase": 4
+    },
+    {
+      "id": "work_graph_compilation",
+      "authority": "packages/full-parity-engine",
+      "authorityRule": "Full Parity Engine emits objective-backed executable work; the scheduler may order it but may not invent objective credit.",
+      "contributors": ["packages/objective-surface-decomposer", "packages/multi-agent-orchestrator"],
+      "currentDuplicateLocations": ["packages/agent-work-dsl", "packages/objective-surface-decomposer", "apps/system-benchmark/run-agent-work-objective-controller.mjs"],
+      "migrationPhase": 4
+    },
+    {
+      "id": "scheduling",
+      "authority": "packages/multi-agent-orchestrator",
+      "authorityRule": "The scheduler selects dependency-ready, collision-safe tasks within budget and backpressure limits.",
+      "contributors": ["packages/agent-work-runtime", "packages/full-parity-engine"],
+      "currentDuplicateLocations": ["finite benchmark runner", "continuous workload controller"],
+      "migrationPhase": 5
+    },
+    {
+      "id": "lease_fencing",
+      "authority": "packages/agent-work-runtime",
+      "authorityRule": "The durable runtime allocates leases and monotonic fencing tokens; no worker or scheduler-local cache may override them.",
+      "contributors": ["packages/multi-agent-orchestrator"],
+      "currentDuplicateLocations": ["packages/multi-agent-orchestrator", "packages/synthetic-labor-os"],
+      "migrationPhase": 3
+    },
+    {
+      "id": "worker_execution",
+      "authority": "packages/agent-work-worker-adapters",
+      "authorityRule": "A versioned worker adapter owns process/provider invocation and evidence capture; it cannot admit its own patch.",
+      "contributors": ["codex", "packages/agent-work-runtime"],
+      "currentDuplicateLocations": ["apps/system-benchmark/codex-creative-worker.mjs", "apps/system-benchmark/live-transfer-worker.mjs"],
+      "migrationPhase": 5
+    },
+    {
+      "id": "patch_admission",
+      "authority": "packages/multi-agent-orchestrator",
+      "authorityRule": "The staged merge lane owns lease, path, provenance, baseline, conflict, semantic, and required-verifier admission.",
+      "contributors": ["packages/proof-carrying-claim-ledger", "packages/agent-work-verifier"],
+      "currentDuplicateLocations": ["finite benchmark runner", "continuous workload controller"],
+      "migrationPhase": 5
+    },
+    {
+      "id": "independent_verification",
+      "authority": "packages/agent-work-verifier",
+      "authorityRule": "The verifier service evaluates immutable staged source and writes digest-bound evidence without product-write authority.",
+      "contributors": ["project_verifiers", "packages/full-parity-engine"],
+      "currentDuplicateLocations": ["apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs", "project-specific scripts"],
+      "migrationPhase": 6
+    },
+    {
+      "id": "continuation_decision",
+      "authority": "packages/orchestrator-run-state",
+      "authorityRule": "The run-state truth projector decides wait, continue, replan, stop green, or stop blocked from durable evidence.",
+      "contributors": ["packages/orchestration-autonomy", "packages/full-parity-engine"],
+      "currentDuplicateLocations": ["packages/orchestration-autonomy", "apps/system-benchmark/run-agent-work-objective-controller.mjs", "persistent project runners"],
+      "migrationPhase": 3
+    },
+    {
+      "id": "terminal_truth",
+      "authority": "packages/orchestrator-run-state",
+      "authorityRule": "Only the run-state truth projector may declare terminal green, blocked, cancelled, or failed after contradiction checks.",
+      "contributors": ["packages/full-parity-engine", "packages/proof-carrying-claim-ledger", "packages/agent-work-verifier"],
+      "currentDuplicateLocations": ["finite benchmark runner", "objective controller", "packages/synthetic-labor-os"],
+      "migrationPhase": 3
+    },
+    {
+      "id": "claim_packet",
+      "authority": "packages/canonical-agent-work",
+      "authorityRule": "The canonical facade assembles exact allowed and rejected claims from terminal truth and immutable evidence; it cannot upgrade red evidence.",
+      "contributors": ["packages/proof-carrying-claim-ledger", "packages/full-parity-engine", "packages/agent-work-verifier"],
+      "currentDuplicateLocations": ["benchmark completion summaries", "packages/synthetic-labor-os"],
+      "migrationPhase": 6
+    },
+    {
+      "id": "notification_delivery",
+      "authority": "openclaw",
+      "authorityRule": "OpenClaw delivers sparse plan-decision, milestone, budget-risk, terminal-green, or terminal-blocker notifications without changing run truth.",
+      "contributors": ["packages/agent-work-runtime"],
+      "currentDuplicateLocations": ["benchmark notifiers", "watcher scripts"],
+      "migrationPhase": 7
+    }
+  ]
+}

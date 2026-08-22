@@ -1,0 +1,3040 @@
+{
+  "generatedAt": "2026-03-15T18:43:41.547Z",
+  "base": "http://127.0.0.1:18888",
+  "pass": 38,
+  "total": 38,
+  "allPass": true,
+  "results": [
+    {
+      "level": 1,
+      "name": "Kernel",
+      "path": "/kernel/status",
+      "http": 200,
+      "ok": true,
+      "summary": "online",
+      "body": {
+        "success": true,
+        "level": 1,
+        "name": "Kernel",
+        "status": "online",
+        "canonical_status": "/kernel/status",
+        "registry_version": "cortex.level-registry.v1",
+        "timestamp": "2026-03-15T18:43:41.165569Z",
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 2,
+      "name": "Ghost (Browser)",
+      "path": "/browser/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 2,
+        "name": "Ghost (Browser)",
+        "status": "active",
+        "capabilities": [
+          "web_search",
+          "web_browse",
+          "screenshot",
+          "temporal_web_twin",
+          "truth_arbitration",
+          "change_radar",
+          "evidence_notary",
+          "web_action_sandbox",
+          "counterfactual_web_sim"
+        ],
+        "engine": "playwright_chromium",
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 3,
+      "name": "Parser",
+      "path": "/parsers/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 3,
+        "name": "Parser",
+        "status": "active",
+        "capabilities": [
+          "python",
+          "pdf",
+          "javascript",
+          "directory",
+          "html_extraction"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 4,
+      "name": "Lab",
+      "path": "/lab/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 4,
+        "name": "Lab",
+        "status": "active",
+        "capabilities": [
+          "execute",
+          "transcend_plan",
+          "transcend_execute",
+          "proof_carrying_execution",
+          "counterfactual_runner",
+          "causal_debugger",
+          "voi_planner",
+          "verifier_escrow",
+          "adaptive_topology",
+          "semantic_delta_jit",
+          "program_market_auction",
+          "deterministic_replay_capsule",
+          "self_modeling_twin"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 5,
+      "name": "Oracle",
+      "path": "/oracle/status",
+      "http": 200,
+      "ok": true,
+      "summary": "online",
+      "body": {
+        "status": "online",
+        "alive_cortex_mode": {
+          "enabled": true,
+          "core_chain": [
+            37,
+            5,
+            21,
+            22,
+            26
+          ],
+          "hud_signature_enabled": true
+        },
+        "base_model": "unknown",
+        "default_model": "unknown",
+        "openclaw_model_label": "unknown (base_model via Cortex config)",
+        "fallback_local_model": "tinyllama",
+        "high_priority_path": "openclaw_local",
+        "bridge_ok": true,
+        "bridge_timeout_s": 12,
+        "hedge_enabled": true,
+        "hedge_delay_s": 1.8,
+        "hedge_delay_ultra_s": 1.2,
+        "route_stats": {
+          "openclaw": 0,
+          "bridge": 0,
+          "tinyllama": 0,
+          "frontend_local": 0,
+          "frontend_fallback": 0,
+          "total": 0,
+          "bridge_percent": 0
+        },
+        "frontend_contract": {
+          "applied": 0
+        },
+        "forecast_calibration": {
+          "enabled": true,
+          "path": "/app/logs/oracle_forecast_ledger.jsonl",
+          "resolved_count": 0,
+          "unresolved_count": 0,
+          "brier_mean": null
+        },
+        "policy": "Codex-majority with bridge/local fallback chain",
+        "local_error": null,
+        "bridge_error": null,
+        "bridge_cb": {
+          "fails": 0,
+          "open_until": 0,
+          "allows": true,
+          "threshold": 3,
+          "cooldown_s": 60
+        },
+        "openclaw_rate_limit": {
+          "active": false,
+          "until": 0,
+          "hits": 0
+        },
+        "openclaw_ok": true,
+        "openclaw_error": null,
+        "ollama_enabled": false,
+        "is_busy": false,
+        "models": [],
+        "success": true,
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L5 (Oracle)",
+        "activated_levels": [
+          {
+            "level": 5,
+            "name": "oracle",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 6,
+      "name": "Bard",
+      "path": "/bard/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 6,
+          "name": "The Bard",
+          "role": "Text-to-Speech",
+          "status": "active",
+          "selected_backend": "auto",
+          "effective_backend": "vibevoice",
+          "backends": {
+            "vibevoice": {
+              "reachable": true,
+              "enabled": true,
+              "url": "http://10.0.0.52:10300",
+              "service": {
+                "success": true,
+                "service": "vibevoice",
+                "model": "microsoft/VibeVoice-Realtime-0.5B",
+                "device": "cpu",
+                "dtype": "float32",
+                "attn": "sdpa",
+                "loaded": true,
+                "loading": false,
+                "load_error": null,
+                "default_voice": "en-Carter_man",
+                "voice_dir_exists": true,
+                "voices_available": [
+                  "de-Spk0_man",
+                  "de-Spk1_woman",
+                  "en-Carter_man",
+                  "en-Davis_man",
+                  "en-Emma_woman",
+                  "en-Frank_man",
+                  "en-Grace_woman",
+                  "en-Mike_man",
+                  "fr-Spk0_man",
+                  "fr-Spk1_woman",
+                  "in-Samuel_man",
+                  "it-Spk0_woman",
+                  "it-Spk1_man",
+                  "jp-Spk0_man",
+                  "jp-Spk1_woman",
+                  "kr-Spk0_woman",
+                  "kr-Spk1_man",
+                  "nl-Spk0_man",
+                  "nl-Spk1_woman",
+                  "pl-Spk0_man",
+                  "pl-Spk1_woman",
+                  "pt-Spk0_woman",
+                  "pt-Spk1_man",
+                  "sp-Spk0_woman",
+                  "sp-Spk1_man"
+                ],
+                "voices_count": 25,
+                "loaded_at": 1773541204.9376588,
+                "last_synth_error": null
+              }
+            },
+            "piper": {
+              "reachable": true,
+              "version": "piper-tts",
+              "voices_detected": [
+                "en_US-lessac-medium"
+              ]
+            }
+          },
+          "protocol": {
+            "vibevoice": "HTTP",
+            "piper": "Wyoming"
+          },
+          "timestamp": "2026-03-15T18:43:41.349323"
+        },
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 7,
+      "name": "Librarian",
+      "path": "/librarian/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 7,
+        "name": "Librarian",
+        "status": "active",
+        "capabilities": [
+          "embed",
+          "search",
+          "semantic_indexing",
+          "embed_novel",
+          "search_novel",
+          "novelty_reranking",
+          "robust_recall_fallback"
+        ],
+        "novelty_version": "l7l22.v1.2",
+        "embedding_health": {
+          "status": "ok",
+          "last_error": "",
+          "last_error_at": "",
+          "fallback_writes": 0,
+          "fallback_searches": 0
+        },
+        "fallback_store": "/app/cortex_server/chroma_db/librarian_fallback.jsonl",
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L7 (Librarian)",
+        "activated_levels": [
+          {
+            "level": 7,
+            "name": "librarian",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 8,
+      "name": "Cron",
+      "path": "/cron/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 8,
+        "name": "Cron",
+        "status": "active",
+        "scheduled_jobs": 0,
+        "job_policies": 0,
+        "triggered_last_24h": 0,
+        "trigger_errors_last_24h": 0,
+        "trigger_skipped_voi_last_24h": 0,
+        "trigger_held_escrow_last_24h": 0,
+        "triggered_total": 0,
+        "last_trigger_at": null,
+        "capabilities": [
+          "schedule",
+          "jobs",
+          "trigger",
+          "trigger_stats",
+          "cadence_twin",
+          "adaptive_topology",
+          "notary_packets",
+          "novelty_budget"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 9,
+      "name": "Architect",
+      "path": "/meta_conductor/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 36,
+        "name": "Conductor (Meta)",
+        "status": "active",
+        "total_levels": 38,
+        "levels": [
+          {
+            "level": 1,
+            "name": "Kernel",
+            "canonical_status": "/kernel/status",
+            "aliases": [
+              "/kernel/levels"
+            ]
+          },
+          {
+            "level": 2,
+            "name": "Ghost (Browser)",
+            "canonical_status": "/browser/status",
+            "aliases": []
+          },
+          {
+            "level": 3,
+            "name": "Parser",
+            "canonical_status": "/parsers/status",
+            "aliases": []
+          },
+          {
+            "level": 4,
+            "name": "Lab",
+            "canonical_status": "/lab/status",
+            "aliases": []
+          },
+          {
+            "level": 5,
+            "name": "Oracle",
+            "canonical_status": "/oracle/status",
+            "aliases": []
+          },
+          {
+            "level": 6,
+            "name": "Bard",
+            "canonical_status": "/bard/status",
+            "aliases": []
+          },
+          {
+            "level": 7,
+            "name": "Librarian",
+            "canonical_status": "/librarian/status",
+            "aliases": []
+          },
+          {
+            "level": 8,
+            "name": "Cron",
+            "canonical_status": "/cron/status",
+            "aliases": []
+          },
+          {
+            "level": 9,
+            "name": "Architect",
+            "canonical_status": "/meta_conductor/status",
+            "aliases": [
+              "/architect/status"
+            ]
+          },
+          {
+            "level": 10,
+            "name": "Listener",
+            "canonical_status": "/listener/status",
+            "aliases": []
+          },
+          {
+            "level": 11,
+            "name": "Catalyst",
+            "canonical_status": "/catalyst/status",
+            "aliases": []
+          },
+          {
+            "level": 12,
+            "name": "Hive/Darwin",
+            "canonical_status": "/hive/status",
+            "aliases": [
+              "/darwin/status"
+            ]
+          },
+          {
+            "level": 13,
+            "name": "Dreamer",
+            "canonical_status": "/dreamer/status",
+            "aliases": []
+          },
+          {
+            "level": 14,
+            "name": "Chronos (Night Shift)",
+            "canonical_status": "/night_shift/status",
+            "aliases": [
+              "/chronos/status"
+            ]
+          },
+          {
+            "level": 15,
+            "name": "Council",
+            "canonical_status": "/council/status",
+            "aliases": []
+          },
+          {
+            "level": 16,
+            "name": "Academy",
+            "canonical_status": "/academy/status",
+            "aliases": []
+          },
+          {
+            "level": 17,
+            "name": "Exoskeleton",
+            "canonical_status": "/tools/status",
+            "aliases": []
+          },
+          {
+            "level": 18,
+            "name": "Diplomat",
+            "canonical_status": "/diplomat/status",
+            "aliases": []
+          },
+          {
+            "level": 19,
+            "name": "Geneticist",
+            "canonical_status": "/geneticist/status",
+            "aliases": []
+          },
+          {
+            "level": 20,
+            "name": "Simulator",
+            "canonical_status": "/simulator/status",
+            "aliases": []
+          },
+          {
+            "level": 21,
+            "name": "Sentinel",
+            "canonical_status": "/sentinel/status",
+            "aliases": [
+              "/sentinel/scheduler/status"
+            ]
+          },
+          {
+            "level": 22,
+            "name": "Mnemosyne",
+            "canonical_status": "/knowledge/status",
+            "aliases": []
+          },
+          {
+            "level": 23,
+            "name": "Cartographer",
+            "canonical_status": "/mirror/status",
+            "aliases": []
+          },
+          {
+            "level": 24,
+            "name": "Nexus",
+            "canonical_status": "/nexus/status",
+            "aliases": [
+              "/nexus/context",
+              "/nexus/full"
+            ]
+          },
+          {
+            "level": 25,
+            "name": "Bridge",
+            "canonical_status": "/bridge/status",
+            "aliases": []
+          },
+          {
+            "level": 26,
+            "name": "Orchestrator",
+            "canonical_status": "/conductor/status",
+            "aliases": [
+              "/orchestrator/status"
+            ]
+          },
+          {
+            "level": 27,
+            "name": "Forge",
+            "canonical_status": "/forge/status",
+            "aliases": []
+          },
+          {
+            "level": 28,
+            "name": "Polyglot",
+            "canonical_status": "/polyglot/status",
+            "aliases": []
+          },
+          {
+            "level": 29,
+            "name": "Muse",
+            "canonical_status": "/muse/status",
+            "aliases": []
+          },
+          {
+            "level": 30,
+            "name": "Seer",
+            "canonical_status": "/seer/status",
+            "aliases": []
+          },
+          {
+            "level": 31,
+            "name": "Mediator",
+            "canonical_status": "/mediator/status",
+            "aliases": []
+          },
+          {
+            "level": 32,
+            "name": "Synthesist",
+            "canonical_status": "/synthesist_api/status",
+            "aliases": []
+          },
+          {
+            "level": 33,
+            "name": "Ethicist",
+            "canonical_status": "/ethicist/status",
+            "aliases": [],
+            "path": "/ethicist"
+          },
+          {
+            "level": 34,
+            "name": "Validator",
+            "canonical_status": "/validator/status",
+            "aliases": [],
+            "path": "/validator"
+          },
+          {
+            "level": 35,
+            "name": "Singularity",
+            "canonical_status": "/singularity/status",
+            "aliases": [],
+            "path": "/singularity"
+          },
+          {
+            "level": 36,
+            "name": "Conductor (Meta)",
+            "canonical_status": "/meta_conductor/status",
+            "aliases": [
+              "/conductor/status",
+              "/orchestrator/status"
+            ],
+            "path": "/meta_conductor"
+          },
+          {
+            "level": 37,
+            "name": "Awareness",
+            "canonical_status": "/awareness/status",
+            "aliases": [],
+            "path": "/awareness"
+          },
+          {
+            "level": 38,
+            "name": "Augmenter",
+            "canonical_status": "/augmenter/status",
+            "aliases": [],
+            "path": "/augmenter"
+          }
+        ],
+        "activation_metadata_available": true,
+        "activation_metadata_source": "meta_conductor",
+        "timestamp": "2026-03-15T18:43:41.355469Z",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "meta_conductor",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        },
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L36 (Conductor)",
+        "activated_levels": [
+          {
+            "level": 36,
+            "name": "conductor",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ]
+      }
+    },
+    {
+      "level": 10,
+      "name": "Listener",
+      "path": "/listener/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 10,
+          "name": "Listener",
+          "status": "active",
+          "stt_available": false,
+          "stt_reason": "Whisper is not installed on this system",
+          "text_analysis": true,
+          "text_analysis_via": "Oracle (cloud reasoning)",
+          "transcribe_requests": 0,
+          "analysis_requests": 0,
+          "analysis_successes": 0,
+          "capabilities": [
+            "audio_metadata_guidance",
+            "text_sentiment_analysis",
+            "text_summarization",
+            "action_item_extraction",
+            "key_point_extraction"
+          ],
+          "timestamp": "2026-03-15T18:43:41.357769"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 11,
+      "name": "Catalyst",
+      "path": "/catalyst/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 11,
+        "name": "Catalyst",
+        "status": "active",
+        "consciousness_integrated": true,
+        "event_subscribed": true,
+        "auto_optimize_enabled": true,
+        "optimization_count": 0,
+        "slow_response_count": 0,
+        "profile_history_size": 0,
+        "recent_analyses": 0,
+        "capabilities": [
+          "real_system_profiling",
+          "oracle_optimization",
+          "historical_tracking",
+          "psutil_metrics",
+          "performance_alerting",
+          "slow_response_profiling"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 12,
+      "name": "Hive/Darwin",
+      "path": "/hive/status",
+      "http": 200,
+      "ok": true,
+      "summary": true,
+      "body": {
+        "level": 12,
+        "name": "Hive",
+        "services": {
+          "oracle": "online",
+          "librarian": "online",
+          "celery": "online"
+        },
+        "all_online": true,
+        "novelty_features": {
+          "SAS": true,
+          "CBS": true,
+          "DFH": true,
+          "VEP": true,
+          "ATH": true,
+          "NSEB": true
+        },
+        "success": true,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 13,
+      "name": "Dreamer",
+      "path": "/dreamer/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 13,
+          "name": "The Dreamer",
+          "role": "Visionary System Analysis",
+          "status": "active",
+          "oracle_powered": true,
+          "consciousness_integrated": true,
+          "event_subscribed": true,
+          "auto_dream_enabled": true,
+          "dreams_generated": 0,
+          "idle_dreams": 0,
+          "has_latest": false,
+          "timestamp": "2026-03-15T18:43:41.439286"
+        },
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L13 (Dreamer)",
+        "activated_levels": [
+          {
+            "level": 13,
+            "name": "dreamer",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 14,
+      "name": "Chronos (Night Shift)",
+      "path": "/night_shift/status",
+      "http": 200,
+      "ok": true,
+      "summary": "running",
+      "body": {
+        "success": true,
+        "level": 14,
+        "name": "Chronos (Night Shift)",
+        "status": "running",
+        "last_run_date": null,
+        "next_scheduled_run": "2026-03-16T03:00:00",
+        "capabilities": [
+          "nightly_evolution_cycle",
+          "dream_gap_detection",
+          "council_review",
+          "skill_materialization",
+          "diplomat_briefing",
+          "geneticist_dna_evolution"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 15,
+      "name": "Council",
+      "path": "/council/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 15,
+          "name": "The Council",
+          "role": "Multi-Perspective Analysis",
+          "status": "active",
+          "oracle_powered": true,
+          "consciousness_integrated": true,
+          "deliberations_count": 1,
+          "oracle_successes": 1,
+          "oracle_failures": 0,
+          "oracle_consecutive_failures": 0,
+          "oracle_breaker_open": false,
+          "oracle_breaker_seconds_remaining": 0,
+          "oracle_breaker_threshold": 5,
+          "oracle_breaker_cooldown_s": 45,
+          "oracle_timeout_s": 24,
+          "seer_timeout_s": 1,
+          "review_timeout_s": 26,
+          "timestamp": "2026-03-15T18:43:41.441991"
+        },
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L15 (Council)",
+        "activated_levels": [
+          {
+            "level": 15,
+            "name": "council",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 16,
+      "name": "Academy",
+      "path": "/academy/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 16,
+        "name": "The Academy",
+        "status": "active",
+        "topics_learned": 0,
+        "knowledge_entries": 0,
+        "patterns_stored": 0,
+        "recent_topics": [],
+        "oracle_calls": 0,
+        "oracle_successes": 0,
+        "oracle_failures": 0,
+        "oracle_success_rate_pct": 0,
+        "oracle_consecutive_failures": 0,
+        "oracle_breaker_open": false,
+        "oracle_breaker_seconds_remaining": 0,
+        "last_oracle_error": null,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "avg_learn_latency_ms": 0,
+        "avg_teach_latency_ms": 0,
+        "degraded": false,
+        "capabilities": [
+          "oracle_learning_modules",
+          "knowledge_ingestion",
+          "pattern_extraction",
+          "assessment_generation",
+          "provenance_tracking",
+          "cache_acceleration",
+          "memory_indexing"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 17,
+      "name": "Exoskeleton",
+      "path": "/tools/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 17,
+        "name": "Exoskeleton/Tools",
+        "status": "active",
+        "tools": {
+          "ffmpeg": true,
+          "git": true,
+          "docker": true
+        },
+        "git_identity": {
+          "user_name": null,
+          "user_email": null,
+          "configured": false
+        },
+        "capabilities": [
+          "ffmpeg",
+          "git",
+          "docker",
+          "tool_preflight"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 18,
+      "name": "Diplomat",
+      "path": "/diplomat/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 18,
+          "name": "The Diplomat",
+          "status": "active",
+          "messages_sent": 0,
+          "successful": 0,
+          "failed": 0,
+          "success_rate": 0,
+          "avg_latency_ms": 0,
+          "rejected_contracts": 0,
+          "recent_failed_last_20": 0,
+          "last_error": null,
+          "protocols_supported": [
+            "http",
+            "https"
+          ],
+          "capabilities": [
+            "send",
+            "broadcast",
+            "delivery_log",
+            "contract_validation"
+          ],
+          "timestamp": "2026-03-15T18:43:41.448911"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 19,
+      "name": "Geneticist",
+      "path": "/geneticist/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 19,
+          "name": "The Geneticist",
+          "status": "active",
+          "mutations_performed": 0,
+          "evolutions_run": 0,
+          "architect_handoffs": 0,
+          "last_mutation_ts": null,
+          "last_evolution_ts": null,
+          "recent_mutations": [],
+          "rejected_contracts": 0,
+          "last_error": null,
+          "oracle_consecutive_failures": 0,
+          "oracle_breaker_open": false,
+          "oracle_breaker_seconds_remaining": 0,
+          "powered_by": "L38 Augmenter -> L5 Oracle (OpenClaw baseline)",
+          "mutation_types": [
+            "optimize",
+            "error_handling",
+            "naming",
+            "extract_function",
+            "type_hints",
+            "simplify"
+          ]
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 20,
+      "name": "Simulator",
+      "path": "/simulator/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 20,
+          "name": "The Simulator",
+          "status": "active",
+          "scenarios_run": 0,
+          "scenarios_in_history": 0,
+          "capabilities": [
+            "scenario_simulation",
+            "outcome_analysis",
+            "risk_assessment"
+          ]
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 21,
+      "name": "Sentinel",
+      "path": "/sentinel/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 21,
+        "name": "Sentinel",
+        "status": "active",
+        "severity": "healthy",
+        "scheduler_running": true,
+        "scan_interval_seconds": 1800,
+        "active_watchers": 0,
+        "scans_completed": 2,
+        "self_heal_events": 0,
+        "capabilities": [
+          "endpoint_watching",
+          "manual_scan",
+          "scheduled_scan",
+          "scan_history",
+          "self_heal"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 22,
+      "name": "Mnemosyne",
+      "path": "/knowledge/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "active",
+        "capabilities": [
+          "knowledge_graph",
+          "semantic_search",
+          "memory_persistence"
+        ],
+        "memory_count": 4,
+        "canonical_endpoint": "/knowledge/status",
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L22 (Mnemosyne)",
+        "activated_levels": [
+          {
+            "level": 22,
+            "name": "mnemosyne",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 23,
+      "name": "Cartographer",
+      "path": "/mirror/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 23,
+          "name": "Cartographer",
+          "status": "active",
+          "total_levels": 38,
+          "probe_mode": "fast",
+          "timestamp": "2026-03-15T18:43:41.455576"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 24,
+      "name": "Nexus",
+      "path": "/nexus/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 24,
+        "name": "Nexus",
+        "status": "active",
+        "capabilities": [
+          "semantic_routing",
+          "level_coordination",
+          "context_persistence",
+          "bandit_scheduling",
+          "latency_governor",
+          "outcome_tuning"
+        ],
+        "always_on_levels": [
+          5,
+          17,
+          18,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          27,
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L24 (Nexus)",
+        "activated_levels": [
+          {
+            "level": 24,
+            "name": "nexus",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 25,
+      "name": "Bridge",
+      "path": "/bridge/status",
+      "http": 200,
+      "ok": true,
+      "summary": "disabled",
+      "body": {
+        "success": true,
+        "level": 25,
+        "name": "Bridge",
+        "status": "disabled",
+        "enabled": false,
+        "registered_connections": 0,
+        "persist_enabled": false,
+        "allowlist": [],
+        "caps": {
+          "timeout_min_s": 1,
+          "timeout_max_s": 12,
+          "rate_window_s": 60,
+          "rate_max": 30
+        },
+        "capabilities": [
+          "external_ai_federation",
+          "endpoint_registration",
+          "query_relay",
+          "multi_agent_communication",
+          "allowlist",
+          "token_auth",
+          "rate_limit"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 26,
+      "name": "Orchestrator",
+      "path": "/conductor/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 26,
+          "name": "The Orchestrator",
+          "role": "Workflow Orchestration",
+          "description": "Coordinates multi-level execution workflows (NOT L36 Meta-Conductor)",
+          "status": "active",
+          "workflows_created": 0,
+          "workflows_executed": 0,
+          "workflows_stored": 0,
+          "always_on": true,
+          "timestamp": "2026-03-15T18:43:41.459023"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L36 (Conductor)",
+        "activated_levels": [
+          {
+            "level": 36,
+            "name": "conductor",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 27,
+      "name": "Forge",
+      "path": "/forge/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 27,
+        "name": "Forge",
+        "status": "active",
+        "templates_available": 4,
+        "proposals": {
+          "pending": 0,
+          "approved": 0,
+          "committed": 0,
+          "total": 0
+        },
+        "capabilities": [
+          "auto_module_generation",
+          "skeleton_router_creation",
+          "template_selection",
+          "code_preview",
+          "propose_approve_commit",
+          "diff_preview",
+          "allowlist_disk_write"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": true
+        }
+      }
+    },
+    {
+      "level": 28,
+      "name": "Polyglot",
+      "path": "/polyglot/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 28,
+        "name": "Polyglot",
+        "status": "active",
+        "total_requests": 0,
+        "translations_count": 0,
+        "detections_count": 0,
+        "timeout_count": 0,
+        "oracle_error_count": 0,
+        "last_error": null,
+        "last_error_at": null,
+        "limits": {
+          "max_text_chars": 5000,
+          "max_batch_items": 10,
+          "oracle_timeout_s": 1.25
+        },
+        "languages": [
+          "ar",
+          "de",
+          "en",
+          "es",
+          "fr",
+          "it",
+          "ja",
+          "ko",
+          "pt",
+          "ru",
+          "zh"
+        ],
+        "capabilities": [
+          "translation",
+          "language_detection",
+          "languages",
+          "batch_translation"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 29,
+      "name": "Muse",
+      "path": "/muse/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 29,
+        "name": "Muse",
+        "status": "active",
+        "creations_count": 0,
+        "errors_count": 0,
+        "last_error": null,
+        "last_oracle_ms": null,
+        "limits": {
+          "max_topic_chars": 500,
+          "max_problem_chars": 1200,
+          "oracle_deadline_s": 18
+        },
+        "capabilities": [
+          "creative_writing",
+          "ideation",
+          "brainstorming"
+        ],
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L29 (Muse)",
+        "activated_levels": [
+          {
+            "level": 29,
+            "name": "muse",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 30,
+      "name": "Seer",
+      "path": "/seer/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 30,
+        "name": "Seer",
+        "status": "active",
+        "predictions_count": 0,
+        "capabilities": [
+          "prediction",
+          "trend_analysis",
+          "forecasting"
+        ],
+        "deadline_s": 18,
+        "http_timeout_s": 17,
+        "oracle_max_attempts": 2,
+        "retry_backoff_s": 0.35,
+        "allow_degraded_fallback": true,
+        "debug_raw_response": false,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 31,
+      "name": "Mediator",
+      "path": "/mediator/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 31,
+        "name": "Mediator",
+        "status": "active",
+        "mediations_count": 0,
+        "capabilities": [
+          "conflict_resolution",
+          "mediation",
+          "negotiation"
+        ],
+        "deadline_s": 16,
+        "http_timeout_s": 14,
+        "allow_degraded_fallback": true,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 32,
+      "name": "Synthesist",
+      "path": "/synthesist_api/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 32,
+        "name": "Synthesist",
+        "status": "active",
+        "insights_generated": 2,
+        "patterns_discovered": 1,
+        "levels_integrated": 34,
+        "contract_version": "v1",
+        "mode": "full",
+        "rejected_payloads": 0,
+        "capabilities": [
+          "cross_level_synthesis",
+          "knowledge_ingestion",
+          "meta_pattern_discovery",
+          "insight_generation"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 33,
+      "name": "Ethicist",
+      "path": "/ethicist/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 33,
+          "name": "The Ethicist",
+          "status": "active",
+          "consciousness_integrated": true,
+          "evaluations": 0,
+          "reviews": 0,
+          "approvals": 0,
+          "cautions": 0,
+          "rejections": 0,
+          "last_evaluation_ts": null,
+          "approval_rate": 0,
+          "powered_by": "L5 Oracle (cloud reasoning)"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 34,
+      "name": "Validator",
+      "path": "/validator/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 34,
+          "name": "The Validator",
+          "status": "active",
+          "strict_mode_enforced": true,
+          "validations": 0,
+          "failures": 0,
+          "unknown_schema_failures": 0,
+          "type_mismatch_failures": 0,
+          "success_rate": 1,
+          "available_schemas": [
+            "user_request",
+            "api_response",
+            "event_log"
+          ]
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 35,
+      "name": "Singularity",
+      "path": "/singularity/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 35,
+          "name": "The Singularity",
+          "status": "active",
+          "consciousness_integrated": true,
+          "analyses_run": 0,
+          "improvements_suggested": 0,
+          "improvements_applied": 0,
+          "last_analysis_ts": null,
+          "oracle_successes": 0,
+          "oracle_failures": 0,
+          "oracle_attempts": 0,
+          "oracle_reliability": 0,
+          "oracle_recoveries": 0,
+          "oracle_last_error": null,
+          "oracle_consecutive_failures": 0,
+          "oracle_breaker_open": false,
+          "oracle_breaker_seconds_remaining": 0,
+          "quality_retry_attempts": 0,
+          "quality_retry_improved": 0,
+          "transient_retry_attempts": 0,
+          "transient_retry_improved": 0,
+          "async_jobs_active": 0,
+          "powered_by": "L5 Oracle (cloud reasoning)",
+          "capabilities": [
+            "code_analysis",
+            "code_improvement",
+            "self_improvement_tracking",
+            "validator_chain",
+            "async_analysis_jobs"
+          ]
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 36,
+      "name": "Conductor (Meta)",
+      "path": "/meta_conductor/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 36,
+        "name": "Conductor (Meta)",
+        "status": "active",
+        "total_levels": 38,
+        "levels": [
+          {
+            "level": 1,
+            "name": "Kernel",
+            "canonical_status": "/kernel/status",
+            "aliases": [
+              "/kernel/levels"
+            ]
+          },
+          {
+            "level": 2,
+            "name": "Ghost (Browser)",
+            "canonical_status": "/browser/status",
+            "aliases": []
+          },
+          {
+            "level": 3,
+            "name": "Parser",
+            "canonical_status": "/parsers/status",
+            "aliases": []
+          },
+          {
+            "level": 4,
+            "name": "Lab",
+            "canonical_status": "/lab/status",
+            "aliases": []
+          },
+          {
+            "level": 5,
+            "name": "Oracle",
+            "canonical_status": "/oracle/status",
+            "aliases": []
+          },
+          {
+            "level": 6,
+            "name": "Bard",
+            "canonical_status": "/bard/status",
+            "aliases": []
+          },
+          {
+            "level": 7,
+            "name": "Librarian",
+            "canonical_status": "/librarian/status",
+            "aliases": []
+          },
+          {
+            "level": 8,
+            "name": "Cron",
+            "canonical_status": "/cron/status",
+            "aliases": []
+          },
+          {
+            "level": 9,
+            "name": "Architect",
+            "canonical_status": "/meta_conductor/status",
+            "aliases": [
+              "/architect/status"
+            ]
+          },
+          {
+            "level": 10,
+            "name": "Listener",
+            "canonical_status": "/listener/status",
+            "aliases": []
+          },
+          {
+            "level": 11,
+            "name": "Catalyst",
+            "canonical_status": "/catalyst/status",
+            "aliases": []
+          },
+          {
+            "level": 12,
+            "name": "Hive/Darwin",
+            "canonical_status": "/hive/status",
+            "aliases": [
+              "/darwin/status"
+            ]
+          },
+          {
+            "level": 13,
+            "name": "Dreamer",
+            "canonical_status": "/dreamer/status",
+            "aliases": []
+          },
+          {
+            "level": 14,
+            "name": "Chronos (Night Shift)",
+            "canonical_status": "/night_shift/status",
+            "aliases": [
+              "/chronos/status"
+            ]
+          },
+          {
+            "level": 15,
+            "name": "Council",
+            "canonical_status": "/council/status",
+            "aliases": []
+          },
+          {
+            "level": 16,
+            "name": "Academy",
+            "canonical_status": "/academy/status",
+            "aliases": []
+          },
+          {
+            "level": 17,
+            "name": "Exoskeleton",
+            "canonical_status": "/tools/status",
+            "aliases": []
+          },
+          {
+            "level": 18,
+            "name": "Diplomat",
+            "canonical_status": "/diplomat/status",
+            "aliases": []
+          },
+          {
+            "level": 19,
+            "name": "Geneticist",
+            "canonical_status": "/geneticist/status",
+            "aliases": []
+          },
+          {
+            "level": 20,
+            "name": "Simulator",
+            "canonical_status": "/simulator/status",
+            "aliases": []
+          },
+          {
+            "level": 21,
+            "name": "Sentinel",
+            "canonical_status": "/sentinel/status",
+            "aliases": [
+              "/sentinel/scheduler/status"
+            ]
+          },
+          {
+            "level": 22,
+            "name": "Mnemosyne",
+            "canonical_status": "/knowledge/status",
+            "aliases": []
+          },
+          {
+            "level": 23,
+            "name": "Cartographer",
+            "canonical_status": "/mirror/status",
+            "aliases": []
+          },
+          {
+            "level": 24,
+            "name": "Nexus",
+            "canonical_status": "/nexus/status",
+            "aliases": [
+              "/nexus/context",
+              "/nexus/full"
+            ]
+          },
+          {
+            "level": 25,
+            "name": "Bridge",
+            "canonical_status": "/bridge/status",
+            "aliases": []
+          },
+          {
+            "level": 26,
+            "name": "Orchestrator",
+            "canonical_status": "/conductor/status",
+            "aliases": [
+              "/orchestrator/status"
+            ]
+          },
+          {
+            "level": 27,
+            "name": "Forge",
+            "canonical_status": "/forge/status",
+            "aliases": []
+          },
+          {
+            "level": 28,
+            "name": "Polyglot",
+            "canonical_status": "/polyglot/status",
+            "aliases": []
+          },
+          {
+            "level": 29,
+            "name": "Muse",
+            "canonical_status": "/muse/status",
+            "aliases": []
+          },
+          {
+            "level": 30,
+            "name": "Seer",
+            "canonical_status": "/seer/status",
+            "aliases": []
+          },
+          {
+            "level": 31,
+            "name": "Mediator",
+            "canonical_status": "/mediator/status",
+            "aliases": []
+          },
+          {
+            "level": 32,
+            "name": "Synthesist",
+            "canonical_status": "/synthesist_api/status",
+            "aliases": []
+          },
+          {
+            "level": 33,
+            "name": "Ethicist",
+            "canonical_status": "/ethicist/status",
+            "aliases": [],
+            "path": "/ethicist"
+          },
+          {
+            "level": 34,
+            "name": "Validator",
+            "canonical_status": "/validator/status",
+            "aliases": [],
+            "path": "/validator"
+          },
+          {
+            "level": 35,
+            "name": "Singularity",
+            "canonical_status": "/singularity/status",
+            "aliases": [],
+            "path": "/singularity"
+          },
+          {
+            "level": 36,
+            "name": "Conductor (Meta)",
+            "canonical_status": "/meta_conductor/status",
+            "aliases": [
+              "/conductor/status",
+              "/orchestrator/status"
+            ],
+            "path": "/meta_conductor"
+          },
+          {
+            "level": 37,
+            "name": "Awareness",
+            "canonical_status": "/awareness/status",
+            "aliases": [],
+            "path": "/awareness"
+          },
+          {
+            "level": 38,
+            "name": "Augmenter",
+            "canonical_status": "/augmenter/status",
+            "aliases": [],
+            "path": "/augmenter"
+          }
+        ],
+        "activation_metadata_available": true,
+        "activation_metadata_source": "meta_conductor",
+        "timestamp": "2026-03-15T18:43:41.470372Z",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "meta_conductor",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        },
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L36 (Conductor)",
+        "activated_levels": [
+          {
+            "level": 36,
+            "name": "conductor",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ]
+      }
+    },
+    {
+      "level": 37,
+      "name": "Awareness",
+      "path": "/awareness/status",
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 37,
+        "name": "Awareness v2",
+        "status": "active",
+        "loop_running": true,
+        "tick_interval": 120,
+        "version": "2.0",
+        "meta": {
+          "total_ticks": 20,
+          "total_events_observed": 40,
+          "total_predictions_made": 22,
+          "predictions_correct": 1,
+          "predictions_wrong": 0,
+          "emergences_detected": 0,
+          "investigations_run": 1,
+          "oracle_predictions_made": 9,
+          "predictions_resolved_total": 1,
+          "predictions_expired_total": 0,
+          "initiatives_taken": 0,
+          "error_count_recent": 0,
+          "started_at": "2026-03-15T18:07:18.798373",
+          "last_tick": "2026-03-15T18:42:33.487302",
+          "last_semantic_prediction_at": "2026-03-15T18:42:33.495179",
+          "last_investigation_at": "2026-03-15T18:07:18.822238",
+          "deduped_events": 156,
+          "auto_indexes": 4,
+          "prediction_resolution_rate": 0.045
+        },
+        "focus": null,
+        "self_model": {
+          "overall_confidence": 1,
+          "active_capabilities": [
+            "kernel"
+          ],
+          "degraded_capabilities": [],
+          "last_user_intent": "synthesist_api/ingest",
+          "interaction_pattern": null,
+          "emotional_tone": "curious",
+          "emotional_valence": 0.5,
+          "emotional_reasons": [
+            "predictions 100% accurate (+0.3)",
+            "idle and healthy (+0.2)"
+          ],
+          "cognitive_load": 0.1
+        },
+        "active_uncertainties": 0,
+        "active_predictions": 5,
+        "open_curiosities": 0,
+        "short_term_items": 8,
+        "inner_monologue_entries": 30,
+        "initiatives_taken": 0,
+        "auto_indexes": 4,
+        "event_rates": {
+          "window_seconds": 120,
+          "events_in_window": 4,
+          "events_per_min": 2,
+          "top_sources_total": [
+            {
+              "source": "awareness",
+              "count": 36
+            },
+            {
+              "source": "council",
+              "count": 2
+            }
+          ],
+          "top_types_total": [
+            {
+              "type": "chain_call",
+              "count": 18
+            },
+            {
+              "type": "chain_complete",
+              "count": 18
+            },
+            {
+              "type": "action_start",
+              "count": 1
+            },
+            {
+              "type": "action_complete",
+              "count": 1
+            }
+          ],
+          "deduped_events": 156
+        },
+        "event_controls": {
+          "dedupe_window_seconds": 8,
+          "max_rate_window_seconds": 300,
+          "investigation_cooldown_seconds": 120
+        },
+        "capabilities": [
+          "persistent_working_memory",
+          "real_time_self_model",
+          "emotional_valence",
+          "predictive_processing",
+          "oracle_semantic_predictions",
+          "emergence_detection",
+          "uncertainty_tracking",
+          "self_directed_investigation",
+          "curiosity_engine",
+          "inner_monologue",
+          "proactive_initiatives",
+          "bus_event_awareness",
+          "cross_session_persistence",
+          "auto_indexing_L7_L22"
+        ],
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    {
+      "level": 38,
+      "name": "Augmenter",
+      "path": "/augmenter/status",
+      "http": 200,
+      "ok": true,
+      "summary": true,
+      "body": {
+        "level": 38,
+        "name": "Augmenter",
+        "goal": "Improve real-world reliability of the configured base model with minimal latency impact",
+        "purpose": "Model-adaptive guardrail layer (validate + one-shot repair) with clear HUD visibility",
+        "base_model": "unknown",
+        "enabled": true,
+        "degraded": false,
+        "degraded_reasons": [],
+        "escalation": {
+          "level0": "single_call_then_validate",
+          "level1": "one_shot_repair_then_validate (gated)"
+        },
+        "success": true,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    }
+  ],
+  "cortexChecks": {
+    "/health": {
+      "http": 200,
+      "ok": true,
+      "summary": "healthy",
+      "body": {
+        "status": "healthy",
+        "service": "cortex",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        },
+        "one_brain": {
+          "autonomy_control_plane": true,
+          "event_ledger": true
+        },
+        "success": true,
+        "response_shape_version": "cortex.v1"
+      }
+    },
+    "/oracle/status": {
+      "http": 200,
+      "ok": true,
+      "summary": "online",
+      "body": {
+        "status": "online",
+        "alive_cortex_mode": {
+          "enabled": true,
+          "core_chain": [
+            37,
+            5,
+            21,
+            22,
+            26
+          ],
+          "hud_signature_enabled": true
+        },
+        "base_model": "unknown",
+        "default_model": "unknown",
+        "openclaw_model_label": "unknown (base_model via Cortex config)",
+        "fallback_local_model": "tinyllama",
+        "high_priority_path": "openclaw_local",
+        "bridge_ok": true,
+        "bridge_timeout_s": 12,
+        "hedge_enabled": true,
+        "hedge_delay_s": 1.8,
+        "hedge_delay_ultra_s": 1.2,
+        "route_stats": {
+          "openclaw": 0,
+          "bridge": 0,
+          "tinyllama": 0,
+          "frontend_local": 0,
+          "frontend_fallback": 0,
+          "total": 0,
+          "bridge_percent": 0
+        },
+        "frontend_contract": {
+          "applied": 0
+        },
+        "forecast_calibration": {
+          "enabled": true,
+          "path": "/app/logs/oracle_forecast_ledger.jsonl",
+          "resolved_count": 0,
+          "unresolved_count": 0,
+          "brier_mean": null
+        },
+        "policy": "Codex-majority with bridge/local fallback chain",
+        "local_error": null,
+        "bridge_error": null,
+        "bridge_cb": {
+          "fails": 0,
+          "open_until": 0,
+          "allows": true,
+          "threshold": 3,
+          "cooldown_s": 60
+        },
+        "openclaw_rate_limit": {
+          "active": false,
+          "until": 0,
+          "hits": 0
+        },
+        "openclaw_ok": true,
+        "openclaw_error": null,
+        "ollama_enabled": false,
+        "is_busy": false,
+        "models": [],
+        "success": true,
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L5 (Oracle)",
+        "activated_levels": [
+          {
+            "level": 5,
+            "name": "oracle",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    "/knowledge/status": {
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "active",
+        "capabilities": [
+          "knowledge_graph",
+          "semantic_search",
+          "memory_persistence"
+        ],
+        "memory_count": 4,
+        "canonical_endpoint": "/knowledge/status",
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L22 (Mnemosyne)",
+        "activated_levels": [
+          {
+            "level": 22,
+            "name": "mnemosyne",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    "/mirror/status": {
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "data": {
+          "level": 23,
+          "name": "Cartographer",
+          "status": "active",
+          "total_levels": 38,
+          "probe_mode": "fast",
+          "timestamp": "2026-03-15T18:43:41.545798"
+        },
+        "error": null,
+        "response_shape_version": "cortex.v1",
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    },
+    "/nexus/status": {
+      "http": 200,
+      "ok": true,
+      "summary": "active",
+      "body": {
+        "success": true,
+        "level": 24,
+        "name": "Nexus",
+        "status": "active",
+        "capabilities": [
+          "semantic_routing",
+          "level_coordination",
+          "context_persistence",
+          "bandit_scheduling",
+          "latency_governor",
+          "outcome_tuning"
+        ],
+        "always_on_levels": [
+          5,
+          17,
+          18,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          27,
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "response_shape_version": "cortex.v1",
+        "hud": "🟢 L24 (Nexus)",
+        "activated_levels": [
+          {
+            "level": 24,
+            "name": "nexus",
+            "always_on": false,
+            "derived_from": "route"
+          }
+        ],
+        "contract": {
+          "identity_phrase": "Cortex-first orchestration active",
+          "activation_metadata_available": true,
+          "activation_metadata_source": "derived",
+          "contract_version": "cortex.contract.v1",
+          "send_time_gate": "hard",
+          "send_time_gate_require_explicit": true,
+          "enhancement_gate": "hard",
+          "enhancement_gate_inject_missing": true,
+          "enhancement_preflight_required": false,
+          "enhancement_preflight_ok": null,
+          "enhancement_preflight_auto_injected": false,
+          "enhancement_preflight_field": null,
+          "enhancement_preflight_path": null,
+          "everyday_format_gate": "hard",
+          "everyday_format_inject_missing": true,
+          "everyday_format_required": false,
+          "everyday_format_ok": null,
+          "everyday_format_auto_injected": false,
+          "confidence_band": null,
+          "internal_machine_call_bypass": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.exam_item.v0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "itemId",
+    "prompt",
+    "conceptIds",
+    "answerFormat",
+    "checker"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "cortex.learning_os.exam_item.v0"
+    }
+  },
+  "additionalProperties": true
+}

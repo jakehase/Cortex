@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.proof_replay_request.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestedCapability",
+    "unsigned",
+    "selfAttestation",
+    "jobId",
+    "campaignId",
+    "obligationId",
+    "replaySessionId",
+    "deploymentDigest",
+    "trustPolicyDigest",
+    "proofRuntimeProductDigest",
+    "proofTaskSha256",
+    "taskBytesBase64",
+    "taskBytesSha256",
+    "candidateBytesBase64",
+    "candidateBytesSha256",
+    "trustedTemplateBase64",
+    "trustedTemplateSha256",
+    "theoremStatementSha256",
+    "claimSemanticsSha256",
+    "researchArtifactDigest",
+    "kernelEvidence",
+    "authorityReplayEvidence",
+    "replayAuthorityAttestation",
+    "truthBoundary"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.proof_replay_request.v2" },
+    "requestedCapability": { "const": "proof_replay" },
+    "unsigned": { "const": true },
+    "selfAttestation": { "const": false },
+    "jobId": { "$ref": "#/$defs/id" },
+    "campaignId": { "$ref": "#/$defs/id" },
+    "obligationId": { "$ref": "#/$defs/id" },
+    "replaySessionId": { "$ref": "#/$defs/id" },
+    "deploymentDigest": { "$ref": "#/$defs/digest" },
+    "trustPolicyDigest": { "$ref": "#/$defs/digest" },
+    "proofRuntimeProductDigest": { "$ref": "#/$defs/digest" },
+    "proofTaskSha256": { "$ref": "#/$defs/digest" },
+    "taskBytesBase64": { "$ref": "#/$defs/base64" },
+    "taskBytesSha256": { "$ref": "#/$defs/digest" },
+    "candidateBytesBase64": { "$ref": "#/$defs/base64" },
+    "candidateBytesSha256": { "$ref": "#/$defs/digest" },
+    "trustedTemplateBase64": { "$ref": "#/$defs/base64" },
+    "trustedTemplateSha256": { "$ref": "#/$defs/digest" },
+    "theoremStatementSha256": { "$ref": "#/$defs/digest" },
+    "claimSemanticsSha256": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "researchArtifactDigest": {
+      "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }]
+    },
+    "kernelEvidence": { "type": "null" },
+    "authorityReplayEvidence": { "type": "null" },
+    "replayAuthorityAttestation": { "type": "null" },
+    "truthBoundary": {
+      "const": "Candidate bytes are inert. Protected pinned-Lean execution and independent replay authority remain required."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "base64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 1398104,
+      "contentEncoding": "base64"
+    }
+  }
+}

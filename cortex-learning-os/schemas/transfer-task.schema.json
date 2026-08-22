@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_task.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "taskId", "profileId", "family", "prompt", "oracleId",
+    "input", "expected", "truthBoundary", "taskDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_task.v1" },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "profileId": { "enum": ["exact-multiplication", "algebra-factoring"] },
+    "family": { "enum": ["acquisition", "held-out", "negative-semantic", "assumption-violation", "regression"] },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "oracleId": { "enum": ["exact-integer-product-v1", "integer-polynomial-identity-v1", "semantic-route-v1", "regression-route-v1"] },
+    "input": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["left", "right"],
+          "properties": {
+            "left": { "type": "string", "pattern": "^-?[0-9]+$", "maxLength": 1024 },
+            "right": { "type": "string", "pattern": "^-?[0-9]+$", "maxLength": 1024 }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["coefficients"],
+          "properties": {
+            "coefficients": {
+              "type": "array", "minItems": 1, "maxItems": 128,
+              "items": { "type": "string", "pattern": "^-?[0-9]+$", "maxLength": 1024 }
+            }
+          }
+        },
+        { "type": "object", "additionalProperties": false, "maxProperties": 0 }
+      ]
+    },
+    "expected": { "type": "string", "maxLength": 8192 },
+    "truthBoundary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "taskDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+  "initializedBy": "aios-cli boot",
+  "layoutVersion": 1,
+  "tenantBoundary": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/.aios-tenant-boundary.json",
+    "status": "established",
+    "tenantId": "openclaw-local",
+    "tenantHash": "ec1b7db10fd9184523e98c4240b68ec0abdd3900886dd4bfc26baf9f94a0e0c4",
+    "boundaryHash": "a46bb03a5d75c0ca10e65f7c89a5349560349edc17e6eace118e0c44ae430bde",
+    "establishedBy": {
+      "requestId": "aiosreq_8b83d046192a2348",
+      "operator": "root",
+      "role": "operator",
+      "operatorScopeHash": "acf6072883b45fbf2ec1dba181a72bd6107661c55d4631fb20fd0eab9b8eff9e"
+    }
+  },
+  "lifecycleSettings": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-lifecycle-settings.json",
+    "hash": "fa42b1a0549112249372b8236a1fac3c42681f73891b190091d994977d9c0113",
+    "controls": {
+      "lifecycle": "enabled",
+      "scheduler": "immediate",
+      "approvals": "required"
+    },
+    "nextAction": {
+      "state": "ready",
+      "command": [
+        "aios",
+        "run",
+        "<job.json>",
+        "--artifact-root",
+        "<artifact-root>"
+      ],
+      "reason": "Lifecycle execution and immediate scheduling are enabled."
+    }
+  },
+  "providerContract": {
+    "path": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/aios-provider-contract.json",
+    "hash": "9dd62f3016f9264887725690854268f9c6e750f815248c6575cf6f845c1be56b",
+    "providerId": "local-aios-cli",
+    "serviceId": "aios.operator.userland.boot.v0",
+    "negotiatedCapabilities": [
+      "artifact_root_sync",
+      "boot_proof_write"
+    ],
+    "externalHandoffState": "local_only"
+  },
+  "directories": {
+    "boot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/boot",
+    "packets": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets"
+  }
+}

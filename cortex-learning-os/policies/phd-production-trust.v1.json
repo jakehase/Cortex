@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "cortex.learning_os.phd_trust_policy.v1",
+  "policyId": "phd-production-trust-v1",
+  "boundaryId": "clos-phd-production-20260802-v1",
+  "productionEnabled": true,
+  "authorities": [
+    {
+      "authorityId": "clos-acquisition-authority-20260802",
+      "capabilities": [
+        "acquisition"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjuBk3fX+20YphuzqWbSUv1qDALy602K2brXvxNfiKb4=\n-----END PUBLIC KEY-----\n",
+      "keyId": "5d4c583e6621a62d71890e03963103c8e55419908bc18832de0a6f5fc3fac412"
+    },
+    {
+      "authorityId": "clos-bank-authoring-authority-20260802",
+      "capabilities": [
+        "bank_authoring"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAToGj60zyAijqNCTvlIS7rAazmxT6pqzZjSNiEgFEH78=\n-----END PUBLIC KEY-----\n",
+      "keyId": "acc026f20c10193d5887084b4cc073a9128adc6b8de3cd63b8527ed2794e6412"
+    },
+    {
+      "authorityId": "clos-bank-review-authority-20260802",
+      "capabilities": [
+        "bank_review"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAM6XaXdrywmdIm9eL1/awAOQ4w4G657VbeLrCcDoDqjg=\n-----END PUBLIC KEY-----\n",
+      "keyId": "73096b12ba62432dc38465a688d4dc573cd47b35e78a6406ea7fe4cc23cefb6b"
+    },
+    {
+      "authorityId": "clos-execution-authority-20260802",
+      "capabilities": [
+        "execution"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAl50YFpuSs9W1WeM1MXbdAVSTFhSlihOyNUEvFok4VuE=\n-----END PUBLIC KEY-----\n",
+      "keyId": "558f11f6e9fdac2eff9ceeb15ffa352113c40948a80a701b07672f4af60e41a1"
+    },
+    {
+      "authorityId": "clos-grader-authority-20260802",
+      "capabilities": [
+        "grader"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAuNEcTbWnjDue9B+TLB5PpNNDp6LvtZY8ykjeYi6xYOk=\n-----END PUBLIC KEY-----\n",
+      "keyId": "91c13a78612378d8aaac42b31fa5fc1f6d2623eda54f3be0309bf9f5945de4dc"
+    },
+    {
+      "authorityId": "clos-proctor-authority-20260802",
+      "capabilities": [
+        "proctor"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA4Vw5NBTaAEv1B1tddRtqA9v6HlIGCHI7J4r47DsCRac=\n-----END PUBLIC KEY-----\n",
+      "keyId": "79a7061ad8693925d4d27b8db9cecd394f92a3e060b76423a55881bd4ff786d2"
+    },
+    {
+      "authorityId": "clos-proof-replay-authority-20260802",
+      "capabilities": [
+        "proof_replay"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9sPP8uHfZX7zPKX8vzEtSqUgiLpHUNMfqLRqie+thCQ=\n-----END PUBLIC KEY-----\n",
+      "keyId": "53c8023d6e26ea918cab02e1f93c3333e6ffdb0536cad767d47d254e50913e59"
+    },
+    {
+      "authorityId": "clos-proof-runtime-authority-20260802",
+      "capabilities": [
+        "proof_runtime"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjuWE3OklxOR8QXO9L+LJX4ieyarBu61MJHFTmc0SJ/w=\n-----END PUBLIC KEY-----\n",
+      "keyId": "bfdb8bf0ce85606cc75fdf038b4f8936895d2f534c9abedab1c6e5e62126d2e4"
+    },
+    {
+      "authorityId": "clos-qualification-family-registry-authority-20260802",
+      "capabilities": [
+        "qualification_family_registry"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAz74LpLJznj+ZVuaPT+NpUmGaW4TLn3Tb/8ndqhmAz+8=\n-----END PUBLIC KEY-----\n",
+      "keyId": "988d30c947b54a6f8681e19caaa1b19ee0ebda94822fd6353cac8271dd636655"
+    },
+    {
+      "authorityId": "clos-research-correspondence-authority-20260802",
+      "capabilities": [
+        "research_correspondence"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAjov+8Pdm3i/ElvbYn5IwykaCP/NxOuQsExklrl1sseU=\n-----END PUBLIC KEY-----\n",
+      "keyId": "28e4162e25f5ef8584dbf54483cf5b00c332a7a27c9789fd170f1012855c348f"
+    },
+    {
+      "authorityId": "clos-research-reproduction-authority-20260802",
+      "capabilities": [
+        "research_reproduction"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAtkfOVftAAC1r6x7sAVwPNXGlxpnUNWO9xBrALNrhlyw=\n-----END PUBLIC KEY-----\n",
+      "keyId": "29e8499c73b7325e6ada65b0ef7914ca94de7a3236eb9cc694b71567894153a6"
+    },
+    {
+      "authorityId": "clos-research-review-authority-20260802",
+      "capabilities": [
+        "research_review"
+      ],
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAf0XCzxXxPVchuM+k44Jx5HTHFR7zF6+4DNrzTAZ/Cjg=\n-----END PUBLIC KEY-----\n",
+      "keyId": "fab0179c32448332b0aa0ad075fcbc6fc7775c609f1f5d94215d0a01297fd250"
+    }
+  ],
+  "truthBoundary": "Operator-authorized capability-separated Ed25519 trust roots. Each critical capability has a distinct authority ID and key. Key authentication does not replace exact artifact validation, independent assessment authorship/review, immutable deployment binding, or production evidence replay."
+}

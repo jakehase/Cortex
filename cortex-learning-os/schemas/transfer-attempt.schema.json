@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cortex.learning_os.transfer_attempt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "attemptId", "runId", "profileId", "taskId", "taskDigest",
+    "family", "arm", "valid", "validityReasonCode", "semanticDecision",
+    "oracle", "result", "startedAt", "completedAt", "evidenceDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "cortex.learning_os.transfer_attempt.v1" },
+    "attemptId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "profileId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "taskDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "family": { "enum": ["acquisition", "held-out", "negative-semantic", "assumption-violation", "regression"] },
+    "arm": { "enum": ["candidate", "no-transfer"] },
+    "valid": { "type": "boolean" },
+    "validityReasonCode": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "semanticDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["applicable", "reasonCodes", "observedAssumptionCodes", "negativeGateCodes"],
+      "properties": {
+        "applicable": { "type": "boolean" },
+        "reasonCodes": { "$ref": "#/$defs/codes" },
+        "observedAssumptionCodes": { "$ref": "#/$defs/codes" },
+        "negativeGateCodes": { "$ref": "#/$defs/codes" }
+      }
+    },
+    "oracle": {
+      "type": "object", "additionalProperties": false,
+      "required": ["oracleId", "executed", "passed", "resultDigest"],
+      "properties": {
+        "oracleId": { "enum": ["exact-integer-product-v1", "integer-polynomial-identity-v1", "semantic-route-v1", "regression-route-v1"] },
+        "executed": { "type": "boolean" },
+        "passed": { "type": "boolean" },
+        "resultDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "result": { "type": "string", "maxLength": 8192 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "evidenceDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "codes": {
+      "type": "array", "maxItems": 32, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$" }
+    }
+  }
+}

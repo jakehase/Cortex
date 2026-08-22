@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "cortex.learning_os.dogfood_summary.v0",
+  "runId": "math-foundations-smoke-20260725-052532795Z",
+  "generatedAt": "2026-07-25T05:26:17.350Z",
+  "status": "blocked_correction_failed",
+  "reason": "The correction item did not pass, so lesson promotion stopped.",
+  "baselineScore": 0.95,
+  "selectedMistakeId": "mistake_dc14356c7ca90642",
+  "candidateId": null,
+  "promotedLessonId": null,
+  "heldoutRetestPassed": null,
+  "learningLoopCompleted": false,
+  "improvementObserved": false,
+  "defaultPromoted": false,
+  "allowedClaims": [
+    "learning_capsule_initialized"
+  ],
+  "rejectedClaims": [
+    "general_domain_mastery",
+    "expert_mathematician",
+    "model_weight_learning",
+    "broad_math_improvement"
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

@@ -1,0 +1,109 @@
+## Timestamp
+2026-02-12T22:20:21-06:00
+## 1. Discover L8/Cron intent from code
+$ grep -RIn "cron\|Chronos\|L8" /opt/clawdbot/cortex_server/cortex_server/{routers,scheduler.py,main.py,modules} | head
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:118:        "latest": ([2, 14], "Current info via L2 Ghost + L14 Chronos"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:140:        "security": ([8, 15], "Security via L8 Sentinel + L15 Council"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:141:        "scan": ([8], "Security scan via L8 Sentinel"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:142:        "threat": ([8], "Threat analysis via L8 Sentinel"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:143:        "vulnerability": ([8], "Vulnerability check via L8 Sentinel"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:144:        "protect": ([8], "Protection via L8 Sentinel"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:154:        "schedule": ([14, 26], "Scheduling via L14 Chronos + L26 Conductor"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:155:        "cron": ([14], "Cron via L14 Chronos"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:156:        "time": ([14], "Temporal via L14 Chronos"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:157:        "when": ([14], "Timing via L14 Chronos"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_v2.py:158:        "remind": ([14], "Reminder via L14 Chronos"),
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus_semantic.py:51:    14: {"name": "chronos", "layer": "Intelligence", "purpose": "Scheduling - time, cron jobs"},
+/opt/clawdbot/cortex_server/cortex_server/routers/nexus.py:51:    14: {"name": "chronos", "layer": "Intelligence", "purpose": "Scheduling - time, cron jobs"},
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:231:        <div id="card-cron" class="card">
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:233:            <div id="status-cron" class="status-large status-online">0</div>
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:247:        const fails = { brain: 0, memory: 0, queue: 0, cron: 0 };
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:331:            fetch('/cron/jobs')
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:334:                    fails.cron = 0;
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:335:                    document.getElementById('status-cron').innerText = data.jobs ? data.jobs.length : 0;
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:338:                    fails.cron++;
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:339:                    if (fails.cron > 3) {
+/opt/clawdbot/cortex_server/cortex_server/routers/mirror.py:340:                        document.getElementById('status-cron').innerText = 'ERR';
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:2:Cron Router - API endpoints for cron scheduling and webhook triggers.
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:11:    add_cron_job,
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:23:    cron: str
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:49:async def schedule_cron(request: CronScheduleRequest) -> CronJobResponse:
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:50:    """Schedule a cron job to trigger a Celery task."""
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:55:        job_id = add_cron_job(
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:58:            cron=request.cron,
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:78:async def list_cron_jobs() -> JobListResponse:
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:79:    """Return all scheduled cron jobs."""
+/opt/clawdbot/cortex_server/cortex_server/routers/cron.py:93:async def delete_cron_job(job_id: str) -> dict:
+/opt/clawdbot/cortex_server/cortex_server/scheduler.py:19:def add_cron_job(job_name: str, task: str, cron: str, args: list = None):
+/opt/clawdbot/cortex_server/cortex_server/scheduler.py:21:    Add a cron job to trigger a Celery task.
+/opt/clawdbot/cortex_server/cortex_server/scheduler.py:22:    cron format: minute hour day month day_of_week
+/opt/clawdbot/cortex_server/cortex_server/scheduler.py:27:    parts = cron.strip().split()
+/opt/clawdbot/cortex_server/cortex_server/scheduler.py:35:        trigger="cron",
+/opt/clawdbot/cortex_server/cortex_server/main.py:66:        # Start Level 14: Chronos Night Shift Scheduler
+/opt/clawdbot/cortex_server/cortex_server/modules/chronos.py:1:"""Chronos - The Night Shift Scheduler for The Cortex.
+/opt/clawdbot/cortex_server/cortex_server/modules/chronos.py:17:class Chronos:
+
+## 2. Runtime status
+$ curl -s http://10.0.0.52:8888/health
+{"status":"healthy","service":"cortex"}
+$ curl -s http://10.0.0.52:8888/cron/jobs
+{"jobs": [], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+$ curl -s http://10.0.0.52:8888/oracle/status | head -c 300
+{"status": "online", "alive_cortex_mode": {"enabled": true, "core_chain": [37, 5, 21, 22, 26], "hud_signature_enabled": true}, "default_model": "tinyllama", "high_priority_path": "openclaw-bridge-codex", "bridge_ok": true, "route_stats": {"bridge": 6, "tinyllama": 0, "total": 6, "bridge_percent": 10
+$ curl -s http://10.0.0.52:8888/council/status
+{"success": true, "data": {"level": 15, "name": "The Council", "role": "Multi-Perspective Analysis", "status": "active", "oracle_powered": true, "consciousness_integrated": true, "deliberations_count": 0, "timestamp": "2026-02-13T04:20:21.912294"}, "_hud": "\ud83d\udd35 L15 (Council)", "_activated": [{"level": 15, "name": "Council"}]}
+
+## 3. Functional tests
+### 3.1 invalid cron expression
+$ curl -s -i -X POST http://10.0.0.52:8888/cron/schedule ... cron=* * * *
+HTTP/1.1 400 Bad Request
+date: Fri, 13 Feb 2026 04:20:21 GMT
+server: uvicorn
+x-request-id: bd3b5a8a-0d79-4263-88db-a265b0d06727
+content-type: application/json
+content-length: 193
+
+{"success": false, "data": null, "error": "Cron expression must have 5 parts: minute hour day month day_of_week", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+### 3.2 unknown task failure
+HTTP/1.1 404 Not Found
+date: Fri, 13 Feb 2026 04:20:21 GMT
+server: uvicorn
+x-request-id: 72d748cd-0986-44be-b856-a8ec8cfc8cd6
+content-type: application/json
+content-length: 156
+
+{"success": false, "data": null, "error": "Unknown task: cortex_tasks.nope", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+### 3.3 schedule valid frequent job
+{"job_id": "l8audit_every_min", "job_name": "l8audit_every_min", "next_run_time": "2026-02-13T04:21:00+00:00", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+### 3.4 list jobs
+{"jobs": [{"job_id": "l8audit_every_min", "job_name": "trigger_celery_task", "next_run_time": "2026-02-13T04:21:00+00:00"}], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+### 3.5 trigger immediate
+{"task_id": "5b454876-99d9-4310-9b02-73e9eccbe9d7", "status": "triggered", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+task_id=
+### 3.6 check queue status for trigger task (if backend available)
+no task id
+### 3.7 delete scheduled job
+HTTP/1.1 200 OK
+date: Fri, 13 Feb 2026 04:20:21 GMT
+server: uvicorn
+content-type: application/json
+x-request-id: 915f03e5-2d00-406b-985e-b824a57b27d9
+content-length: 101
+
+{"status": "removed", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+### 3.8 delete missing job (failure handling)
+HTTP/1.1 500 Internal Server Error
+date: Fri, 13 Feb 2026 04:20:21 GMT
+server: uvicorn
+x-request-id: c1c263d3-81df-42f2-a632-e1b16c21334d
+content-length: 61
+content-type: application/json
+
+{"success":false,"data":null,"error":"Internal Server Error"}
+### 3.9 final jobs list
+{"jobs": [], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+
+### 3.10 trigger + queue status parse check
+{"task_id": "385ce918-6e90-4e80-a332-e42375eba739", "status": "triggered", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+TID=385ce918-6e90-4e80-a332-e42375eba739
+{"task_id":"385ce918-6e90-4e80-a332-e42375eba739","status":"pending","result":null,"state":"PENDING"}

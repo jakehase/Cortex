@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "clawd.agent_work.architecture_policy.v1",
+  "canonicalFacade": "packages/canonical-agent-work",
+  "canonicalCli": "apps/agent-work/cli.mjs",
+  "canonicalTargetContains": "apps/agent-work/cli.mjs",
+  "canonicalProductScriptPrefixes": [
+    "agent-work:"
+  ],
+  "requiredProductScripts": [
+    "agent-work:canonical:compile",
+    "agent-work:canonical:run",
+    "agent-work:plan",
+    "agent-work:run",
+    "agent-work:status",
+    "agent-work:resume",
+    "agent-work:cancel",
+    "agent-work:verify",
+    "agent-work:report",
+    "agent-work:doctor",
+    "agent-work:replay"
+  ],
+  "qualificationPrefixes": [
+    "benchmark:"
+  ],
+  "compatibilityOnly": [
+    "apps/system-benchmark/canonical-agent-work.mjs",
+    "packages/synthetic-labor-os",
+    "apps/synthetic-labor-os/v19-release-packet.mjs",
+    "apps/synthetic-labor-os/v20-hard-dogfood-rc.mjs"
+  ],
+  "forbiddenAsCanonicalRuntime": [
+    "_quarantine/synthetic-labor-os-legacy-20260707",
+    "direct Codex wrappers",
+    "artifact snapshot repositories"
+  ],
+  "truthBoundary": "Benchmark and compatibility entrypoints may consume the canonical facade but do not become a second Agent Work product API.",
+  "releaseVersion": "1.1.0",
+  "releaseTag": "agent-work-v1.1.0"
+}

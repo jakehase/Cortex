@@ -1,0 +1,9 @@
+2fbbbc2b667beeb0f95fb94a316a5d595fe7b400bf9c46f1e82572109ed25f89  ai-os/apps/aios-cli.mjs
+b88d65f28eb58ec3ac5602e771fd1e0e459e7ab383664278ff71305df8eb2157  ai-os/docs/LANGUAGE_V1.md
+9f6ff0c0ae3b586e1e32eca2799f0a80c7d89f2807ef45a51014045ce131cad9  ai-os/examples/capability-gated-provider.aios
+8cd7db5c855f59ea21ea9157897022b8fead982d1c1a8351f68e9c0f9a59415d  ai-os/kernel/policy/provider-read-compute.json
+891d8db84c4c6d041664a0cc67516d8c59218cd2b0048f118b48b254f76d7d44  ai-os/packages/aios-language/canonical.mjs
+7fd77c68810f6cbed8dc1bd413c6759d2e3a9f97c5ff61a27d97e74742bbba3d  ai-os/packages/aios-language/index.mjs
+4799d75370ffad7288387ef783372a96fe80ab22e628f566b0b5ee810f085cc4  ai-os/packages/aios-language/runtime/provider-read-compute.mjs
+506c0eb950dccdc8965cdb5ccbfb400cd2ddbdb9af5246d8514bf0e1d6b3b566  ai-os/tests/language-adoption.test.mjs
+155903c5cc40cdbd13404bf3a7791945f84558111bf91d0c9f15db6521ef3b49  scripts/aios-adapter.mjs

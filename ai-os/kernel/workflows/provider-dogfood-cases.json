@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "aios.provider-workflow-cases.v1",
+  "cases": [
+    { "workflow": "research-synthesis", "query": "current canonical AIOS v1 language adoption and truth boundary" },
+    { "workflow": "contradiction-review", "query": "AI OS adapter default-on versus historical opt-in claims" },
+    { "workflow": "implementation-brief", "query": "next bounded AI OS product work after provider read compute adoption" },
+    { "workflow": "research-synthesis", "query": "AIOS capability gated provider policy digest and tenant boundary" },
+    { "workflow": "contradiction-review", "query": "AI OS benchmark green claims versus product parity claims" },
+    { "workflow": "implementation-brief", "query": "internal provider workflow observability and recovery requirements" },
+    { "workflow": "research-synthesis", "query": "canonical Cortex memory authority precedence and corrections" },
+    { "workflow": "contradiction-review", "query": "stale AI OS runtime replacement claims and current boundary" },
+    { "workflow": "implementation-brief", "query": "AIOS v1 freeze evidence gate acceptance checks" },
+    { "workflow": "research-synthesis", "query": "current AI OS execution plane and control plane separation" },
+    { "workflow": "contradiction-review", "query": "AI OS provider external write prohibition across current records" },
+    { "workflow": "implementation-brief", "query": "recurring AIOS provider dogfood workflow production slice" },
+    { "workflow": "research-synthesis", "query": "AI OS restart recovery and completed process reuse proof" },
+    { "workflow": "contradiction-review", "query": "canonical AIOS language versus legacy directive parser" },
+    { "workflow": "implementation-brief", "query": "AIOS internal artifact provenance and bounded completion claim" },
+    { "workflow": "research-synthesis", "query": "AI OS latest local and Hetzner validation evidence" },
+    { "workflow": "contradiction-review", "query": "AI OS full parity versus hosted production slice terminology" },
+    { "workflow": "implementation-brief", "query": "future AIOS provider addition safety requirements" },
+    { "workflow": "research-synthesis", "query": "AIOS language compiler verifier and truth boundary chain" },
+    { "workflow": "contradiction-review", "query": "whether current evidence justifies new AIOS language syntax" }
+  ]
+}

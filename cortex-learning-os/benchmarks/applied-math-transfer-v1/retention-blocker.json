@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "cortex.learning_os.blocker.v1",
+  "blockerId": "retention-window-1-authenticated-grade-apply-20260805",
+  "observedAt": "2026-08-05T00:00:00.000Z",
+  "stage": "authenticated_grade_apply",
+  "rawDeterministicComparison": {
+    "passed": 19,
+    "total": 19,
+    "qualificationCredit": false
+  },
+  "failure": "retention trusted raw execution failed: trusted execution attestation signature mismatch; answer/output binding mismatch",
+  "runnerAttestationObserved": null,
+  "canonicalStateMutated": false,
+  "allowedUse": "raw_unqualified_diagnostic_evidence",
+  "disallowedUse": [
+    "retention_pass",
+    "retained_mastery",
+    "canonical_mutation",
+    "phd_math_qualified",
+    "production_routing"
+  ],
+  "repairRule": "Fix and prospectively test trusted-runner signing and exact answer/output binding; never synthesize or backdate an attestation for the old run."
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cortex.learning_os.exam_run_summary.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z-baseline",
+  "capsuleId": "math-foundations-v0",
+  "examId": "math-foundations-exact-arithmetic-stress-v0",
+  "generatedAt": "2026-07-25T05:31:15.534Z",
+  "itemCount": 20,
+  "passedItemCount": 19,
+  "failedItemCount": 1,
+  "errorItemCount": 0,
+  "score": 0.95,
+  "passThreshold": 0.9,
+  "passed": true,
+  "truthBoundary": "This score applies only to the named deterministic exam and recorded answer set."
+}

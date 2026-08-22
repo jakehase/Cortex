@@ -1,0 +1,65 @@
+{
+  "ok": true,
+  "status": "green",
+  "packetType": "aios.verifier.evidence",
+  "generatedAt": "2026-07-11T21:33:46.279Z",
+  "evidence": [
+    {
+      "kind": "openclaw_aios_language_compile_run_smoke",
+      "language": "aios.language.v1",
+      "sourcePath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.aios",
+      "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json",
+      "processId": "aiosproc_1a982463b5d68e15",
+      "generatedAt": "2026-07-11T21:33:46.279Z"
+    }
+  ],
+  "checks": [
+    {
+      "name": "canonical_language_compile_green",
+      "ok": true,
+      "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/language-compile.packet.json"
+    },
+    {
+      "name": "compiled_job_emitted",
+      "ok": true,
+      "jobPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/adapter-dogfood.compiled.job.json"
+    },
+    {
+      "name": "external_effects_blocked",
+      "ok": true
+    },
+    {
+      "name": "boot_proof_green",
+      "ok": true,
+      "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/boot-proof.packet.json"
+    },
+    {
+      "name": "run_proof_green",
+      "ok": true,
+      "proofPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346/packets/run-proof.packet.json"
+    },
+    {
+      "name": "internal_status_syscall_observed",
+      "ok": true,
+      "output": {
+        "artifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/language-v1-broad-adoption-final-20260711213346",
+        "observedAt": "2026-07-11T21:33:46.200Z",
+        "bootOk": true,
+        "priorRunOk": false,
+        "verifierOk": false,
+        "claimStatus": null,
+        "processCount": 0
+      }
+    },
+    {
+      "name": "process_visible",
+      "ok": true,
+      "count": 1
+    },
+    {
+      "name": "logs_visible",
+      "ok": true,
+      "count": 10
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clawd.agent_work.worker_call.v1",
+  "title": "Agent Work v1 worker call evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "callId", "runId", "taskId", "workerId", "adapter", "command", "model", "startedAt", "completedAt", "status", "exitCode", "idempotencyKey", "usage", "resultArtifact"],
+  "properties": {
+    "schemaVersion": { "const": "clawd.agent_work.worker_call.v1" },
+    "callId": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "workerId": { "type": "string", "minLength": 1 },
+    "adapter": { "type": "string", "minLength": 1 },
+    "command": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "enum": ["started", "completed", "failed", "timed_out", "cancelled", "unknown"] },
+    "exitCode": { "type": ["integer", "null"] },
+    "idempotencyKey": { "type": "string", "minLength": 1 },
+    "usage": { "type": "object", "additionalProperties": false, "required": ["inputTokens", "outputTokens", "totalTokens", "providerObserved"], "properties": { "inputTokens": { "type": ["number", "null"], "minimum": 0 }, "outputTokens": { "type": ["number", "null"], "minimum": 0 }, "totalTokens": { "type": ["number", "null"], "minimum": 0 }, "providerObserved": { "type": "boolean" } } },
+    "resultArtifact": { "type": ["string", "null"] }
+  }
+}

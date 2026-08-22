@@ -1,0 +1,473 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "2026-07-02T03:01:12.801Z",
+  "benchmarkId": "aioshosted_kernel_boot_failed_surface_repair",
+  "benchmarkTier": "production_quality_repair_smoke",
+  "benchmarkClass": "agent_work_orchestration",
+  "fidelity": "production_slice",
+  "scope": {
+    "durationTargetMinutes": 60,
+    "productDiffMode": "creative_product_work",
+    "requireRealProductDiffs": true,
+    "creativeProductWork": {
+      "required": true,
+      "promptMode": "compact",
+      "minIterations": 1,
+      "minWorkerRuntimeMs": 0
+    },
+    "canonicalLandingEvidence": {
+      "enabled": true,
+      "minAddedLineCount": 1,
+      "minUniqueNormalizedAddedLineCount": 1,
+      "duplicateLineRatioMax": 0.55
+    },
+    "surfaces": [
+      {
+        "id": "operator_cli_boot",
+        "label": "operator_cli_boot",
+        "allowedFiles": [
+          "packages/aios-kernel/operator-userland/cli-boot.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/operator-userland/cli-boot.mjs"
+        ],
+        "productGoal": "Repair the failed hosted boot command surface from run-20260702T003648Z: make boot orchestration, artifact-root initialization, and boot proof handoff syntactically valid and verifier-friendly.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "operator_userland",
+          "domain": "operator_cli_boot",
+          "deps": []
+        }
+      },
+      {
+        "id": "scheduler_lease_manager",
+        "label": "scheduler_lease_manager",
+        "allowedFiles": [
+          "packages/aios-kernel/scheduler/lease-manager.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/scheduler/lease-manager.mjs"
+        ],
+        "productGoal": "Repair the failed lease manager surface from run-20260702T003648Z: worker leases, renewal, stale lease detection, and recovery-safe ownership contracts.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "scheduler",
+          "domain": "scheduler_lease_manager",
+          "deps": []
+        }
+      },
+      {
+        "id": "artifact_claim_evidence_link",
+        "label": "artifact_claim_evidence_link",
+        "allowedFiles": [
+          "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+        ],
+        "productGoal": "Repair the failed claim-to-evidence linking surface from run-20260702T003648Z so claims can trace required proof artifacts.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "artifact_filesystem",
+          "domain": "artifact_claim_evidence_link",
+          "deps": []
+        }
+      },
+      {
+        "id": "memory_mount",
+        "label": "memory_mount",
+        "allowedFiles": [
+          "packages/aios-kernel/memory-manager/memory-mount.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/memory-manager/memory-mount.mjs"
+        ],
+        "productGoal": "Repair the failed memory mount descriptor surface from run-20260702T003648Z for project, structural, episodic, artifact, and volatile memory mounts.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "memory_manager",
+          "domain": "memory_mount",
+          "deps": []
+        }
+      },
+      {
+        "id": "capability_external_write_guard",
+        "label": "capability_external_write_guard",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/external-write-guard.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/capability-security/external-write-guard.mjs"
+        ],
+        "productGoal": "Repair the failed external-write guard surface from run-20260702T003648Z with explicit approval and draft-vs-send boundaries.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "capability_security",
+          "domain": "capability_external_write_guard",
+          "deps": []
+        }
+      },
+      {
+        "id": "capability_rate_limit",
+        "label": "capability_rate_limit",
+        "allowedFiles": [
+          "packages/aios-kernel/capability-security/rate-limit.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/capability-security/rate-limit.mjs"
+        ],
+        "productGoal": "Repair the failed capability-aware rate limit surface from run-20260702T003648Z for model calls, external systems, and operator interrupts.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "capability_security",
+          "domain": "capability_rate_limit",
+          "deps": []
+        }
+      },
+      {
+        "id": "syscall_fs_read",
+        "label": "syscall_fs_read",
+        "allowedFiles": [
+          "packages/aios-kernel/syscall-layer/fs-read.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/syscall-layer/fs-read.mjs"
+        ],
+        "productGoal": "Repair the failed fs.read syscall surface from run-20260702T003648Z with scope checks, path policy, and audit output.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "syscall_layer",
+          "domain": "syscall_fs_read",
+          "deps": []
+        }
+      },
+      {
+        "id": "claim_allowance",
+        "label": "claim_allowance",
+        "allowedFiles": [
+          "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        ],
+        "verification": [
+          "node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+        ],
+        "productGoal": "Repair the failed claim allowance surface from run-20260702T003648Z requiring verifier evidence, truth boundary, and contradiction checks.",
+        "metadata": {
+          "agentWorkDsl": true,
+          "templateIds": [],
+          "lane": "verifier_claim_gate",
+          "domain": "claim_allowance",
+          "deps": []
+        }
+      }
+    ],
+    "stopCondition": "failed_surfaces_repaired_or_blocker",
+    "permissionPolicy": {
+      "allow": [
+        "read_repo",
+        "write_product_code",
+        "run_tests"
+      ],
+      "forbid": [
+        "external_send",
+        "touch_prod",
+        "relaunch_benchmark"
+      ]
+    },
+    "requestedActions": [],
+    "doneWhen": [
+      "failed_surfaces_repaired",
+      "no_truth_layer_overclaim"
+    ],
+    "budgets": {},
+    "wavePolicy": {
+      "max_waves": 2,
+      "bundle_size": 1,
+      "full_context_waves": 0,
+      "handoff": "wave_factpack"
+    },
+    "expansionPolicy": {
+      "triggers": [
+        "failed_surfaces",
+        "objective_red"
+      ],
+      "max_cycles": 1,
+      "max_surfaces": 8,
+      "strategy": "repair_failed_surfaces"
+    },
+    "evidenceSchemas": [],
+    "aiOsLanguage": {
+      "schemaVersion": "aios.agent_work_language_profile.v0.1",
+      "enabled": true,
+      "sourcePlanPath": "/root/clawd/ai-os/plan.md",
+      "milestone": "failed_surface_repair",
+      "kernelMode": "hosted_linux",
+      "owner": "Jake",
+      "processModel": [
+        "job",
+        "process",
+        "thread",
+        "owner",
+        "exit_contract"
+      ],
+      "syscalls": [
+        "fs.read",
+        "fs.write",
+        "shell.exec",
+        "git.diff",
+        "memory.search",
+        "memory.write",
+        "verifier.run",
+        "claim.submit",
+        "audit.write"
+      ],
+      "memoryMounts": [
+        "project_memory",
+        "structural_memory",
+        "episodic_log",
+        "artifact_store"
+      ],
+      "capabilityPolicy": {
+        "defaultDenyExternalWrites": true,
+        "requireApprovalFor": [
+          "external.write",
+          "deploy",
+          "destructive.action",
+          "privileged.kernel.change"
+        ]
+      },
+      "evidenceArtifacts": [
+        "repair_wave_summary.json",
+        "process_lifecycle.json",
+        "capability_audit.json",
+        "syscall_audit.json",
+        "claim_gate.json",
+        "artifact_bundle_manifest.json"
+      ],
+      "evidenceEnforcement": "deferred_boot_claim",
+      "bootCommands": [
+        "node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest"
+      ],
+      "claimGate": "verifier_green_required",
+      "truthBoundary": "Failed-surface repair for hosted AI OS v0.1 only; do not claim native OS, production readiness, or boot-proof green unless the repair wave threshold passes.",
+      "reusePrimitives": [],
+      "packageModel": [],
+      "filesystemLayout": [],
+      "metadata": {
+        "physical_wave_width": 8,
+        "standard_heavy_wave_agent_count": 45,
+        "active_codex_call_cap": 8,
+        "global_call_budget": 8
+      }
+    },
+    "truthGates": {
+      "noTruthLayerOverclaim": true,
+      "fullCloneParityRequired": false,
+      "fullCloneParityEvidenceRequired": false,
+      "aiOsBootProofRequired": true
+    },
+    "agentWorkLanguage": {
+      "schemaVersion": "claw.agent_work_spec.v0",
+      "languageVersion": "v0.1",
+      "goalId": "aioshosted_kernel_boot_failed_surface_repair",
+      "outcome": "aioshosted_kernel_boot_failed_surface_repair",
+      "runtime": {
+        "defaultRunner": "objective_controller",
+        "defaultRunnerScript": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+        "defaultCommand": "node apps/system-benchmark/run-agent-work-objective-controller.mjs <run_contract_or_agent_work_spec>",
+        "finiteRunner": "finite_transfer_runner",
+        "finiteRunnerScript": "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+        "finiteCommand": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs <run_contract>",
+        "truthBoundary": "Agent Work v0.1 defaults to the objective controller. The finite transfer runner remains available only as an explicit single-wave runner."
+      },
+      "features": {
+        "budgets": false,
+        "wavePolicy": true,
+        "expansionPolicy": true,
+        "evidenceSchemas": false,
+        "templates": false,
+        "orchestrationLearning": false,
+        "aiOsProfile": true
+      }
+    }
+  },
+  "repoPath": "/root/clawd/ai-os",
+  "verifierSet": [
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/operator-userland/cli-boot.mjs",
+      "surfaceIds": [
+        "operator_cli_boot"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/scheduler/lease-manager.mjs",
+      "surfaceIds": [
+        "scheduler_lease_manager"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs",
+      "surfaceIds": [
+        "artifact_claim_evidence_link"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/memory-manager/memory-mount.mjs",
+      "surfaceIds": [
+        "memory_mount"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/capability-security/external-write-guard.mjs",
+      "surfaceIds": [
+        "capability_external_write_guard"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/capability-security/rate-limit.mjs",
+      "surfaceIds": [
+        "capability_rate_limit"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/syscall-layer/fs-read.mjs",
+      "surfaceIds": [
+        "syscall_fs_read"
+      ]
+    },
+    {
+      "kind": "shell_command",
+      "command": "node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs",
+      "surfaceIds": [
+        "claim_allowance"
+      ]
+    }
+  ],
+  "requestedAgentCount": 8,
+  "executionBoundary": "control_plane_allowed",
+  "stopCondition": "failed_surfaces_repaired_or_blocker",
+  "scoreboardPath": "artifacts/benchmarks/scoreboard.json",
+  "runId": "aios-failed-surface-repair-20260702",
+  "artifactRoot": "artifacts/aios-v0/latest/failed_surface_repair_20260702",
+  "notes": "Compiled from claw.agent_work_spec.v0",
+  "replyAnchor": "",
+  "metadata": {
+    "product_diff_mode": "creative_product_work",
+    "require_real_product_diffs": "true",
+    "creative_product_work": "{\"required\":true,\"promptMode\":\"compact\",\"minIterations\":1,\"minWorkerRuntimeMs\":0}",
+    "canonical_landing_evidence": "{\"enabled\":true,\"minAddedLineCount\":1,\"minUniqueNormalizedAddedLineCount\":1,\"duplicateLineRatioMax\":0.55}",
+    "agentWorkDsl": {
+      "schemaVersion": "claw.agent_work_spec.v0",
+      "languageVersion": "v0.1",
+      "goalId": "aioshosted_kernel_boot_failed_surface_repair",
+      "compiler": "packages/agent-work-dsl",
+      "runtime": {
+        "defaultRunner": "objective_controller",
+        "defaultRunnerScript": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+        "defaultCommand": "node apps/system-benchmark/run-agent-work-objective-controller.mjs <run_contract_or_agent_work_spec>",
+        "finiteRunner": "finite_transfer_runner",
+        "finiteRunnerScript": "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+        "finiteCommand": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs <run_contract>",
+        "truthBoundary": "Agent Work v0.1 defaults to the objective controller. The finite transfer runner remains available only as an explicit single-wave runner."
+      },
+      "policies": {
+        "budgets": {},
+        "wavePolicy": {
+          "max_waves": 2,
+          "bundle_size": 1,
+          "full_context_waves": 0,
+          "handoff": "wave_factpack"
+        },
+        "expansionPolicy": {
+          "triggers": [
+            "failed_surfaces",
+            "objective_red"
+          ],
+          "max_cycles": 1,
+          "max_surfaces": 8,
+          "strategy": "repair_failed_surfaces"
+        },
+        "orchestrationLearning": {},
+        "aiOs": {
+          "schemaVersion": "aios.agent_work_language_profile.v0.1",
+          "enabled": true,
+          "sourcePlanPath": "/root/clawd/ai-os/plan.md",
+          "milestone": "failed_surface_repair",
+          "kernelMode": "hosted_linux",
+          "owner": "Jake",
+          "processModel": [
+            "job",
+            "process",
+            "thread",
+            "owner",
+            "exit_contract"
+          ],
+          "syscalls": [
+            "fs.read",
+            "fs.write",
+            "shell.exec",
+            "git.diff",
+            "memory.search",
+            "memory.write",
+            "verifier.run",
+            "claim.submit",
+            "audit.write"
+          ],
+          "memoryMounts": [
+            "project_memory",
+            "structural_memory",
+            "episodic_log",
+            "artifact_store"
+          ],
+          "capabilityPolicy": {
+            "defaultDenyExternalWrites": true,
+            "requireApprovalFor": [
+              "external.write",
+              "deploy",
+              "destructive.action",
+              "privileged.kernel.change"
+            ]
+          },
+          "evidenceArtifacts": [
+            "repair_wave_summary.json",
+            "process_lifecycle.json",
+            "capability_audit.json",
+            "syscall_audit.json",
+            "claim_gate.json",
+            "artifact_bundle_manifest.json"
+          ],
+          "evidenceEnforcement": "deferred_boot_claim",
+          "bootCommands": [
+            "node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest"
+          ],
+          "claimGate": "verifier_green_required",
+          "truthBoundary": "Failed-surface repair for hosted AI OS v0.1 only; do not claim native OS, production readiness, or boot-proof green unless the repair wave threshold passes.",
+          "reusePrimitives": [],
+          "packageModel": [],
+          "filesystemLayout": [],
+          "metadata": {
+            "physical_wave_width": 8,
+            "standard_heavy_wave_agent_count": 45,
+            "active_codex_call_cap": 8,
+            "global_call_budget": 8
+          }
+        },
+        "evidenceSchemas": [],
+        "templates": []
+      }
+    }
+  }
+}

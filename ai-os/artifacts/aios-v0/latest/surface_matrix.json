@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "aios.surface-matrix.v0.1",
+  "status": "wave0_contract_slice",
+  "surfaces": [
+    {
+      "surface": "process schema",
+      "path": "kernel/contracts/process.schema.json",
+      "status": "implemented_contract"
+    },
+    {
+      "surface": "capability schema",
+      "path": "kernel/contracts/capability.schema.json",
+      "status": "implemented_contract"
+    },
+    {
+      "surface": "syscall schema",
+      "path": "kernel/contracts/syscall.schema.json",
+      "status": "implemented_contract"
+    },
+    {
+      "surface": "claim schema",
+      "path": "kernel/contracts/claim.schema.json",
+      "status": "implemented_contract"
+    },
+    {
+      "surface": "verifier schema",
+      "path": "kernel/contracts/verifier.schema.json",
+      "status": "implemented_contract"
+    },
+    {
+      "surface": "boot runtime",
+      "path": "apps/aios-cli.mjs",
+      "status": "not_started_wave1"
+    }
+  ],
+  "truthBoundary": "Wave 0 surfaces are contracts only. Runtime surfaces remain not started."
+}

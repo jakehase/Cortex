@@ -1,0 +1,10 @@
+{
+  "version": "cortex.roadmap.r9.step8.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/shadow_probe_latest.json"
+  ],
+  "gates": {
+    "shadow_probe_present": true,
+    "requires_non_regression_signal": true
+  }
+}

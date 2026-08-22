@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "cortex.learning_os.run_manifest.v0",
+  "runId": "math-foundations-smoke-20260725-052939567Z",
+  "generatedAt": "2026-07-25T05:31:52.232Z",
+  "files": [
+    {
+      "path": "baseline/answers.json",
+      "sha256": "187694fab7e1332bce8bd58a0179f312eb049ee5a74e6d446a47c8cef65a3025"
+    },
+    {
+      "path": "baseline/attempts.json",
+      "sha256": "ee4549e3b2c60dd9f695627fedf61745674b1309485599c99e3bd95139b6d50c"
+    },
+    {
+      "path": "baseline/exam.json",
+      "sha256": "8f5f5000c2244c995783e91d37177a3b14ccb131a87a490eed3a83a7b1e3d008"
+    },
+    {
+      "path": "baseline/model_call.json",
+      "sha256": "85aa1ac1df3417c86c292f84721d92549cc8139ef996f86af9c3cb443c1c43a5"
+    },
+    {
+      "path": "baseline/model_prompt.txt",
+      "sha256": "5948950b7e0685d65fb3008b1dfd25a3dd940bb6971160dfb375e16753f05858"
+    },
+    {
+      "path": "baseline/score_summary.json",
+      "sha256": "ccbc96b48e327f38151a3cdd6f22f27ab2defc4ea9cc3804aa8a694b87f919d2"
+    },
+    {
+      "path": "baseline/verifier_results.json",
+      "sha256": "42ed9654c70e0bbb1fd9fd6e57e76ca03fc2efc5857fec6b9d24e80b31759533"
+    },
+    {
+      "path": "capability_report.json",
+      "sha256": "ec11ecc25860869b346f69e087cae7fb7dc9471524da884971bb3414c64c0fbb"
+    },
+    {
+      "path": "correction/answers.json",
+      "sha256": "8824666a89e83cca3c157f6acd4593296e19cbce52588f943a436485d580f126"
+    },
+    {
+      "path": "correction/attempts.json",
+      "sha256": "d199441e9c9f3dc56581a7d4a5d419925ffe0c4e251c90252d46ccc0e5278fd9"
+    },
+    {
+      "path": "correction/exam.json",
+      "sha256": "f57d60f1a7a09e4ddcc65723ac34a45e449e41b6d27748a72ff0a0f791b1bfff"
+    },
+    {
+      "path": "correction/model_call.json",
+      "sha256": "44df50d940989376e5eabf2db919816313a76d426759a688b1c629e987cc5dc6"
+    },
+    {
+      "path": "correction/model_prompt.txt",
+      "sha256": "0cc959fc2b7818bda501e53c212699fe4022d18a663fe32ba6704a121ae1ee93"
+    },
+    {
+      "path": "correction/score_summary.json",
+      "sha256": "a4c1a32b9d8fce3edcac14b36ef68cd40d5e51556bd6ac7314244dbdcfb79895"
+    },
+    {
+      "path": "correction/verifier_results.json",
+      "sha256": "05fc13a89fb38bd91f06a68e72b78a543afc4947005470725b5cec1e5fd2b8e1"
+    },
+    {
+      "path": "heldout-retest/answers.json",
+      "sha256": "23fb5833ddcfd5c10ef4af28208fb9b3bfa4dbce8f2162fcb6353d5a09fcc768"
+    },
+    {
+      "path": "heldout-retest/attempts.json",
+      "sha256": "a8636ad7d76b6067be7be67f2d4bbc5a338a92ece505c541d50b1d2344daf79a"
+    },
+    {
+      "path": "heldout-retest/exam.json",
+      "sha256": "6d37b85e060ffff756a011fd0932bcbb8f7a70c1474edf0f89017a834fd958b4"
+    },
+    {
+      "path": "heldout-retest/model_call.json",
+      "sha256": "315391f84a3e93567e96ca90000e447fe60611c0d9053e70b9fb381156fc1a9e"
+    },
+    {
+      "path": "heldout-retest/model_prompt.txt",
+      "sha256": "933f2b4124bde60792320fda9e7663742cf32f61ce8878e0e0f2c3f4226de1d6"
+    },
+    {
+      "path": "heldout-retest/score_summary.json",
+      "sha256": "1cb09238fa0680caedca45b39684673390e8712cb8d29f3fe90e1f66c9c057ad"
+    },
+    {
+      "path": "heldout-retest/verifier_results.json",
+      "sha256": "dbf17e52c1b4113715396405903e3e81b5ab1f6eb6b06f226d082ff41c0c14cd"
+    },
+    {
+      "path": "learning_outcome.json",
+      "sha256": "09c43d95b8509c8e6d32d5f71f28db83703e228355e234082b7cd751c57e27b9"
+    },
+    {
+      "path": "lesson_candidate.json",
+      "sha256": "cf18de5ed4493eb31f0f85558c5e1298449d5789a45c9bcce251098c172deeed"
+    },
+    {
+      "path": "mistakes.json",
+      "sha256": "09c40254204deb73f3aeed7fa9670b900a940fb04505e2e67d3fc9dd38417f58"
+    },
+    {
+      "path": "promotion_report.json",
+      "sha256": "7e49d2afde0892d94c2b79103cd1ecb0c767caf7eae5ebf1d36f40a39b6a5742"
+    },
+    {
+      "path": "promotion-retest/answers.json",
+      "sha256": "78242f85bfaf68028d5ffd7590d06f41ef74992a3c769b8ac2481ec99a161608"
+    },
+    {
+      "path": "promotion-retest/attempts.json",
+      "sha256": "68d9b3921bea43aa43101154af5b3888c80b26e770fade867e6c5e0bbccb72ab"
+    },
+    {
+      "path": "promotion-retest/exam.json",
+      "sha256": "fa6c7d1fc07f3bb6348fb444381beffa92064076d31e4bec47c888f4ceaaf391"
+    },
+    {
+      "path": "promotion-retest/model_call.json",
+      "sha256": "264c21a16b0aeeb76d59b7c543a0ca0da8fddf6bc5b499d26e10017e65935c10"
+    },
+    {
+      "path": "promotion-retest/model_prompt.txt",
+      "sha256": "74027645fc0a033f11490be4fc343e16784477996e98761000529e5536590f20"
+    },
+    {
+      "path": "promotion-retest/score_summary.json",
+      "sha256": "38e8e12833d6389c7b42871b76f0e5eb78806e77ebf8a933e57b12d5f47c3d74"
+    },
+    {
+      "path": "promotion-retest/verifier_results.json",
+      "sha256": "0344830a09c641af47eb156f63c6eea1ed73e966ab0010a4f87597296b16b664"
+    },
+    {
+      "path": "retrieval_pack.json",
+      "sha256": "92dc2a358e5e1b9e11a532e8fe93bdb5e093e751213ffac4c5eb0f3998a071f5"
+    },
+    {
+      "path": "run_summary.json",
+      "sha256": "e11482e2a62b6727c2732e879d718ef3a2d8d4a3768017d27a0c016a9f2d609e"
+    },
+    {
+      "path": "trusted_lesson.json",
+      "sha256": "bb7d618b44ddc5dd64e2c05461e547222b3f401596fd608e8aefabfb6e0d374b"
+    }
+  ],
+  "commands": [
+    "\"/usr/bin/node\" \"/root/clawd/worktrees/cortex-learning-os-v0-20260725/cortex-learning-os/src/run-learning-smoke.mjs\" \"--exam\" \"exams/math-foundations/exact-arithmetic-stress.exam.json\" \"--promote-default\""
+  ],
+  "truthBoundary": "Observed scores and a bounded retest support only the named item/concept claims; they do not prove general expertise or durable model-level learning."
+}

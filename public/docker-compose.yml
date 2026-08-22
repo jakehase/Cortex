@@ -1,0 +1,1291 @@
+# Level 17 + 6: The Exoskeleton + The Bard - Docker Compose for The Cortex
+
+services:
+  cortex-brain:
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
+    container_name: cortex-brain
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./config:/app/config:rw
+      - ./logs:/app/logs:rw
+      - ./extensions:/app/cortex_server/modules/extensions:rw
+      - ./outputs:/app/outputs:rw
+      - ./openclaw_state:/root/.openclaw:rw
+      - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
+      - cortex-chroma:/app/cortex_server/chroma_db:rw
+      # Runtime delivery owns an isolated mount plus a physically allocated
+      # rollback reserve. Unrelated SQLite/WAL growth cannot consume it.
+      - cortex-runtime-delivery:/opt/clawdbot/runtime-volume:rw
+      - cortex-app-state:/opt/clawdbot/state:rw
+      - cortex-knowledge:/opt/clawdbot/knowledge:rw
+      - cortex-reasoning:/opt/clawdbot/reasoning:rw
+    environment:
+      MALLOC_ARENA_MAX: "2"
+      MALLOC_TRIM_THRESHOLD_: "131072"
+      MALLOC_TOP_PAD_: "131072"
+      CORTEX_ENV: production
+      CORTEX_CHROMA_DIR: /app/cortex_server/chroma_db
+      CORTEX_L22_PREALLOCATE_RECOVERY_RESERVE: "true"
+      CORTEX_DB_PATH: /opt/clawdbot/knowledge/cortex_graph.db
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID and run the explicit volume bootstrap}
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID and run the explicit volume bootstrap}
+      CORTEX_APP_STATE_MOUNT_ID: ${CORTEX_APP_STATE_MOUNT_ID:?set a deployment-random application-state volume ID and run the explicit volume bootstrap}
+      CORTEX_REASONING_MOUNT_ID: ${CORTEX_REASONING_MOUNT_ID:?set a deployment-random reasoning volume ID and run the explicit volume bootstrap}
+      ORCHESTRATOR_RUNTIME_DELIVERY_ROOT: /opt/clawdbot/runtime-volume/runtime_delivery
+      REASONING_STORE_DB_PATH: /opt/clawdbot/reasoning/reasoning_runtime.db
+      CORTEX_RUNTIME_DELIVERY_PREALLOCATE_RECOVERY_RESERVE: "true"
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID and run the explicit volume bootstrap}
+      # Optional deployment requirements extend the non-removable production baseline.
+      CORTEX_REQUIRED_PATHS: ${CORTEX_REQUIRED_PATHS:-}
+      CORTEX_REQUIRED_ROUTERS: ${CORTEX_REQUIRED_ROUTERS:-}
+      CORTEX_WRITE_AUTH_MODE: token_required
+      CORTEX_WRITE_TOKEN: ${CORTEX_WRITE_TOKEN:?set the external production write token in .env}
+      CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN: ${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set a verifier-only artifact transport token in .env}
+      CORTEX_ADMIN_TOKEN: ${CORTEX_ADMIN_TOKEN:?set an independent production administrator token in .env}
+      CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
+      # Default-on, observe-only selective private retrieval. It cannot inject
+      # candidate content into answers; the kill switch is immediate.
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_ENABLED: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_ENABLED:-true}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_KILL_SWITCH: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_KILL_SWITCH:-false}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_WORKERS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_WORKERS:-2}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_MAX_PENDING: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_MAX_PENDING:-32}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_MAX_RECORDS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_MAX_RECORDS:-1000}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_RATE_LIMIT: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_RATE_LIMIT:-30}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_RATE_WINDOW_SECONDS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_RATE_WINDOW_SECONDS:-60}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_RESULT_COUNT: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_RESULT_COUNT:-8}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_PACK_ITEMS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_PACK_ITEMS:-3}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_PACK_TOKENS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_PACK_TOKENS:-600}
+      CORTEX_PRIVATE_RETRIEVAL_SHADOW_LATENCY_LIMIT_MS: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_LATENCY_LIMIT_MS:-1500}
+      CORTEX_CODEC_ADMIN_TOKEN: ${CORTEX_CODEC_ADMIN_TOKEN:?set CORTEX_CODEC_ADMIN_TOKEN in .env}
+      # Provision independent verifier IDs first, deploy, then retire old IDs after in-flight releases drain.
+      CORTEX_RELEASE_VERIFIER_CREDENTIALS: ${CORTEX_RELEASE_VERIFIER_CREDENTIALS:?set independent release verifier HMAC credentials in .env}
+      # Recipient workers use only their bound least-privilege HMAC. Rotate secrets after draining in-flight handoffs.
+      CORTEX_AGENT_ACK_CREDENTIALS: '{"release-verifier":"${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}","release-manager":"${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}"}'
+      # This server-only signing key must never reuse a write, admin, feedback-control, or principal credential.
+      NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY: ${NEXUS_OUTCOME_FEEDBACK_SIGNING_KEY:?set a distinct server-only feedback signing key in .env}
+      # Rotate this independent submission credential only after in-flight feedback receipts drain.
+      NEXUS_OUTCOME_FEEDBACK_TOKEN: ${NEXUS_OUTCOME_FEEDBACK_TOKEN:?set a distinct outcome-feedback submission token in .env}
+      NEXUS_ASSURANCE_SIGNING_KEY: ${NEXUS_ASSURANCE_SIGNING_KEY:?set a distinct server-only assurance signing key in .env}
+      NEXUS_ASSURANCE_SIGNING_KEY_ID: ${NEXUS_ASSURANCE_SIGNING_KEY_ID:?set a stable ID for the current assurance signing key}
+      NEXUS_ASSURANCE_VERIFY_KEYS: '${NEXUS_ASSURANCE_VERIFY_KEYS:-{}}'
+      CORTEX_RELEASE_VERIFIER_HEALTH_URL: http://release-verifier:8891/ready
+      CORTEX_RELEASE_MANAGER_HEALTH_URL: http://release-manager:8892/ready
+    env_file:
+      - .env
+    restart: unless-stopped
+    # Give the production container an explicit cgroup/OOM recovery boundary.
+    mem_limit: 3g
+    mem_reservation: 2g
+    memswap_limit: 3584m
+    oom_kill_disable: false
+    pids_limit: 512
+    networks:
+      - cortex-network
+    depends_on:
+      piper-tts:
+        condition: service_started
+      cortex-memory-volume-init:
+        condition: service_completed_successfully
+      cortex-knowledge-volume-init:
+        condition: service_completed_successfully
+      cortex-app-state-volume-init:
+        condition: service_completed_successfully
+      cortex-reasoning-volume-init:
+        condition: service_completed_successfully
+      cortex-runtime-delivery-volume-init:
+        condition: service_completed_successfully
+      release-verifier:
+        condition: service_healthy
+      release-manager:
+        condition: service_healthy
+
+  cortex-volume-bootstrap:
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
+    profiles: ["bootstrap"]
+    environment:
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
+      CORTEX_APP_STATE_MOUNT_ID: ${CORTEX_APP_STATE_MOUNT_ID:?set a deployment-random application-state volume ID}
+      CORTEX_REASONING_MOUNT_ID: ${CORTEX_REASONING_MOUNT_ID:?set a deployment-random reasoning volume ID}
+      CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID: ${CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:?set a deployment-random verifier-state volume ID}
+      CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID: ${CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:?set a deployment-random manager-state volume ID}
+    volumes:
+      - ./continuity:/continuity:rw
+      - ./cortex_graph.db:/seed/cortex_graph.db:ro
+      - cortex-chroma:/memory:rw
+      - cortex-knowledge:/knowledge:rw
+      - cortex-runtime-delivery:/state:rw
+      - cortex-app-state:/application:rw
+      - cortex-reasoning:/reasoning:rw
+      - cortex-release-verifier-state:/verifier-controller:rw
+      - cortex-release-manager-state:/manager-controller:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        fail() {
+          echo "Cortex volume bootstrap: $$*" >&2
+          exit 1
+        }
+        validate_identity() {
+          name="$$1"
+          value="$$2"
+          case "$$value" in
+            ''|*[!A-Za-z0-9._-]*) fail "$$name must contain only letters, digits, dot, underscore, or hyphen" ;;
+          esac
+          [ "$${#value}" -le 128 ] || fail "$$name exceeds 128 characters"
+        }
+        validate_regular_value() {
+          target="$$1"
+          expected="$$2"
+          [ -f "$$target" ] && [ ! -L "$$target" ] || fail "$$target is missing or unsafe"
+          [ "$$(cat "$$target")" = "$$expected" ] || fail "$$target identity mismatch"
+        }
+        publish_value() {
+          target="$$1"
+          value="$$2"
+          if [ -e "$$target" ] || [ -L "$$target" ]; then
+            validate_regular_value "$$target" "$$value"
+            return
+          fi
+          temporary="$$target.bootstrap.$$$$"
+          printf '%s\n' "$$value" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$target"
+          sync "$${target%/*}"
+        }
+        journal_phase() {
+          phase="$$1"
+          if ! grep -Fqx "$$phase" "$$journal"; then
+            printf '%s\n' "$$phase" >> "$$journal"
+            sync "$$journal"
+            sync /continuity
+          fi
+        }
+        initialize_controller() {
+          controller="$$1"
+          target="$$controller/observations.json"
+          expected='{"version":"cortex.release-controller-observations.v1","windows":{}}'
+          if [ -e "$$target" ] || [ -L "$$target" ]; then
+            validate_regular_value "$$target" "$$expected"
+            return
+          fi
+          temporary="$$controller/.observations.json.bootstrap.$$$$"
+          printf '%s\n' "$$expected" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$target"
+          sync "$$controller"
+        }
+        bootstrap_python="$${CORTEX_BOOTSTRAP_PYTHON:-python}"
+        initialize_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/memory")
+        if root.is_symlink() or not root.is_dir():
+            raise RuntimeError("Chroma authority volume is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_or_create_collection(name="cortex_memory", embedding_function=None)
+        client.get_or_create_collection(
+            name="cortex-durability-readiness", embedding_function=None
+        )
+        database = root / "chroma.sqlite3"
+        if database.is_symlink() or not database.is_file():
+            raise RuntimeError("Chroma authority database was not initialized")
+        descriptor = os.open(database, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        directory_descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /memory/chroma.sqlite3
+          sync /memory
+        }
+        initialize_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.parent.is_symlink() or not path.parent.is_dir():
+            raise RuntimeError("reasoning authority volume is missing or unsafe")
+        if path.is_symlink():
+            raise RuntimeError("reasoning authority database is unsafe")
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_documents ("
+                "namespace TEXT NOT NULL, doc_id TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(namespace, doc_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_documents_ns_updated "
+                "ON reasoning_documents(namespace, updated_at)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_events ("
+                "namespace TEXT NOT NULL, parent_id TEXT NOT NULL, event_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY(namespace, event_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_events_ns_parent_created "
+                "ON reasoning_events(namespace, parent_id, created_at)"
+            )
+            connection.commit()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            if not quick_check or str(quick_check[0]) != "ok":
+                raise RuntimeError("reasoning authority database quick_check failed")
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise RuntimeError("reasoning authority WAL checkpoint did not complete")
+        finally:
+            connection.close()
+        for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+            if candidate.exists():
+                descriptor = os.open(candidate, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        directory_descriptor = os.open(
+            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /reasoning/reasoning_runtime.db
+          sync /reasoning
+        }
+
+        for identity_specification in \
+          "CORTEX_CHROMA_MOUNT_ID:$$CORTEX_CHROMA_MOUNT_ID" \
+          "CORTEX_KNOWLEDGE_MOUNT_ID:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "CORTEX_APP_STATE_MOUNT_ID:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "CORTEX_REASONING_MOUNT_ID:$$CORTEX_REASONING_MOUNT_ID" \
+          "CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          validate_identity "$${identity_specification%%:*}" "$${identity_specification#*:}"
+        done
+
+        [ ! -e /continuity/cortex-source-adoption.journal ] && \
+          [ ! -L /continuity/cortex-source-adoption.journal ] || \
+          fail "source-adoption state exists"
+        journal=/continuity/cortex-volume-bootstrap.journal
+        seed_digest="$$(sha256sum /seed/cortex_graph.db | awk '{print $$1}')"
+        case "$$seed_digest" in *[!0-9a-f]*|'') fail "knowledge seed revision digest is invalid" ;; esac
+        [ "$${#seed_digest}" -eq 64 ] || fail "knowledge seed revision digest is invalid"
+        binding="binding:v2:cortex.production.volume-layout.v2:sha256:$$seed_digest:$$CORTEX_CHROMA_MOUNT_ID:$$CORTEX_KNOWLEDGE_MOUNT_ID:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_APP_STATE_MOUNT_ID:$$CORTEX_REASONING_MOUNT_ID:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        if [ ! -e "$$journal" ] && [ ! -L "$$journal" ]; then
+          for target in \
+            /continuity/cortex-chroma.volume-id \
+            /continuity/cortex-knowledge.volume-id \
+            /continuity/cortex-runtime-delivery.volume-id \
+            /continuity/cortex-app-state.volume-id \
+            /continuity/cortex-reasoning.volume-id \
+            /continuity/cortex-release-verifier-state.volume-id \
+            /continuity/cortex-release-manager-state.volume-id \
+            /continuity/cortex-volume-set.complete
+          do
+            [ ! -e "$$target" ] && [ ! -L "$$target" ] || \
+              fail "published state exists without a bootstrap journal"
+          done
+          for volume in /memory /knowledge /state /application /reasoning /verifier-controller /manager-controller
+          do
+            [ -z "$$(find "$$volume" -mindepth 1 -print -quit)" ] || \
+              fail "named volume $$volume is nonblank without a bootstrap journal"
+          done
+          journal_temporary="$$journal.bootstrap.$$$$"
+          printf '%s\n%s\n' "$$binding" reserved > "$$journal_temporary"
+          chmod 0600 "$$journal_temporary"
+          sync "$$journal_temporary"
+          if ln "$$journal_temporary" "$$journal" 2>/dev/null; then
+            rm -f "$$journal_temporary"
+            sync /continuity
+          else
+            rm -f "$$journal_temporary"
+            [ -f "$$journal" ] && [ ! -L "$$journal" ] || fail "bootstrap journal is unsafe"
+            grep -Fqx "$$binding" "$$journal" || fail "bootstrap journal belongs to another revision or volume set"
+          fi
+        else
+          [ -f "$$journal" ] && [ ! -L "$$journal" ] || fail "bootstrap journal is unsafe"
+          grep -Fqx "$$binding" "$$journal" || fail "bootstrap journal belongs to another revision or volume set"
+        fi
+
+        mkdir -p /state/runtime_delivery
+        [ -d /state/runtime_delivery ] && [ ! -L /state/runtime_delivery ] || \
+          fail "runtime-delivery directory is unsafe"
+        sync /state/runtime_delivery
+        sync /state
+        journal_phase runtime-directory-initialized
+
+        knowledge_target=/knowledge/cortex_graph.db
+        if [ -e "$$knowledge_target" ] || [ -L "$$knowledge_target" ]; then
+          [ -f "$$knowledge_target" ] && [ ! -L "$$knowledge_target" ] || \
+            fail "knowledge database is unsafe"
+          cmp -s /seed/cortex_graph.db "$$knowledge_target" || \
+            fail "knowledge database does not match the bootstrap revision"
+        else
+          knowledge_temporary=/knowledge/.cortex_graph.db.bootstrap.$$$$
+          cp /seed/cortex_graph.db "$$knowledge_temporary"
+          chmod 0600 "$$knowledge_temporary"
+          sync "$$knowledge_temporary"
+          mv "$$knowledge_temporary" "$$knowledge_target"
+          sync /knowledge
+        fi
+        journal_phase knowledge-initialized
+
+        initialize_chroma_authority
+        initialize_reasoning_authority
+        journal_phase durable-authorities-initialized
+
+        initialize_controller /verifier-controller
+        initialize_controller /manager-controller
+        journal_phase controllers-initialized
+
+        for specification in \
+          "/memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
+          "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "/state/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+          "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
+          "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          publish_value "$${specification%%:*}" "$${specification#*:}"
+        done
+        journal_phase volume-markers-published
+
+        for specification in \
+          "/continuity/cortex-chroma.volume-id:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/continuity/cortex-knowledge.volume-id:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "/continuity/cortex-runtime-delivery.volume-id:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "/continuity/cortex-app-state.volume-id:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "/continuity/cortex-reasoning.volume-id:$$CORTEX_REASONING_MOUNT_ID" \
+          "/continuity/cortex-release-verifier-state.volume-id:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "/continuity/cortex-release-manager-state.volume-id:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          publish_value "$${specification%%:*}" "$${specification#*:}"
+        done
+        journal_phase manifests-published
+        journal_phase artifacts-durable
+        publish_value /continuity/cortex-volume-set.complete cortex.volume-set.v1
+        journal_phase complete
+        echo "Cortex volume bootstrap completed"
+    restart: "no"
+
+  cortex-volume-adopt-source:
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
+    profiles: ["adopt-source"]
+    environment:
+      CORTEX_SOURCE_CHROMA_MOUNT_ID: ${CORTEX_SOURCE_CHROMA_MOUNT_ID:-cortex-chroma-v1}
+      CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID:-cortex-runtime-delivery-v1}
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
+      CORTEX_APP_STATE_MOUNT_ID: ${CORTEX_APP_STATE_MOUNT_ID:?set a deployment-random application-state volume ID}
+      CORTEX_REASONING_MOUNT_ID: ${CORTEX_REASONING_MOUNT_ID:?set a deployment-random reasoning volume ID}
+      CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID: ${CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:?set a deployment-random verifier-state volume ID}
+      CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID: ${CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:?set a deployment-random manager-state volume ID}
+      CORTEX_ADOPTION_MAX_SOURCE_BYTES: ${CORTEX_ADOPTION_MAX_SOURCE_BYTES:-107374182400}
+      CORTEX_ADOPTION_MAX_SOURCE_ENTRIES: ${CORTEX_ADOPTION_MAX_SOURCE_ENTRIES:-1000000}
+    volumes:
+      - ./continuity:/continuity:rw
+      - cortex-chroma:/source-memory:rw
+      - cortex-runtime-delivery:/source:rw
+      - cortex-app-state:/application:rw
+      - cortex-knowledge:/knowledge:rw
+      - cortex-reasoning:/reasoning:rw
+      - cortex-release-verifier-state:/verifier-controller:rw
+      - cortex-release-manager-state:/manager-controller:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        fail() {
+          echo "Cortex source-volume adoption: $$*" >&2
+          exit 1
+        }
+        [ ! -e /continuity/cortex-volume-bootstrap.journal ] && \
+          [ ! -L /continuity/cortex-volume-bootstrap.journal ] || \
+          fail "a volume-bootstrap transaction exists"
+        validate_identity() {
+          name="$$1"
+          value="$$2"
+          case "$$value" in
+            ''|*[!A-Za-z0-9._-]*) fail "$$name must contain only letters, digits, dot, underscore, or hyphen" ;;
+          esac
+          [ "$${#value}" -le 128 ] || fail "$$name exceeds 128 characters"
+        }
+        validate_regular_value() {
+          target="$$1"
+          expected="$$2"
+          label="$$3"
+          [ -f "$$target" ] && [ ! -L "$$target" ] || fail "$$label is missing or not a regular non-symlink file"
+          [ "$$(cat "$$target")" = "$$expected" ] || fail "$$label identity mismatch"
+        }
+        validate_source_marker() {
+          target="$$1"
+          source_expected="$$2"
+          adopted_expected="$$3"
+          label="$$4"
+          [ -f "$$target" ] && [ ! -L "$$target" ] || fail "$$label source marker is missing or unsafe"
+          observed="$$(cat "$$target")"
+          [ "$$observed" = "$$source_expected" ] || [ "$$observed" = "$$adopted_expected" ] || \
+            fail "$$label source marker identity mismatch"
+        }
+        rotate_source_marker() {
+          target="$$1"
+          source_expected="$$2"
+          adopted_expected="$$3"
+          label="$$4"
+          validate_source_marker "$$target" "$$source_expected" "$$adopted_expected" "$$label"
+          [ "$$(cat "$$target")" = "$$adopted_expected" ] && return
+          temporary="$$target.adopt.$$$$"
+          printf '%s\n' "$$adopted_expected" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv -f "$$temporary" "$$target"
+          sync "$${target%/*}"
+        }
+        publish_value() {
+          target="$$1"
+          value="$$2"
+          if [ -e "$$target" ] || [ -L "$$target" ]; then
+            validate_regular_value "$$target" "$$value" "$$target"
+            return
+          fi
+          temporary="$$target.adopt.$$$$"
+          printf '%s\n' "$$value" > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$target"
+          sync "$${target%/*}"
+        }
+        journal_phase() {
+          phase="$$1"
+          if ! grep -Fqx "$$phase" "$$journal"; then
+            printf '%s\n' "$$phase" >> "$$journal"
+            sync "$$journal"
+            sync /continuity
+          fi
+        }
+        initialize_controller() {
+          controller="$$1"
+          target="$$controller/observations.json"
+          if [ -e "$$target" ] || [ -L "$$target" ]; then
+            [ -f "$$target" ] && [ ! -L "$$target" ] || fail "$$target must be a regular non-symlink file"
+            return
+          fi
+          temporary="$$controller/.observations.json.adopt.$$$$"
+          printf '%s\n' '{"version":"cortex.release-controller-observations.v1","windows":{}}' > "$$temporary"
+          chmod 0600 "$$temporary"
+          sync "$$temporary"
+          mv "$$temporary" "$$target"
+          sync "$$controller"
+        }
+
+        bootstrap_python="$${CORTEX_BOOTSTRAP_PYTHON:-python}"
+        adopt_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/source-memory")
+        if root.is_symlink() or not root.is_dir():
+            raise RuntimeError("source Chroma authority volume is missing or unsafe")
+        database = root / "chroma.sqlite3"
+        if database.is_symlink() or not database.is_file():
+            raise RuntimeError("source Chroma authority database is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_collection(name="cortex_memory", embedding_function=None)
+        client.get_or_create_collection(
+            name="cortex-durability-readiness", embedding_function=None
+        )
+        descriptor = os.open(database, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        directory_descriptor = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /source-memory/chroma.sqlite3
+          sync /source-memory
+        }
+        validate_chroma_authority() {
+          "$$bootstrap_python" - <<'PY'
+        from pathlib import Path
+
+        import chromadb
+
+        root = Path("/source-memory")
+        database = root / "chroma.sqlite3"
+        if root.is_symlink() or not root.is_dir() or database.is_symlink() or not database.is_file():
+            raise RuntimeError("adopted Chroma authority is missing or unsafe")
+        client = chromadb.PersistentClient(path=str(root))
+        client.get_collection(name="cortex_memory", embedding_function=None)
+        client.get_collection(name="cortex-durability-readiness", embedding_function=None)
+        PY
+        }
+        initialize_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.parent.is_symlink() or not path.parent.is_dir() or path.is_symlink():
+            raise RuntimeError("reasoning authority target is missing or unsafe")
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_documents ("
+                "namespace TEXT NOT NULL, doc_id TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(namespace, doc_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_documents_ns_updated "
+                "ON reasoning_documents(namespace, updated_at)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS reasoning_events ("
+                "namespace TEXT NOT NULL, parent_id TEXT NOT NULL, event_id TEXT NOT NULL, "
+                "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL, "
+                "PRIMARY KEY(namespace, event_id))"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_events_ns_parent_created "
+                "ON reasoning_events(namespace, parent_id, created_at)"
+            )
+            connection.commit()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            if not quick_check or str(quick_check[0]) != "ok":
+                raise RuntimeError("reasoning authority database quick_check failed")
+            checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if checkpoint and int(checkpoint[0]) != 0:
+                raise RuntimeError("reasoning authority WAL checkpoint did not complete")
+        finally:
+            connection.close()
+        for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+            if candidate.exists():
+                descriptor = os.open(candidate, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+        directory_descriptor = os.open(
+            path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        PY
+          sync /reasoning/reasoning_runtime.db
+          sync /reasoning
+        }
+        validate_reasoning_authority() {
+          "$$bootstrap_python" - <<'PY'
+        import sqlite3
+        from pathlib import Path
+
+        path = Path("/reasoning/reasoning_runtime.db")
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("adopted reasoning authority database is missing or unsafe")
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.5) as connection:
+            connection.execute("PRAGMA query_only = ON")
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            connection.execute(
+                "SELECT namespace, doc_id, created_at, updated_at, payload "
+                "FROM reasoning_documents LIMIT 0"
+            )
+            connection.execute(
+                "SELECT namespace, parent_id, event_id, created_at, updated_at, payload "
+                "FROM reasoning_events LIMIT 0"
+            )
+            schema = {
+                (str(row[0]), str(row[1]))
+                for row in connection.execute(
+                    "SELECT type, name FROM sqlite_master WHERE name IN (?, ?, ?, ?)",
+                    (
+                        "reasoning_documents",
+                        "reasoning_events",
+                        "idx_reasoning_documents_ns_updated",
+                        "idx_reasoning_events_ns_parent_created",
+                    ),
+                ).fetchall()
+            }
+        required = {
+            ("table", "reasoning_documents"),
+            ("table", "reasoning_events"),
+            ("index", "idx_reasoning_documents_ns_updated"),
+            ("index", "idx_reasoning_events_ns_parent_created"),
+        }
+        if not quick_check or str(quick_check[0]) != "ok" or not required.issubset(schema):
+            raise RuntimeError("adopted reasoning authority schema is invalid")
+        PY
+        }
+
+        for identity_specification in \
+          "CORTEX_SOURCE_CHROMA_MOUNT_ID:$$CORTEX_SOURCE_CHROMA_MOUNT_ID" \
+          "CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID" \
+          "CORTEX_CHROMA_MOUNT_ID:$$CORTEX_CHROMA_MOUNT_ID" \
+          "CORTEX_KNOWLEDGE_MOUNT_ID:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "CORTEX_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "CORTEX_APP_STATE_MOUNT_ID:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "CORTEX_REASONING_MOUNT_ID:$$CORTEX_REASONING_MOUNT_ID" \
+          "CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          validate_identity "$${identity_specification%%:*}" "$${identity_specification#*:}"
+        done
+        for bound in "$$CORTEX_ADOPTION_MAX_SOURCE_BYTES" "$$CORTEX_ADOPTION_MAX_SOURCE_ENTRIES"
+        do
+          case "$$bound" in ''|*[!0-9]*) fail "adoption bounds must be positive integers" ;; esac
+          [ "$$bound" -gt 0 ] || fail "adoption bounds must be positive integers"
+        done
+        validate_source_marker \
+          /source-memory/.cortex-durable-memory \
+          "$$CORTEX_SOURCE_CHROMA_MOUNT_ID" \
+          "$$CORTEX_CHROMA_MOUNT_ID" \
+          Chroma
+        validate_source_marker \
+          /source/runtime_delivery/.cortex-durable-runtime-delivery \
+          "$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID" \
+          "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          runtime-delivery
+        [ -d /source/runtime_delivery ] && [ ! -L /source/runtime_delivery ] || \
+          fail "source runtime_delivery layout is missing or unsafe"
+        [ -d /source/knowledge ] && [ ! -L /source/knowledge ] || \
+          fail "source knowledge layout is missing or unsafe"
+        [ -f /source/knowledge/cortex_graph.db ] && [ ! -L /source/knowledge/cortex_graph.db ] || \
+          fail "source knowledge database is missing or unsafe"
+        if [ -n "$$(find /source-memory /source -xdev -mindepth 1 ! -type d ! -type f -print -quit)" ]; then
+          fail "source volumes contain a symlink or unsupported special file"
+        fi
+        source_entries="$$(find /source-memory /source -xdev -mindepth 1 -print | wc -l | tr -d ' ')"
+        source_bytes="$$(du -sk /source-memory /source | awk '{ total += $$1 } END { print total * 1024 }')"
+        [ "$$source_entries" -le "$$CORTEX_ADOPTION_MAX_SOURCE_ENTRIES" ] || \
+          fail "source entry count exceeds CORTEX_ADOPTION_MAX_SOURCE_ENTRIES"
+        [ "$$source_bytes" -le "$$CORTEX_ADOPTION_MAX_SOURCE_BYTES" ] || \
+          fail "source size exceeds CORTEX_ADOPTION_MAX_SOURCE_BYTES"
+
+        journal=/continuity/cortex-source-adoption.journal
+        binding="binding:v1:$$CORTEX_SOURCE_CHROMA_MOUNT_ID:$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_CHROMA_MOUNT_ID:$$CORTEX_KNOWLEDGE_MOUNT_ID:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID:$$CORTEX_APP_STATE_MOUNT_ID:$$CORTEX_REASONING_MOUNT_ID:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        if [ ! -e "$$journal" ] && [ ! -L "$$journal" ]; then
+          for manifest in \
+            /continuity/cortex-chroma.volume-id \
+            /continuity/cortex-knowledge.volume-id \
+            /continuity/cortex-runtime-delivery.volume-id \
+            /continuity/cortex-app-state.volume-id \
+            /continuity/cortex-reasoning.volume-id \
+            /continuity/cortex-release-verifier-state.volume-id \
+            /continuity/cortex-release-manager-state.volume-id
+          do
+            [ ! -e "$$manifest" ] && [ ! -L "$$manifest" ] || \
+              fail "continuity manifests exist without an adoption journal"
+          done
+          [ ! -e /continuity/cortex-volume-set.complete ] && \
+            [ ! -L /continuity/cortex-volume-set.complete ] || \
+            fail "volume-set completion exists without an adoption journal"
+          for target in /application /knowledge /reasoning /verifier-controller /manager-controller
+          do
+            [ -z "$$(find "$$target" -mindepth 1 -print -quit)" ] || \
+              fail "target volume $$target is nonblank without an adoption journal"
+          done
+          journal_temporary="$$journal.adopt.$$$$"
+          printf '%s\n' "$$binding" > "$$journal_temporary"
+          chmod 0600 "$$journal_temporary"
+          sync "$$journal_temporary"
+          mv "$$journal_temporary" "$$journal"
+          sync /continuity
+        else
+          [ -f "$$journal" ] && [ ! -L "$$journal" ] || fail "adoption journal is unsafe"
+          grep -Fqx "$$binding" "$$journal" || fail "adoption journal belongs to another volume set"
+        fi
+
+        if grep -Fqx complete "$$journal"; then
+          for published in \
+            "/continuity/cortex-chroma.volume-id:$$CORTEX_CHROMA_MOUNT_ID" \
+            "/continuity/cortex-knowledge.volume-id:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+            "/continuity/cortex-runtime-delivery.volume-id:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+            "/continuity/cortex-app-state.volume-id:$$CORTEX_APP_STATE_MOUNT_ID" \
+            "/continuity/cortex-reasoning.volume-id:$$CORTEX_REASONING_MOUNT_ID" \
+            "/continuity/cortex-release-verifier-state.volume-id:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+            "/continuity/cortex-release-manager-state.volume-id:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID" \
+            "/source-memory/.cortex-durable-memory:$$CORTEX_CHROMA_MOUNT_ID" \
+            "/source-memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
+            "/source/runtime_delivery/.cortex-durable-runtime-delivery:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+            "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
+            "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+            "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+            "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
+            "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+            "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+          do
+            validate_regular_value "$${published%%:*}" "$${published#*:}" "$${published%%:*}"
+          done
+          [ -f /verifier-controller/observations.json ] && [ ! -L /verifier-controller/observations.json ] || \
+            fail "verifier observation state is missing after completed adoption"
+          [ -f /manager-controller/observations.json ] && [ ! -L /manager-controller/observations.json ] || \
+            fail "manager observation state is missing after completed adoption"
+          validate_chroma_authority
+          validate_reasoning_authority
+          publish_value /continuity/cortex-volume-set.complete cortex.volume-set.v1
+          echo "Cortex source-volume adoption is already complete"
+          exit 0
+        fi
+
+        for entry in /source/* /source/.[!.]* /source/..?*
+        do
+          [ -e "$$entry" ] || [ -L "$$entry" ] || continue
+          name="$${entry##*/}"
+          case "$$name" in
+            runtime_delivery|knowledge|reasoning_runtime.db|reasoning_runtime.db-wal|reasoning_runtime.db-shm) continue ;;
+          esac
+          cp -a "$$entry" /application/
+        done
+        sync /application
+        journal_phase application-copied
+
+        cp -a /source/knowledge/. /knowledge/
+        sync /knowledge
+        journal_phase knowledge-copied
+
+        for suffix in '' -wal -shm
+        do
+          source_database="/source/reasoning_runtime.db$$suffix"
+          if [ -e "$$source_database" ]; then
+            cp -a "$$source_database" "/reasoning/reasoning_runtime.db$$suffix"
+          fi
+        done
+        sync /reasoning
+        journal_phase reasoning-copied
+
+        initialize_reasoning_authority
+        journal_phase reasoning-authority-initialized
+
+        sync /source/runtime_delivery
+        journal_phase runtime-retained
+        initialize_controller /verifier-controller
+        initialize_controller /manager-controller
+        journal_phase controllers-initialized
+
+        rotate_source_marker \
+          /source-memory/.cortex-durable-memory \
+          "$$CORTEX_SOURCE_CHROMA_MOUNT_ID" \
+          "$$CORTEX_CHROMA_MOUNT_ID" \
+          Chroma
+        rotate_source_marker \
+          /source/runtime_delivery/.cortex-durable-runtime-delivery \
+          "$$CORTEX_SOURCE_RUNTIME_DELIVERY_MOUNT_ID" \
+          "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          runtime-delivery
+        adopt_chroma_authority
+        journal_phase chroma-authority-initialized
+        for marker in \
+          "/source-memory/.cortex-memory-authority:cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" \
+          "/application/.cortex-durable-app-state:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "/knowledge/.cortex-durable-knowledge:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "/reasoning/.cortex-durable-reasoning:$$CORTEX_REASONING_MOUNT_ID" \
+          "/reasoning/.cortex-reasoning-authority:cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" \
+          "/verifier-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "/manager-controller/.cortex-durable-release-controller:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          publish_value "$${marker%%:*}" "$${marker#*:}"
+        done
+        journal_phase markers-published
+
+        for manifest in \
+          "/continuity/cortex-chroma.volume-id:$$CORTEX_CHROMA_MOUNT_ID" \
+          "/continuity/cortex-knowledge.volume-id:$$CORTEX_KNOWLEDGE_MOUNT_ID" \
+          "/continuity/cortex-runtime-delivery.volume-id:$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" \
+          "/continuity/cortex-app-state.volume-id:$$CORTEX_APP_STATE_MOUNT_ID" \
+          "/continuity/cortex-reasoning.volume-id:$$CORTEX_REASONING_MOUNT_ID" \
+          "/continuity/cortex-release-verifier-state.volume-id:$$CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID" \
+          "/continuity/cortex-release-manager-state.volume-id:$$CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID"
+        do
+          publish_value "$${manifest%%:*}" "$${manifest#*:}"
+        done
+        journal_phase manifests-published
+        journal_phase complete
+        publish_value /continuity/cortex-volume-set.complete cortex.volume-set.v1
+        echo "Cortex source-volume adoption completed"
+    restart: "no"
+
+  cortex-memory-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-memory-volume-init
+    environment:
+      CORTEX_CHROMA_MOUNT_ID: ${CORTEX_CHROMA_MOUNT_ID:?set a deployment-random Chroma volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-chroma:/memory:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/memory/.cortex-durable-memory
+        authority=/memory/.cortex-memory-authority
+        database=/memory/chroma.sqlite3
+        expected=/continuity/cortex-chroma.volume-id
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+          echo "Cortex external memory continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex memory volume marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex memory volume marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_CHROMA_MOUNT_ID" ]; then
+          echo "Cortex memory volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -f "$$authority" ] || [ -L "$$authority" ] || \
+          [ "$$(cat "$$authority")" != "cortex.memory-authority.v1:$$CORTEX_CHROMA_MOUNT_ID:cortex_memory" ]; then
+          echo "Cortex memory authority sentinel is missing or mismatched; restore the authority instead of recreating it" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex memory authority database is missing; restore it instead of initializing during startup" >&2
+          exit 1
+        fi
+    restart: "no"
+
+  cortex-runtime-delivery-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-runtime-delivery-volume-init
+    environment:
+      CORTEX_RUNTIME_DELIVERY_MOUNT_ID: ${CORTEX_RUNTIME_DELIVERY_MOUNT_ID:?set a deployment-random runtime-delivery volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-runtime-delivery:/state:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        durable_mkdir() {
+          parent="$${1%/*}"
+          mkdir "$${1}"
+          sync "$${parent}"
+        }
+        marker=/state/runtime_delivery/.cortex-durable-runtime-delivery
+        expected=/continuity/cortex-runtime-delivery.volume-id
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+          echo "Cortex external runtime-delivery continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex runtime-delivery marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex runtime-delivery marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_RUNTIME_DELIVERY_MOUNT_ID" ]; then
+          echo "Cortex runtime delivery volume identity mismatch" >&2
+          exit 1
+        fi
+        for directory in \
+          /state/runtime_delivery \
+          /state/runtime_delivery/session_event_inbox \
+          /state/runtime_delivery/snapshots \
+          /state/runtime_delivery/shared_state \
+          /state/runtime_delivery/shared_state/history \
+          /state/runtime_delivery/memory \
+          /state/runtime_delivery/handoff_claim_receipts \
+          /state/runtime_delivery/release_workflow \
+          /state/runtime_delivery/release_workflow/history \
+          /state/runtime_delivery/release_workflow/artifacts \
+          /state/runtime_delivery/production_build_loop \
+          /state/runtime_delivery/production_build_loop/contracts \
+          /state/runtime_delivery/production_build_loop/state \
+          /state/runtime_delivery/production_build_loop/history \
+          /state/runtime_delivery/production_build_loop/reports \
+          /state/runtime_delivery/production_build_loop/locks \
+          /state/runtime_delivery/roadmap_executor \
+          /state/runtime_delivery/roadmap_executor/contracts \
+          /state/runtime_delivery/roadmap_executor/state \
+          /state/runtime_delivery/roadmap_executor/history \
+          /state/runtime_delivery/roadmap_executor/reports
+        do
+          if [ ! -d "$${directory}" ]; then
+            durable_mkdir "$${directory}"
+          fi
+          chmod 0700 "$${directory}"
+          sync "$${directory}"
+        done
+        chmod 0700 /state /state/runtime_delivery
+        chmod 0600 "$$marker"
+        sync /state
+        sync /state/runtime_delivery
+    restart: "no"
+
+  cortex-knowledge-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-knowledge-volume-init
+    environment:
+      CORTEX_KNOWLEDGE_MOUNT_ID: ${CORTEX_KNOWLEDGE_MOUNT_ID:?set a deployment-random knowledge volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-knowledge:/knowledge:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/knowledge/.cortex-durable-knowledge
+        expected=/continuity/cortex-knowledge.volume-id
+        database=/knowledge/cortex_graph.db
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_KNOWLEDGE_MOUNT_ID" ]; then
+          echo "Cortex external knowledge continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex knowledge volume marker is missing; refusing blank replacement volume (run explicit bootstrap or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex knowledge volume marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_KNOWLEDGE_MOUNT_ID" ]; then
+          echo "Cortex knowledge volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex knowledge database is missing; restore it instead of seeding during startup" >&2
+          exit 1
+        fi
+        chmod 0700 /knowledge
+        chmod 0600 "$$marker" "$$database"
+    restart: "no"
+
+  cortex-app-state-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-app-state-volume-init
+    environment:
+      CORTEX_APP_STATE_MOUNT_ID: ${CORTEX_APP_STATE_MOUNT_ID:?set a deployment-random application-state volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-app-state:/application:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/application/.cortex-durable-app-state
+        expected=/continuity/cortex-app-state.volume-id
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_APP_STATE_MOUNT_ID" ]; then
+          echo "Cortex external application-state continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex application-state marker is missing; refusing blank replacement volume (run explicit bootstrap, source adoption, or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex application-state marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_APP_STATE_MOUNT_ID" ]; then
+          echo "Cortex application-state volume identity mismatch" >&2
+          exit 1
+        fi
+        chmod 0700 /application
+        chmod 0600 "$$marker"
+        sync /application
+    restart: "no"
+
+  cortex-reasoning-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-reasoning-volume-init
+    environment:
+      CORTEX_REASONING_MOUNT_ID: ${CORTEX_REASONING_MOUNT_ID:?set a deployment-random reasoning volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-reasoning:/reasoning:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/reasoning/.cortex-durable-reasoning
+        authority=/reasoning/.cortex-reasoning-authority
+        database=/reasoning/reasoning_runtime.db
+        expected=/continuity/cortex-reasoning.volume-id
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_REASONING_MOUNT_ID" ]; then
+          echo "Cortex external reasoning continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex reasoning marker is missing; refusing blank replacement volume (run explicit bootstrap, source adoption, or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex reasoning marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_REASONING_MOUNT_ID" ]; then
+          echo "Cortex reasoning volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -f "$$authority" ] || [ -L "$$authority" ] || \
+          [ "$$(cat "$$authority")" != "cortex.reasoning-authority.v1:$$CORTEX_REASONING_MOUNT_ID:reasoning_runtime.db" ]; then
+          echo "Cortex reasoning authority sentinel is missing or mismatched; restore the authority instead of recreating it" >&2
+          exit 1
+        fi
+        if [ ! -f "$$database" ] || [ -L "$$database" ]; then
+          echo "Cortex reasoning database is missing; restore it instead of initializing during startup" >&2
+          exit 1
+        fi
+        chmod 0700 /reasoning
+        chmod 0600 "$$marker" "$$authority" "$$database"
+        sync /reasoning
+    restart: "no"
+
+  cortex-release-verifier-state-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-release-verifier-state-volume-init
+    environment:
+      CORTEX_RELEASE_CONTROLLER_MOUNT_ID: ${CORTEX_RELEASE_VERIFIER_STATE_MOUNT_ID:?set a deployment-random verifier-state volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-release-verifier-state:/controller:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/controller/.cortex-durable-release-controller
+        expected=/continuity/cortex-release-verifier-state.volume-id
+        observations=/controller/observations.json
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_RELEASE_CONTROLLER_MOUNT_ID" ]; then
+          echo "Cortex external verifier-controller continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex verifier-controller marker is missing; refusing blank replacement volume (run explicit bootstrap, source adoption, or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex verifier-controller marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_RELEASE_CONTROLLER_MOUNT_ID" ]; then
+          echo "Cortex verifier-controller volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -s "$$observations" ] || [ ! -f "$$observations" ] || [ -L "$$observations" ]; then
+          echo "Cortex verifier-controller observations are missing or unsafe; restore controller state" >&2
+          exit 1
+        fi
+        chmod 0700 /controller
+        chmod 0600 "$$marker" "$$observations"
+        sync /controller
+    restart: "no"
+
+  cortex-release-manager-state-volume-init:
+    image: alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    container_name: cortex-release-manager-state-volume-init
+    environment:
+      CORTEX_RELEASE_CONTROLLER_MOUNT_ID: ${CORTEX_RELEASE_MANAGER_STATE_MOUNT_ID:?set a deployment-random manager-state volume ID}
+    volumes:
+      - ./continuity:/continuity:ro
+      - cortex-release-manager-state:/controller:rw
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        marker=/controller/.cortex-durable-release-controller
+        expected=/continuity/cortex-release-manager-state.volume-id
+        observations=/controller/observations.json
+        completion=/continuity/cortex-volume-set.complete
+        if [ ! -f "$$completion" ] || [ -L "$$completion" ] || [ "$$(cat "$$completion")" != "cortex.volume-set.v1" ]; then
+          echo "Cortex volume-set publication is incomplete" >&2
+          exit 1
+        fi
+        if [ ! -s "$$expected" ] || [ "$$(cat "$$expected")" != "$$CORTEX_RELEASE_CONTROLLER_MOUNT_ID" ]; then
+          echo "Cortex external manager-controller continuity manifest is missing or mismatched" >&2
+          exit 1
+        fi
+        if [ ! -e "$$marker" ]; then
+          echo "Cortex manager-controller marker is missing; refusing blank replacement volume (run explicit bootstrap, source adoption, or restore)" >&2
+          exit 1
+        fi
+        if [ ! -f "$$marker" ] || [ -L "$$marker" ]; then
+          echo "Cortex manager-controller marker must be a regular non-symlink file" >&2
+          exit 1
+        fi
+        if [ "$$(cat "$$marker")" != "$$CORTEX_RELEASE_CONTROLLER_MOUNT_ID" ]; then
+          echo "Cortex manager-controller volume identity mismatch" >&2
+          exit 1
+        fi
+        if [ ! -s "$$observations" ] || [ ! -f "$$observations" ] || [ -L "$$observations" ]; then
+          echo "Cortex manager-controller observations are missing or unsafe; restore controller state" >&2
+          exit 1
+        fi
+        chmod 0700 /controller
+        chmod 0600 "$$marker" "$$observations"
+        sync /controller
+    restart: "no"
+
+  release-verifier:
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
+    environment:
+      CORTEX_ENV: production
+      CORTEX_BASE_URL: http://cortex-brain:8888
+      CORTEX_HANDOFF_RECIPIENT: release-verifier
+      CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_VERIFIER_RECIPIENT_SECRET:?set a distinct release-verifier recipient secret in .env}
+      CORTEX_RELEASE_VERIFIER_ID: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_ID:?set the verifier ID present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
+      CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET: ${CORTEX_RELEASE_VERIFIER_ATTESTATION_SECRET:?set the verifier-only attestation secret present in CORTEX_RELEASE_VERIFIER_CREDENTIALS}
+      CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN: ${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set the verifier-only artifact transport token in .env}
+      CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation
+      CORTEX_RELEASE_CONTROLLER_STATE_DIR: /controller-state
+      CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE: "true"
+      CORTEX_HANDOFF_HEALTH_PORT: 8891
+    volumes:
+      - cortex-release-verifier-state:/controller-state:rw
+    command: python -m cortex_server.runtime.release_verifier_worker
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8891/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - cortex-network
+    depends_on:
+      cortex-release-verifier-state-volume-init:
+        condition: service_completed_successfully
+
+  release-manager:
+    image: ${CORTEX_IMAGE_REPOSITORY:?set the published Cortex image repository}@sha256:${CORTEX_IMAGE_DIGEST:?set the 64-character lowercase Cortex image digest}
+    environment:
+      CORTEX_ENV: production
+      CORTEX_BASE_URL: http://cortex-brain:8888
+      CORTEX_HANDOFF_RECIPIENT: release-manager
+      CORTEX_HANDOFF_RECIPIENT_SECRET: ${CORTEX_RELEASE_MANAGER_RECIPIENT_SECRET:?set a distinct release-manager recipient secret in .env}
+      CORTEX_RELEASE_MEASUREMENT_URL: http://cortex-brain:8888/release-observation
+      CORTEX_RELEASE_CONTROLLER_STATE_DIR: /controller-state
+      CORTEX_RELEASE_CONTROLLER_REQUIRE_EXISTING_STATE: "true"
+      CORTEX_HANDOFF_HEALTH_PORT: 8892
+    volumes:
+      - cortex-release-manager-state:/controller-state:rw
+    command: python -m cortex_server.runtime.release_manager_worker
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8892/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - cortex-network
+    depends_on:
+      cortex-release-manager-state-volume-init:
+        condition: service_completed_successfully
+
+  # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
+  piper-tts:
+    image: rhasspy/wyoming-piper:2.2.2@sha256:c874e4a04657ae3381332ee5d0c8c70a310dae6722892840f530ac0890b44eb3
+    container_name: piper-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./piper-data:/data:rw
+    restart: unless-stopped
+    networks:
+      - cortex-network
+    command: --voice en_US-lessac-medium --uri tcp://0.0.0.0:10200 --download-dir /data
+
+networks:
+  cortex-network:
+    driver: bridge
+
+volumes:
+  cortex-chroma:
+  cortex-runtime-delivery:
+  cortex-app-state:
+  cortex-knowledge:
+  cortex-reasoning:
+  cortex-release-verifier-state:
+  cortex-release-manager-state:

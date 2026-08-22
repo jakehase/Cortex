@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "aios.provider-read-compute-policy.v1",
+  "enabled": true,
+  "mode": "capability-gated-read-compute",
+  "outputBoundary": "internal-artifact-only",
+  "externalWrites": false,
+  "runtimeReplacement": false,
+  "providers": {
+    "cortex": {
+      "enabled": true,
+      "transport": "http-json",
+      "baseUrl": "http://127.0.0.1:8000",
+      "allowLoopbackHttp": true,
+      "timeoutMs": 30000,
+      "maxRequestBytes": 65536,
+      "maxResponseBytes": 1048576,
+      "operations": {
+        "read": {
+          "enabled": true,
+          "capability": "provider.cortex.read",
+          "method": "POST",
+          "path": "/knowledge/search"
+        },
+        "compute": {
+          "enabled": true,
+          "capability": "provider.cortex.compute",
+          "method": "POST",
+          "path": "/oracle/chat",
+          "allowedModels": [
+            "tinyllama"
+          ],
+          "allowedResponseModes": [
+            "default"
+          ]
+        }
+      }
+    }
+  }
+}

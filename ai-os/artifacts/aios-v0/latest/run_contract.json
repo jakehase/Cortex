@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "aios.run-contract.v0.1",
+  "id": "aios-v0-wave0-contracts-20260630",
+  "objective": "Create Wave 0 AI OS contract artifacts and prove they are internally consistent.",
+  "fidelity": "production_slice",
+  "scope": [
+    "kernel contracts",
+    "prior-art reuse map",
+    "verifier catalog",
+    "token budget estimate",
+    "boot sequence docs",
+    "contract tests"
+  ],
+  "stopCondition": "contracts_green_or_blocker_report",
+  "executionPlacement": {
+    "controlPlane": "/root/clawd",
+    "executionPlaneRequired": false,
+    "heavyLocalExecutionAllowed": false
+  },
+  "requiredVerifiers": [
+    "verifier_contract_schema_static"
+  ],
+  "requiredArtifacts": [
+    "kernel/contracts/process.schema.json",
+    "kernel/contracts/capability.schema.json",
+    "kernel/contracts/syscall.schema.json",
+    "kernel/contracts/claim.schema.json",
+    "kernel/contracts/verifier.schema.json",
+    "kernel/contracts/kernel_contract.json",
+    "artifacts/aios-v0/latest/prior_art_reuse_map.json",
+    "artifacts/aios-v0/latest/token_budget_estimate.json",
+    "artifacts/aios-v0/latest/verifier_catalog.json",
+    "docs/BOOT_SEQUENCE.md"
+  ],
+  "claimBoundary": "May claim Wave 0 contracts exist and tests pass. Must not claim AI OS boots or runs jobs yet.",
+  "nextWaveRequiresApproval": {
+    "wave": "Wave 1 hosted kernel boot proof",
+    "estimatedTokens": {
+      "low": 150000000,
+      "high": 500000000
+    }
+  }
+}

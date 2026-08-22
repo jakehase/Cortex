@@ -1,0 +1,22 @@
+[
+  {
+    "schemaVersion": "cortex.learning_os.verifier_result.v0",
+    "verifierResultId": "verify_bd59d8ba495114d5",
+    "attemptId": "attempt_2a9136862504390a",
+    "examId": "math-foundations-heldout-retest-v0",
+    "itemId": "mfs-02-heldout-retest",
+    "conceptIds": [
+      "number-fractions"
+    ],
+    "verifierId": "deterministic:exact_integer_string:v0",
+    "status": "passed",
+    "score": 1,
+    "reproducible": true,
+    "observed": "13533948026720046",
+    "failureReason": null,
+    "evidenceRole": "heldout_retest",
+    "evidence": [
+      "./verifier_results.json#verify_bd59d8ba495114d5"
+    ]
+  }
+]
