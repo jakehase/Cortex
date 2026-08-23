@@ -13,6 +13,10 @@ import time
 import httpx
 
 from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
+from cortex_server.modules.level_registry import (
+    LEVEL_REGISTRY_VERSION,
+    get_level_registry,
+)
 
 router = APIRouter()
 
@@ -20,44 +24,8 @@ router = APIRouter()
 # Source of truth for the entire Cortex topology.
 
 LEVEL_MAP: Dict[int, Dict[str, Any]] = {
-    1:  {"name": "Kernel",       "path": "/kernel",         "category": "Foundation",     "always_on": False},
-    2:  {"name": "Ghost",        "path": "/browser",        "category": "Foundation",     "always_on": False},
-    3:  {"name": "Parser",       "path": "/parsers",        "category": "Foundation",     "always_on": False},
-    4:  {"name": "Lab",          "path": "/lab",            "category": "Foundation",     "always_on": False},
-    5:  {"name": "Oracle",       "path": "/oracle",         "category": "Foundation",     "always_on": True},
-    6:  {"name": "Bard",         "path": "/bard",           "category": "Foundation",     "always_on": False},
-    7:  {"name": "Librarian",    "path": "/librarian",      "category": "Foundation",     "always_on": False},
-    8:  {"name": "Cron",         "path": "/cron",           "category": "Foundation",     "always_on": False},
-    9:  {"name": "Architect",    "path": "/architect",      "category": "Foundation",     "always_on": False},
-    10: {"name": "Listener",     "path": "/listener",       "category": "Foundation",     "always_on": False},
-    11: {"name": "Catalyst",     "path": "/catalyst",       "category": "Intelligence",   "always_on": False},
-    12: {"name": "Hive",         "path": "/hive",           "category": "Intelligence",   "always_on": False},
-    13: {"name": "Dreamer",      "path": "/dreamer",        "category": "Intelligence",   "always_on": False},
-    14: {"name": "Chronos",      "path": "/night_shift",    "category": "Intelligence",   "always_on": False},
-    15: {"name": "Council",      "path": "/council",        "category": "Intelligence",   "always_on": False},
-    16: {"name": "Academy",      "path": "/academy",        "category": "Intelligence",   "always_on": False},
-    17: {"name": "Exoskeleton",  "path": "/tools",       "category": "Intelligence",   "always_on": True},
-    18: {"name": "Diplomat",     "path": "/diplomat",       "category": "Intelligence",   "always_on": True},
-    19: {"name": "Geneticist",   "path": "/geneticist",     "category": "Intelligence",   "always_on": False},
-    20: {"name": "Simulator",    "path": "/simulator",      "category": "Metacognition",  "always_on": True},
-    21: {"name": "Sentinel",     "path": "/sentinel",       "category": "Metacognition",  "always_on": True},
-    22: {"name": "Mnemosyne",    "path": "/knowledge",         "category": "Metacognition",  "always_on": True},
-    23: {"name": "Cartographer", "path": "/mirror",         "category": "Metacognition",  "always_on": True},
-    24: {"name": "Nexus",        "path": "/nexus",          "category": "Metacognition",  "always_on": True},
-    25: {"name": "Bridge",       "path": "/bridge",         "category": "Metacognition",  "always_on": True},
-    26: {"name": "Orchestrator", "path": "/orchestrator",      "category": "Metacognition",  "always_on": False},
-    27: {"name": "Forge",        "path": "/forge",          "category": "Metacognition",  "always_on": True},
-    28: {"name": "Polyglot",     "path": "/polyglot",       "category": "Singularity",    "always_on": False},
-    29: {"name": "Muse",         "path": "/muse",           "category": "Singularity",    "always_on": False},
-    30: {"name": "Seer",         "path": "/seer",           "category": "Singularity",    "always_on": False},
-    31: {"name": "Mediator",     "path": "/mediator",       "category": "Singularity",    "always_on": False},
-    32: {"name": "Synthesist",   "path": "/synthesist_api", "category": "Singularity",    "always_on": True},
-    33: {"name": "Ethicist",     "path": "/ethicist",       "category": "Singularity",    "always_on": True},
-    34: {"name": "Validator",    "path": "/validator",      "category": "Singularity",    "always_on": True},
-    35: {"name": "Singularity",  "path": "/singularity",    "category": "Singularity",    "always_on": True},
-    36: {"name": "Conductor",    "path": "/meta_conductor", "category": "Singularity",    "always_on": True},
-    37: {"name": "Awareness",    "path": "/awareness",      "category": "Singularity",    "always_on": False},
-    38: {"name": "Augmenter",    "path": "/augmenter",      "category": "Singularity",    "always_on": False},
+    int(row["level"]): {**row, "path": row["route_prefix"]}
+    for row in get_level_registry()
 }
 
 BASE_URL = CORTEX_INTERNAL_BASE_URL
@@ -74,7 +42,7 @@ CATEGORY_COLORS = {
 
 async def _probe_level(client: httpx.AsyncClient, level_num: int, info: Dict) -> Dict[str, Any]:
     """Probe a single level's /status endpoint. Returns structured result."""
-    url = f"{BASE_URL}{info['path']}/status"
+    url = f"{BASE_URL}{info['canonical_status']}"
     start = time.monotonic()
     try:
         resp = await client.get(url, timeout=3.0)
@@ -293,6 +261,7 @@ async def mirror_status(deep: bool = False):
                 "name": "Cartographer",
                 "status": "active",
                 "total_levels": len(LEVEL_MAP),
+                "registry_version": LEVEL_REGISTRY_VERSION,
                 "probe_mode": "fast",
                 "timestamp": datetime.now().isoformat(),
             },
@@ -311,6 +280,7 @@ async def mirror_status(deep: bool = False):
             "name": "Cartographer",
             "status": "active",
             "total_levels": len(LEVEL_MAP),
+            "registry_version": LEVEL_REGISTRY_VERSION,
             "online": len(online),
             "offline": len(offline),
             "degraded": len(degraded),
@@ -365,6 +335,7 @@ async def level_map():
     return {
         "success": True,
         "total": len(levels),
+        "registry_version": LEVEL_REGISTRY_VERSION,
         "levels": levels,
         "generated_at": datetime.now().isoformat(),
     }

@@ -11,6 +11,7 @@ import time
 import httpx
 
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.responses import JavaScriptFileResponse, SvgFileResponse
 
 router = APIRouter()
 
@@ -23,24 +24,24 @@ class ActionRequest(BaseModel):
     params: Dict[str, Any] = {}
 
 
-@router.get("/three.min.js")
+@router.get("/three.min.js", response_class=JavaScriptFileResponse)
 async def three_min_js():
-    return FileResponse(str(_THREE_PATH), media_type="application/javascript")
+    return JavaScriptFileResponse(str(_THREE_PATH), media_type="application/javascript")
 
 
-@router.get("/node_core.svg")
+@router.get("/node_core.svg", response_class=SvgFileResponse)
 async def node_core_svg():
-    return FileResponse(str(_ASSETS_DIR / "node_core.svg"), media_type="image/svg+xml")
+    return SvgFileResponse(str(_ASSETS_DIR / "node_core.svg"), media_type="image/svg+xml")
 
 
-@router.get("/node_ring.svg")
+@router.get("/node_ring.svg", response_class=SvgFileResponse)
 async def node_ring_svg():
-    return FileResponse(str(_ASSETS_DIR / "node_ring.svg"), media_type="image/svg+xml")
+    return SvgFileResponse(str(_ASSETS_DIR / "node_ring.svg"), media_type="image/svg+xml")
 
 
-@router.get("/node_arc.svg")
+@router.get("/node_arc.svg", response_class=SvgFileResponse)
 async def node_arc_svg():
-    return FileResponse(str(_ASSETS_DIR / "node_arc.svg"), media_type="image/svg+xml")
+    return SvgFileResponse(str(_ASSETS_DIR / "node_arc.svg"), media_type="image/svg+xml")
 
 
 @router.get("/state")

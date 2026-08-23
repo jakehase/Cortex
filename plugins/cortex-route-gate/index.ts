@@ -195,9 +195,11 @@ function liveRouteLevels(value: unknown): LiveRouteLevel[] | null {
   if (!isRecord(value)) return null;
   const levels = value.recommended_levels ?? value.recommended;
   if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isLiveRouteLevel)) return null;
-  if (value.routing_method !== undefined && !isBoundedString(value.routing_method, 1_024)) return null;
-  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return null;
-  if (value.routing_markers !== undefined && (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers))) return null;
+  if (value.success !== true) return null;
+  if (!isBoundedString(value.routing_method, 1_024, false)) return null;
+  if (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item))) return null;
+  if (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers)) return null;
+  if (!isRecord(value.contract) || !isJsonMetadata(value.contract)) return null;
   if (value.workflow_checkpoint !== undefined && !isWorkflowCheckpoint(value.workflow_checkpoint)) return null;
   return levels;
 }
@@ -273,6 +275,42 @@ function routePlanForCache(plan: RoutePlan): RoutePlan {
 function normalizeBaseUrl(value: unknown): string {
   const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:8888';
   return text.endsWith('/') ? text.slice(0, -1) : text;
+}
+function isLoopbackBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+    return ['http:', 'https:'].includes(url.protocol) && loopback && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+function explicitUnsignedDevelopmentMode(): string {
+  const configuredModes = [
+    ['OPENCLAW_ENV', process.env.OPENCLAW_ENV],
+    ['CORTEX_ENV', process.env.CORTEX_ENV],
+    ['NODE_ENV', process.env.NODE_ENV],
+  ]
+    .map(([name, value]) => [name, String(value ?? '').trim().toLowerCase()] as const)
+    .filter(([, value]) => value.length > 0);
+  if (configuredModes.length === 0) {
+    throw new Error('cortex-route-gate unsigned local development requires an explicit non-production runtime mode');
+  }
+  const aliases: Record<string, string> = { dev: 'development', prod: 'production' };
+  const canonicalMode = (value: string): string => aliases[value] || value;
+  const modes = new Set(configuredModes.map(([, value]) => canonicalMode(value)));
+  if (modes.size !== 1) {
+    throw new Error(`cortex-route-gate unsigned local development rejects conflicting runtime modes: ${configuredModes.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  const mode = [...modes][0];
+  if (['production', 'staging'].includes(mode)) {
+    throw new Error('cortex-route-gate unsigned local development is forbidden in production or staging mode');
+  }
+  if (!['development', 'test', 'local'].includes(mode)) {
+    throw new Error(`cortex-route-gate unsigned local development requires dev, development, test, or local mode; received ${mode}`);
+  }
+  return mode;
 }
 function normalizeWriteTokenHeader(value: unknown): string {
   if (value === undefined) return 'x-cortex-write-token';
@@ -387,11 +425,6 @@ function isInternalOracleSession(sessionKey: string): boolean {
 }
 function shouldBypassRouteGate(sessionKey?: string): boolean {
   return isInternalOracleSession(String(sessionKey || ''));
-}
-function isOracleExecutorPrompt(text: string): boolean {
-  const normalized = normalizePrompt(String(text || ''));
-  return normalized.includes('you are the host-side oracle executor for cortex')
-    && normalized.includes('return only the answer text that oracle should say');
 }
 function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
   const key = String(sessionKey || '').trim();
@@ -1180,12 +1213,24 @@ export default function register(api: any) {
   if (hasScopeCredentialId && !boundedOpaqueId.test(scopeCredentialId)) {
     throw new Error('cortex-route-gate scopeCredentialId must be a bounded opaque identifier');
   }
-  if (!hasScopeCredentialId) {
-    if (!allowUnsignedLocalDevelopment) {
-      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+  if (allowUnsignedLocalDevelopment) {
+    if (hasScopeCredentialId || writeToken) {
+      throw new Error('cortex-route-gate unsigned local development cannot be combined with production credentials');
     }
     if (tenantId !== 'cortex-local' || workspaceId !== 'default') {
       throw new Error('cortex-route-gate allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+    }
+    if (!isLoopbackBaseUrl(baseUrl)) {
+      throw new Error('cortex-route-gate unsigned local development requires a loopback Cortex baseUrl');
+    }
+    explicitUnsignedDevelopmentMode();
+    const warning = 'SECURITY WARNING: cortex-route-gate is using unsigned loopback-only local development mode';
+    if (typeof api.logger?.warn === 'function') api.logger.warn(warning);
+    else console.warn(warning);
+  }
+  if (!hasScopeCredentialId) {
+    if (!allowUnsignedLocalDevelopment) {
+      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
     }
   }
   if (!writeToken && !allowUnsignedLocalDevelopment) {
@@ -1225,13 +1270,13 @@ export default function register(api: any) {
       // Current OpenClaw prompt hooks do not always expose requesterSenderId.
       // Fixed configured fallbacks are trusted deployment policy; callback
       // identity still takes precedence whenever the runtime supplies it.
-      agent_id: String(cfg.agentId || ctx?.agentId || '').trim(),
+      agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
       user_id: String(
         preferConfiguredUserId
           ? (cfg.userId || ctx?.userId || ctx?.requesterSenderId)
           : (ctx?.userId || ctx?.requesterSenderId || cfg.userId),
       ).trim(),
-      channel_id: String(cfg.channelId || ctx?.channelId || ctx?.messageChannel || '').trim(),
+      channel_id: String(ctx?.channelId || ctx?.messageChannel || cfg.channelId || '').trim(),
       session_id: sessionIdentity,
     };
     if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
@@ -1489,7 +1534,7 @@ export default function register(api: any) {
     if (!prompt) return;
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const eventMessages = Array.isArray(event?.messages) ? event.messages : [];
-    if (shouldBypassRouteGate(rawSessionKey) || isOracleExecutorPrompt(prompt) || isOracleExecutorPrompt(latestUserTurnText(eventMessages))) {
+    if (shouldBypassRouteGate(rawSessionKey)) {
       const bypassStateKey = stateKeyForContext(ctx);
       if (bypassStateKey) runStateByKey.delete(bypassStateKey);
       api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${rawSessionKey || 'unknown'}`);

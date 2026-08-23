@@ -12,10 +12,11 @@ from cortex_server.modules.level_registry import get_level_registry
 
 router = APIRouter()
 
-# Canonical always-on levels
-ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
-
-LEVEL_NAMES = {int(row["level"]): str(row["name"]) for row in get_level_registry()}
+_LEVELS = get_level_registry()
+ALWAYS_ON_LEVELS = [
+    int(row["level"]) for row in _LEVELS if bool(row["always_on"])
+]
+LEVEL_NAMES = {int(row["level"]): str(row["name"]) for row in _LEVELS}
 
 
 def _format_hud(always_on: List[int], activated: List[Dict]) -> str:

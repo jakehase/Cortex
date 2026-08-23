@@ -3,6 +3,7 @@ Cron Router - API endpoints for cron scheduling and webhook triggers.
 """
 
 from typing import Any, List, Optional, Dict
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -21,10 +22,17 @@ from cortex_server.scheduler import (
     build_topology_plan,
     simulate_cadence_twin,
     get_novelty_budget_status,
+    get_scheduler_rehydration_status,
     evaluate_voi_gate,
     evaluate_verifier_escrow,
 )
 from cortex_server.worker import app as celery_app
+from cortex_server.modules.async_offload import (
+    BlockingCallCapacityExceeded,
+    BlockingCallDeadlineExceeded,
+    blocking_operation_status,
+    run_blocking,
+)
 
 router = APIRouter()
 
@@ -230,14 +238,38 @@ async def trigger_webhook(request: WebhookTriggerRequest) -> TriggerResponse:
 
     policy = dict(request.policy or {})
 
-    task_id = trigger_celery_task(
-        task_name,
-        args=task_args,
-        source="manual_api",
-        job_id="manual_api",
-        job_name="manual_api_trigger",
-        policy_override=policy if policy else None,
-    )
+    submission_id = str(uuid.uuid4())
+    try:
+        task_id = await run_blocking(
+            f"celery.trigger_task:{submission_id}",
+            trigger_celery_task,
+            task_name,
+            args=task_args,
+            source="manual_api",
+            job_id="manual_api",
+            job_name="manual_api_trigger",
+            policy_override=policy if policy else None,
+            submission_id=submission_id,
+            timeout_seconds=5.0,
+        )
+    except BlockingCallCapacityExceeded as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "not_dispatched",
+            },
+        ) from exc
+    except BlockingCallDeadlineExceeded as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "tracked_pending_completion",
+            },
+        ) from exc
 
     if task_id is not None:
         return TriggerResponse(task_id=task_id, status="triggered")
@@ -348,12 +380,19 @@ async def cron_status() -> dict:
     stats24 = get_trigger_stats(hours=24)
     totals = get_trigger_totals()
     policies = list_job_policies()
+    rehydration = get_scheduler_rehydration_status()
+    scheduler_healthy = bool(
+        rehydration.get("scheduler_running")
+        and rehydration.get("status") == "ready"
+    )
 
     return {
-        'success': True,
+        'success': scheduler_healthy,
         'level': 8,
         'name': 'Cron',
-        'status': 'active',
+        'status': 'active' if scheduler_healthy else 'degraded',
+        'scheduler_rehydration': rehydration,
+        'blocking_operations': blocking_operation_status(),
         'scheduled_jobs': len(get_scheduled_jobs()),
         'job_policies': len(policies),
         'triggered_last_24h': stats24.get('trigger_count', 0),

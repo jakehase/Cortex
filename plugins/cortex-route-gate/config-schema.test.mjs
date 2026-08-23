@@ -10,6 +10,7 @@ const schema = manifest.configSchema;
 // OpenClaw config schemas use this JSON Schema subset for plugin configuration.
 function validateConfig(value, candidateSchema = schema) {
   if (candidateSchema.const !== undefined && value !== candidateSchema.const) return false;
+  if (candidateSchema.not && validateConfig(value, candidateSchema.not)) return false;
   if (candidateSchema.anyOf && !candidateSchema.anyOf.some((option) => validateConfig(value, option))) return false;
   if (candidateSchema.type === 'object' || candidateSchema.properties || candidateSchema.required) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -55,9 +56,26 @@ test('enabled route-gate production configuration requires session and scope cre
   assert.doesNotThrow(() => registerHarness({ enabled: false }));
 });
 
-function registerHarness(config) {
-  const api = { config, logger: { info() {}, warn() {} }, on() {} };
+function registerHarness(config, warn = () => {}) {
+  const api = { config, logger: { info() {}, warn }, on() {} };
   return register(api);
+}
+
+function withRuntimeModes(values, fn) {
+  const names = ['OPENCLAW_ENV', 'CORTEX_ENV', 'NODE_ENV'];
+  const original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of names) {
+      if (values[name] === undefined) delete process.env[name];
+      else process.env[name] = values[name];
+    }
+    return fn();
+  } finally {
+    for (const name of names) {
+      if (original[name] === undefined) delete process.env[name];
+      else process.env[name] = original[name];
+    }
+  }
 }
 
 test('route-gate rejects partial credentials and restricts the explicit unsigned escape hatch', () => {
@@ -71,12 +89,46 @@ test('route-gate rejects partial credentials and restricts the explicit unsigned
   }
   assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: false }), false);
   assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }), true);
-  assert.doesNotThrow(() => registerHarness({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }));
+  assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, ...PRODUCTION_SCOPE }), false);
+  assert.doesNotThrow(() => withRuntimeModes(
+    { NODE_ENV: 'test' },
+    () => registerHarness({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }),
+  ));
   assert.equal(validateConfig({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'production' }), false);
   assert.throws(
     () => registerHarness({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'production' }),
     /restricted to the cortex-local\/default scope/,
   );
+});
+
+test('route-gate unsigned mode requires one explicit consistent development environment and warns', () => {
+  const unsigned = {
+    sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
+    allowUnsignedLocalDevelopment: true,
+  };
+  const warnings = [];
+  assert.doesNotThrow(() => withRuntimeModes(
+    { OPENCLAW_ENV: 'dev', CORTEX_ENV: 'development', NODE_ENV: undefined },
+    () => registerHarness(unsigned, (message) => warnings.push(String(message))),
+  ));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /SECURITY WARNING/);
+
+  for (const [modes, pattern] of [
+    [{}, /explicit non-production runtime mode/],
+    [{ NODE_ENV: 'banana' }, /requires dev, development, test, or local mode/],
+    [{ NODE_ENV: 'production' }, /forbidden in production or staging mode/],
+    [{ OPENCLAW_ENV: 'development', CORTEX_ENV: 'production' }, /conflicting runtime modes/],
+  ]) {
+    assert.throws(() => withRuntimeModes(
+      modes,
+      () => registerHarness(unsigned),
+    ), pattern);
+  }
+  assert.throws(() => withRuntimeModes(
+    { NODE_ENV: 'test' },
+    () => registerHarness({ ...unsigned, baseUrl: 'http://192.0.2.10:8888' }),
+  ), /requires a loopback Cortex baseUrl/);
 });
 
 test('route-gate validates scope credential identifiers during registration', () => {
@@ -105,6 +157,21 @@ test('existing provisioned route-gate configuration remains valid', () => {
     oracleSessionDir: '/tmp/openclaw-sessions',
     stateDir: '/tmp/cortex-route-gate',
   }), true);
+});
+
+test('creativity audit options are declared with strict types and bounds', () => {
+  for (const enabled of [true, false]) {
+    assert.equal(validateConfig(productionConfig({ creativityAuditEnabled: enabled })), true);
+  }
+  for (const threshold of [0, 0.34, 1]) {
+    assert.equal(validateConfig(productionConfig({ creativityAuditOverlapThreshold: threshold })), true);
+  }
+  for (const enabled of [0, 'true', null]) {
+    assert.equal(validateConfig(productionConfig({ creativityAuditEnabled: enabled })), false);
+  }
+  for (const threshold of [-0.01, 1.01, '0.34', null, true]) {
+    assert.equal(validateConfig(productionConfig({ creativityAuditOverlapThreshold: threshold })), false);
+  }
 });
 
 test('write authorization configuration is exposed and the token is sensitive', () => {

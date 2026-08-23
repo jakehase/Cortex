@@ -11,6 +11,12 @@ import json
 from cortex_server.internal_addressing import internal_url
 from cortex_server.worker import app as celery_app
 from cortex_server.modules.hive_novelty import build_l3_novel_plan
+from cortex_server.modules.async_offload import (
+    BlockingCallCapacityExceeded,
+    BlockingCallDeadlineExceeded,
+    run_blocking,
+)
+from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_entry
 from cortex_server.modules.memory_scope import (
     MemoryScopeAuthError,
     configured_internal_memory_headers,
@@ -84,11 +90,35 @@ async def swarm_orchestrate(request: SwarmRequest):
         )
 
     # Dispatch the heavy processing to Celery
-    task = celery_app.send_task(
-        "cortex_tasks.process_swarm",
-        args=[request.goal, context_payload],
-        countdown=0,
-    )
+    submission_id = str(uuid.uuid4())
+    try:
+        task = await run_blocking(
+            "celery.send_swarm",
+            celery_app.send_task,
+            "cortex_tasks.process_swarm",
+            args=[request.goal, context_payload],
+            countdown=0,
+            task_id=submission_id,
+            timeout_seconds=5.0,
+        )
+    except BlockingCallCapacityExceeded as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "not_dispatched",
+            },
+        ) from exc
+    except BlockingCallDeadlineExceeded as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "tracked_pending_completion",
+            },
+        ) from exc
 
     suffix = " (L3 novel plan attached)" if (request.novelty_mode or "").lower() == "l3_novel" else ""
     return QueuedResponse(
@@ -183,14 +213,30 @@ async def hive_status():
 
     # Check Redis/Celery
     try:
-        celery_app.connection().connect()
+        await run_blocking(
+            "celery.connect",
+            lambda: celery_app.connection().connect(),
+            timeout_seconds=2.0,
+        )
         services["celery"] = "online"
     except Exception:
         services["celery"] = "offline"
 
+    identity = get_level_entry(12) or {"level": 12, "name": "Hive/Darwin"}
+    online_services = sum(value == "online" for value in services.values())
+    status = (
+        "active"
+        if online_services == len(services)
+        else "degraded"
+        if online_services
+        else "unavailable"
+    )
     return {
-        "level": 3,
-        "name": "Hive",
+        "success": status == "active",
+        "status": status,
+        "level": identity["level"],
+        "name": identity["name"],
+        "registry_version": LEVEL_REGISTRY_VERSION,
         "services": services,
         "all_online": all(s == "online" for s in services.values()),
         "novelty_features": {

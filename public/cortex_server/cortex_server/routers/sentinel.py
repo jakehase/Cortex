@@ -104,12 +104,6 @@ def _normalize_target(watch_id: str, target: str) -> str:
         _record_heal(watch_id, t, fixed, "missing_scheme_host")
         t = fixed
 
-    # Backward-compat self-heal: legacy L9 alias /architect/status now maps to /meta_conductor/status.
-    if t.endswith("/architect/status"):
-        fixed = t[: -len("/architect/status")] + "/meta_conductor/status"
-        _record_heal(watch_id, t, fixed, "deprecated_architect_alias")
-        return fixed
-
     return t
 
 

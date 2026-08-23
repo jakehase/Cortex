@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional
 from collections import deque
 
 from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.level_registry import get_level_registry
 
 ORACLE_URL = internal_url("/oracle/chat")
 
@@ -25,44 +26,11 @@ ORACLE_URL = internal_url("/oracle/chat")
 _routing_cache: Dict[str, Dict] = {}
 _cache_max = 100
 
-# Complete level descriptions for Oracle context
+# Names and routing semantics are registry-owned. This includes L37/L38 and
+# prevents an independently maintained prompt map from shrinking topology.
 LEVEL_DESCRIPTIONS = {
-    1: ("Kernel", "System metrics, hardware info, CPU/memory/disk monitoring, process management"),
-    2: ("Ghost", "Web search, URL browsing, web scraping, current events, live information"),
-    3: ("Parser", "Document parsing — PDF extraction, Python code analysis, JavaScript analysis, directory scanning"),
-    4: ("Lab", "Code execution in sandbox, running scripts, calculations, algorithm testing"),
-    5: ("Oracle", "Deep reasoning, complex questions, analysis, explanations, general knowledge"),
-    6: ("Bard", "Text-to-speech, voice synthesis, reading text aloud, audio generation"),
-    7: ("Librarian", "Vector memory search, knowledge retrieval, semantic search, storing/recalling information"),
-    8: ("Cron", "Task scheduling, cron jobs, periodic tasks, timed execution, job queues"),
-    9: ("Architect", "System design, module creation, code generation, extending the system"),
-    10: ("Listener", "Audio analysis, transcription, speech-to-text, analyzing spoken/written content"),
-    11: ("Catalyst", "Performance profiling, optimization, bottleneck detection, system tuning"),
-    12: ("Hive", "Distributed task execution, swarm processing, parallel work coordination"),
-    13: ("Dreamer", "System gap analysis, vision, creative improvements, finding what's missing"),
-    14: ("Chronos", "Night shift scheduling, evolution cycles, timed maintenance routines"),
-    15: ("Council", "Multi-perspective deliberation, proposal evaluation, risk assessment, decision-making"),
-    16: ("Academy", "Learning, teaching, creating study materials, extracting patterns from content"),
-    17: ("Exoskeleton", "External tools — Docker, Git, FFmpeg, container management, version control"),
-    18: ("Diplomat", "Sending messages, HTTP communication, broadcasting to external services"),
-    19: ("Geneticist", "Code evolution, mutation, refactoring, improving code through generations"),
-    20: ("Simulator", "Scenario simulation, what-if analysis, outcome prediction, risk modeling"),
-    21: ("Ouroboros", "System health monitoring, security scanning, self-healing, health alerts"),
-    22: ("Mnemosyne", "Knowledge graph, entity relationships, structured knowledge storage"),
-    23: ("Cartographer", "System mapping, level discovery, dashboard, infrastructure visualization"),
-    24: ("Nexus", "Query orchestration, level routing, determining which levels to activate"),
-    25: ("Bridge", "External AI federation, connecting to other AI systems, relay queries"),
-    26: ("Orchestrator", "Multi-step workflows, sequential task pipelines, process automation"),
-    27: ("Forge", "Auto-generating modules, scaffolding routers, template-based code creation"),
-    28: ("Polyglot", "Translation, language detection, multilingual text processing"),
-    29: ("Muse", "Creative writing, poetry, brainstorming, ideation, inspiration"),
-    30: ("Seer", "Prediction, forecasting, trend analysis, future scenarios"),
-    31: ("Mediator", "Conflict resolution, finding compromise, mediating disagreements"),
-    32: ("Synthesist", "Cross-level knowledge synthesis, pattern discovery, meta-analysis"),
-    33: ("Ethicist", "Ethical evaluation, privacy assessment, fairness review, safety analysis"),
-    34: ("Validator", "Data validation, schema checking, input verification, testing"),
-    35: ("Singularity", "Code review, self-improvement analysis, automated refactoring"),
-    36: ("Conductor", "Meta-orchestration, full system coordination, aggregate health"),
+    int(row["level"]): (str(row["name"]), str(row["purpose"]))
+    for row in get_level_registry()
 }
 
 

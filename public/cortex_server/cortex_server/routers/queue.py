@@ -4,13 +4,18 @@ Uses non-blocking threadpool for Celery inspection to keep API responsive.
 """
 from typing import Any, List
 import asyncio
+import uuid
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from cortex_server.worker import app as celery_app
+from cortex_server.modules.async_offload import (
+    BlockingCallCapacityExceeded,
+    BlockingCallDeadlineExceeded,
+    run_blocking,
+)
 
 router = APIRouter()
 
@@ -34,26 +39,11 @@ class TaskStatus(BaseModel):
 
 def _count_active_jobs_sync() -> int:
     """Synchronously count active Celery tasks - runs in threadpool."""
-    try:
-        # Get the inspector with short timeout
-        inspect = celery_app.control.inspect(timeout=1.0)
-        
-        # Get active tasks from all workers
-        active_tasks = inspect.active()
-        
-        if active_tasks is None:
-            return 0
-        
-        # Count total active tasks across all workers
-        total_jobs = 0
-        for worker_name, tasks in active_tasks.items():
-            if tasks:
-                total_jobs += len(tasks)
-        
-        return total_jobs
-    except Exception:
-        # Default to 0 on any error/timeout
-        return 0
+    inspect = celery_app.control.inspect(timeout=1.0)
+    active_tasks = inspect.active()
+    if active_tasks is None:
+        raise RuntimeError("Celery workers did not answer the active-task probe")
+    return sum(len(tasks or []) for tasks in active_tasks.values())
 
 
 @router.post("/schedule", response_model=TaskResponse)
@@ -62,15 +52,54 @@ async def schedule_task(request: ScheduleRequest) -> TaskResponse:
     if request.task not in celery_app.tasks:
         raise HTTPException(status_code=404, detail=f"Unknown task: {request.task}")
 
-    async_result = celery_app.send_task(request.task, args=request.args)
+    submission_id = str(uuid.uuid4())
+    try:
+        async_result = await run_blocking(
+            "celery.send_task",
+            celery_app.send_task,
+            request.task,
+            args=request.args,
+            task_id=submission_id,
+            timeout_seconds=5.0,
+        )
+    except BlockingCallCapacityExceeded as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "not_dispatched",
+            },
+        ) from exc
+    except BlockingCallDeadlineExceeded as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": str(exc),
+                "task_id": submission_id,
+                "submission": "tracked_pending_completion",
+            },
+        ) from exc
     return TaskResponse(task_id=async_result.id, status="scheduled")
 
 
 @router.get("/status/{task_id}", response_model=TaskStatus)
 async def get_status(task_id: str) -> TaskStatus:
     """Get status for a task by id."""
-    result = AsyncResult(task_id, app=celery_app)
-    state = result.state
+    def load_task_state():
+        result = AsyncResult(task_id, app=celery_app)
+        state = result.state
+        meta = celery_app.backend.get_task_meta(task_id) if celery_app.backend else {}
+        return result, state, meta
+
+    try:
+        result, state, meta = await run_blocking(
+            "celery.task_status",
+            load_task_state,
+            timeout_seconds=2.0,
+        )
+    except BlockingCallDeadlineExceeded as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
 
     status_map = {
         "PENDING": "pending",
@@ -82,7 +111,6 @@ async def get_status(task_id: str) -> TaskStatus:
     status = status_map.get(state, "pending")
 
     # Attempt to detect unknown task ids via backend metadata.
-    meta = celery_app.backend.get_task_meta(task_id) if celery_app.backend else {}
     if not meta and state == "PENDING":
         raise HTTPException(status_code=404, detail=f"Unknown task id: {task_id}")
 
@@ -98,23 +126,27 @@ async def get_status(task_id: str) -> TaskStatus:
 async def get_queue_status():
     """Get queue status with strict timeout so this route never hangs."""
     try:
-        active_jobs = await asyncio.wait_for(run_in_threadpool(_count_active_jobs_sync), timeout=1.5)
+        active_jobs = await run_blocking(
+            "celery.inspect_active",
+            _count_active_jobs_sync,
+            timeout_seconds=1.5,
+        )
         return {
             "success": True,
             "status": "online",
             "active_jobs": int(active_jobs or 0),
             "source": "celery.inspect",
         }
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, BlockingCallDeadlineExceeded):
         return {
-            "success": True,
+            "success": False,
             "status": "degraded",
             "active_jobs": 0,
             "source": "timeout_fallback",
         }
     except Exception:
         return {
-            "success": True,
+            "success": False,
             "status": "degraded",
             "active_jobs": 0,
             "source": "error_fallback",

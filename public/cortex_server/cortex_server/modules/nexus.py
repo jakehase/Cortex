@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
 
-from cortex_server.modules.level_registry import get_level_registry
+from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
 
-ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
+ALWAYS_ON_LEVELS = [
+    int(row["level"]) for row in get_level_registry() if bool(row["always_on"])
+]
 
 _LEVEL_TRIGGERS: Dict[int, tuple[str, ...]] = {
     2: ("web", "search", "browse", "current", "latest", "source"),
@@ -97,7 +99,7 @@ class Nexus:
             "coherence": round(len({item["level"] for item in recommended}) / max(1, total_levels), 3),
             "emergent_insights": [],
             "one_brain": True,
-            "registry_version": "cortex.level-registry.v1",
+            "registry_version": LEVEL_REGISTRY_VERSION,
         }
 
     def commit_to_memory(self, key: str, value: Any) -> None:

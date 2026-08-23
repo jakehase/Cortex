@@ -23,6 +23,7 @@ from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+from cortex_server.responses import WavFileResponse
 from pydantic import BaseModel, Field
 
 from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
@@ -788,7 +789,7 @@ def _write_voice_artifact(audio_base64: str) -> Dict[str, str]:
     return {"filename": filename, "path": str(fpath), "media_url": media_url}
 
 
-@router.get("/voice/media/{name}")
+@router.get("/voice/media/{name}", response_class=WavFileResponse)
 async def ha_voice_media(name: str):
     safe_name = os.path.basename(name)
     path = (VOICE_MEDIA_DIR / safe_name).resolve()
@@ -796,7 +797,7 @@ async def ha_voice_media(name: str):
         raise HTTPException(status_code=400, detail="invalid media path")
     if not path.exists():
         raise HTTPException(status_code=404, detail="media not found")
-    return FileResponse(str(path), media_type="audio/wav", filename=safe_name)
+    return WavFileResponse(str(path), media_type="audio/wav", filename=safe_name)
 
 
 @router.get("/voice/config")

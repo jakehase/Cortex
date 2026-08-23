@@ -1131,6 +1131,64 @@ async def test_memory_status_is_unavailable_when_persistence_backend_fails(monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("semantic_fails", "structured_fails", "expected_status", "expected_success"),
+    [
+        (False, False, "active", True),
+        (True, False, "degraded", False),
+        (False, True, "degraded", False),
+        (True, True, "unavailable", False),
+    ],
+)
+async def test_l22_status_derives_truth_from_each_required_backend(
+    monkeypatch,
+    semantic_fails,
+    structured_fails,
+    expected_status,
+    expected_success,
+):
+    from cortex_server.routers import l22
+
+    principal = AuthenticatedMemoryPrincipal(
+        credential_id="test",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        agent_id="agent-a",
+        user_id="user-a",
+        channel_id="channel-a",
+        session_id="session-a",
+    )
+
+    class SemanticBackend:
+        def get(self, **_kwargs):
+            if semantic_fails:
+                raise RuntimeError("sensitive semantic backend detail")
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                ]
+            }
+
+    def structured_count(**_kwargs):
+        if structured_fails:
+            raise RuntimeError("sensitive structured backend detail")
+        return 2
+
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "collection", SemanticBackend())
+    monkeypatch.setattr(l22, "count_structured_memory_records", structured_count)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+
+    result = await l22.l22_status(object())
+
+    assert result["status"] == expected_status
+    assert result["success"] is expected_success
+    assert result["checks"]["semantic_memory"]["ok"] is not semantic_fails
+    assert result["checks"]["structured_memory"]["ok"] is not structured_fails
+    assert "sensitive" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_knowledge_search_authenticates_and_forwards_memory_scope(monkeypatch):
     from cortex_server.modules.memory_scope import memory_scope_signature
 

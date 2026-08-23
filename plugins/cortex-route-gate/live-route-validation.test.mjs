@@ -8,6 +8,19 @@ import crypto from 'node:crypto';
 import register from './index.ts';
 
 const CACHE_SECRET = 'deployment-held-test-secret';
+const VALID_PROVIDER_FIXTURE = JSON.parse(fs.readFileSync(
+  new URL('./nexus-orchestrate-response.fixture.json', import.meta.url),
+  'utf8',
+));
+
+function canonicalLiveResponse(response) {
+  if (!Array.isArray(response?.recommended_levels) || response.recommended_levels.length < 1) return response;
+  return {
+    ...VALID_PROVIDER_FIXTURE,
+    recommended_levels: response.recommended_levels,
+    ...response,
+  };
+}
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -22,7 +35,7 @@ function cachedPlan() {
   return { ...cache, tag: crypto.createHmac('sha256', CACHE_SECRET).update(canonicalJson(cache)).digest('hex') };
 }
 
-async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this', messages, complete = false }) {
+async function invoke({ requireRouting, cache, response, config = {}, context = {}, inspectRequest, sessionKey = `agent:main:test:${Math.random()}`, prompt = 'Route this', messages, complete = false, canonicalizeResponse = true }) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-live-route-'));
   const handlers = new Map();
   register({
@@ -72,7 +85,8 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     inspectRequest?.(url, init);
-    return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } });
+    const payload = canonicalizeResponse ? canonicalLiveResponse(response) : response;
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   try {
     const callbackContext = { sessionKey, ...trustedContext };
@@ -99,9 +113,35 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
 
 for (const response of [{}, { recommended_levels: [] }, { recommended_levels: [{ level: '24' }] }]) {
   test(`requireRouting rejects malformed HTTP 200 route response ${JSON.stringify(response)}`, async () => {
-    await assert.rejects(() => invoke({ requireRouting: true, response }), /invalid live route response schema/);
+    await assert.rejects(
+      () => invoke({ requireRouting: true, response, canonicalizeResponse: false }),
+      /invalid live route response schema/,
+    );
   });
 }
+
+for (const response of [
+  { ...VALID_PROVIDER_FIXTURE, success: false },
+  { ...VALID_PROVIDER_FIXTURE, reasoning: undefined },
+  { ...VALID_PROVIDER_FIXTURE, routing_markers: undefined },
+  { ...VALID_PROVIDER_FIXTURE, contract: undefined },
+]) {
+  test('requireRouting rejects a failed or incomplete provider contract', async () => {
+    await assert.rejects(
+      () => invoke({ requireRouting: true, response, canonicalizeResponse: false }),
+      /invalid live route response schema/,
+    );
+  });
+}
+
+test('shared provider-consumer fixture is accepted as a live route', async () => {
+  const { context } = await invoke({
+    requireRouting: true,
+    response: VALID_PROVIDER_FIXTURE,
+    canonicalizeResponse: false,
+  });
+  assert.match(context, /routing_method: shared_contract_fixture/);
+});
 
 test('private retrieval shadow uses isolated user intent and remains absent from prompt/cache content', async () => {
   let requestBody;
@@ -214,11 +254,11 @@ test('configured hook fallbacks and callback principals never share adaptive sta
     on(name, handler) { handlers.set(name, handler); },
   });
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
+  globalThis.fetch = async () => new Response(JSON.stringify(canonicalLiveResponse({
     recommended_levels: [{ level: 24, name: 'Nexus', reason: 'isolated' }],
     routing_method: 'principal_isolation',
     reasoning: ['principal local'],
-  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  })), { status: 200, headers: { 'content-type': 'application/json' } });
   const handler = handlers.get('before_prompt_build');
   const sessionKey = 'agent:main:shared-session';
   try {

@@ -13,6 +13,7 @@ const SHARED_SESSION_SECRET = ' shared bytes are preserved ';
 
 function validates(value, schema) {
   if (schema.const !== undefined && value !== schema.const) return false;
+  if (schema.not && validates(value, schema.not)) return false;
   if (schema.anyOf && !schema.anyOf.some((option) => validates(value, option))) return false;
   if (schema.type === 'object' || schema.properties || schema.required) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -57,6 +58,7 @@ test('unsigned local development is explicit, default-off, and restricted to cor
     assert.equal(validates({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true }, schema), true);
     assert.equal(validates({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'cortex-local', workspaceId: 'default' }, schema), true);
     assert.equal(validates({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, tenantId: 'production' }, schema), false);
+    assert.equal(validates({ sessionIdentityHmacSecret: SHARED_SESSION_SECRET, allowUnsignedLocalDevelopment: true, ...PRODUCTION_SCOPE }, schema), false);
     assert.equal(schema.properties.allowUnsignedLocalDevelopment.type, 'boolean');
   }
 });

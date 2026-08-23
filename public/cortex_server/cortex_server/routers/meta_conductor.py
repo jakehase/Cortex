@@ -19,12 +19,13 @@ from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_lev
 router = APIRouter()
 
 LEGACY_LEVELS: Dict[int, Dict[str, str]] = {
-    33: {"name": "Ethicist", "path": "/ethicist", "status_path": "/ethicist/status"},
-    34: {"name": "Validator", "path": "/validator", "status_path": "/validator/status"},
-    35: {"name": "Singularity", "path": "/singularity", "status_path": "/singularity/status"},
-    36: {"name": "Conductor (Meta)", "path": "/meta_conductor", "status_path": "/meta_conductor/status"},
-    37: {"name": "Awareness", "path": "/awareness", "status_path": "/awareness/status"},
-    38: {"name": "Augmenter", "path": "/augmenter", "status_path": "/augmenter/status"},
+    int(row["level"]): {
+        "name": str(row["name"]),
+        "path": str(row["route_prefix"]),
+        "status_path": str(row["canonical_status"]),
+    }
+    for row in get_level_registry()
+    if int(row["level"]) in {33, 34, 35, 36, 37, 38}
 }
 
 # Probes we can safely call without recursive self-status loops.

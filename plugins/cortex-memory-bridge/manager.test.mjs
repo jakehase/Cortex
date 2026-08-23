@@ -4,6 +4,21 @@ import { createHmac } from 'node:crypto';
 
 import { CortexMemorySearchManager } from './manager.mjs';
 
+const RUNTIME_ENVIRONMENT_KEYS = ['OPENCLAW_ENV', 'CORTEX_ENV', 'NODE_ENV'];
+const withRuntimeEnvironment = async (values, callback) => {
+  const original = Object.fromEntries(RUNTIME_ENVIRONMENT_KEYS.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of RUNTIME_ENVIRONMENT_KEYS) delete process.env[key];
+    for (const [key, value] of Object.entries(values)) process.env[key] = value;
+    return await callback();
+  } finally {
+    for (const key of RUNTIME_ENVIRONMENT_KEYS) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  }
+};
+
 const scopedConfig = {
   tenantId: 'tenant-test',
   workspaceId: 'workspace-test',
@@ -152,26 +167,67 @@ test('manager fails closed for the default local scope when unsigned development
 test('manager permits unsigned search only with the explicit local-development opt-in', async () => {
   const originalFetch = globalThis.fetch;
   let request;
+  const warnings = [];
   globalThis.fetch = async (_url, options) => {
     request = { headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) };
     return new Response('{"results":[],"search_mode":"semantic"}');
   };
   try {
-    const manager = await CortexMemorySearchManager.create(managerParams({
-      sessionIdentityHmacSecret: 'session-test-secret',
-      allowUnsignedLocalDevelopment: true,
-      retryCount: 0,
-    }));
-    await manager.search('explicit unsigned local search');
+    await withRuntimeEnvironment({ NODE_ENV: 'test' }, async () => {
+      const manager = await CortexMemorySearchManager.create({
+        ...managerParams({
+          sessionIdentityHmacSecret: 'session-test-secret',
+          allowUnsignedLocalDevelopment: true,
+          retryCount: 0,
+        }),
+        logger: { warn(message) { warnings.push(String(message)); } },
+      });
+      await manager.search('explicit unsigned local search');
+    });
     assert.equal(request.headers.get('x-cortex-tenant-id'), 'cortex-local');
     assert.equal(request.headers.get('x-cortex-workspace-id'), 'default');
     assert.equal(request.headers.has('x-cortex-scope-credential-id'), false);
     assert.equal(request.headers.has('x-cortex-scope-signature'), false);
     assert.equal('scope_credential_id' in request.body, false);
     assert.equal('scope_signature' in request.body, false);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /SECURITY WARNING.*unsigned loopback-only local development mode/);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('manager rejects unsigned mode when runtime locality is absent, ambiguous, or nonlocal', async () => {
+  const unsignedConfig = (overrides = {}) => ({
+    sessionIdentityHmacSecret: 'session-test-secret',
+    allowUnsignedLocalDevelopment: true,
+    retryCount: 0,
+    ...overrides,
+  });
+  const cases = [
+    [{}, {}, /requires an explicit non-production runtime mode/],
+    [{ NODE_ENV: 'production' }, {}, /forbidden in production or staging mode/],
+    [{ NODE_ENV: 'preview' }, {}, /requires dev, development, test, or local mode/],
+    [{ CORTEX_ENV: 'local', NODE_ENV: 'test' }, {}, /rejects conflicting runtime modes/],
+    [{ NODE_ENV: 'development' }, { baseUrl: 'https://cortex.example.test' }, /requires a loopback Cortex baseUrl/],
+  ];
+  for (const [environment, overrides, expected] of cases) {
+    await withRuntimeEnvironment(environment, async () => {
+      await assert.rejects(
+        () => CortexMemorySearchManager.create(managerParams(unsignedConfig(overrides))),
+        expected,
+      );
+    });
+  }
+});
+
+test('manager preserves signed construction in production mode', async () => {
+  await withRuntimeEnvironment({ OPENCLAW_ENV: 'production' }, async () => {
+    await assert.doesNotReject(() => CortexMemorySearchManager.create(managerParams({
+      ...scopedConfig,
+      writeToken: 'manager-production-write-token',
+    })));
+  });
 });
 
 test('manager rejects unkeyed session identity fallback', async () => {
