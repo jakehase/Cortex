@@ -25,61 +25,71 @@ import requests
 import shutil
 from pathlib import Path
 
-from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
-from cortex_server.modules.qa_micro_retrieval import retrieve_top3
-from cortex_server.modules.qa_validator import fast_verify
-from cortex_server.modules.private_retrieval_shadow import (
-    ShadowConfig,
-    private_retrieval_shadow_status,
-    submit_private_retrieval_shadow,
+from cortex_server.construction import (
+    construction_config,
+    read_only_construction,
+    runtime_construction_active,
 )
-from cortex_server.modules.level_optimizer import (
-    ContextualBanditScheduler,
-    TokenBudgetPlanner,
-    BudgetItem,
-    SemanticDeltaCache,
-    should_early_exit,
-    run_counterfactual_replay,
-)
-from cortex_server.modules import routing_autotune as _routing_autotune_module
-from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
-from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
-from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
-from cortex_server.modules.outcome_tuner import OutcomeTuner
-from cortex_server.modules.world_grounding import gather_live_evidence
-from cortex_server.modules.route_health import RouteHealthMonitor
-from cortex_server.modules import codec_policy as _codec_policy_module
-from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
-from cortex_server.modules import cortex_codec as _cortex_codec_module
-from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
-from cortex_server.modules import cortex_kernel_v2
-from cortex_server.modules.evidence_governance import capability_matrix
-from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
-from cortex_server.modules.memory_scope import (
-    AuthenticatedMemoryPrincipal,
-    MemoryScopeAuthError,
-    authenticate_memory_headers,
-    authenticate_memory_principal,
-    authenticate_memory_request,
-    require_authenticated_memory_principal,
-    scoped_memory_metadata,
-)
-from cortex_server.internal_addressing import internal_url
-from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
-from cortex_server.middleware.hud_middleware import track_level
-from cortex_server.runtime.assurance_receipt_ledger import (
-    AssuranceReceiptLedgerUnavailable,
-    assurance_receipt_status,
-    consumed_assurance_receipt_result,
-    finalize_assurance_receipt,
-    recover_assurance_receipt,
-    release_assurance_receipt,
-    reserve_assurance_receipt,
-)
-from cortex_server.runtime.durable_files import durable_mkdir
-from cortex_server.routers.librarian import robust_search
-from services.routing.adaptive_router_policy import choose_route
-from services.routing.route_feature_pipeline import build_route_features
+
+# Nexus has a broad dependency graph whose older modules still read optional
+# tuning variables at import. Suppress those reads unless an application
+# factory has explicitly entered runtime construction.
+with read_only_construction(not runtime_construction_active()):
+    from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
+    from cortex_server.modules.qa_micro_retrieval import retrieve_top3
+    from cortex_server.modules.qa_validator import fast_verify
+    from cortex_server.modules.private_retrieval_shadow import (
+        ShadowConfig,
+        private_retrieval_shadow_status,
+        submit_private_retrieval_shadow,
+    )
+    from cortex_server.modules.level_optimizer import (
+        ContextualBanditScheduler,
+        TokenBudgetPlanner,
+        BudgetItem,
+        SemanticDeltaCache,
+        should_early_exit,
+        run_counterfactual_replay,
+    )
+    from cortex_server.modules import routing_autotune as _routing_autotune_module
+    from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
+    from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
+    from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
+    from cortex_server.modules.outcome_tuner import OutcomeTuner
+    from cortex_server.modules.world_grounding import gather_live_evidence
+    from cortex_server.modules.route_health import RouteHealthMonitor
+    from cortex_server.modules import codec_policy as _codec_policy_module
+    from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
+    from cortex_server.modules import cortex_codec as _cortex_codec_module
+    from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+    from cortex_server.modules import cortex_kernel_v2
+    from cortex_server.modules.evidence_governance import capability_matrix
+    from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
+    from cortex_server.modules.memory_scope import (
+        AuthenticatedMemoryPrincipal,
+        MemoryScopeAuthError,
+        authenticate_memory_headers,
+        authenticate_memory_principal,
+        authenticate_memory_request,
+        require_authenticated_memory_principal,
+        scoped_memory_metadata,
+    )
+    from cortex_server.internal_addressing import internal_url
+    from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
+    from cortex_server.middleware.hud_middleware import track_level
+    from cortex_server.runtime.assurance_receipt_ledger import (
+        AssuranceReceiptLedgerUnavailable,
+        assurance_receipt_status,
+        consumed_assurance_receipt_result,
+        finalize_assurance_receipt,
+        recover_assurance_receipt,
+        release_assurance_receipt,
+        reserve_assurance_receipt,
+    )
+    from cortex_server.runtime.durable_files import durable_mkdir
+    from cortex_server.routers.librarian import robust_search
+    from services.routing.adaptive_router_policy import choose_route
+    from services.routing.route_feature_pipeline import build_route_features
 
 @asynccontextmanager
 async def _nexus_lifespan(_app):
@@ -107,16 +117,24 @@ def _load_openrouter_key() -> str:
         pass
     return ""
 
-OPENROUTER_API_KEY = _load_openrouter_key()
+# ``None`` means resolve the credential at the runtime call boundary. Keeping
+# the public override supports deployments/tests that inject a key directly
+# without reading the operator's home configuration during router discovery.
+OPENROUTER_API_KEY: Optional[str] = None
 
-CODEC_EVAL_MIN_RATIO = float(os.getenv("CODEC_EVAL_MIN_RATIO", "1.05"))
-CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(os.getenv("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
-CODEC_EVAL_MIN_JUDGE_MARGIN = float(os.getenv("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02"))
-CODEC_EVAL_CODEC_MARGIN_FLOOR = float(os.getenv("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
-CODEC_EVAL_MIN_VARIANTS = int(os.getenv("CODEC_EVAL_MIN_VARIANTS", "3"))
-CODEC_EVAL_MIN_ORACLE_COVERAGE = float(os.getenv("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
-CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0").lower() not in {"0", "false", "no", "off"}
-CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
+
+def _openrouter_api_key() -> str:
+    configured = OPENROUTER_API_KEY
+    return _load_openrouter_key() if configured is None else configured
+
+CODEC_EVAL_MIN_RATIO = float(construction_config("CODEC_EVAL_MIN_RATIO", "1.05"))
+CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(construction_config("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
+CODEC_EVAL_MIN_JUDGE_MARGIN = float(construction_config("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02"))
+CODEC_EVAL_CODEC_MARGIN_FLOOR = float(construction_config("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
+CODEC_EVAL_MIN_VARIANTS = int(construction_config("CODEC_EVAL_MIN_VARIANTS", "3"))
+CODEC_EVAL_MIN_ORACLE_COVERAGE = float(construction_config("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
+CODEC_REPLAY_SCHEDULER_ENABLED = str(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0")).lower() not in {"0", "false", "no", "off"}
+CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
 _CODEC_WRITE_ACK_VERSION = "cortex.codec.write-ack.v1"
 
 # Level definitions
@@ -208,23 +226,23 @@ _REFERENT_STATE_RESERVATION_TTL_SECONDS = 10 * 60
 _REFERENT_QUOTA_LOCK = threading.RLock()
 _CONTEXT_STATES: Dict[str, Dict[str, Any]] = {}
 _CONTEXT_QUARANTINE_CHECKED: set[str] = set()
-_REFERENT_STATE_PATH = Path(os.getenv("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
-_CHECKPOINT_STORE_PATH = Path(os.getenv("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
-_CODEC_EVAL_HISTORY_PATH = Path(os.getenv("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
-_CODEC_REPLAY_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
-_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
-_CODEC_CORPUS_EXPORTS_PATH = Path(os.getenv("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
-_CODEC_ACTIVE_POLICY_PATH = Path(os.getenv("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
-_CODEC_REPLAY_PLANS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
+_REFERENT_STATE_PATH = Path(construction_config("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
+_CHECKPOINT_STORE_PATH = Path(construction_config("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
+_CODEC_EVAL_HISTORY_PATH = Path(construction_config("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
+_CODEC_REPLAY_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
+_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
+_CODEC_CORPUS_EXPORTS_PATH = Path(construction_config("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
+_CODEC_ACTIVE_POLICY_PATH = Path(construction_config("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
+_CODEC_REPLAY_PLANS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
 _TOKEN_PLANNER = TokenBudgetPlanner()
-_INITIAL_ENVIRONMENT = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
+_INITIAL_ENVIRONMENT = str(construction_config("CORTEX_ENV", construction_config("CORTEX_ENVIRONMENT", "development"))).strip().lower()
 _DEFAULT_ADAPTIVE_STATE_ROOT = (
     Path("/opt/clawdbot/state/nexus_principals")
     if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
     else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
 )
 _ADAPTIVE_STATE_ROOT = Path(
-    os.getenv("NEXUS_ADAPTIVE_STATE_ROOT", str(_DEFAULT_ADAPTIVE_STATE_ROOT))
+    construction_config("NEXUS_ADAPTIVE_STATE_ROOT", str(_DEFAULT_ADAPTIVE_STATE_ROOT))
 )
 _ADAPTIVE_POLICY_LOCK = threading.RLock()
 _ADAPTIVE_POLICY_STATES: Dict[str, Any] = {}
@@ -240,8 +258,8 @@ _CODEC_ROLLUP_SCOPE_LOCK = threading.RLock()
 _cortex_codec_module._ROLLUP_AUTOTUNE_LOCK = _CODEC_ROLLUP_SCOPE_LOCK
 _ADAPTIVE_RATE_LOCK = threading.Lock()
 _ADAPTIVE_OBSERVATION_RATES: Dict[str, deque] = {}
-NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
+NEXUS_CODEC_ENABLED = str(construction_config("NEXUS_CODEC_ENABLED", "true")).strip().lower() in {"1", "true", "yes", "on"}
+NEXUS_CODEC_MAX_CHARS = max(120, min(int(construction_config("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
 _ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_LEGACY_RECEIPT_VERSION = "nexus.commit-receipt.v1"
@@ -249,15 +267,15 @@ _ASSURANCE_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _ASSURANCE_MAX_VERIFY_KEYS = 16
 _ASSURANCE_MAX_KEY_EPOCH = 4_102_444_800  # 2100-01-01T00:00:00Z
 _CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT = _ASSURANCE_MAX_KEY_EPOCH
-_ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
+_ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(construction_config("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
         "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
     )
 )
 _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
         "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
     )
@@ -265,10 +283,10 @@ _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
 _OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
 _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
     30,
-    min(int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
+    min(int(construction_config("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
 )
 _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
         "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
     )
@@ -282,6 +300,224 @@ _OUTCOME_FEEDBACK_CLAIM_SECONDS = 30
 _OUTCOME_FEEDBACK_COMPLETED_RETENTION_SECONDS = 60
 _PRINCIPAL_OUTCOME_TUNER_LOCK = threading.RLock()
 _PRINCIPAL_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
+_IMPORT_CONFIGURATION = {
+    name: globals()[name]
+    for name in (
+        "CODEC_EVAL_MIN_RATIO",
+        "CODEC_EVAL_MAX_INCREMENTAL_CHARS",
+        "CODEC_EVAL_MIN_JUDGE_MARGIN",
+        "CODEC_EVAL_CODEC_MARGIN_FLOOR",
+        "CODEC_EVAL_MIN_VARIANTS",
+        "CODEC_EVAL_MIN_ORACLE_COVERAGE",
+        "CODEC_REPLAY_SCHEDULER_ENABLED",
+        "CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+        "_REFERENT_STATE_PATH",
+        "_CHECKPOINT_STORE_PATH",
+        "_CODEC_EVAL_HISTORY_PATH",
+        "_CODEC_REPLAY_REPORTS_PATH",
+        "_CODEC_LIVE_REEXEC_REPORTS_PATH",
+        "_CODEC_CORPUS_EXPORTS_PATH",
+        "_CODEC_ACTIVE_POLICY_PATH",
+        "_CODEC_REPLAY_PLANS_PATH",
+        "_INITIAL_ENVIRONMENT",
+        "_DEFAULT_ADAPTIVE_STATE_ROOT",
+        "_ADAPTIVE_STATE_ROOT",
+        "NEXUS_CODEC_ENABLED",
+        "NEXUS_CODEC_MAX_CHARS",
+        "_ASSURANCE_RECEIPT_TTL_SECONDS",
+        "_ASSURANCE_RECEIPT_STATE_PATH",
+        "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        "_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+        "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+    )
+}
+
+
+def _activate_runtime_configuration() -> None:
+    """Capture runtime tuning/state paths without replacing this module."""
+
+    global CODEC_EVAL_MIN_RATIO, CODEC_EVAL_MAX_INCREMENTAL_CHARS
+    global CODEC_EVAL_MIN_JUDGE_MARGIN, CODEC_EVAL_CODEC_MARGIN_FLOOR
+    global CODEC_EVAL_MIN_VARIANTS, CODEC_EVAL_MIN_ORACLE_COVERAGE
+    global CODEC_REPLAY_SCHEDULER_ENABLED, CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS
+    global _REFERENT_STATE_PATH, _CHECKPOINT_STORE_PATH, _CODEC_EVAL_HISTORY_PATH
+    global _CODEC_REPLAY_REPORTS_PATH, _CODEC_LIVE_REEXEC_REPORTS_PATH
+    global _CODEC_CORPUS_EXPORTS_PATH, _CODEC_ACTIVE_POLICY_PATH
+    global _CODEC_REPLAY_PLANS_PATH, _INITIAL_ENVIRONMENT
+    global _DEFAULT_ADAPTIVE_STATE_ROOT, _ADAPTIVE_STATE_ROOT
+    global NEXUS_CODEC_ENABLED, NEXUS_CODEC_MAX_CHARS
+    global _ASSURANCE_RECEIPT_TTL_SECONDS, _ASSURANCE_RECEIPT_STATE_PATH
+    global _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH
+    global _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS
+    global _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
+
+    def configured(name: str, candidate: Any) -> Any:
+        current = globals()[name]
+        return candidate if current == _IMPORT_CONFIGURATION[name] else current
+
+    CODEC_EVAL_MIN_RATIO = configured(
+        "CODEC_EVAL_MIN_RATIO",
+        float(construction_config("CODEC_EVAL_MIN_RATIO", "1.05")),
+    )
+    CODEC_EVAL_MAX_INCREMENTAL_CHARS = configured(
+        "CODEC_EVAL_MAX_INCREMENTAL_CHARS",
+        int(construction_config("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900")),
+    )
+    CODEC_EVAL_MIN_JUDGE_MARGIN = configured(
+        "CODEC_EVAL_MIN_JUDGE_MARGIN",
+        float(construction_config("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02")),
+    )
+    CODEC_EVAL_CODEC_MARGIN_FLOOR = configured(
+        "CODEC_EVAL_CODEC_MARGIN_FLOOR",
+        float(construction_config("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05")),
+    )
+    CODEC_EVAL_MIN_VARIANTS = configured(
+        "CODEC_EVAL_MIN_VARIANTS",
+        int(construction_config("CODEC_EVAL_MIN_VARIANTS", "3")),
+    )
+    CODEC_EVAL_MIN_ORACLE_COVERAGE = configured(
+        "CODEC_EVAL_MIN_ORACLE_COVERAGE",
+        float(construction_config("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0")),
+    )
+    CODEC_REPLAY_SCHEDULER_ENABLED = configured(
+        "CODEC_REPLAY_SCHEDULER_ENABLED",
+        str(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0")).lower()
+        not in {"0", "false", "no", "off"},
+    )
+    CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = configured(
+        "CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+        max(
+            5,
+            int(
+                construction_config(
+                    "NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+                    "60",
+                )
+            ),
+        ),
+    )
+    for name, setting, default in (
+        ("_REFERENT_STATE_PATH", "NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"),
+        ("_CHECKPOINT_STORE_PATH", "NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"),
+        ("_CODEC_EVAL_HISTORY_PATH", "NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"),
+        ("_CODEC_REPLAY_REPORTS_PATH", "NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"),
+        ("_CODEC_LIVE_REEXEC_REPORTS_PATH", "NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"),
+        ("_CODEC_CORPUS_EXPORTS_PATH", "NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"),
+        ("_CODEC_ACTIVE_POLICY_PATH", "NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"),
+        ("_CODEC_REPLAY_PLANS_PATH", "NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"),
+    ):
+        globals()[name] = configured(
+            name,
+            Path(construction_config(setting, default)),
+        )
+    _INITIAL_ENVIRONMENT = configured(
+        "_INITIAL_ENVIRONMENT",
+        str(
+            construction_config(
+                "CORTEX_ENV",
+                construction_config("CORTEX_ENVIRONMENT", "development"),
+            )
+        )
+        .strip()
+        .lower(),
+    )
+    runtime_default_adaptive_root = (
+        Path("/opt/clawdbot/state/nexus_principals")
+        if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
+        else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
+    )
+    _DEFAULT_ADAPTIVE_STATE_ROOT = configured(
+        "_DEFAULT_ADAPTIVE_STATE_ROOT",
+        runtime_default_adaptive_root,
+    )
+    _ADAPTIVE_STATE_ROOT = configured(
+        "_ADAPTIVE_STATE_ROOT",
+        Path(
+            construction_config(
+                "NEXUS_ADAPTIVE_STATE_ROOT",
+                str(_DEFAULT_ADAPTIVE_STATE_ROOT),
+            )
+        ),
+    )
+    NEXUS_CODEC_ENABLED = configured(
+        "NEXUS_CODEC_ENABLED",
+        str(construction_config("NEXUS_CODEC_ENABLED", "true")).strip().lower()
+        in {"1", "true", "yes", "on"},
+    )
+    NEXUS_CODEC_MAX_CHARS = configured(
+        "NEXUS_CODEC_MAX_CHARS",
+        max(
+            120,
+            min(
+                int(construction_config("NEXUS_CODEC_MAX_CHARS", "420")),
+                2400,
+            ),
+        ),
+    )
+    _ASSURANCE_RECEIPT_TTL_SECONDS = configured(
+        "_ASSURANCE_RECEIPT_TTL_SECONDS",
+        max(
+            30,
+            min(
+                int(
+                    construction_config(
+                        "NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS",
+                        "300",
+                    )
+                ),
+                900,
+            ),
+        ),
+    )
+    _ASSURANCE_RECEIPT_STATE_PATH = configured(
+        "_ASSURANCE_RECEIPT_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
+                "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+            )
+        ),
+    )
+    _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = configured(
+        "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+                "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
+            )
+        ),
+    )
+    _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = configured(
+        "_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+        max(
+            30,
+            min(
+                int(
+                    construction_config(
+                        "NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+                        "300",
+                    )
+                ),
+                900,
+            ),
+        ),
+    )
+    _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = configured(
+        "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+                "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
+            )
+        ),
+    )
+    _CODEC_REPLAY_SCHEDULER_STATE["enabled"] = bool(
+        CODEC_REPLAY_SCHEDULER_ENABLED
+    )
+    _CODEC_REPLAY_SCHEDULER_STATE["interval_seconds"] = int(
+        CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS
+    )
+
 _ASSURANCE_RESERVED_METADATA = {
     "assurance",
     "assurance_receipt",
@@ -5264,7 +5500,8 @@ def _codec_events_replay_result(
 
 def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
-    if not OPENROUTER_API_KEY:
+    openrouter_api_key = _openrouter_api_key()
+    if not openrouter_api_key:
         return {"intents": [], "confidence": 0, "method": "fallback"}
 
     gate = route_health.allow("oracle") if route_health is not None else {"allowed": True}
@@ -5272,7 +5509,7 @@ def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealth
         return {"intents": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {openrouter_api_key}",
         "HTTP-Referer": "http://localhost:8000",
         "Content-Type": "application/json"
     }

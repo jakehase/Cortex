@@ -144,6 +144,266 @@ def test_l22_idempotency_is_durable_scoped_and_rejects_payload_reuse(monkeypatch
     assert exc_info.value.status_code == 409
 
 
+def test_semantic_l22_rejects_byte_amplification_before_hash_or_publish(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "bounded.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_MAX_CONTENT_BYTES", "8")
+    monkeypatch.setattr(
+        l22,
+        "sha256",
+        lambda *_args, **_kwargs: pytest.fail("rejected request reached hashing"),
+    )
+    monkeypatch.setattr(
+        l22,
+        "_add_memory_with_supersession",
+        lambda *_args, **_kwargs: pytest.fail("rejected request reached publication"),
+    )
+
+    with pytest.raises(HTTPException) as content_error:
+        l22.store_memory_record(content="x" * 9)
+    assert content_error.value.status_code == 413
+
+    with pytest.raises(HTTPException) as metadata_error:
+        l22.store_memory_record(content="ok", metadata={"value": "x" * 20_000})
+    assert metadata_error.value.status_code == 422
+
+    with pytest.raises(HTTPException) as key_error:
+        l22.store_memory_record(content="ok", idempotency_key="é" * 129)
+    assert key_error.value.status_code == 422
+
+
+def test_l22_idempotency_ledger_prunes_scoped_count_bytes_and_age_with_replay_fallback(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "idempotency-retention.sqlite3"
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(db_path))
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "2")
+    rows = {}
+    published = []
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {"ids": found, "metadatas": [rows[row_id] for row_id in found]}
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        published.append(memory_id)
+        rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+    scope = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+
+    results = [
+        l22.store_memory_record(
+            content=f"decision {index}",
+            idempotency_key=f"key-{index}",
+            **scope,
+        )
+        for index in range(3)
+    ]
+    l22.store_memory_record(
+        content="other workspace",
+        idempotency_key="other-key",
+        tenant_id="tenant-a",
+        workspace_id="workspace-b",
+    )
+
+    connection = l22._structured_memory_connection()
+    try:
+        retained_a = connection.execute(
+            "SELECT idempotency_key FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ? ORDER BY idempotency_key",
+            ("tenant-a", "workspace-a"),
+        ).fetchall()
+        retained_b = connection.execute(
+            "SELECT idempotency_key FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ?",
+            ("tenant-a", "workspace-b"),
+        ).fetchall()
+    finally:
+        connection.close()
+    assert [row[0] for row in retained_a] == ["key-1", "key-2"]
+    assert [row[0] for row in retained_b] == ["other-key"]
+
+    replay = l22.store_memory_record(
+        content="decision 0",
+        idempotency_key="key-0",
+        **scope,
+    )
+    assert replay["id"] == results[0]["id"]
+    assert replay["idempotent_replay"] is True
+    assert published.count(results[0]["id"]) == 1
+
+    connection = l22._structured_memory_connection()
+    try:
+        connection.execute(
+            "UPDATE memory_idempotency SET created_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
+            ("tenant-a", "workspace-a", "key-2"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_TTL_SECONDS", "1")
+    assert l22._prune_memory_idempotency_ledger() >= 1
+
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "10")
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_BYTES", "1")
+    l22._prune_memory_idempotency_ledger()
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM memory_idempotency").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    monkeypatch.setenv(
+        "CORTEX_L22_IDEMPOTENCY_MAX_BYTES", str(l22._L22_IDEMPOTENCY_MAX_BYTES)
+    )
+    restart_replay = l22.store_memory_record(
+        content="decision 0",
+        idempotency_key="key-0",
+        **scope,
+    )
+    assert restart_replay["id"] == results[0]["id"]
+    assert restart_replay["idempotent_replay"] is True
+    assert published.count(results[0]["id"]) == 1
+    with pytest.raises(HTTPException) as conflict:
+        l22.store_memory_record(
+            content="changed decision",
+            idempotency_key="key-0",
+            **scope,
+        )
+    assert conflict.value.status_code == 409
+
+    monkeypatch.setenv(
+        "CORTEX_L22_IDEMPOTENCY_MAX_BYTES", str(l22._L22_IDEMPOTENCY_MAX_BYTES)
+    )
+    connection = l22._structured_memory_connection()
+    try:
+        connection.execute(
+            "INSERT INTO memory_idempotency VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "legacy-tenant",
+                "legacy-workspace",
+                "legacy-key",
+                "f" * 64,
+                json.dumps({"id": "non-deterministic-legacy-id"}),
+                "2000-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(RuntimeError, match="require migration"):
+        l22._prune_memory_idempotency_ledger()
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency WHERE tenant_id = ?",
+            ("legacy-tenant",),
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_l22_idempotency_write_fails_closed_when_active_row_cannot_fit(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "CORTEX_L22_STRUCTURED_DB", str(tmp_path / "idempotency-too-small.sqlite3")
+    )
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_BYTES", "1")
+    durable_rows = {}
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in durable_rows]
+            return {
+                "ids": found,
+                "metadatas": [durable_rows[row_id] for row_id in found],
+            }
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        durable_rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+
+    with pytest.raises(RuntimeError, match="cannot retain the active replay row"):
+        l22.store_memory_record(
+            content="bounded decision",
+            idempotency_key="active-key",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+        )
+
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_l22_idempotency_retention_refuses_eviction_without_durable_fallback(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "idempotency-missing-fallback.sqlite3"
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(db_path))
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "2")
+    rows = {}
+    published = []
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {
+                "ids": found,
+                "metadatas": [rows[row_id] for row_id in found],
+            }
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        published.append(memory_id)
+        rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+    scope = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    first = l22.store_memory_record(
+        content="original decision",
+        idempotency_key="key-0",
+        **scope,
+    )
+    l22.store_memory_record(
+        content="newer decision",
+        idempotency_key="key-1",
+        **scope,
+    )
+    rows.pop(first["id"])
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "1")
+
+    with pytest.raises(RuntimeError, match="durable replay fallback"):
+        l22._prune_memory_idempotency_ledger()
+
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
+    with pytest.raises(RuntimeError, match="durable replay fallback"):
+        l22.store_memory_record(
+            content="changed decision",
+            idempotency_key="key-0",
+            **scope,
+        )
+    assert published.count(first["id"]) == 1
+
+
 def test_l22_quota_serializes_workspace_and_global_durable_admission(monkeypatch, tmp_path):
     monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "quota.sqlite3"))
     monkeypatch.setenv("CORTEX_L22_WORKSPACE_RECORDS", "1")

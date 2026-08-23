@@ -7,7 +7,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
-from cortex_server.worker import app as celery_app
+from cortex_server.construction import (
+    construction_config,
+    read_only_construction,
+    runtime_construction_active,
+)
+
+with read_only_construction(not runtime_construction_active()):
+    from cortex_server.worker import app as celery_app
 
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -27,25 +34,63 @@ _scheduler_loop = None
 _scheduler_shutdown_pending = False
 _scheduler_lock = threading.Lock()
 
-_configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+_configured_state_dir = construction_config("CORTEX_SCHEDULER_STATE_DIR")
 _STATE_DIR = Path(_configured_state_dir or "/app/config/state")
-try:
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    if _configured_state_dir:
-        raise
-    _STATE_DIR = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-
 _TRIGGER_LEDGER_PATH = _STATE_DIR / "l8_cron_trigger_events.jsonl"
 _NOTARY_LEDGER_PATH = _STATE_DIR / "l8_cron_notary_packets.jsonl"
 _JOB_POLICY_PATH = _STATE_DIR / "l8_cron_job_policies.json"
 _NOVELTY_STATS_PATH = _STATE_DIR / "l8_cron_novelty_stats.json"
+_STATE_DIR_READY = False
+_STATE_DIR_LOCK = threading.Lock()
 
 _TRIGGER_LEDGER_LOCK = threading.Lock()
 _NOTARY_LEDGER_LOCK = threading.Lock()
 _POLICY_LOCK = threading.Lock()
 _NOVELTY_LOCK = threading.Lock()
+
+
+def _set_state_dir(path: Path) -> None:
+    global _STATE_DIR, _TRIGGER_LEDGER_PATH, _NOTARY_LEDGER_PATH
+    global _JOB_POLICY_PATH, _NOVELTY_STATS_PATH
+
+    _STATE_DIR = path
+    _TRIGGER_LEDGER_PATH = path / "l8_cron_trigger_events.jsonl"
+    _NOTARY_LEDGER_PATH = path / "l8_cron_notary_packets.jsonl"
+    _JOB_POLICY_PATH = path / "l8_cron_job_policies.json"
+    _NOVELTY_STATS_PATH = path / "l8_cron_novelty_stats.json"
+
+
+def _activate_runtime_configuration() -> None:
+    """Capture runtime configuration without creating persistent state."""
+
+    global _configured_state_dir
+    if _STATE_DIR_READY:
+        return
+    _configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+    _set_state_dir(Path(_configured_state_dir or "/app/config/state"))
+
+
+def _ensure_state_dir() -> Path:
+    """Resolve and create scheduler state only at an explicit runtime boundary."""
+
+    global _STATE_DIR_READY
+    if _STATE_DIR_READY:
+        return _STATE_DIR
+    with _STATE_DIR_LOCK:
+        if _STATE_DIR_READY:
+            return _STATE_DIR
+        _activate_runtime_configuration()
+        target = _STATE_DIR
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            if _configured_state_dir:
+                raise
+            target = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
+            target.mkdir(parents=True, exist_ok=True)
+            _set_state_dir(target)
+        _STATE_DIR_READY = True
+        return _STATE_DIR
 
 
 def _utc_now() -> datetime:
@@ -81,6 +126,7 @@ def _parse_iso_ts(value: Any) -> Optional[datetime]:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    path = _ensure_state_dir() / path.name
     if not path.exists():
         return default
     try:
@@ -90,12 +136,14 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    path = _ensure_state_dir() / path.name
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(_safe_json_dumps(payload), encoding="utf-8")
     tmp.replace(path)
 
 
 def _append_jsonl(path: Path, lock: threading.Lock, event: Dict[str, Any]) -> None:
+    path = _ensure_state_dir() / path.name
     try:
         line = _safe_json_dumps(event)
     except Exception:
@@ -805,6 +853,7 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
     global scheduler, _scheduler_was_shutdown, _scheduler_loop
+    _ensure_state_dir()
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:

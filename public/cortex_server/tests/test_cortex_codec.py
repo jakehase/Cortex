@@ -373,6 +373,7 @@ def test_codec_dedupe_ignores_generated_at_only_changes(monkeypatch):
     monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", True)
     monkeypatch.setattr(codec_module, "_prune_codec_snapshots_in_l22", lambda *a, **k: {"status": "noop", "deleted": 0, "kept": 1})
+    monkeypatch.setattr(codec_module, "_prune_codec_sessions_in_l22", lambda **k: {"status": "noop", "deleted": 0, "kept_sessions": 1})
 
     state = build_codec_state([{"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]}])
     first = codec_module._persist_codec_state_to_l22("codec-dedupe-test", state)

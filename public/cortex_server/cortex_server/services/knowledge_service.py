@@ -3,6 +3,7 @@ Knowledge Graph Service - Business logic for graph operations.
 """
 
 import hashlib
+import threading
 from typing import Dict, List, Optional, Any
 from cortex_server.knowledge.graph import Graph, Node, Edge, NodeType, EdgeType
 from cortex_server.models.requests import (
@@ -14,7 +15,30 @@ class KnowledgeService:
     """Service for knowledge graph operations."""
     
     def __init__(self):
-        self.graph = Graph()
+        # Route/schema discovery constructs this service while importing the
+        # knowledge router.  Opening the graph there creates and migrates the
+        # SQLite database before the application has entered its lifespan.
+        # Resolve the persistent dependency only when an operation needs it.
+        self._graph = None
+        self._graph_lock = threading.Lock()
+
+    @property
+    def graph(self) -> Graph:
+        graph = getattr(self, "_graph", None)
+        if graph is not None:
+            return graph
+        lock = getattr(self, "_graph_lock", None)
+        if lock is None:
+            lock = self._graph_lock = threading.Lock()
+        with lock:
+            if self._graph is None:
+                self._graph = Graph()
+            return self._graph
+
+    @graph.setter
+    def graph(self, value: Graph) -> None:
+        # Retain the existing injection seam used by offline tools and tests.
+        self._graph = value
     
     @staticmethod
     def _scoped_id(value: str, tenant_id: str, storage_workspace_id: str) -> str:

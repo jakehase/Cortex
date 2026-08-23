@@ -51,9 +51,30 @@ class ParserService:
             logger.exception("PDF parser initialization failed")
             self.pdf_parser_error = str(exc)
         self.js_parser = JSParser(JSParserConfig())
-        self.graph = Graph()
+        # Application/schema construction must not create or migrate the
+        # persistent graph.  Parsing remains eager, but graph storage is a
+        # runtime dependency resolved by the first graph operation.
+        self._graph = None
+        self._graph_lock = threading.Lock()
         self._worker_slots = threading.BoundedSemaphore(self.MAX_WORKERS)
         self._worker_tasks = set()
+
+    @property
+    def graph(self) -> Graph:
+        graph = getattr(self, "_graph", None)
+        if graph is not None:
+            return graph
+        lock = getattr(self, "_graph_lock", None)
+        if lock is None:
+            lock = self._graph_lock = threading.Lock()
+        with lock:
+            if self._graph is None:
+                self._graph = Graph()
+            return self._graph
+
+    @graph.setter
+    def graph(self, value: Graph) -> None:
+        self._graph = value
 
     def _safe_path(self, value: str, *, directory: bool = False) -> Path:
         path = Path(value).expanduser().resolve(strict=True)

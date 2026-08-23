@@ -3,8 +3,10 @@ Knowledge Graph Core - Storage and query engine for The Cortex.
 """
 
 import json
+import fcntl
 import os
 import sqlite3
+import stat
 from enum import Enum
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -121,7 +123,62 @@ class SQLiteStorage:
         self._transaction_lock = threading.Lock()
         self._active_transactions = set()
         self._active_transactions_lock = threading.Lock()
+        self._lifecycle_lock_fd = None
+        self._lifecycle_lock_identity = None
+        self._lifecycle_lock_guard = threading.Lock()
         self._init_db()
+        self._refresh_lifecycle_lock(os.lstat(self.db_path))
+
+    def _open_lifecycle_lock(self) -> tuple[int, tuple[int, int]]:
+        descriptor = os.open(
+            self.db_path,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise RuntimeError("Cortex graph database must be a regular file")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeError(
+                    "Cortex graph database is undergoing offline publication"
+                ) from exc
+            return descriptor, (metadata.st_dev, metadata.st_ino)
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    def _refresh_lifecycle_lock(self, metadata: os.stat_result) -> None:
+        identity = (metadata.st_dev, metadata.st_ino)
+        if identity == self._lifecycle_lock_identity:
+            return
+        with self._lifecycle_lock_guard:
+            if identity == self._lifecycle_lock_identity:
+                return
+            descriptor, locked_identity = self._open_lifecycle_lock()
+            if locked_identity != identity:
+                os.close(descriptor)
+                raise RuntimeError("Cortex graph database changed while acquiring its lock")
+            previous = self._lifecycle_lock_fd
+            self._lifecycle_lock_fd = descriptor
+            self._lifecycle_lock_identity = locked_identity
+            if previous is not None:
+                os.close(previous)
+
+    def close(self) -> None:
+        connection = getattr(self._local, "conn", None)
+        if connection is not None:
+            if connection.in_transaction:
+                connection.rollback()
+            connection.close()
+            self._local.conn = None
+        with self._lifecycle_lock_guard:
+            descriptor = self._lifecycle_lock_fd
+            self._lifecycle_lock_fd = None
+            self._lifecycle_lock_identity = None
+            if descriptor is not None:
+                os.close(descriptor)
 
     def _initialize_from_seed(self) -> None:
         target = Path(self.db_path)
@@ -536,7 +593,23 @@ class SQLiteStorage:
             connection.close()
     
     def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn") or self._local.conn is None:
+        connection = getattr(self._local, "conn", None)
+        if connection is not None:
+            metadata = os.lstat(self.db_path)
+            if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                raise RuntimeError("Cortex graph database must be a regular non-symlink file")
+            identity = (metadata.st_dev, metadata.st_ino)
+            if self._lifecycle_lock_fd is not None:
+                self._refresh_lifecycle_lock(metadata)
+            if identity != getattr(self._local, "db_identity", None):
+                if connection.in_transaction:
+                    raise RuntimeError(
+                        "Cortex graph database changed during an active transaction"
+                    )
+                connection.close()
+                self._local.conn = None
+                connection = None
+        if connection is None:
             self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._local.conn.row_factory = sqlite3.Row
             self._local.conn.execute("PRAGMA foreign_keys = ON")
@@ -545,6 +618,14 @@ class SQLiteStorage:
                 self._local.conn.close()
                 self._local.conn = None
                 raise RuntimeError("SQLite foreign-key enforcement is unavailable")
+            metadata = os.lstat(self.db_path)
+            if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                self._local.conn.close()
+                self._local.conn = None
+                raise RuntimeError("Cortex graph database must be a regular non-symlink file")
+            if self._lifecycle_lock_fd is not None:
+                self._refresh_lifecycle_lock(metadata)
+            self._local.db_identity = (metadata.st_dev, metadata.st_ino)
         return self._local.conn
     
     def _init_db(self):

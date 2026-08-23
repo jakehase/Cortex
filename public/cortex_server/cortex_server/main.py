@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import sqlite3
+import sys
 from pathlib import Path
 import re
 from typing import Any, Dict, Mapping, Optional, Tuple
@@ -23,31 +24,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from cortex_server.middleware.error_handler import register_exception_handlers, RequestIDMiddleware
-from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
-from cortex_server.middleware.hud_middleware import HUDMiddleware
-from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
-from cortex_server.middleware.observability import ObservabilityMiddleware
-from cortex_server.middleware.request_body_limit import (
-    DEFAULT_BODY_IDLE_TIMEOUT_SECONDS,
-    DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS,
-    DEFAULT_MAX_BUFFERED_BODY_BYTES,
-    DEFAULT_MAX_CONCURRENT_BODY_READS,
-    DEFAULT_MAX_UNAUTHENTICATED_BODY_READS,
-    DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
-    RequestBodyLimitMiddleware,
-    configured_max_request_body_bytes,
+from cortex_server.construction import (
+    read_only_construction as read_only_construction_context,
 )
-from cortex_server.middleware.write_authorization import MUTATING_METHODS, WriteAuthorizationMiddleware
 from cortex_server.internal_addressing import (
     CORTEX_INTERNAL_BASE_URL,
     DEFAULT_CORTEX_HOST,
-    DEFAULT_CORTEX_PORT,
+    DEFAULT_CORTEX_INTERNAL_BASE_URL,
+    configure_internal_base_url,
     internal_reachability_response,
     probe_internal_reachability,
 )
-from cortex_server.modules.execution_capabilities import execution_capability_status
-from cortex_server.routers import websockets
 import asyncio
 import subprocess
 from dataclasses import dataclass
@@ -57,6 +44,60 @@ import weakref
 
 
 logger = logging.getLogger(__name__)
+_APP_CONSTRUCTION_LOCK = threading.RLock()
+_FIRST_RUNTIME_CONSTRUCTION_COMPLETE = False
+_RUNTIME_CONFIGURATION_MODULES = (
+    "cortex_server.routers.librarian",
+    "cortex_server.routers.knowledge",
+    "cortex_server.routers.l22",
+    "cortex_server.routers.nexus",
+    "cortex_server.scheduler",
+)
+
+
+def _unload_schema_construction_modules(before: set[str]) -> list[str]:
+    """Detach local modules imported only to compile a read-only schema."""
+
+    server_root = Path(__file__).resolve().parents[1]
+    removed: list[str] = []
+    for name in sorted(set(sys.modules) - before, reverse=True):
+        if not name.startswith("cortex_server."):
+            continue
+        module = sys.modules.get(name)
+        module_file = getattr(module, "__file__", None)
+        if module is None or not module_file:
+            continue
+        try:
+            Path(module_file).resolve().relative_to(server_root)
+        except (OSError, ValueError):
+            continue
+        sys.modules.pop(name, None)
+        parent_name, separator, child_name = name.rpartition(".")
+        if separator:
+            parent = sys.modules.get(parent_name)
+            if parent is not None and getattr(parent, child_name, None) is module:
+                try:
+                    delattr(parent, child_name)
+                except AttributeError:
+                    pass
+        removed.append(name)
+    return sorted(removed)
+
+
+def _activate_preloaded_runtime_configuration() -> list[str]:
+    """Activate preloaded config-neutral modules without replacing them."""
+
+    activated: list[str] = []
+    for name in _RUNTIME_CONFIGURATION_MODULES:
+        module = sys.modules.get(name)
+        if module is None:
+            continue
+        activate = getattr(module, "_activate_runtime_configuration", None)
+        if not callable(activate):
+            continue
+        activate()
+        activated.append(name)
+    return activated
 
 _RELEASE_OBSERVATION_MAX_AGE_SECONDS = 30.0
 _RELEASE_OBSERVATION_MAX_REPLAY_ENTRIES = 4096
@@ -1334,26 +1375,110 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
     return report
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
+def create_app(
+    *,
+    schema_only: bool = False,
+    inventory_only: bool = False,
+) -> FastAPI:
+    """Construct Cortex within a context-local runtime or schema boundary."""
 
+    # Schema construction temporarily detaches modules imported only to build
+    # the inventory. Serialize it with runtime construction so one app cannot
+    # observe or unload another app's partially imported router graph.
+    global CORTEX_INTERNAL_BASE_URL, _FIRST_RUNTIME_CONSTRUCTION_COMPLETE
+
+    with _APP_CONSTRUCTION_LOCK:
+        reconfigured_modules: list[str] = []
+        with read_only_construction_context(bool(schema_only or inventory_only)):
+            if not schema_only and not inventory_only:
+                CORTEX_INTERNAL_BASE_URL = configure_internal_base_url()
+                if not _FIRST_RUNTIME_CONSTRUCTION_COMPLETE:
+                    reconfigured_modules = _activate_preloaded_runtime_configuration()
+            application = _create_app(
+                schema_only=schema_only,
+                inventory_only=inventory_only,
+            )
+        if not schema_only and not inventory_only:
+            _FIRST_RUNTIME_CONSTRUCTION_COMPLETE = True
+            application.state.runtime_reconfigured_modules = reconfigured_modules
+        return application
+
+
+def _create_app(
+    *,
+    schema_only: bool = False,
+    inventory_only: bool = False,
+) -> FastAPI:
+    """Create the application, optionally without activating runtime state.
+
+    ``schema_only`` and its ``inventory_only`` alias build the complete route
+    and OpenAPI inventory with deterministic non-secret configuration. Their
+    lifespan deliberately performs no runtime initialization.
+    """
+
+    read_only_construction = bool(schema_only or inventory_only)
+    schema_module_snapshot = set(sys.modules) if read_only_construction else set()
+
+    global CORTEX_INTERNAL_BASE_URL
+    if read_only_construction:
+        internal_base_url = DEFAULT_CORTEX_INTERNAL_BASE_URL
+    else:
+        internal_base_url = configure_internal_base_url()
+        CORTEX_INTERNAL_BASE_URL = internal_base_url
+    from cortex_server.middleware.error_handler import (
+        RequestIDMiddleware,
+        register_exception_handlers,
+    )
+    from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
+    from cortex_server.middleware.hud_middleware import HUDMiddleware
+    from cortex_server.middleware.observability import ObservabilityMiddleware
+    from cortex_server.middleware.request_body_limit import (
+        DEFAULT_BODY_IDLE_TIMEOUT_SECONDS,
+        DEFAULT_BODY_TOTAL_TIMEOUT_SECONDS,
+        DEFAULT_MAX_BUFFERED_BODY_BYTES,
+        DEFAULT_MAX_CONCURRENT_BODY_READS,
+        DEFAULT_MAX_UNAUTHENTICATED_BODY_READS,
+        DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
+        RequestBodyLimitMiddleware,
+        configured_max_request_body_bytes,
+    )
+    from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
+    from cortex_server.middleware.write_authorization import (
+        MUTATING_METHODS,
+        WriteAuthorizationMiddleware,
+    )
+    from cortex_server.modules.execution_capabilities import execution_capability_status
+    from cortex_server.routers import websockets
     from cortex_server.services.parser_service import ParserService
+
+    def configured(name: str, default: str = "") -> str:
+        if read_only_construction:
+            return default
+        return os.getenv(name, default)
 
     parser_workspace_roots = tuple(
         str(Path(value).expanduser().resolve())
-        for value in os.getenv("CORTEX_WORKSPACE_ROOTS", os.getcwd()).split(os.pathsep)
+        for value in configured("CORTEX_WORKSPACE_ROOTS", os.getcwd()).split(
+            os.pathsep
+        )
         if value
     )
-    production_environment = _production_environment()
-    write_auth_mode = os.getenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback").strip().lower()
-    write_token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
-    write_token_header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower()
+    production_environment = (
+        False if read_only_construction else _production_environment()
+    )
+    write_auth_mode = configured(
+        "CORTEX_WRITE_AUTH_MODE", "token_or_loopback"
+    ).strip().lower()
+    write_token = configured("CORTEX_WRITE_TOKEN", "").strip()
+    write_token_header = configured(
+        "CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token"
+    ).strip().lower()
     max_request_body_bytes = configured_max_request_body_bytes(
-        os.getenv("CORTEX_MAX_REQUEST_BODY_BYTES")
+        None if read_only_construction else os.getenv("CORTEX_MAX_REQUEST_BODY_BYTES")
     )
     def _bounded_body_float(name: str, default: float, maximum: float) -> float:
         try:
-            value = float(os.getenv(name, str(default)))
+            value = float(configured(name, str(default)))
             if not math.isfinite(value) or value <= 0:
                 raise ValueError
         except ValueError as exc:
@@ -1361,7 +1486,7 @@ def create_app() -> FastAPI:
         return min(value, maximum)
 
     def _bounded_body_int(name: str, default: int, maximum: int) -> int:
-        raw = os.getenv(name, str(default)).strip()
+        raw = configured(name, str(default)).strip()
         if not raw.isdecimal() or int(raw) <= 0:
             raise RuntimeError(f"{name} must be a positive integer")
         return min(int(raw), maximum)
@@ -1388,13 +1513,15 @@ def create_app() -> FastAPI:
         DEFAULT_MAX_UNAUTHENTICATED_BUFFERED_BODY_BYTES,
         32 * 1024 * 1024,
     )
-    safe_mode = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
-    admin_token = os.getenv("CORTEX_ADMIN_TOKEN", "").strip()
-    codec_admin_token = os.getenv("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
-    release_artifact_write_token = os.getenv(
+    safe_mode = configured("CORTEX_SAFE_MODE", "true").lower() in {
+        "1", "true", "yes", "on"
+    }
+    admin_token = configured("CORTEX_ADMIN_TOKEN", "").strip()
+    codec_admin_token = configured("CORTEX_CODEC_ADMIN_TOKEN", "").strip() or admin_token
+    release_artifact_write_token = configured(
         "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", ""
     ).strip()
-    release_artifact_write_header = os.getenv(
+    release_artifact_write_header = configured(
         "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN_HEADER",
         "x-cortex-release-artifact-token",
     ).strip().lower()
@@ -1423,7 +1550,7 @@ def create_app() -> FastAPI:
     read_configuration_error = None
     try:
         read_credentials = _parse_read_scope_credentials(
-            os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "")
+            configured("CORTEX_MEMORY_SCOPE_CREDENTIALS", "")
         )
     except ValueError as exc:
         if production_environment:
@@ -1452,19 +1579,23 @@ def create_app() -> FastAPI:
         required_paths=baseline_required_paths
         | frozenset(
             value.strip()
-            for value in os.getenv("CORTEX_REQUIRED_PATHS", "").split(",")
+            for value in configured("CORTEX_REQUIRED_PATHS", "").split(",")
             if value.strip()
         ),
         required_routers=baseline_required_routers
         | frozenset(
             value.strip()
-            for value in os.getenv("CORTEX_REQUIRED_ROUTERS", "").split(",")
+            for value in configured("CORTEX_REQUIRED_ROUTERS", "").split(",")
             if value.strip()
         ),
     )
-    fail_closed_memory = os.getenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "true").lower() in {"1", "true", "yes", "on"}
+    fail_closed_memory = configured(
+        "CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "true"
+    ).lower() in {"1", "true", "yes", "on"}
     try:
-        redis_startup_timeout = float(os.getenv("CORTEX_REDIS_STARTUP_TIMEOUT_SECONDS", "2.0"))
+        redis_startup_timeout = float(
+            configured("CORTEX_REDIS_STARTUP_TIMEOUT_SECONDS", "2.0")
+        )
         if not math.isfinite(redis_startup_timeout):
             raise ValueError
     except ValueError:
@@ -1473,7 +1604,7 @@ def create_app() -> FastAPI:
     redis_startup_timeout = min(max(redis_startup_timeout, 0.1), 30.0)
     try:
         redis_monitor_interval = float(
-            os.getenv("CORTEX_REDIS_MONITOR_INTERVAL_SECONDS", "5.0")
+            configured("CORTEX_REDIS_MONITOR_INTERVAL_SECONDS", "5.0")
         )
         if not math.isfinite(redis_monitor_interval):
             raise ValueError
@@ -1482,7 +1613,7 @@ def create_app() -> FastAPI:
     redis_monitor_interval = min(max(redis_monitor_interval, 0.1), 300.0)
     allowed_origins = frozenset(
         origin.strip()
-        for origin in os.getenv(
+        for origin in configured(
             "CORTEX_ALLOW_ORIGINS", "http://localhost,https://localhost"
         ).split(",")
         if origin.strip()
@@ -1513,6 +1644,10 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.lifecycle_checks = _not_started_lifecycle_checks()
+        if read_only_construction:
+            app.state.background_tasks = set()
+            yield
+            return
         # Initialize every cleanup reference before the first operation that can
         # fail.  In particular, cancellation may arrive at any startup await.
         redis_worker = None
@@ -1736,11 +1871,16 @@ def create_app() -> FastAPI:
         "header": release_artifact_write_header,
     }
     app.state.lifecycle_checks = _not_started_lifecycle_checks()
-    app.state.parser_service = ParserService(workspace_roots=parser_workspace_roots)
+    app.state.parser_service = (
+        None
+        if read_only_construction
+        else ParserService(workspace_roots=parser_workspace_roots)
+    )
+    app.state.read_only_construction = read_only_construction
     app.state.last_internal_reachability = {
         "ok": False,
         "status": "not_checked",
-        "target": f"{CORTEX_INTERNAL_BASE_URL}/_internal/reachability",
+        "target": f"{internal_base_url}/_internal/reachability",
     }
 
     app.add_middleware(
@@ -1982,8 +2122,15 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # API Routers
-    router_load_report = load_dynamic_routers(app, safe_mode=safe_mode)
+    with read_only_construction_context(read_only_construction):
+        router_load_report = load_dynamic_routers(app, safe_mode=safe_mode)
     app.include_router(websockets.router, tags=["WebSockets"])
+    if read_only_construction:
+        # Included routers contribute their own startup handlers and lifespan
+        # contexts. Schema inventory must not execute any of those hooks.
+        app.router.on_startup.clear()
+        app.router.on_shutdown.clear()
+        app.router.lifespan_context = lifespan
 
     def readiness_payload(*, self_reachability: dict | None = None) -> dict:
         route_paths = _route_paths(app.routes)
@@ -2160,6 +2307,7 @@ def create_app() -> FastAPI:
         except ValueError:
             timeout_seconds = 1.5
         self_reachability = await probe_internal_reachability(
+            base_url=internal_base_url,
             timeout_seconds=timeout_seconds
         )
         app.state.last_internal_reachability = self_reachability
@@ -2244,7 +2392,7 @@ def create_app() -> FastAPI:
 
     @app.get("/_internal/reachability", include_in_schema=False)
     async def internal_reachability_check():
-        return internal_reachability_response()
+        return internal_reachability_response(base_url=internal_base_url)
 
     @app.get("/ready")
     async def readiness_check():
@@ -2311,7 +2459,7 @@ def create_app() -> FastAPI:
                 "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
                 "networkBind": os.getenv("CORTEX_HOST", DEFAULT_CORTEX_HOST),
             },
-            "internalBaseUrl": CORTEX_INTERNAL_BASE_URL,
+            "internalBaseUrl": internal_base_url,
             "readiness": readiness["ready"],
         }
         return JSONResponse(status_code=200 if readiness["ready"] else 503, content=payload)
@@ -2613,13 +2761,53 @@ def create_app() -> FastAPI:
         return schema
 
     app.openapi = custom_openapi
+    if read_only_construction:
+        # Build the document while endpoint modules are present, then detach
+        # schema-only imports so later runtime construction reads real config.
+        app.openapi()
+        app.state.schema_detached_modules = _unload_schema_construction_modules(
+            schema_module_snapshot
+        )
     return app
 
 
-app = create_app()
+class _LazyCortexApplication:
+    """ASGI-compatible holder that constructs Cortex on first runtime use."""
+
+    def __init__(self):
+        object.__setattr__(self, "_application", None)
+        object.__setattr__(self, "_lock", threading.Lock())
+
+    def resolve(self) -> FastAPI:
+        if self._application is not None:
+            return self._application
+        with self._lock:
+            if self._application is None:
+                self._application = create_app()
+            return self._application
+
+    async def __call__(self, scope, receive, send):
+        await self.resolve()(scope, receive, send)
+
+    def __getattr__(self, name: str):
+        return getattr(self.resolve(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in {"_application", "_lock"}:
+            object.__setattr__(self, name, value)
+            return
+        setattr(self.resolve(), name, value)
+
+
+app = _LazyCortexApplication()
 
 if __name__ == "__main__":
     import uvicorn
+    from cortex_server.internal_addressing import (
+        DEFAULT_CORTEX_HOST,
+        DEFAULT_CORTEX_PORT,
+    )
+
     uvicorn.run(
         app,
         host=os.getenv("CORTEX_HOST", DEFAULT_CORTEX_HOST),

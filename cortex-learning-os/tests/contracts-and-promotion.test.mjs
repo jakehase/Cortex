@@ -43,6 +43,66 @@ test('promotion fails closed without enough independent evidence', () => {
   assert.equal(promotion.trustedLesson, null);
 });
 
+test('promotion rejects duplicated evidence rows and requires every declared evidence id exactly once', () => {
+  const [algebra] = passingResults();
+  const duplicated = [algebra, { ...algebra, attemptId: 'attempt-duplicate', evidenceRole: 'retest', itemId: 'probability-retest-item' }];
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: duplicated });
+  assert.equal(promotion.promoted, false);
+  assert.equal(promotion.promotionProof.gates.exactEvidenceCoverage, false);
+});
+
+test('promotion requires each declared evidence id to come from a distinct attempt', () => {
+  const results = passingResults();
+  results[1] = { ...results[1], attemptId: results[0].attemptId };
+  const promotion = evaluatePromotion({ capsule, candidate, verifierResults: results });
+  assert.equal(promotion.promoted, false);
+  assert.equal(promotion.promotionProof.gates.distinctAttempts, false);
+});
+
+test('promotion requires each declared evidence id to come from a distinct exam', () => {
+  const extendedCandidate = {
+    ...candidate,
+    supportingEvidenceIds: [
+      ...candidate.supportingEvidenceIds,
+      'verify-algebra-2'
+    ]
+  };
+  const results = [
+    ...passingResults(),
+    result('verify-algebra-2', 'algebra-baseline', 'second-algebra-correction-item')
+  ];
+  const promotion = evaluatePromotion({
+    capsule,
+    candidate: extendedCandidate,
+    verifierResults: results
+  });
+  assert.equal(promotion.promoted, false);
+  assert.equal(promotion.promotionProof.gates.distinctEvidenceExams, false);
+});
+
+test('promotion requires the candidate to belong to the evaluated capsule', () => {
+  const promotion = evaluatePromotion({
+    capsule,
+    candidate: { ...candidate, capsuleId: 'unrelated-capsule' },
+    verifierResults: passingResults()
+  });
+  assert.equal(promotion.promoted, false);
+  assert.equal(promotion.promotionProof.gates.candidateCapsuleMatches, false);
+});
+
+test('promotion proof digest binds verifier scores, attempts, and evidence content', () => {
+  const first = evaluatePromotion({ capsule, candidate, verifierResults: passingResults(), now: '2026-07-09T19:00:00.000Z' });
+  const changedScore = passingResults();
+  changedScore[0] = { ...changedScore[0], score: 0.99 };
+  const changedAttempt = passingResults();
+  changedAttempt[0] = { ...changedAttempt[0], attemptId: 'attempt-replayed-content-change' };
+  const changedEvidence = passingResults();
+  changedEvidence[0] = { ...changedEvidence[0], evidence: [{ kind: 'artifact', digest: 'f'.repeat(64) }] };
+  assert.notEqual(first.promotionProof.digest, evaluatePromotion({ capsule, candidate, verifierResults: changedScore, now: '2026-07-09T19:00:00.000Z' }).promotionProof.digest);
+  assert.notEqual(first.promotionProof.digest, evaluatePromotion({ capsule, candidate, verifierResults: changedAttempt, now: '2026-07-09T19:00:00.000Z' }).promotionProof.digest);
+  assert.notEqual(first.promotionProof.digest, evaluatePromotion({ capsule, candidate, verifierResults: changedEvidence, now: '2026-07-09T19:00:00.000Z' }).promotionProof.digest);
+});
+
 test('promotion fails closed when evidence does not cover distinct declared exams', () => {
   const duplicateExamResults = [
     result('verify-algebra-1', 'algebra-baseline', 'algebra-correction-item'),
@@ -76,6 +136,15 @@ test('retrieval packs omit candidates, enforce token bounds, and capability repo
   assert.equal(pack.estimatedTokens <= pack.maxTokens, true);
   const report = buildCapabilityReport({ capsule, examRuns: [{ examId: 'algebra-baseline', runId: 'one', score: 1, passed: true, itemCount: 1 }] });
   assert.equal(report.rejectedClaims.includes('general_domain_mastery'), true);
+});
+
+test('retrieval pack fails closed when its fixed envelope cannot fit maxTokens', () => {
+  assert.throws(() => buildRetrievalPack({
+    capsule,
+    task: 'x'.repeat(10_000),
+    trustedLessons: [],
+    maxTokens: 100
+  }), /cannot satisfy its declared bounds/);
 });
 
 test('promotion CLI writes replayable proof, trusted lesson, retrieval pack, and bounded capability report', () => {
