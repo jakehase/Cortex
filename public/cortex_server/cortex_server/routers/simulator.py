@@ -6,8 +6,10 @@ Simulates best-case, most-likely, and worst-case outcomes.
 """
 
 import json
+import math
+import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Request
@@ -39,7 +41,7 @@ class SimulatorRequest(BaseModel):
 
 
 class OutcomeResult(BaseModel):
-    label: str  # best_case / most_likely / worst_case
+    label: Literal["best_case", "most_likely", "worst_case"]
     probability: str
     key_events: List[str]
     timeline: str
@@ -91,7 +93,7 @@ async def _call_oracle_fallback(prompt: str, timeout_s: float) -> Dict[str, Any]
 
 
 def _parse_outcomes_strict(raw_json: Any) -> List[OutcomeResult]:
-    """Strict parsing: require exactly 3 outcomes with required fields."""
+    """Require the exact label set and a bounded probability distribution."""
     if isinstance(raw_json, str):
         raw_json = json.loads(raw_json)
 
@@ -102,10 +104,27 @@ def _parse_outcomes_strict(raw_json: Any) -> List[OutcomeResult]:
         raise ValueError("contract violation: outcomes must be a list of exactly 3 items")
 
     out: List[OutcomeResult] = []
+    probabilities: List[float] = []
     for item in raw_json:
         if not isinstance(item, dict):
             raise ValueError("contract violation: outcome item must be object")
-        out.append(OutcomeResult(**item))
+        outcome = OutcomeResult(**item)
+        probability_text = outcome.probability.strip()
+        match = re.fullmatch(r"(?:100(?:\.0+)?|\d{1,2}(?:\.\d+)?)\s*%", probability_text)
+        if not match:
+            raise ValueError("contract violation: probability must be a percentage between 0% and 100%")
+        probability = float(probability_text[:-1].strip())
+        if not math.isfinite(probability) or not 0.0 <= probability <= 100.0:
+            raise ValueError("contract violation: probability must be between 0% and 100%")
+        probabilities.append(probability)
+        out.append(outcome)
+
+    labels = {item.label for item in out}
+    expected_labels = {"best_case", "most_likely", "worst_case"}
+    if labels != expected_labels:
+        raise ValueError("contract violation: outcomes must contain each required label exactly once")
+    if not math.isclose(sum(probabilities), 100.0, abs_tol=1.0):
+        raise ValueError("contract violation: outcome probabilities must sum to 100% (+/- 1%)")
     return out
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -185,11 +204,12 @@ async def run_simulation(request: SimulatorRequest, http_request: Request):
         except Exception:
             pass
 
-    except httpx.TimeoutException:
+    except httpx.RequestError as augmenter_exc:
         # Fallback: direct oracle call for degraded but useful output.
+        failure_kind = "timeout" if isinstance(augmenter_exc, httpx.TimeoutException) else "transport"
         try:
             from cortex_server.middleware.hud_middleware import track_attempt
-            track_attempt(http_request, 38, "Augmenter", status="failed", error="timeout")
+            track_attempt(http_request, 38, "Augmenter", status="failed", error=failure_kind)
             track_attempt(http_request, 5, "Oracle", status="attempted")
         except Exception:
             pass
@@ -210,7 +230,7 @@ async def run_simulation(request: SimulatorRequest, http_request: Request):
                 time_horizon=request.time_horizon or "6 months",
                 outcomes=outcomes,
                 timestamp=time.time(),
-                error="degraded_path:augmenter_timeout_fallback_to_oracle",
+                error=f"degraded_path:augmenter_{failure_kind}_fallback_to_oracle",
             )
         except Exception as fallback_exc:
             try:
@@ -225,7 +245,10 @@ async def run_simulation(request: SimulatorRequest, http_request: Request):
                 time_horizon=request.time_horizon or "6 months",
                 outcomes=[],
                 timestamp=time.time(),
-                error=f"Timed out after retries ({int(timeout_s)}s base, mode={mode}).",
+                error=(
+                    f"Augmenter {failure_kind} failure and Oracle fallback failed: "
+                    f"{type(fallback_exc).__name__}"
+                ),
             )
     except Exception as e:
         # Fail closed on contract violations; optionally expose raw payload in debug.

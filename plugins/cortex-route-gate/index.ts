@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
-type LiveRouteLevel = RouteLevel & { always_on?: boolean };
+type RouteLevelOrigin = 'provider' | 'local_mandatory' | 'local_governor' | 'cache';
+type RouteLevelFields = { level: number; name?: string; reason?: string; method?: string; score?: number };
+type RouteLevel = RouteLevelFields & { alwaysOn?: boolean; origin?: RouteLevelOrigin };
+type LiveRouteLevel = RouteLevelFields & { always_on?: boolean };
 type RoutePlan = {
   recommendedLevels: RouteLevel[];
   routingMethod?: string;
@@ -73,6 +75,11 @@ type LastGoodRoutePlan = {
   tag: string;
 };
 
+type RecentLiveRoutePlan = {
+  savedAtMs: number;
+  plan: RoutePlan;
+};
+
 type PrincipalStatePaths = {
   scopeTag: string;
   root: string;
@@ -101,8 +108,10 @@ type PrivateRetrievalShadowMarker = {
 
 const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
 const ROUTE_PLAN_KEYS = new Set(['recommendedLevels', 'routingMethod', 'reasoning', 'routingError', 'routingMarkers', 'workflowCheckpoint']);
-const ROUTE_LEVEL_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
-const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_KEYS, 'always_on']);
+const ROUTE_LEVEL_FIELD_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
+const ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'alwaysOn', 'origin']);
+const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'always_on']);
+const ROUTE_LEVEL_ORIGINS = new Set<RouteLevelOrigin>(['provider', 'local_mandatory', 'local_governor', 'cache']);
 const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,18 +145,23 @@ function isWorkflowCheckpoint(value: unknown): boolean {
   return Array.isArray(value.levels) && value.levels.length <= 38
     && value.levels.every((level) => Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level as number));
 }
-function isRouteLevel(value: unknown): value is RouteLevel {
-  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_LEVEL_KEYS)) return false;
+function isRouteLevelFields(value: unknown, allowedKeys: Set<string>): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, allowedKeys)) return false;
   if (!Number.isInteger(value.level) || !ALLOWED_CORTEX_LEVELS.has(value.level as number)) return false;
   for (const field of ['name', 'reason', 'method'] as const) {
     if (value[field] !== undefined && !isBoundedString(value[field], 4_096)) return false;
   }
   return value.score === undefined || (typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 1);
 }
+function isRouteLevel(value: unknown): value is RouteLevel {
+  if (!isRecord(value) || !isRouteLevelFields(value, ROUTE_LEVEL_KEYS)) return false;
+  if (value.alwaysOn !== undefined && typeof value.alwaysOn !== 'boolean') return false;
+  return value.origin === undefined || (typeof value.origin === 'string' && ROUTE_LEVEL_ORIGINS.has(value.origin as RouteLevelOrigin));
+}
 function isLiveRouteLevel(value: unknown): value is LiveRouteLevel {
   if (!isRecord(value) || !hasOnlyKeys(value, LIVE_ROUTE_LEVEL_KEYS)) return false;
   const { always_on: alwaysOn, ...routeLevel } = value;
-  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevel(routeLevel);
+  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevelFields(routeLevel, ROUTE_LEVEL_FIELD_KEYS);
 }
 function isRoutePlan(value: unknown): value is RoutePlan {
   if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_PLAN_KEYS)) return false;
@@ -221,6 +235,39 @@ type RunState = {
   statePaths: PrincipalStatePaths;
 };
 
+type RouteOutcomeReceipt = {
+  schemaVersion: 'cortex.route-gate.outcome.v1';
+  promptSha256: string;
+  runCompleted: boolean;
+  outputObserved: boolean;
+  userOutcome: 'accepted' | 'corrected' | 'failed';
+  executedLevels: number[];
+};
+
+function verifiedRouteOutcomeReceipt(value: unknown, runState: RunState, observedRunCompleted: boolean): RouteOutcomeReceipt | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, new Set(['schemaVersion', 'promptSha256', 'runCompleted', 'outputObserved', 'userOutcome', 'executedLevels']))) return null;
+  if (value.schemaVersion !== 'cortex.route-gate.outcome.v1') return null;
+  if (typeof value.promptSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.promptSha256) || value.promptSha256 !== runState.promptFingerprint) return null;
+  if (typeof value.runCompleted !== 'boolean' || value.runCompleted !== observedRunCompleted) return null;
+  if (typeof value.outputObserved !== 'boolean' || value.outputObserved !== runState.outputObserved) return null;
+  if (!['accepted', 'corrected', 'failed'].includes(String(value.userOutcome || ''))) return null;
+  if ((value.userOutcome === 'accepted' || value.userOutcome === 'corrected') && (!value.runCompleted || !value.outputObserved)) return null;
+  if (!Array.isArray(value.executedLevels) || value.executedLevels.length < 1 || value.executedLevels.length > 38) return null;
+  if (!value.executedLevels.every((level) => typeof level === 'number' && Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level))) return null;
+  const executedLevels = [...value.executedLevels] as number[];
+  if (new Set(executedLevels).size !== executedLevels.length) return null;
+  const recommended = new Set(runState.plan.recommendedLevels.map((level) => level.level));
+  if (!executedLevels.every((level) => recommended.has(level))) return null;
+  return {
+    schemaVersion: 'cortex.route-gate.outcome.v1',
+    promptSha256: value.promptSha256,
+    runCompleted: value.runCompleted,
+    outputObserved: value.outputObserved,
+    userOutcome: value.userOutcome as RouteOutcomeReceipt['userOutcome'],
+    executedLevels,
+  };
+}
+
 type ContinuityArtifact = {
   text: string;
   createdAt: number;
@@ -270,6 +317,22 @@ function routePlanForCache(plan: RoutePlan): RoutePlan {
   const routingMarkers = { ...plan.routingMarkers };
   delete routingMarkers.private_retrieval_shadow;
   return { ...plan, routingMarkers };
+}
+
+function routePlanFromCache(plan: RoutePlan): RoutePlan {
+  const cached = routePlanForCache(plan);
+  return {
+    ...cached,
+    recommendedLevels: cached.recommendedLevels.map((level) => ({
+      ...level,
+      alwaysOn: level.alwaysOn === true,
+      // Local policy is re-applied by this gate and is not transformed into an
+      // upstream/cache decision merely because the recommendation was cached.
+      origin: level.origin === 'local_mandatory' || level.origin === 'local_governor'
+        ? level.origin
+        : 'cache' as const,
+    })),
+  };
 }
 
 function normalizeBaseUrl(value: unknown): string {
@@ -558,25 +621,44 @@ function similarity(a: string, b: string): number {
 }
 function uniqueLevels(levels: RouteLevel[]): RouteLevel[] {
   const out: RouteLevel[] = [];
-  const seen = new Set<number>();
+  const byLevel = new Map<number, RouteLevel>();
   for (const item of levels) {
     const level = Number(item?.level || 0);
-    if (!level || seen.has(level)) continue;
-    seen.add(level);
-    out.push({ level, name: item.name, reason: item.reason || item.method, method: item.method, score: item.score });
+    if (!level) continue;
+    const existing = byLevel.get(level);
+    if (existing) {
+      // A duplicate must never be able to erase mandatory provider policy.
+      if (item.alwaysOn === true) existing.alwaysOn = true;
+      continue;
+    }
+    const normalized = {
+      level,
+      name: item.name,
+      reason: item.reason || item.method,
+      method: item.method,
+      score: item.score,
+      alwaysOn: item.alwaysOn === true,
+      origin: item.origin,
+    } satisfies RouteLevel;
+    byLevel.set(level, normalized);
+    out.push(normalized);
   }
   return out;
 }
 
-function normalizeLiveLevels(levels: RouteLevel[]): RouteLevel[] {
+function normalizeLiveLevels(levels: LiveRouteLevel[]): RouteLevel[] {
   const mandatory: RouteLevel[] = [
-    { level: 24, name: 'Nexus', reason: 'mandatory upstream routing' },
-    { level: 5, name: 'Oracle', reason: 'baseline reasoning' },
+    { level: 24, name: 'Nexus', reason: 'mandatory local routing policy', alwaysOn: false, origin: 'local_mandatory' },
+    { level: 5, name: 'Oracle', reason: 'mandatory local reasoning policy', alwaysOn: false, origin: 'local_mandatory' },
   ];
-  const deduplicated = uniqueLevels(levels);
+  const deduplicated = uniqueLevels(levels.map(({ always_on: alwaysOn, ...level }) => ({
+    ...level,
+    alwaysOn: alwaysOn === true,
+    origin: 'provider' as const,
+  })));
   const byLevel = new Map(deduplicated.map((item) => [item.level, item]));
   const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
-  return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
+  return [byLevel.get(24) || mandatory[0], ...nonMandatory, byLevel.get(5) || mandatory[1]];
 }
 async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}): Promise<any> {
   const ctrl = new AbortController();
@@ -1017,9 +1099,11 @@ function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
 function loadStats(statsPath: string): RouteStats {
   try {
     const raw = JSON.parse(fs.readFileSync(statsPath, 'utf8')) as RouteStats;
-    if (raw && raw.version === 1) return raw;
+    // v1 learned from agent completion without output, user-outcome, or causal
+    // level-execution evidence. Never let that legacy signal steer routing.
+    if (raw && raw.version === 2) return raw;
   } catch {}
-  return { version: 1, updatedAt: nowIso(), byLevel: {}, byTask: {} };
+  return { version: 2, updatedAt: nowIso(), byLevel: {}, byTask: {} };
 }
 function updateStats(statsPath: string, mutate: (stats: RouteStats) => void) {
   withFileLock(statsPath, () => {
@@ -1036,24 +1120,43 @@ function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): nu
   const taskAdj = task ? clamp((task.successes - task.failures) / Math.max(task.uses, 4), -0.1, 0.1) : 0;
   return clamp(base + histAdj + taskAdj, 0, 1);
 }
-function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxLevels: number, creativity?: CreativityProfile): RoutePlan {
-  const mandatory = new Set<number>([24, 5]);
-  if (taskClass === 'coding') { mandatory.add(4); mandatory.add(27); mandatory.add(34); }
-  if (taskClass === 'memory') mandatory.add(22);
-  if (creativity?.requested) { mandatory.add(13); mandatory.add(29); mandatory.add(32); mandatory.add(34); }
+function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxOptionalLevels: number, creativity?: CreativityProfile): RoutePlan {
+  const localMandatory = new Set<number>([24, 5]);
+  if (taskClass === 'coding') { localMandatory.add(4); localMandatory.add(27); localMandatory.add(34); }
+  if (taskClass === 'memory') localMandatory.add(22);
+  if (creativity?.requested) { localMandatory.add(13); localMandatory.add(29); localMandatory.add(32); localMandatory.add(34); }
   const withScores = uniqueLevels(plan.recommendedLevels).map((level) => {
     let score = scoreLevel(level, stats, taskClass);
     if (creativity?.requested && (level.level === 13 || level.level === 29 || level.level === 32)) score = clamp(score + 0.2, 0, 1);
     if (creativity?.strictNovelty && level.level === 34) score = clamp(score + 0.1, 0, 1);
     return { ...level, score };
   });
+  const isMandatory = (level: RouteLevel) => level.alwaysOn === true || level.origin === 'local_mandatory' || localMandatory.has(level.level);
   const sorted = withScores.sort((a, b) => {
-    const ma = mandatory.has(a.level) ? 1 : 0;
-    const mb = mandatory.has(b.level) ? 1 : 0;
+    const ma = isMandatory(a) ? 1 : 0;
+    const mb = isMandatory(b) ? 1 : 0;
     return (mb - ma) || ((b.score || 0) - (a.score || 0)) || (a.level - b.level);
   });
-  const chosen = sorted.filter((x, i) => i < maxLevels || mandatory.has(x.level));
-  return { ...plan, recommendedLevels: uniqueLevels(chosen) };
+  const mandatory = sorted.filter(isMandatory);
+  const optionalLimit = Math.max(0, Math.trunc(maxOptionalLevels));
+  const optional = sorted.filter((level) => !isMandatory(level)).slice(0, optionalLimit);
+  const chosen = uniqueLevels([...mandatory, ...optional]);
+  return {
+    ...plan,
+    recommendedLevels: chosen,
+    routingMarkers: {
+      ...(plan.routingMarkers || {}),
+      routeGateLevelPolicy: {
+        version: 'cortex.route-gate.level-policy.v1',
+        capScope: 'optional_only',
+        optionalLimit,
+        mandatoryCount: mandatory.length,
+        optionalSelected: optional.length,
+        totalSelected: chosen.length,
+        allMandatoryRetained: mandatory.every((level) => chosen.some((selected) => selected.level === level.level)),
+      },
+    },
+  };
 }
 
 function predictCapabilityUse(prompt: string, model: CapabilitySelfModel): { capability: string; usable: boolean; confidence: number; rationale: string }[] {
@@ -1089,7 +1192,7 @@ function renderSelfModelBlock(model: CapabilitySelfModel, predicted: { capabilit
 function renderExecutionContract(plan: RoutePlan, prompt: string): string {
   const lines = [
     'Execution contract for this turn:',
-    '- Cortex-selected levels are operational instructions, not decorative metadata. Tool choice must follow them when a Cortex path exists.',
+    '- Routed recommendations and local policy are operational instructions, not proof that a level executed. Tool choice must follow them when a Cortex path exists.',
     '- Answer the user\'s actual request directly. Do not answer with meta-commentary about recursion, duplicate suppression, chain completions, stop conditions, or orchestration state.',
     '- If a prompt fragment or upstream trace mentions recursion control or deduplication, treat that as internal guidance only and do not repeat it to the user.',
   ];
@@ -1152,14 +1255,42 @@ function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
   ].join('\n');
 }
 function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityAudit, taskClassOverride?: string): string {
-  const levels = plan.recommendedLevels.map((x) => `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''}`).join('\n');
-  const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
   const renderedTaskClass = taskClassOverride || classifyTask(prompt);
+  const locallyMandatory = new Set<number>([24, 5]);
+  if (renderedTaskClass === 'coding') { locallyMandatory.add(4); locallyMandatory.add(27); locallyMandatory.add(34); }
+  if (renderedTaskClass === 'memory') locallyMandatory.add(22);
+  const locallyGoverned = new Set<number>();
+  if (creativity?.requested) {
+    for (const level of [13, 29, 32, 34]) locallyGoverned.add(level);
+  }
+  const levels = plan.recommendedLevels.map((x) => {
+    const origin = x.origin || 'unknown';
+    // `origin` records where the recommendation came from; `policy` records
+    // independent local/provider requirements. This preserves both truths when
+    // a provider-selected level is also required by local policy.
+    const policy = x.alwaysOn
+      ? 'provider_always_on'
+      : (origin === 'local_governor' || locallyGoverned.has(x.level))
+        ? 'local_governor'
+        : (origin === 'local_mandatory' || locallyMandatory.has(x.level))
+          ? 'local_mandatory'
+          : 'optional';
+    return `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''} [origin=${origin}; policy=${policy}; execution=not_observed]`;
+  }).join('\n');
+  const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
   const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3 };
+  const cachedFallback = plan.routingMethod === 'cached_fallback';
+  const reuseMarker = plan.routingMarkers?.routeGateLivePlanReuse;
+  const reusedLivePlan = isRecord(reuseMarker) && reuseMarker.reused === true;
+  const rawLevelPolicy = plan.routingMarkers?.routeGateLevelPolicy;
+  const levelPolicy = isRecord(rawLevelPolicy) ? rawLevelPolicy : {};
   return [
     'CORTEX_ROUTE_GATE',
     `routing_method: ${plan.routingMethod || 'nexus_orchestration'}`,
-    'Before answering, apply the following Cortex-selected levels for this turn:',
+    `routing_provenance: ${cachedFallback ? 'authenticated_cache_plus_local_policy' : (reusedLivePlan ? 'principal_scoped_validated_live_plan_reuse_plus_local_policy' : 'live_provider_plus_local_policy')}`,
+    'execution_evidence: recommendations_only_not_observed_by_route_gate',
+    `level_cap: scope=${String(levelPolicy.capScope || 'optional_only')} optional_limit=${String(levelPolicy.optionalLimit ?? 'unknown')} mandatory_count=${String(levelPolicy.mandatoryCount ?? 'unknown')} all_mandatory_retained=${String(levelPolicy.allMandatoryRetained ?? 'unknown')}`,
+    'Before answering, apply the following routed recommendations and local policy for this turn:',
     levels || '- L24 Nexus\n- L5 Oracle',
     reasoning ? `routing_reasoning:\n${reasoning}` : '',
     renderExecutionContract(plan, prompt),
@@ -1171,7 +1302,9 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
     '- OpenClaw is the mediation/runtime layer and should not override Cortex identity or intent.',
     '- If asked who you are, answer from Cortex identity first, not generic assistant/OpenClaw identity.',
     '- Preserve quality and naturalness; do not force a repetitive opener unless the prompt calls for identity clarification.',
-    'This routing decision was made upstream by Cortex and is mandatory context for this turn.'
+    cachedFallback
+      ? 'Live Cortex routing was unavailable. This authenticated cached recommendation plus local policy is degraded mandatory context; the route gate has not observed downstream level execution.'
+      : 'Live Cortex provider recommendations plus local policy are mandatory context for this turn; the route gate has not observed downstream level execution.'
   ].filter(Boolean).join('\n');
 }
 
@@ -1241,7 +1374,9 @@ export default function register(api: any) {
   const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
     ? String(cfg.routeCacheHmacSecret)
     : null;
-  const maxLevels = asNumber(cfg.maxLevels, 10);
+  // Backward-compatible config key; the ceiling applies only to optional
+  // recommendations. Provider always-on and local mandatory levels are exempt.
+  const maxOptionalLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
@@ -1260,6 +1395,83 @@ export default function register(api: any) {
   const runStateByKey = new Map<string, RunState>();
   const continuityByKey = new Map<string, ContinuityState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
+  const recentLivePlansByPrincipal = new Map<string, Map<string, RecentLiveRoutePlan>>();
+  const livePlanReuseAgeMs = Math.min(maxCachedPlanAgeMs, 300_000);
+  // Exact duplicate suppression needs only the most recent bounded plan. Keep
+  // a small global LRU so provider-controlled response size cannot become an
+  // unbounded in-process cache.
+  const maxRecentPlansPerPrincipal = 1;
+  const maxRecentPlanPrincipals = 64;
+  const maxReusablePlanBytes = 65_536;
+
+  function livePlanFingerprint(prompt: string): string {
+    return crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
+  }
+
+  function reusableLivePlan(stateKey: string, promptFingerprint: string): RoutePlan | null {
+    const now = Date.now();
+    for (const [principalKey, plans] of recentLivePlansByPrincipal.entries()) {
+      for (const [fingerprint, entry] of plans.entries()) {
+        if (now - entry.savedAtMs > livePlanReuseAgeMs) plans.delete(fingerprint);
+      }
+      if (plans.size === 0) recentLivePlansByPrincipal.delete(principalKey);
+    }
+    const plans = recentLivePlansByPrincipal.get(stateKey);
+    const entry = plans?.get(promptFingerprint);
+    if (!entry) return null;
+    plans!.delete(promptFingerprint);
+    plans!.set(promptFingerprint, entry);
+    recentLivePlansByPrincipal.delete(stateKey);
+    recentLivePlansByPrincipal.set(stateKey, plans!);
+    return {
+      ...entry.plan,
+      recommendedLevels: entry.plan.recommendedLevels.map((level) => ({ ...level })),
+      workflowCheckpoint: undefined,
+      reasoning: [
+        'Reused a recent principal-scoped plan from a validated live Cortex response for an exact duplicate route fingerprint.',
+        ...(entry.plan.reasoning || []),
+      ],
+      routingMarkers: {
+        ...(entry.plan.routingMarkers || {}),
+        routeGateLivePlanReuse: {
+          version: 'cortex.route-gate.live-plan-reuse.v1',
+          reused: true,
+          ageMs: Math.max(0, now - entry.savedAtMs),
+          principalScoped: true,
+          source: 'validated_live_response',
+        },
+      },
+    };
+  }
+
+  function rememberReusableLivePlan(stateKey: string, promptFingerprint: string, plan: RoutePlan): void {
+    const reusable = routePlanForCache({ ...plan, workflowCheckpoint: undefined });
+    if (Buffer.byteLength(JSON.stringify(reusable), 'utf8') > maxReusablePlanBytes) {
+      // The newest validated response is not reusable, so an older plan must
+      // not remain eligible for this principal either.
+      recentLivePlansByPrincipal.delete(stateKey);
+      return;
+    }
+    let plans = recentLivePlansByPrincipal.get(stateKey);
+    if (!plans) {
+      plans = new Map<string, RecentLiveRoutePlan>();
+      recentLivePlansByPrincipal.set(stateKey, plans);
+    }
+    plans.delete(promptFingerprint);
+    plans.set(promptFingerprint, {
+      savedAtMs: Date.now(),
+      plan: {
+        ...reusable,
+        recommendedLevels: reusable.recommendedLevels.map((level) => ({ ...level })),
+      },
+    });
+    while (plans.size > maxRecentPlansPerPrincipal) plans.delete(plans.keys().next().value as string);
+    recentLivePlansByPrincipal.delete(stateKey);
+    recentLivePlansByPrincipal.set(stateKey, plans);
+    while (recentLivePlansByPrincipal.size > maxRecentPlanPrincipals) {
+      recentLivePlansByPrincipal.delete(recentLivePlansByPrincipal.keys().next().value as string);
+    }
+  }
 
   function principalState(ctx: any, rawSessionKey: string): { scope: Record<string, string>; sessionIdentity: string; statePaths: PrincipalStatePaths; stateKey: string } {
     if (!rawSessionKey.trim()) throw new Error('routing requires a non-empty trusted session identity from the callback');
@@ -1413,8 +1625,11 @@ export default function register(api: any) {
     const { statePaths } = principal;
     const isolatedUserIntent = latestUserTurnText(messages);
     const intentText = isolatedUserIntent || tailIntentText(prompt);
-    let plan: RoutePlan | null = null;
-    try {
+    const fingerprint = fingerprintText(prompt);
+    const reuseFingerprint = livePlanFingerprint(prompt);
+    let plan: RoutePlan | null = reusableLivePlan(principal.stateKey, reuseFingerprint);
+    const reusedLivePlan = Boolean(plan);
+    if (!plan) try {
       if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
         throw new Error(`routing prompt exceeds ${maxRoutingPromptBytes} bytes`);
       }
@@ -1428,10 +1643,24 @@ export default function register(api: any) {
         },
         timeoutMs,
         maxResponseBytes,
-        nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+        {
+          ...nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+          // Give Nexus one absolute budget shared by its semantic retries and
+          // nested provider call, with headroom before this fetch is aborted.
+          'x-cortex-deadline-ms': String(
+            Date.now() + Math.max(1, Math.floor(timeoutMs * 0.9)),
+          ),
+        },
       );
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
+      if (data.routing_method === 'cached_fallback') throw new Error('live route response used a reserved routing method');
+      if (
+        isRecord(data.routing_markers)
+        && ['routeGateLivePlanReuse', 'routeGateLevelPolicy'].some((key) => Object.prototype.hasOwnProperty.call(data.routing_markers, key))
+      ) {
+        throw new Error('live route response used a reserved route-gate marker');
+      }
       const rawPlan: RoutePlan = {
         recommendedLevels: normalizeLiveLevels(recommended),
         routingMethod: data.routing_method,
@@ -1448,6 +1677,7 @@ export default function register(api: any) {
         workflowCheckpoint: rawPlan.workflowCheckpoint,
       };
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
+      rememberReusableLivePlan(principal.stateKey, reuseFingerprint, plan);
       if (routeCacheHmacSecret) {
         const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
         const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
@@ -1466,7 +1696,7 @@ export default function register(api: any) {
       const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
       if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
-        const cachedPlan = routePlanForCache(lastGoodPlan.plan);
+        const cachedPlan = routePlanFromCache(lastGoodPlan.plan);
         plan = {
           ...cachedPlan,
           routingMethod: 'cached_fallback',
@@ -1500,17 +1730,16 @@ export default function register(api: any) {
     let routedPlan = plan!;
     if (creativity.requested) {
       const creativeLevels: RouteLevel[] = [
-        { level: 13, name: 'Dreamer', reason: 'creativity_governor' },
-        { level: 29, name: 'Muse', reason: 'creativity_governor' },
-        { level: 32, name: 'Synthesist', reason: 'creativity_governor' },
-        { level: 34, name: 'Validator', reason: 'creativity_governor' },
+        { level: 13, name: 'Dreamer', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 29, name: 'Muse', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 32, name: 'Synthesist', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 34, name: 'Validator', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
       ];
       creativity = { ...creativity, routeEnforced: !creativeLevels.every((level) => hasLevel(routedPlan, level.level)) };
       routedPlan = ensureLevels(routedPlan, creativeLevels);
     }
-    const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
-    const fingerprint = fingerprintText(prompt);
-    const duplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
+    const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxOptionalLevels, creativity);
+    const historicalDuplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
       const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
       history.push(fingerprint);
       const compact: string[] = [];
@@ -1522,6 +1751,7 @@ export default function register(api: any) {
       history.splice(0, history.length, ...compact.slice(-100));
       return duplicate;
     });
+    const duplicateRisk = reusedLivePlan || historicalDuplicateRisk;
     updateJson(statePaths.promptHistory, [] as PromptHistoryEntry[], (history) => {
       history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
       history.splice(0, Math.max(0, history.length - creativityHistorySize));
@@ -1568,7 +1798,7 @@ export default function register(api: any) {
     if (stateKey) {
       runStateByKey.set(stateKey, {
         prompt,
-        promptFingerprint: fingerprintText(prompt),
+        promptFingerprint: crypto.createHash('sha256').update(prompt, 'utf8').digest('hex'),
         plan,
         taskClass,
         startedAt: Date.now(),
@@ -1768,21 +1998,28 @@ export default function register(api: any) {
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
-    const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
-    updateStats(rs.statePaths.stats, (stats) => {
-      const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
-      taskBucket.uses += 1;
-      if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
-      stats.byTask[rs.taskClass] = taskBucket;
-      for (const level of rs.plan.recommendedLevels) {
-        const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
-        bucket.uses += 1;
-        if (success) bucket.successes += 1; else bucket.failures += 1;
-        bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
-        bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
-        stats.byLevel[String(level.level)] = bucket;
-      }
-    });
+    const runCompleted = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
+    // `agent_end.success` only means the runtime stopped normally. It does not
+    // prove that an answer was observed, accepted, or caused by any recommended
+    // level. Only trusted callback metadata with all four signals may train.
+    const outcomeReceipt = verifiedRouteOutcomeReceipt(event?.cortexRouteOutcomeReceipt, rs, runCompleted);
+    if (outcomeReceipt) {
+      const success = outcomeReceipt.userOutcome === 'accepted';
+      updateStats(rs.statePaths.stats, (stats) => {
+        const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
+        taskBucket.uses += 1;
+        if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
+        stats.byTask[rs.taskClass] = taskBucket;
+        for (const level of outcomeReceipt.executedLevels) {
+          const bucket = stats.byLevel[String(level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
+          bucket.uses += 1;
+          if (success) bucket.successes += 1; else bucket.failures += 1;
+          bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
+          bucket.lastReason = `verified_outcome_receipt:${outcomeReceipt.userOutcome}`;
+          stats.byLevel[String(level)] = bucket;
+        }
+      });
+    }
     if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
       const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
       if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
@@ -1820,8 +2057,10 @@ export default function register(api: any) {
             candidateContentExposed: false,
             baselineMemorySearchAttempted: memoryCalls.length > 0,
             baselineMemorySearchSucceeded: memoryCalls.some((call) => call.ok),
-            baselineRunSucceeded: success,
+            baselineRunCompleted: runCompleted,
+            baselineRunSucceeded: runCompleted && rs.outputObserved,
             outputObserved: rs.outputObserved,
+            outcomeReceiptObserved: Boolean(outcomeReceipt),
             qualityCompared: false,
             qualityComparisonReason: 'shadow_candidate_content_unavailable_to_answer_path',
           });

@@ -84,7 +84,7 @@
     "maxCachedPlanAgeMs": { "label": "Maximum cached plan age (ms)", "advanced": true },
     "maxResponseBytes": { "label": "Maximum routing response size (bytes)", "advanced": true },
     "maxRoutingPromptBytes": { "label": "Maximum routing prompt size (bytes)", "advanced": true },
-    "maxLevels": { "label": "Max routed levels", "advanced": true },
+    "maxLevels": { "label": "Max optional routed levels", "advanced": true, "help": "Caps optional recommendations only. Provider always-on and local mandatory levels are always retained." },
     "creativityGovernorEnabled": { "label": "Enable creativity governor", "advanced": true },
     "creativityHistorySize": { "label": "Creativity prompt history size", "advanced": true },
     "creativityQuarantineTerms": { "label": "Creativity quarantine term limit", "advanced": true },

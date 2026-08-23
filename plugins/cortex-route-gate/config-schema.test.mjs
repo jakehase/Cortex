@@ -210,6 +210,12 @@ test('route-gate schema continues to reject unknown configuration', () => {
   assert.equal(validateConfig(productionConfig({ maxResponseByte: 1_048_576 })), false);
 });
 
+test('maxLevels is documented as an optional-only cap', () => {
+  assert.equal(manifest.uiHints.maxLevels.label, 'Max optional routed levels');
+  assert.match(manifest.uiHints.maxLevels.help, /optional recommendations only/i);
+  assert.match(manifest.uiHints.maxLevels.help, /always-on and local mandatory levels are always retained/i);
+});
+
 test('oversized Oracle session archival is declared and explicitly opt-in', () => {
   assert.equal(validateConfig({
     oracleSessionQuarantineEnabled: true,

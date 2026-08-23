@@ -9,11 +9,29 @@ def test_qtype_classification():
 
 
 def test_confidence_and_escalation():
-    checks = {"required_fields_ok": True, "contradiction_detected": False, "overclaim_detected": False, "retrieval_hits": 2}
+    checks = {
+        "required_fields_ok": True,
+        "contradiction_detected": False,
+        "overclaim_detected": False,
+        "retrieval_hits": 2,
+        "grounded_retrieval": True,
+    }
     conf = confidence_score("This is a sufficiently detailed answer with useful structure.", checks)
     assert conf >= 0.72
     assert should_escalate(conf, [], threshold=0.72) is False
     assert should_escalate(0.3, [], threshold=0.72) is True
+
+
+def test_confidence_is_zero_without_grounded_retrieval_receipts():
+    checks = {
+        "required_fields_ok": True,
+        "contradiction_detected": False,
+        "overclaim_detected": False,
+        "retrieval_hits": 3,
+        "grounded_retrieval": False,
+        "has_structure": True,
+    }
+    assert confidence_score("A polished but ungrounded canned answer.", checks) == 0.0
 
 
 def test_retrieval_top3_cap():

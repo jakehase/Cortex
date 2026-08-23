@@ -26,6 +26,7 @@
           "capability": "provider.cortex.compute",
           "method": "POST",
           "path": "/oracle/chat",
+          "resultContract": "cortex.oracle-chat.v1",
           "allowedModels": [
             "tinyllama"
           ],

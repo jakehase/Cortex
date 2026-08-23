@@ -2,31 +2,36 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import test from 'node:test';
 
 import register from './index.ts';
 
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async () => ({
-  ok: true,
-  headers: new Headers({ 'content-length': '256' }),
-  body: new ReadableStream({
-    start(controller) {
-      controller.enqueue(new TextEncoder().encode(JSON.stringify({
-        success: true,
-        recommended_levels: [
-          { level: 24, name: 'Nexus', reason: 'test routing' },
-          { level: 5, name: 'Oracle', reason: 'test routing' },
-        ],
-        routing_method: 'test',
-        reasoning: ['test'],
-        routing_markers: {},
-        contract: {},
-      })));
-      controller.close();
-    },
-  }),
-});
+let fetchCalls = 0;
+globalThis.fetch = async () => {
+  fetchCalls += 1;
+  return {
+    ok: true,
+    headers: new Headers({ 'content-length': '256' }),
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({
+          success: true,
+          recommended_levels: [
+            { level: 24, name: 'Nexus', reason: 'test routing' },
+            { level: 5, name: 'Oracle', reason: 'test routing' },
+          ],
+          routing_method: 'test',
+          reasoning: ['test'],
+          routing_markers: {},
+          contract: {},
+        })));
+        controller.close();
+      },
+    }),
+  };
+};
 test.after(() => { globalThis.fetch = originalFetch; });
 
 function harness() {
@@ -55,7 +60,7 @@ function harness() {
     on(name, fn) { handlers.set(name, fn); },
     sendUserMessage() {},
   });
-  return { handlers, stateDir };
+  return { handlers, stateDir, fetchCallCount: () => fetchCalls };
 }
 
 const sessionKey = 'agent:main:test:direct:owner';
@@ -63,6 +68,13 @@ const ctx = { sessionKey, sessionId: 'test-session', agentId: 'main' };
 
 async function promptTurn(h, prompt, messages) {
   return h.handlers.get('before_prompt_build')({ prompt, messages }, ctx);
+}
+
+function principalStatePath(h, name) {
+  const principalRoot = path.join(h.stateDir, 'principals');
+  const principals = fs.readdirSync(principalRoot);
+  assert.equal(principals.length, 1);
+  return path.join(principalRoot, principals[0], name);
 }
 
 test('exact regression: a compacted additive request recovers and preserves the full report artifact', async () => {
@@ -97,6 +109,60 @@ test('do-it continuation inherits prior repair intent and receives the coding ta
     { role: 'user', content: 'do it' },
   ]);
   assert.match(String(result?.appendSystemContext || ''), /task_class: coding/);
+});
+
+test('an exact duplicate reuses one bounded principal-scoped validated live plan', async () => {
+  const h = harness();
+  const before = h.fetchCallCount();
+  const prompt = 'Review the same bounded routing decision.';
+  await promptTurn(h, prompt, [{ role: 'user', content: prompt }]);
+  const duplicate = await promptTurn(h, prompt, [{ role: 'user', content: prompt }]);
+  assert.equal(h.fetchCallCount() - before, 1);
+  assert.match(String(duplicate?.appendSystemContext || ''), /duplicate_chain_risk=true/);
+  assert.match(String(duplicate?.appendSystemContext || ''), /routing_provenance: principal_scoped_validated_live_plan_reuse_plus_local_policy/);
+
+  await h.handlers.get('before_prompt_build')(
+    { prompt, messages: [{ role: 'user', content: prompt }] },
+    { ...ctx, sessionKey: 'agent:main:test:direct:other-owner' },
+  );
+  assert.equal(h.fetchCallCount() - before, 2, 'a different principal/session must not reuse the first principal plan');
+});
+
+test('agent completion and observed output do not train routing without a causal outcome receipt', async () => {
+  const h = harness();
+  const prompt = 'Check a route without causal execution evidence.';
+  await promptTurn(h, prompt, [{ role: 'user', content: prompt }]);
+  await h.handlers.get('llm_output')({ assistantTexts: ['A non-empty answer exists.'] }, ctx);
+  await h.handlers.get('agent_end')({ success: true }, ctx);
+  assert.equal(fs.existsSync(principalStatePath(h, 'adaptive-routing-stats.json')), false);
+});
+
+test('validated runtime outcome receipt trains only causally executed levels', async () => {
+  const h = harness();
+  const prompt = 'Check a route with explicit causal execution evidence.';
+  await promptTurn(h, prompt, [{ role: 'user', content: prompt }]);
+  await h.handlers.get('llm_output')({ assistantTexts: ['A verified output exists.'] }, ctx);
+  await h.handlers.get('agent_end')({
+    success: true,
+    cortexRouteOutcomeReceipt: {
+      schemaVersion: 'cortex.route-gate.outcome.v1',
+      promptSha256: crypto.createHash('sha256').update(prompt, 'utf8').digest('hex'),
+      runCompleted: true,
+      outputObserved: true,
+      userOutcome: 'accepted',
+      executedLevels: [24],
+    },
+  }, ctx);
+  const stats = JSON.parse(fs.readFileSync(principalStatePath(h, 'adaptive-routing-stats.json'), 'utf8'));
+  assert.equal(stats.version, 2);
+  assert.deepEqual(stats.byLevel['24'], {
+    uses: 1,
+    successes: 1,
+    failures: 0,
+    score: 0.75,
+    lastReason: 'verified_outcome_receipt:accepted',
+  });
+  assert.equal(stats.byLevel['5'], undefined, 'recommended but unobserved levels must not receive credit');
 });
 
 test('tool calls remain uncapped per turn', async () => {

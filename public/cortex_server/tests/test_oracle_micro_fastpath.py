@@ -35,7 +35,10 @@ def test_assistant_rate_limit_text_is_content_and_openclaw_sessions_are_principa
         calls.append(list(cmd))
         return SimpleNamespace(
             returncode=0,
-            stdout=json.dumps({"payloads": [{"text": "rate limit reached; try again in ~9 min"}]}),
+            stdout=json.dumps({
+                "payloads": [{"text": "rate limit reached; try again in ~9 min"}],
+                "meta": {"agentMeta": {"provider": "test-provider", "model": "test-model", "agentId": oracle.ORACLE_OPENCLAW_AGENT}},
+            }),
             stderr="",
         )
 
@@ -57,7 +60,14 @@ def test_trusted_openclaw_rate_limit_signal_only_cools_its_principal(monkeypatch
     monkeypatch.setattr(oracle.time, "sleep", lambda _seconds: None)
     responses = iter([
         SimpleNamespace(returncode=1, stdout="", stderr="rate limit reached; try again in ~9 min"),
-        SimpleNamespace(returncode=0, stdout=json.dumps({"payloads": [{"text": "tenant b remains available"}]}), stderr=""),
+        SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({
+                "payloads": [{"text": "tenant b remains available"}],
+                "meta": {"agentMeta": {"provider": "test-provider", "model": "test-model", "agentId": oracle.ORACLE_OPENCLAW_AGENT}},
+            }),
+            stderr="",
+        ),
     ])
     monkeypatch.setattr(oracle.subprocess, "run", lambda *_args, **_kwargs: next(responses))
 

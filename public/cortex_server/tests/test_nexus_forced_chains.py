@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -114,6 +115,27 @@ def test_incident_chain_forced(monkeypatch, configured_memory_principal):
     assert body["routing_method"] == "incident_chain_forced"
     assert body["routing_markers"]["incident_triggered"] is True
     assert body["routing_markers"]["incident_chain"] == ["sentinel", "seer", "council", "diplomat", "chronos"]
+    assert 21 in body["final_plan"]["selected_levels"]
+    assert 8 not in body["final_plan"]["selected_levels"]
+    assert body["final_plan"]["primary_chain"] == ["sentinel", "seer", "council", "diplomat", "chronos"]
+
+
+def test_unhealthy_architect_is_omitted_from_every_final_chain_view(
+    monkeypatch, configured_memory_principal
+):
+    monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: False)
+    client = _client(monkeypatch, headers=configured_memory_principal().headers)
+    response = client.post(
+        "/nexus/orchestrate",
+        json={},
+        params={"query": "Draft a system design blueprint for multi-tenant API boundaries"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert 9 not in body["final_plan"]["selected_levels"]
+    assert "architect" not in body["final_plan"]["primary_chain"]
+    assert "architect" not in body["routing_markers"]["l9_chain"]
+    assert body["final_plan"]["omitted_chain_members"]["architecture"] == ["architect"]
 
 
 def test_research_chain_forced(monkeypatch, configured_memory_principal):
@@ -139,6 +161,23 @@ def test_preference_prefix_query_does_not_trigger_coding_chain(
 
 
 def test_architecture_chain_forced(monkeypatch, configured_memory_principal):
+    class _NoSelfReportedOutcomeTuner:
+        def get_policy_hint(self, **_kwargs):
+            return {
+                "stage": "shadow",
+                "rollout_percent": 0,
+                "apply_recommendation": False,
+                "recommended_policy": None,
+            }
+
+        def observe(self, _record):
+            raise AssertionError("route selection must not train on self-derived success")
+
+    monkeypatch.setattr(
+        nexus,
+        "_outcome_tuner_for_scope",
+        lambda _scope: _NoSelfReportedOutcomeTuner(),
+    )
     monkeypatch.setattr(nexus, "_architect_healthy", lambda *_args, **_kwargs: True)
     client = _client(monkeypatch, headers=configured_memory_principal().headers)
     r = client.post("/nexus/orchestrate", json={}, params={"query": "Draft a system design blueprint for multi-tenant API boundaries"})
@@ -147,6 +186,36 @@ def test_architecture_chain_forced(monkeypatch, configured_memory_principal):
     assert body["routing_method"] == "l9_chain_forced"
     assert body["routing_markers"]["l9_triggered"] is True
     assert body["routing_markers"]["l9_chain"] == ["architect", "council", "synthesist", "validator"]
+    selected_levels = [int(row["level"]) for row in body["recommended_levels"]]
+    assert len(selected_levels) == len(set(selected_levels))
+    assert body["final_plan"]["selected_levels"] == selected_levels
+    assert body["final_plan"]["primary_chain"] == ["architect", "council", "synthesist", "validator"]
+    assert body["routing_markers"]["final_plan"] == body["final_plan"]
+    assert body["activation_receipt"]["plan_digest"] == body["final_plan"]["plan_digest"]
+    assert body["activation_receipt"]["activated_levels"] == [
+        {"level": 24, "name": "nexus", "evidence": "nexus_router_transaction"}
+    ]
+    assert body["activation_receipt"]["complete"] is False
+    assert body["activation_receipt"]["terminal_reason"] == "awaiting_downstream_execution_evidence"
+    assert body["_activated"] == body["activation_receipt"]["activated_levels"]
+    assert body["artifact_paths"]["outcome_tuner"]["recorded"] is False
+    assert body["artifact_paths"]["outcome_tuner"]["reason"] == "downstream_activation_evidence_required"
+    assert body["outcome_feedback"] == {
+        "available": False,
+        "reason": "complete_causal_outcome_evidence_required",
+        "required_receipt_version": "nexus.causal-outcome-receipt.v2",
+    }
+    assert body["route_selection_receipt"]["trainable"] is False
+    selection_payload = nexus._decode_outcome_feedback_receipt(
+        body["route_selection_receipt"]["receipt"]
+    )
+    assert selection_payload["receipt_kind"] == "route_selection"
+    assert selection_payload["causal_evidence_complete"] is False
+    with pytest.raises(ValueError, match="unsupported_receipt_version"):
+        nexus._verify_outcome_feedback_receipt(
+            body["route_selection_receipt"]["receipt"],
+            None,
+        )
 
 
 def test_complexity_auto_activates_l9(monkeypatch, configured_memory_principal):

@@ -3,7 +3,7 @@ Council Router - Multi-perspective analysis and critique.
 Level 15: The Council provides REAL multi-perspective deliberation via Oracle.
 """
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from typing import Dict, List, Any, Optional, Literal
 from datetime import datetime
 import httpx
@@ -13,6 +13,11 @@ import asyncio
 import os
 
 from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.provider_result import (
+    provider_result_fields,
+    provider_text_fields,
+    validated_oracle_provider_text,
+)
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
     conscious_action,
@@ -114,12 +119,9 @@ async def _call_oracle(
             resp = await client.post(ORACLE_URL, headers={"x-augmenter-bypass": "1"}, json=payload)
             resp.raise_for_status()
             data = resp.json()
+            out = validated_oracle_provider_text(data)
             _oracle_successes += 1
             _oracle_consecutive_failures = 0
-            out = data.get("response", data.get("text", ""))
-            out = out if isinstance(out, str) else str(out)
-            if not out.strip():
-                raise RuntimeError("oracle_returned_empty")
             return out
         except Exception:
             _oracle_failures += 1
@@ -160,13 +162,9 @@ def _parse_deliberation(raw: str) -> tuple[list[dict], str]:
     labels = [
         ("Technical feasibility", "technical_feasibility"),
         ("Risk/security", "risk_security"),
-        ("Risk/Security", "risk_security"),
         ("Ethical implications", "ethical_implications"),
-        ("Ethical Implications", "ethical_implications"),
         ("Resource cost", "resource_cost"),
-        ("Resource Cost", "resource_cost"),
         ("User impact", "user_impact"),
-        ("User Impact", "user_impact"),
     ]
     
     for display_name, key in labels:
@@ -296,6 +294,62 @@ def _parse_critique(raw: str) -> tuple[list[dict], list[str], str]:
     return scores, concerns, recommendation
 
 
+def _deliberation_text_needs_repair(
+    raw: Any,
+    perspectives: List[Dict[str, Any]],
+    recommendation: str,
+) -> bool:
+    text = raw if isinstance(raw, str) else ""
+    has_recommendation = any(
+        marker in text.casefold()
+        for marker in ("overall recommendation", "recommendation:", "overall:")
+    )
+    return not (
+        len(perspectives) == 5
+        and all(
+            isinstance(row.get("score"), int)
+            and 1 <= row["score"] <= 10
+            and isinstance(row.get("reasoning"), str)
+            and bool(row["reasoning"].strip())
+            and row["reasoning"] != "No detailed reasoning extracted"
+            for row in perspectives
+        )
+        and has_recommendation
+        and isinstance(recommendation, str)
+        and bool(recommendation.strip())
+    )
+
+
+def _critique_text_needs_repair(
+    raw: Any,
+    scores: List[Dict[str, Any]],
+    concerns: List[str],
+    recommendation: str,
+) -> bool:
+    text = raw if isinstance(raw, str) else ""
+    has_recommendation = any(
+        marker in text.casefold()
+        for marker in ("go/no-go", "recommendation:", "verdict:")
+    )
+    return not (
+        len(scores) == 4
+        and all(
+            isinstance(row.get("score"), int)
+            and 1 <= row["score"] <= 10
+            and isinstance(row.get("reasoning"), str)
+            and bool(row["reasoning"].strip())
+            and row["reasoning"] != "No detailed reasoning extracted"
+            for row in scores
+        )
+        and bool(concerns)
+        and all(isinstance(item, str) and bool(item.strip()) for item in concerns)
+        and has_recommendation
+        and isinstance(recommendation, str)
+        and bool(recommendation.strip())
+        and recommendation != "No clear recommendation extracted"
+    )
+
+
 def _compute_risk_score(perspectives: list[dict]) -> float:
     """Compute a risk score (0-1) from deliberation perspectives.
 
@@ -419,14 +473,44 @@ async def deliberate(request: DeliberationRequest):
         if request.context:
             user_prompt += f"\n\nAdditional context: {request.context}"
         
+        provider_error = None
         try:
             raw_response = await _call_oracle(user_prompt, system_prompt)
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
+            provider_error = f"oracle_timeout:{type(exc).__name__}"
             raw_response = _fallback_deliberation_text(request.topic)
-        except Exception:
+        except Exception as exc:
+            provider_error = f"oracle_unavailable:{type(exc).__name__}"
             raw_response = _fallback_deliberation_text(request.topic)
         
         perspectives, recommendation = _parse_deliberation(raw_response)
+        schema_repair = not provider_error and _deliberation_text_needs_repair(
+            raw_response,
+            perspectives,
+            recommendation,
+        )
+        provenance = (
+            provider_result_fields(
+                origin="deterministic_fallback",
+                provider_invoked=False,
+                provider=None,
+                degraded=True,
+                repair_applied=True,
+                validated_evidence=[],
+            )
+            if provider_error
+            else provider_text_fields(
+                raw_response,
+                origin=("schema_repair" if schema_repair else "provider"),
+                degraded=schema_repair,
+                repair_applied=schema_repair,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if schema_repair
+                    else ["oracle_completion_receipt", "deliberation_text_parsed"]
+                ),
+            )
+        )
         
         # ── Consciousness: auto-chain to Ethicist on risky proposals ──
         risk_score = _compute_risk_score(perspectives)
@@ -450,7 +534,13 @@ async def deliberate(request: DeliberationRequest):
             "overall_recommendation": recommendation,
             "raw_response": raw_response,
             "ethical_review": ethical_review.get("evaluation") if ethical_review and ethical_review.get("success") else None,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "error": (
+                f"degraded:{provider_error}"
+                if provider_error
+                else ("degraded:oracle_schema_repair" if schema_repair else None)
+            ),
+            **provenance,
         }
         
         deliberations.append(result)
@@ -491,14 +581,45 @@ async def critique_action(request: CritiqueRequest):
         if request.context:
             user_prompt += f"\n\nContext: {request.context}"
         
+        provider_error = None
         try:
             raw_response = await _call_oracle(user_prompt, system_prompt)
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
+            provider_error = f"oracle_timeout:{type(exc).__name__}"
             raw_response = _fallback_critique_text(request.action)
-        except Exception:
+        except Exception as exc:
+            provider_error = f"oracle_unavailable:{type(exc).__name__}"
             raw_response = _fallback_critique_text(request.action)
         
         scores, concerns, recommendation = _parse_critique(raw_response)
+        schema_repair = not provider_error and _critique_text_needs_repair(
+            raw_response,
+            scores,
+            concerns,
+            recommendation,
+        )
+        provenance = (
+            provider_result_fields(
+                origin="deterministic_fallback",
+                provider_invoked=False,
+                provider=None,
+                degraded=True,
+                repair_applied=True,
+                validated_evidence=[],
+            )
+            if provider_error
+            else provider_text_fields(
+                raw_response,
+                origin=("schema_repair" if schema_repair else "provider"),
+                degraded=schema_repair,
+                repair_applied=schema_repair,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if schema_repair
+                    else ["oracle_completion_receipt", "critique_text_parsed"]
+                ),
+            )
+        )
         
         ctx.set_result({
             "scores_count": len(scores),
@@ -512,7 +633,13 @@ async def critique_action(request: CritiqueRequest):
         "concerns": concerns,
         "recommendation": recommendation,
         "raw_response": raw_response,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "error": (
+            f"degraded:{provider_error}"
+            if provider_error
+            else ("degraded:oracle_schema_repair" if schema_repair else None)
+        ),
+        **provenance,
     }
 
 
@@ -584,6 +711,19 @@ class ReviewResponse(BaseModel):
     suggested_changes: List[str]
     timestamp: str
     raw_response: Optional[str] = None
+
+
+class _OracleReviewDecision(BaseModel):
+    """Exact provider contract for a safety-relevant Council decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: Literal["APPROVE", "NEEDS_CHANGES", "REJECT"]
+    risk_score: float = Field(ge=0.0, le=1.0)
+    top_concerns: List[str]
+    required_conditions: List[str]
+    rationale: str = Field(min_length=1)
+    suggested_changes: List[str]
 
 
 def _extract_first_json_object(raw: str) -> Optional[dict]:
@@ -856,53 +996,28 @@ async def council_review(request: ReviewRequest):
             ),
             timeout=COUNCIL_REVIEW_TIMEOUT_S,
         )
-        parsed = _extract_first_json_object(raw_response)
+        parsed = json.loads(raw_response.strip())
+        if not isinstance(parsed, dict):
+            parsed = None
     except (asyncio.TimeoutError, httpx.RequestError, RuntimeError, ValueError):
         parsed = None
     except Exception:
         parsed = None
 
-    # If Oracle did not return JSON, attempt a conservative verdict inference
-    # from plain-text responses (e.g. "GO", "NO GO") so gating remains usable.
-    if (not parsed) and isinstance(raw_response, str) and raw_response.strip():
-        t = raw_response.strip().upper()
-        import re as _re
-        inferred = None
-        if "REJECT" in t or "NO GO" in t or "NOGO" in t:
-            inferred = "REJECT"
-        elif "NEEDS_CHANGES" in t or "NEEDS CHANGES" in t:
-            inferred = "NEEDS_CHANGES"
-        elif "APPROVE" in t or _re.search(r"\bGO\b", t):
-            inferred = "APPROVE"
-        if inferred and inferred != "NEEDS_CHANGES":
-            return {
-                'success': True,
-                'kind': kind,
-                'verdict': inferred,
-                'risk_score': 0.22 if inferred == "APPROVE" else 0.80,
-                'top_concerns': [],
-                'required_conditions': ['run_smoke_tests'],
-                'rationale': raw_response.strip()[:2000],
-                'suggested_changes': [],
-                'timestamp': datetime.now().isoformat(),
-                'raw_response': raw_response,
-            }
-
+    decision = None
     if parsed and isinstance(parsed, dict):
-        verdict = str(parsed.get('verdict', 'NEEDS_CHANGES')).strip().upper()
-        if verdict in ('APPROVE_WITH_CONDITIONS', 'APPROVE_CONDITIONALLY', 'CONDITIONAL_APPROVE', 'CONDITIONAL_APPROVAL'):
-            verdict = 'NEEDS_CHANGES'
-        elif verdict in ('GO',):
-            verdict = 'APPROVE'
-        elif verdict in ('NO_GO', 'NOGO'):
-            verdict = 'REJECT'
-        if verdict not in ('APPROVE', 'NEEDS_CHANGES', 'REJECT'):
-            verdict = 'NEEDS_CHANGES'
-        risk_score = _clamp01(parsed.get('risk_score', 0.5))
-        top_concerns = parsed.get('top_concerns') or []
-        required_conditions = parsed.get('required_conditions') or []
-        rationale = str(parsed.get('rationale', '')).strip()[:2000]
-        suggested_changes = parsed.get('suggested_changes') or []
+        try:
+            decision = _OracleReviewDecision.model_validate(parsed)
+        except ValidationError:
+            decision = None
+
+    if decision is not None:
+        verdict = decision.verdict
+        risk_score = decision.risk_score
+        top_concerns = decision.top_concerns
+        required_conditions = decision.required_conditions
+        rationale = decision.rationale.strip()[:2000]
+        suggested_changes = decision.suggested_changes
 
         # Fold Seer outlook into Council contract (advisory, conservative bias).
         needs_seer_advisory = (verdict == 'APPROVE' or risk_score < 0.35)

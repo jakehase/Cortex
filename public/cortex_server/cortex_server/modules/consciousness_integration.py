@@ -20,13 +20,20 @@ to the caller, so existing router logic is never broken.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
+import os
+import re
+import secrets
 import time
 from contextlib import asynccontextmanager
+from contextvars import ContextVar, Token
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import httpx
+from starlette.responses import JSONResponse
 
 from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.level_registry import get_level_registry
@@ -210,6 +217,152 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
 # ---------------------------------------------------------------------------
 
 _CHAIN_TIMEOUT = 30.0  # seconds
+_CHAIN_MAX_DEPTH = 8
+_CHAIN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CHAIN_LEVEL_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,79}$")
+_CHAIN_CONTEXT_HEADER_NAMES = (
+    "x-cortex-chain-id",
+    "x-cortex-chain-visited",
+    "x-cortex-chain-depth",
+    "x-cortex-chain-deadline-ms",
+)
+_CHAIN_SIGNATURE_HEADER = "x-cortex-chain-signature"
+_CHAIN_HEADER_NAMES = (*_CHAIN_CONTEXT_HEADER_NAMES, _CHAIN_SIGNATURE_HEADER)
+_CHAIN_LEVEL_ALIASES = {
+    # Public router prefixes that differ from the logical Cortex level name.
+    "browser": "ghost",
+    "parsers": "parser",
+    "synthesist_api": "synthesist",
+}
+# A deployment-provisioned value keeps signatures valid across worker
+# processes. The random fallback remains safe and compatible for a single
+# process; cross-worker chain calls then fail closed until configured.
+_CHAIN_HMAC_SECRET = (
+    os.getenv("CORTEX_CHAIN_HMAC_SECRET", "").encode("utf-8")
+    or secrets.token_bytes(32)
+)
+_ACTIVE_CHAIN_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "cortex_active_chain_context",
+    default=None,
+)
+
+
+def _chain_level_key(value: Any) -> str:
+    key = str(value or "").strip().lower().replace(" ", "_")
+    return _CHAIN_LEVEL_ALIASES.get(key, key)
+
+
+def _chain_context_signature(headers: Mapping[str, Any]) -> str:
+    canonical = "\n".join(
+        f"{name}:{str(headers.get(name) or '')}" for name in _CHAIN_CONTEXT_HEADER_NAMES
+    )
+    return hmac.new(_CHAIN_HMAC_SECRET, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def chain_context_from_headers(headers: Mapping[str, Any]) -> Dict[str, Any]:
+    """Parse bounded chain metadata propagated by :func:`chain_to`."""
+    chain_id = str(headers.get("x-cortex-chain-id") or "").strip()
+    raw_visited = str(headers.get("x-cortex-chain-visited") or "").strip()
+    raw_depth = str(headers.get("x-cortex-chain-depth") or "").strip()
+    raw_deadline = str(headers.get("x-cortex-chain-deadline-ms") or "").strip()
+    if not _CHAIN_ID_RE.fullmatch(chain_id):
+        raise ValueError("invalid chain ID")
+    visited = [_chain_level_key(item) for item in raw_visited.split(",") if item.strip()]
+    if (
+        not visited
+        or len(visited) > _CHAIN_MAX_DEPTH + 1
+        or len(set(visited)) != len(visited)
+        or any(not _CHAIN_LEVEL_RE.fullmatch(item) for item in visited)
+    ):
+        raise ValueError("invalid visited-level chain")
+    try:
+        depth = int(raw_depth)
+        deadline_epoch_ms = int(raw_deadline)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid chain depth or deadline") from exc
+    if depth < 0 or depth > _CHAIN_MAX_DEPTH or depth != len(visited) - 1 or deadline_epoch_ms <= 0:
+        raise ValueError("invalid chain depth or deadline")
+    return {
+        "chain_id": chain_id,
+        "visited_levels": visited,
+        "depth": depth,
+        "deadline_epoch_ms": deadline_epoch_ms,
+    }
+
+
+class ChainContextMiddleware:
+    """Install validated internal-chain metadata for every HTTP request.
+
+    ``chain_to`` reads this request-local context automatically.  This makes
+    hop/deadline/cycle checks survive the HTTP boundary without requiring each
+    router to remember to forward request headers manually.
+    """
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        raw_chain_headers: Dict[str, str] = {}
+        duplicate_header = False
+        for raw_name, raw_value in scope.get("headers", []):
+            name = raw_name.decode("latin-1").lower()
+            if name not in _CHAIN_HEADER_NAMES:
+                continue
+            if name in raw_chain_headers:
+                duplicate_header = True
+                break
+            raw_chain_headers[name] = raw_value.decode("latin-1")
+
+        active_context: Optional[Dict[str, Any]] = None
+        if raw_chain_headers:
+            # The absolute request deadline is also used by Nexus without a
+            # chain. It may appear alone and must not become chain provenance.
+            deadline_only = set(raw_chain_headers) == {"x-cortex-chain-deadline-ms"}
+            if deadline_only and not duplicate_header:
+                raw_chain_headers = {}
+            elif duplicate_header or set(raw_chain_headers) != set(_CHAIN_HEADER_NAMES):
+                await JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": "invalid Cortex chain context",
+                        "terminal_reason": "invalid_chain_headers",
+                    },
+                )(scope, receive, send)
+                return
+            if raw_chain_headers:
+                supplied_signature = raw_chain_headers.pop(_CHAIN_SIGNATURE_HEADER)
+                valid_signature = hmac.compare_digest(
+                    supplied_signature,
+                    _chain_context_signature(raw_chain_headers),
+                )
+            else:
+                valid_signature = True
+            try:
+                if not valid_signature:
+                    raise ValueError("invalid chain signature")
+                if raw_chain_headers:
+                    active_context = chain_context_from_headers(raw_chain_headers)
+            except ValueError:
+                await JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": "invalid Cortex chain context",
+                        "terminal_reason": "invalid_chain_headers",
+                    },
+                )(scope, receive, send)
+                return
+
+        token: Token[Optional[Dict[str, Any]]] = _ACTIVE_CHAIN_CONTEXT.set(active_context)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _ACTIVE_CHAIN_CONTEXT.reset(token)
 
 async def chain_to(
     from_level: str,
@@ -218,6 +371,11 @@ async def chain_to(
     *,
     method: str = "POST",
     timeout: float = _CHAIN_TIMEOUT,
+    chain_context: Optional[Dict[str, Any]] = None,
+    chain_id: Optional[str] = None,
+    visited_levels: Optional[List[str]] = None,
+    depth: Optional[int] = None,
+    deadline_epoch_ms: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """Call another Cortex level via its HTTP endpoint and return the JSON response.
 
@@ -230,7 +388,93 @@ async def chain_to(
 
     Returns the parsed JSON dict, or ``None`` on any error.
     """
-    url = internal_url(f"/{endpoint.lstrip('/')}")
+    inherited_context = _ACTIVE_CHAIN_CONTEXT.get()
+    if inherited_context is not None and any(
+        value is not None
+        for value in (chain_context, chain_id, visited_levels, depth, deadline_epoch_ms)
+    ):
+        _broadcast_chain_error(
+            from_level,
+            endpoint,
+            "inherited_chain_context_override",
+            chain_id=str(inherited_context.get("chain_id") or ""),
+            terminal_reason="inherited_chain_context_override",
+        )
+        return None
+    context = dict(inherited_context or chain_context or {})
+    resolved_chain_id = str(chain_id or context.get("chain_id") or secrets.token_hex(16)).strip()
+    if not _CHAIN_ID_RE.fullmatch(resolved_chain_id):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_id", terminal_reason="invalid_chain_id")
+        return None
+
+    try:
+        resolved_timeout = float(timeout)
+        resolved_depth = int(context.get("depth", 0) if depth is None else depth)
+    except (TypeError, ValueError):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_budget", chain_id=resolved_chain_id, terminal_reason="invalid_chain_budget")
+        return None
+    if resolved_timeout <= 0 or resolved_timeout > 300 or resolved_timeout != resolved_timeout:
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_timeout", chain_id=resolved_chain_id, terminal_reason="invalid_chain_timeout")
+        return None
+    if resolved_depth < 0 or resolved_depth >= _CHAIN_MAX_DEPTH:
+        _broadcast_chain_error(from_level, endpoint, "max_depth_exceeded", chain_id=resolved_chain_id, terminal_reason="max_depth_exceeded")
+        return None
+
+    normalized_endpoint = endpoint.lstrip("/")
+    target_level = _chain_level_key(normalized_endpoint.split("/", 1)[0])
+    source_level = _chain_level_key(from_level)
+    if not _CHAIN_LEVEL_RE.fullmatch(target_level) or not _CHAIN_LEVEL_RE.fullmatch(source_level):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_level", chain_id=resolved_chain_id, terminal_reason="invalid_chain_level")
+        return None
+
+    raw_visited = visited_levels if visited_levels is not None else context.get("visited_levels", [])
+    if not isinstance(raw_visited, list):
+        _broadcast_chain_error(from_level, endpoint, "invalid_visited_levels", chain_id=resolved_chain_id, terminal_reason="invalid_visited_levels")
+        return None
+    visited = [_chain_level_key(item) for item in raw_visited]
+    if (
+        len(visited) > _CHAIN_MAX_DEPTH + 1
+        or len(set(visited)) != len(visited)
+        or any(not _CHAIN_LEVEL_RE.fullmatch(item) for item in visited)
+    ):
+        _broadcast_chain_error(from_level, endpoint, "invalid_visited_levels", chain_id=resolved_chain_id, terminal_reason="invalid_visited_levels")
+        return None
+    has_supplied_context = bool(inherited_context or chain_context or visited_levels is not None or depth is not None)
+    if has_supplied_context and (
+        not visited
+        or resolved_depth != len(visited) - 1
+        or visited[-1] != source_level
+    ):
+        _broadcast_chain_error(from_level, endpoint, "source_context_mismatch", chain_id=resolved_chain_id, terminal_reason="source_context_mismatch")
+        return None
+    if source_level not in visited:
+        visited.append(source_level)
+    if target_level in visited:
+        _broadcast_chain_error(from_level, endpoint, "cycle_detected", chain_id=resolved_chain_id, terminal_reason="cycle_detected")
+        return None
+
+    deadline_value = deadline_epoch_ms if deadline_epoch_ms is not None else context.get("deadline_epoch_ms")
+    if deadline_value is None:
+        deadline_value = int(time.time() * 1000 + (resolved_timeout * 1000))
+    try:
+        resolved_deadline_ms = int(deadline_value)
+    except (TypeError, ValueError):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_deadline", chain_id=resolved_chain_id, terminal_reason="invalid_chain_deadline")
+        return None
+    remaining_s = (resolved_deadline_ms - int(time.time() * 1000)) / 1000.0
+    if remaining_s <= 0:
+        _broadcast_chain_error(from_level, endpoint, "deadline_exhausted", chain_id=resolved_chain_id, terminal_reason="deadline_exhausted")
+        return None
+    effective_timeout = min(resolved_timeout, remaining_s)
+    next_visited = [*visited, target_level]
+    chain_headers = {
+        "x-cortex-chain-id": resolved_chain_id,
+        "x-cortex-chain-visited": ",".join(next_visited),
+        "x-cortex-chain-depth": str(resolved_depth + 1),
+        "x-cortex-chain-deadline-ms": str(resolved_deadline_ms),
+    }
+    chain_headers[_CHAIN_SIGNATURE_HEADER] = _chain_context_signature(chain_headers)
+    url = internal_url(f"/{normalized_endpoint}")
 
     # Broadcast chain start
     try:
@@ -239,24 +483,35 @@ async def chain_to(
             bus.broadcast(from_level, "chain_call", {
                 "target_endpoint": endpoint,
                 "payload_keys": list((payload or {}).keys()),
+                "chain_id": resolved_chain_id,
+                "depth": resolved_depth + 1,
+                "visited_levels": next_visited,
             })
     except Exception:
         pass
 
     try:
-        normalized_endpoint = endpoint.lstrip("/")
         memory_endpoint = normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search"
         memory_headers = configured_internal_memory_headers() if memory_endpoint else None
         if memory_endpoint and memory_headers is None:
+            _broadcast_chain_error(
+                from_level,
+                endpoint,
+                "memory_credentials_unavailable",
+                chain_id=resolved_chain_id,
+                terminal_reason="memory_credentials_unavailable",
+            )
             return None
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            if method.upper() == "GET":
-                resp = await client.get(url, params=payload, headers=memory_headers)
-            else:
-                body = dict(payload or {})
-                resp = await client.post(url, json=body, headers=memory_headers)
-            resp.raise_for_status()
-            result = resp.json()
+        request_headers = {**(memory_headers or {}), **chain_headers}
+        async with asyncio.timeout(effective_timeout):
+            async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                if method.upper() == "GET":
+                    resp = await client.get(url, params=payload, headers=request_headers)
+                else:
+                    body = dict(payload or {})
+                    resp = await client.post(url, json=body, headers=request_headers)
+                resp.raise_for_status()
+                result = resp.json()
 
         # Broadcast chain success
         try:
@@ -265,29 +520,41 @@ async def chain_to(
                 bus.broadcast(from_level, "chain_complete", {
                     "target_endpoint": endpoint,
                     "status": "success",
+                    "chain_id": resolved_chain_id,
+                    "depth": resolved_depth + 1,
+                    "terminal_reason": "target_completed",
                 })
         except Exception:
             pass
 
         return result
 
-    except httpx.TimeoutException:
-        logger.warning("chain_to %s -> %s timed out after %.1fs", from_level, endpoint, timeout)
-        _broadcast_chain_error(from_level, endpoint, "timeout")
+    except (httpx.TimeoutException, TimeoutError):
+        logger.warning("chain_to %s -> %s timed out after %.1fs", from_level, endpoint, effective_timeout)
+        _broadcast_chain_error(from_level, endpoint, "timeout", chain_id=resolved_chain_id, terminal_reason="timeout")
         return None
     except Exception as exc:
         logger.warning("chain_to %s -> %s failed: %s", from_level, endpoint, exc)
-        _broadcast_chain_error(from_level, endpoint, str(exc)[:300])
+        _broadcast_chain_error(from_level, endpoint, str(exc)[:300], chain_id=resolved_chain_id, terminal_reason="target_error")
         return None
 
 
-def _broadcast_chain_error(from_level: str, endpoint: str, error: str):
+def _broadcast_chain_error(
+    from_level: str,
+    endpoint: str,
+    error: str,
+    *,
+    chain_id: str = "",
+    terminal_reason: str = "target_error",
+):
     try:
         bus = _get_bus()
         if bus:
             bus.broadcast(from_level, "chain_error", {
                 "target_endpoint": endpoint,
                 "error": error,
+                "chain_id": chain_id,
+                "terminal_reason": terminal_reason,
             })
     except Exception:
         pass
