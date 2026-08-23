@@ -8,30 +8,148 @@ and a policy/audit layer for staged autonomy rollouts.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import sqlite3
 import ssl
 import time
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 from typing import Any, Dict, List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from cortex_server.responses import WavFileResponse
 from pydantic import BaseModel, Field
 
 from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    action_authorization_json_field_sha256,
+    assert_action_authorized,
+    assert_action_json_payload,
+    assert_global_admin_authorized,
+    canonical_json_sha256,
+    require_action_capability,
+)
+from cortex_server.modules.sensitive_data_redaction import redact_sensitive_data
+from cortex_server.runtime.resilient_json_state import (
+    ResilientJSONStateError,
+    ResilientJSONStateStore,
+    StateCorruptionError,
+)
 from cortex_server.routers.bard import SpeakRequest as BardSpeakRequest
 from cortex_server.routers.bard import bard_status as bard_status_endpoint
 from cortex_server.routers.bard import text_to_speech as bard_text_to_speech
 
 router = APIRouter(tags=["HomeAssistant"])
+
+
+def _model_action_payload(model: BaseModel) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_unset=True, exclude_none=True)
+    return model.dict(exclude_unset=True, exclude_none=True)
+
+
+def _assert_ha_actuation_enabled(
+    authorization: Optional[ActionAuthorization],
+    *,
+    action_path: Optional[str] = None,
+) -> None:
+    assert_action_authorized(
+        authorization,
+        expected_method="POST" if action_path else None,
+        expected_path=action_path,
+    )
+    if bool(_load_policy_cfg().get("kill_switch")):
+        raise HTTPException(status_code=503, detail="Home Assistant actions are disabled")
+
+
+def _assert_ha_sink_payload(
+    authorization: ActionAuthorization,
+    *,
+    action_path: str,
+    downstream_path: str,
+    body: Dict[str, Any],
+    supplied_idempotency_key: Optional[str] = None,
+    validate_idempotency_key: bool = True,
+) -> None:
+    """Bind the verified route JSON fields to the exact downstream HA write."""
+
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path=action_path,
+    )
+    data_digest = action_authorization_json_field_sha256(authorization, "data")
+    if data_digest is None:
+        data_digest = canonical_json_sha256({})
+    actual_body_digest = canonical_json_sha256(body)
+
+    if action_path.startswith("/homeassistant/events/"):
+        event_type = action_path.removeprefix("/homeassistant/events/")
+        if downstream_path != f"/api/events/{event_type}" or not hmac.compare_digest(
+            actual_body_digest,
+            data_digest,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Home Assistant action payload mismatch",
+            )
+    elif action_path.startswith("/homeassistant/services/"):
+        service_path = action_path.removeprefix("/homeassistant/services/")
+        payload_matches = hmac.compare_digest(actual_body_digest, data_digest)
+        if not payload_matches and "entity_id" in body:
+            entity_digest = action_authorization_json_field_sha256(
+                authorization,
+                "entity_id",
+            )
+            body_without_entity = dict(body)
+            entity_id = body_without_entity.pop("entity_id")
+            payload_matches = bool(entity_digest) and hmac.compare_digest(
+                canonical_json_sha256(body_without_entity),
+                data_digest,
+            ) and hmac.compare_digest(
+                canonical_json_sha256(entity_id),
+                str(entity_digest),
+            )
+        if downstream_path != f"/api/services/{service_path}" or not payload_matches:
+            raise HTTPException(
+                status_code=403,
+                detail="Home Assistant action payload mismatch",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Home Assistant action sink mismatch",
+        )
+
+    if validate_idempotency_key:
+        expected_key_digest = action_authorization_json_field_sha256(
+            authorization,
+            "idempotency_key",
+        )
+        if supplied_idempotency_key is None:
+            if expected_key_digest not in {None, canonical_json_sha256(None)}:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Home Assistant idempotency payload mismatch",
+                )
+        elif expected_key_digest is None or not hmac.compare_digest(
+            canonical_json_sha256(supplied_idempotency_key),
+            expected_key_digest,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Home Assistant idempotency payload mismatch",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -45,9 +163,42 @@ VOICE_CFG_PATHS = [Path("/app/config/homeassistant_voice_pipeline.json"), Path("
 AUDIT_LOG_PATH = Path(os.getenv("HA_AUDIT_LOG_PATH", "/app/config/state/homeassistant_action_audit.jsonl"))
 VOICE_MEDIA_DIR = Path(os.getenv("HA_VOICE_MEDIA_DIR", "/app/outputs/voice"))
 
-HA_IDEMP_TTL_SEC = int(os.getenv("HA_IDEMP_TTL_SEC", "120"))
+def _configured_idempotency_ttl() -> int:
+    try:
+        value = int(os.getenv("HA_IDEMP_TTL_SEC", "86400"))
+    except ValueError as exc:
+        raise ValueError("HA_IDEMP_TTL_SEC must be an integer") from exc
+    if value < 60 or value > 30 * 24 * 60 * 60:
+        raise ValueError("HA_IDEMP_TTL_SEC must be between 60 and 2592000 seconds")
+    return value
+
+
+HA_IDEMP_TTL_SEC = _configured_idempotency_ttl()
 _HA_IDEMP_CACHE: Dict[str, Dict[str, Any]] = {}
 _HA_IDEMP_LOCK = Lock()
+_POLICY_CONFIG_LOCK = RLock()
+_POLICY_STORES: Dict[str, ResilientJSONStateStore] = {}
+_HA_CALLER_IDEMP_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$")
+_HA_BOUND_IDEMP_RE = re.compile(r"^cortex-ha-v1-[0-9a-f]{64}$")
+_HA_IDEMPOTENCY_TABLE = "homeassistant_idempotency_v1"
+_HA_COMPONENT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_HA_ENTITY_ID_RE = re.compile(
+    r"^[a-z][a-z0-9_]{0,63}\.[a-z0-9][a-z0-9_]{0,127}$"
+)
+
+
+def _validated_ha_component(value: str, field: str) -> str:
+    normalized = str(value or "").strip()
+    if not _HA_COMPONENT_RE.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail=f"invalid Home Assistant {field}")
+    return normalized
+
+
+def _validated_ha_entity_id(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not _HA_ENTITY_ID_RE.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="invalid Home Assistant entity_id")
+    return normalized
 
 
 DEFAULT_POLICY: Dict[str, Any] = {
@@ -143,11 +294,19 @@ class ServiceCallRequest(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     shadow: bool = Field(False, description="If true, request is dry-run and no HA write is attempted")
     confirm: bool = Field(False, description="Required for risky actions depending on policy mode")
-    idempotency_key: Optional[str] = Field(None, description="Optional idempotency key for dedupe")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Required when policy allows the HA write; bound to principal, path, and body",
+    )
 
 
 class EventFireRequest(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
+    confirm: bool = Field(False, description="Explicit confirmation required to fire an event")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Required for confirmed event writes; bound to principal, path, and body",
+    )
 
 
 class HAVoiceRequest(BaseModel):
@@ -166,7 +325,10 @@ class HAVoiceRequest(BaseModel):
     target_media_player: Optional[str] = Field(None, description="Media player target for outgoing speech")
 
     mute_esp32_before_play: bool = Field(True, description="Ensure ESP32 response output is muted before external playback")
-    idempotency_key: Optional[str] = Field(None, description="Optional idempotency key for dedupe")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Required when this request performs an HA write",
+    )
 
 
 class PolicyUpdateRequest(BaseModel):
@@ -183,6 +345,11 @@ class PolicyUpdateRequest(BaseModel):
 class ESP32VoiceActivateRequest(BaseModel):
     sonos_media_player: Optional[str] = None
     assistant_option: Optional[str] = None
+    confirm: bool = Field(False, description="Explicit confirmation required for device writes")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Required for confirmed ESP32 device writes",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -259,18 +426,88 @@ def _ha_cfg() -> Dict[str, Any]:
 
 
 def _load_policy_cfg() -> Dict[str, Any]:
-    cfg = _load_json_cfg(POLICY_CFG_PATHS, DEFAULT_POLICY)
-    active_profile = cfg.get("active_profile", "balanced")
-    profile = (cfg.get("profiles", {}) or {}).get(active_profile, {})
+    with _POLICY_CONFIG_LOCK:
+        path = next((candidate for candidate in POLICY_CFG_PATHS if candidate.exists()), POLICY_CFG_PATHS[0])
+        store = _policy_store(path)
+        try:
+            saved = store.load(
+                default_factory=lambda: json.loads(json.dumps(DEFAULT_POLICY))
+            )
+        except (StateCorruptionError, ResilientJSONStateError, OSError, ValueError):
+            # A malformed/torn policy must never re-enable actuation by falling
+            # back to the permissive defaults. Keep reads available while every
+            # HA sink observes the kill switch.
+            failed_closed = json.loads(json.dumps(DEFAULT_POLICY))
+            failed_closed.update(
+                {
+                    "mode": "shadow",
+                    "kill_switch": True,
+                    "persistence_degraded": True,
+                }
+            )
+            return failed_closed
+        cfg = json.loads(json.dumps(DEFAULT_POLICY))
+        cfg.update(saved)
+        active_profile = cfg.get("active_profile", "balanced")
+        profile = (cfg.get("profiles", {}) or {}).get(active_profile, {})
 
-    # profile mode can override if mode absent
-    if not cfg.get("mode"):
-        cfg["mode"] = profile.get("mode", "confirm")
-    return cfg
+        # profile mode can override if mode absent
+        if not cfg.get("mode"):
+            cfg["mode"] = profile.get("mode", "confirm")
+        cfg["persistence_degraded"] = store.health.get("status") != "healthy"
+        return cfg
 
 
 def _save_policy_cfg(cfg: Dict[str, Any]) -> None:
-    _save_json_cfg(POLICY_CFG_PATHS[0], cfg)
+    with _POLICY_CONFIG_LOCK:
+        path = POLICY_CFG_PATHS[0]
+        store = _policy_store(path)
+        payload = dict(cfg)
+        payload.pop("persistence_degraded", None)
+        try:
+            # Observe an existing primary before the CAS-protected commit. A
+            # different process changing it between load and save is rejected.
+            if store.last_load_source == "unloaded":
+                store.load(default_factory=lambda: json.loads(json.dumps(DEFAULT_POLICY)))
+            store.save(payload)
+        except (ResilientJSONStateError, OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Home Assistant policy persistence is unavailable",
+            ) from exc
+
+
+def _validate_policy_cfg(payload: Any) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Home Assistant policy must be an object")
+    if "kill_switch" in payload and not isinstance(payload["kill_switch"], bool):
+        raise ValueError("Home Assistant policy kill_switch must be boolean")
+    if "mode" in payload and payload["mode"] not in {
+        "shadow",
+        "confirm",
+        "autonomous-safe",
+        "autonomous-extended",
+    }:
+        raise ValueError("Home Assistant policy mode is invalid")
+    if "profiles" in payload and not isinstance(payload["profiles"], dict):
+        raise ValueError("Home Assistant policy profiles must be an object")
+    return dict(payload)
+
+
+def _policy_store(path: Path) -> ResilientJSONStateStore:
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        raise ValueError("Home Assistant policy path must be absolute")
+    key = str(expanded)
+    store = _POLICY_STORES.get(key)
+    if store is None:
+        store = ResilientJSONStateStore(
+            expanded,
+            validator=_validate_policy_cfg,
+            max_state_bytes=1_000_000,
+        )
+        _POLICY_STORES[key] = store
+    return store
 
 
 def _load_voice_cfg() -> Dict[str, Any]:
@@ -422,9 +659,30 @@ def _classify_action(
 
 def _append_audit(event: Dict[str, Any]) -> None:
     try:
+        safe_event = redact_sensitive_data(
+            event,
+            max_depth=8,
+            max_items=1_024,
+            max_string_chars=300,
+            allowed_fields={
+                "ts",
+                "kind",
+                "domain",
+                "service",
+                "decision",
+                "allow",
+                "reason",
+                "risk",
+                "mode",
+                "pair",
+                "success",
+                "status",
+                "results_ok",
+            },
+        )
         AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+            f.write(json.dumps(safe_event, ensure_ascii=False) + "\n")
     except Exception:
         pass
 
@@ -445,25 +703,171 @@ def _read_audit_tail(limit: int = 50) -> List[Dict[str, Any]]:
     return out
 
 
-def _idemp_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
-    if not key:
-        return None
-    now = time.time()
-    with _HA_IDEMP_LOCK:
-        stale = [k for k, v in _HA_IDEMP_CACHE.items() if (now - float(v.get("ts", 0))) > HA_IDEMP_TTL_SEC]
-        for k in stale:
-            _HA_IDEMP_CACHE.pop(k, None)
-        item = _HA_IDEMP_CACHE.get(key)
-        if not item:
+def _ha_idempotency_db_path() -> Path:
+    raw = str(
+        os.getenv("HA_IDEMP_DB_PATH", "")
+        or os.getenv("CORTEX_ACTION_CAPABILITY_DB_PATH", "")
+        or "/opt/clawdbot/state/action_capabilities.db"
+    ).strip()
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise HTTPException(
+            status_code=503,
+            detail="Home Assistant replay protection is unavailable",
+        )
+    return path
+
+
+def _idemp_reserve(key: str) -> Optional[Dict[str, Any]]:
+    """Reserve a bound action durably, or return its completed safe result."""
+
+    path = _ha_idempotency_db_path()
+    now = int(time.time())
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        connection.execute("PRAGMA busy_timeout=2500")
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {_HA_IDEMPOTENCY_TABLE} (
+                bound_key TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                result_json TEXT,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        # A pending row represents an ambiguous or in-flight actuation and is
+        # never expired automatically. Only an explicit reconciliation flow
+        # may release it. Aging out a live reservation can duplicate a device
+        # action while the first request is still running.
+        connection.execute(
+            f"DELETE FROM {_HA_IDEMPOTENCY_TABLE} WHERE state = 'completed' AND updated_at <= ?",
+            (now - int(HA_IDEMP_TTL_SEC),),
+        )
+        row = connection.execute(
+            f"SELECT state, result_json FROM {_HA_IDEMPOTENCY_TABLE} WHERE bound_key = ?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                f"INSERT INTO {_HA_IDEMPOTENCY_TABLE}(bound_key, state, result_json, updated_at) VALUES (?, 'pending', NULL, ?)",
+                (key, now),
+            )
+            connection.commit()
             return None
-        return item.get("result")
+        state, result_json = str(row[0]), row[1]
+        connection.commit()
+        if state == "completed" and isinstance(result_json, str):
+            parsed = json.loads(result_json)
+            if isinstance(parsed, dict):
+                return parsed
+        raise HTTPException(
+            status_code=409,
+            detail="Home Assistant action with this idempotency key is already in progress",
+        )
+    except HTTPException:
+        if connection is not None:
+            connection.rollback()
+        raise
+    except (OSError, sqlite3.Error, ValueError, json.JSONDecodeError) as exc:
+        if connection is not None:
+            connection.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Home Assistant replay protection is unavailable",
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
-def _idemp_put(key: Optional[str], result: Dict[str, Any]) -> None:
-    if not key:
-        return
-    with _HA_IDEMP_LOCK:
-        _HA_IDEMP_CACHE[key] = {"ts": time.time(), "result": result}
+def _idemp_complete(key: str, result: Dict[str, Any]) -> None:
+    """Finalize a reservation without retaining the downstream response body."""
+
+    safe_result: Dict[str, Any] = {
+        "success": bool(result.get("success")),
+        "configured": bool(result.get("configured", True)),
+        "status": int(result.get("status", 0) or 0),
+    }
+    if not safe_result["success"]:
+        safe_result["error"] = "downstream_request_failed"
+    encoded = json.dumps(safe_result, sort_keys=True, separators=(",", ":"))
+    path = _ha_idempotency_db_path()
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        connection = sqlite3.connect(str(path), timeout=2.5)
+        connection.execute("PRAGMA busy_timeout=2500")
+        connection.execute("BEGIN IMMEDIATE")
+        cursor = connection.execute(
+            f"UPDATE {_HA_IDEMPOTENCY_TABLE} SET state = 'completed', result_json = ?, updated_at = ? WHERE bound_key = ? AND state = 'pending'",
+            (encoded, int(time.time()), key),
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="Home Assistant replay reservation was lost",
+            )
+        connection.commit()
+    except HTTPException:
+        raise
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        if connection is not None:
+            connection.rollback()
+        # The device result may already be ambiguous. Keep the pending row and
+        # fail closed rather than inviting an immediate retry.
+        raise HTTPException(
+            status_code=503,
+            detail="Home Assistant replay result could not be committed",
+        ) from exc
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _bound_ha_idempotency_key(
+    supplied_key: Optional[str],
+    *,
+    authorization: ActionAuthorization,
+    action_path: str,
+    path: str,
+    body: Dict[str, Any],
+) -> str:
+    """Bind caller retry identity to the exact principal and HA action."""
+
+    _assert_ha_sink_payload(
+        authorization,
+        action_path=action_path,
+        downstream_path=path,
+        body=body,
+        supplied_idempotency_key=supplied_key,
+    )
+    caller_key = str(supplied_key or "").strip()
+    if not _HA_CALLER_IDEMP_RE.fullmatch(caller_key):
+        raise HTTPException(
+            status_code=400,
+            detail="idempotency_key must be 16-128 bounded characters for HA writes",
+        )
+    try:
+        canonical = json.dumps(
+            {
+                "version": "cortex.ha.idempotency.v1",
+                "principal_id": authorization.principal_id,
+                "action_path": str(action_path),
+                "path": str(path),
+                "body": body,
+                "caller_key": caller_key,
+            },
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="HA action body is not canonical JSON") from exc
+    return "cortex-ha-v1-" + hashlib.sha256(canonical).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +883,24 @@ def _ha_request(
     timeout: int = 8,
     retries: int = 1,
     idempotency_key: Optional[str] = None,
+    authorization: Optional[ActionAuthorization] = None,
+    action_path: Optional[str] = None,
 ) -> Dict[str, Any]:
+    mutating = str(method or "").upper() not in {"GET", "HEAD"}
+    if mutating:
+        _assert_ha_actuation_enabled(authorization, action_path=action_path)
+        _assert_ha_sink_payload(
+            authorization,
+            action_path=str(action_path or ""),
+            downstream_path=path,
+            body=body or {},
+            validate_idempotency_key=False,
+        )
+        if not _HA_BOUND_IDEMP_RE.fullmatch(str(idempotency_key or "")):
+            raise HTTPException(
+                status_code=400,
+                detail="principal- and action-bound idempotency is required for HA writes",
+            )
     cfg = _ha_cfg()
     if not cfg["configured"]:
         return {
@@ -508,7 +929,10 @@ def _ha_request(
     if not cfg["verify_ssl"]:
         ctx = ssl._create_unverified_context()
 
-    attempts = max(1, retries + 1)
+    # Home Assistant's generic REST service API does not promise that it
+    # consumes our idempotency header.  A retry after an ambiguous transport
+    # failure could therefore actuate twice, so writes are strictly one-shot.
+    attempts = 1 if mutating else max(1, retries + 1)
     last_err: Optional[Dict[str, Any]] = None
 
     for attempt in range(attempts):
@@ -522,7 +946,11 @@ def _ha_request(
                     try:
                         data = json.loads(raw)
                     except Exception:
-                        data = {"raw": raw}
+                        data = {
+                            "body_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                            "body_bytes": len(raw.encode("utf-8")),
+                            "content_type": "invalid_json",
+                        }
                 return {
                     "success": True,
                     "configured": True,
@@ -530,17 +958,20 @@ def _ha_request(
                     "data": data,
                 }
         except HTTPError as e:
-            txt = ""
+            error_body = b""
             try:
-                txt = e.read().decode("utf-8", errors="replace")
+                error_body = e.read()
             except Exception:
-                txt = str(e)
+                error_body = b""
             code = int(getattr(e, "code", 0) or 0)
             last_err = {
                 "success": False,
                 "configured": True,
                 "status": code,
-                "error": txt[:600],
+                "error": "upstream_http_error",
+                "error_type": type(e).__name__,
+                "error_body_bytes": len(error_body),
+                "error_body_sha256": hashlib.sha256(error_body).hexdigest(),
             }
             # retry transient errors
             if code in {408, 429, 500, 502, 503, 504} and attempt < attempts - 1:
@@ -548,22 +979,28 @@ def _ha_request(
                 continue
             return last_err
         except URLError as e:
+            reason = str(getattr(e, "reason", "") or "")
             last_err = {
                 "success": False,
                 "configured": True,
                 "status": 0,
-                "error": f"connection failed: {e}",
+                "error": "upstream_connection_failed",
+                "error_type": type(e).__name__,
+                "error_sha256": hashlib.sha256(reason.encode("utf-8")).hexdigest(),
             }
             if attempt < attempts - 1:
                 time.sleep(0.25 * (attempt + 1))
                 continue
             return last_err
         except Exception as e:
+            rendered = str(e)
             last_err = {
                 "success": False,
                 "configured": True,
                 "status": 0,
-                "error": str(e),
+                "error": "upstream_request_failed",
+                "error_type": type(e).__name__,
+                "error_sha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
             }
             if attempt < attempts - 1:
                 time.sleep(0.25 * (attempt + 1))
@@ -571,6 +1008,46 @@ def _ha_request(
             return last_err
 
     return last_err or {"success": False, "configured": True, "status": 0, "error": "unknown request failure"}
+
+
+def _ha_write_request(
+    path: str,
+    *,
+    body: Dict[str, Any],
+    supplied_idempotency_key: Optional[str],
+    authorization: ActionAuthorization,
+    action_path: str,
+    timeout: int = 8,
+) -> Dict[str, Any]:
+    """Enter an HA write sink with per-principal, per-action replay binding."""
+
+    # Recheck immediately before every device write so a kill-switch change
+    # interrupts a multi-step voice action rather than only the next request.
+    _assert_ha_actuation_enabled(authorization, action_path=action_path)
+    bound_key = _bound_ha_idempotency_key(
+        supplied_idempotency_key,
+        authorization=authorization,
+        action_path=action_path,
+        path=path,
+        body=body,
+    )
+    cached = _idemp_reserve(bound_key)
+    if cached is not None:
+        return {**cached, "idempotent_replay": True}
+    result = _ha_request(
+        "POST",
+        path,
+        body=body,
+        retries=0,
+        timeout=timeout,
+        idempotency_key=bound_key,
+        authorization=authorization,
+        action_path=action_path,
+    )
+    # Even a transport error is ambiguous: caching it for the short retry
+    # window is safer than allowing an immediate duplicate actuation.
+    _idemp_complete(bound_key, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -592,13 +1069,13 @@ async def ha_status() -> Dict[str, Any]:
 @router.get("/states")
 async def ha_states(entity_id: Optional[str] = None) -> Dict[str, Any]:
     if entity_id:
-        return _ha_request("GET", f"/api/states/{entity_id}")
+        return _ha_request("GET", f"/api/states/{_validated_ha_entity_id(entity_id)}")
     return _ha_request("GET", "/api/states")
 
 
 @router.get("/states/{entity_id}")
 async def ha_state(entity_id: str) -> Dict[str, Any]:
-    return _ha_request("GET", f"/api/states/{entity_id}")
+    return _ha_request("GET", f"/api/states/{_validated_ha_entity_id(entity_id)}")
 
 
 @router.get("/services")
@@ -607,10 +1084,20 @@ async def ha_services() -> Dict[str, Any]:
 
 
 @router.post("/services/{domain}/{service}")
-async def ha_call_service(domain: str, service: str, req: ServiceCallRequest) -> Dict[str, Any]:
+async def ha_call_service(
+    domain: str,
+    service: str,
+    req: ServiceCallRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    assert_action_json_payload(authorization, _model_action_payload(req))
+    domain = _validated_ha_component(domain, "domain")
+    service = _validated_ha_component(service, "service")
     body = dict(req.data or {})
     if req.entity_id and "entity_id" not in body:
-        body["entity_id"] = req.entity_id
+        body["entity_id"] = _validated_ha_entity_id(req.entity_id)
+    elif isinstance(body.get("entity_id"), str):
+        body["entity_id"] = _validated_ha_entity_id(body["entity_id"])
 
     policy = _load_policy_cfg()
     decision = _classify_action(domain=domain, service=service, shadow=req.shadow, confirm=req.confirm, policy=policy)
@@ -634,19 +1121,16 @@ async def ha_call_service(domain: str, service: str, req: ServiceCallRequest) ->
         )
         return result
 
-    cached = _idemp_get(req.idempotency_key)
-    if cached is not None:
-        return {"success": True, "idempotent_replay": True, "result": cached, "policy": decision}
-
-    call = _ha_request(
-        "POST",
+    action_path = f"/homeassistant/services/{domain}/{service}"
+    _assert_ha_actuation_enabled(authorization, action_path=action_path)
+    call = _ha_write_request(
         f"/api/services/{domain}/{service}",
         body=body,
-        retries=2,
         timeout=12,
-        idempotency_key=req.idempotency_key,
+        supplied_idempotency_key=req.idempotency_key,
+        authorization=authorization,
+        action_path=action_path,
     )
-    _idemp_put(req.idempotency_key, call)
 
     _append_audit(
         {
@@ -664,8 +1148,44 @@ async def ha_call_service(domain: str, service: str, req: ServiceCallRequest) ->
 
 
 @router.post("/events/{event_type}")
-async def ha_fire_event(event_type: str, req: EventFireRequest) -> Dict[str, Any]:
-    return _ha_request("POST", f"/api/events/{event_type}", body=req.data or {}, retries=1)
+async def ha_fire_event(
+    event_type: str,
+    req: EventFireRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    assert_action_json_payload(authorization, _model_action_payload(req))
+    event_type = _validated_ha_component(event_type, "event_type")
+    if not req.confirm:
+        return {
+            "success": False,
+            "blocked": True,
+            "reason": "explicit_confirmation_required",
+            "event_type": event_type,
+        }
+    policy = _load_policy_cfg()
+    decision = _classify_action(
+        domain="event",
+        service=event_type,
+        shadow=False,
+        confirm=req.confirm,
+        policy=policy,
+    )
+    if not decision["allow"]:
+        return {
+            "success": False,
+            "blocked": True,
+            "policy": decision,
+            "event_type": event_type,
+        }
+    action_path = f"/homeassistant/events/{event_type}"
+    _assert_ha_actuation_enabled(authorization, action_path=action_path)
+    return _ha_write_request(
+        f"/api/events/{event_type}",
+        body=req.data or {},
+        supplied_idempotency_key=req.idempotency_key,
+        authorization=authorization,
+        action_path=action_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -679,45 +1199,87 @@ async def ha_policy_get() -> Dict[str, Any]:
 
 
 @router.post("/policy")
-async def ha_policy_update(req: PolicyUpdateRequest) -> Dict[str, Any]:
-    cfg = _load_policy_cfg()
-    patch = req.dict(exclude_none=True)
-    cfg.update(patch)
-    _save_policy_cfg(cfg)
+async def ha_policy_update(
+    req: PolicyUpdateRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path="/homeassistant/policy",
+    )
+    assert_action_json_payload(authorization, _model_action_payload(req))
+    assert_global_admin_authorized(authorization)
+    with _POLICY_CONFIG_LOCK:
+        cfg = _load_policy_cfg()
+        patch = req.dict(exclude_none=True)
+        cfg.update(patch)
+        _save_policy_cfg(cfg)
     return {"success": True, "policy": cfg}
 
 
 @router.post("/policy/mode/{mode}")
-async def ha_policy_set_mode(mode: str) -> Dict[str, Any]:
+async def ha_policy_set_mode(
+    mode: str,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path=f"/homeassistant/policy/mode/{mode}",
+    )
+    assert_global_admin_authorized(authorization)
     m = mode.strip().lower()
     if m not in {"shadow", "confirm", "autonomous-safe", "autonomous-extended"}:
         raise HTTPException(status_code=400, detail="mode must be one of: shadow, confirm, autonomous-safe, autonomous-extended")
-    cfg = _load_policy_cfg()
-    cfg["mode"] = m
-    _save_policy_cfg(cfg)
+    with _POLICY_CONFIG_LOCK:
+        cfg = _load_policy_cfg()
+        cfg["mode"] = m
+        _save_policy_cfg(cfg)
     return {"success": True, "policy": cfg}
 
 
 @router.post("/policy/profile/{profile}")
-async def ha_policy_set_profile(profile: str) -> Dict[str, Any]:
+async def ha_policy_set_profile(
+    profile: str,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path=f"/homeassistant/policy/profile/{profile}",
+    )
+    assert_global_admin_authorized(authorization)
     p = profile.strip().lower()
-    cfg = _load_policy_cfg()
-    if p not in (cfg.get("profiles") or {}):
-        raise HTTPException(status_code=400, detail=f"unknown profile: {p}")
-    cfg["active_profile"] = p
-    # respect profile mode on switch
-    profile_mode = ((cfg.get("profiles") or {}).get(p) or {}).get("mode")
-    if profile_mode:
-        cfg["mode"] = profile_mode
-    _save_policy_cfg(cfg)
+    with _POLICY_CONFIG_LOCK:
+        cfg = _load_policy_cfg()
+        if p not in (cfg.get("profiles") or {}):
+            raise HTTPException(status_code=400, detail=f"unknown profile: {p}")
+        cfg["active_profile"] = p
+        # respect profile mode on switch
+        profile_mode = ((cfg.get("profiles") or {}).get(p) or {}).get("mode")
+        if profile_mode:
+            cfg["mode"] = profile_mode
+        _save_policy_cfg(cfg)
     return {"success": True, "policy": cfg}
 
 
 @router.post("/policy/kill_switch/{enabled}")
-async def ha_policy_kill_switch(enabled: bool) -> Dict[str, Any]:
-    cfg = _load_policy_cfg()
-    cfg["kill_switch"] = bool(enabled)
-    _save_policy_cfg(cfg)
+async def ha_policy_kill_switch(
+    enabled: bool,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
+    expected_enabled = str(enabled).lower()
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path=f"/homeassistant/policy/kill_switch/{expected_enabled}",
+    )
+    assert_global_admin_authorized(authorization)
+    with _POLICY_CONFIG_LOCK:
+        cfg = _load_policy_cfg()
+        cfg["kill_switch"] = bool(enabled)
+        _save_policy_cfg(cfg)
     return {"success": True, "policy": cfg}
 
 
@@ -865,8 +1427,21 @@ async def ha_voice_pipeline_status() -> Dict[str, Any]:
 
 
 @router.post("/voice/activate_esp32")
-async def ha_voice_activate_esp32(req: ESP32VoiceActivateRequest) -> Dict[str, Any]:
+async def ha_voice_activate_esp32(
+    req: ESP32VoiceActivateRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
     """Activate ESP32 mic path and route output to Sonos-preferred external playback settings."""
+    raise HTTPException(
+        status_code=503,
+        detail="ESP32 voice actuation requires per-device action capabilities",
+    )
+    if not req.confirm:
+        return {
+            "success": False,
+            "blocked": True,
+            "reason": "explicit_confirmation_required",
+        }
     voice_cfg = _load_voice_cfg()
     esp = (voice_cfg.get("esp32") or {})
     sonos_cfg = (voice_cfg.get("sonos") or {})
@@ -876,58 +1451,52 @@ async def ha_voice_activate_esp32(req: ESP32VoiceActivateRequest) -> Dict[str, A
 
     results: Dict[str, Any] = {}
 
+    def write(path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return _ha_write_request(
+            path,
+            body=body,
+            supplied_idempotency_key=req.idempotency_key,
+            authorization=authorization,
+        )
+
     # ESP32 mic active (mute switch OFF), external audio ON, local responses muted ON.
-    results["mic_unmute"] = _ha_request(
-        "POST",
+    results["mic_unmute"] = write(
         "/api/services/switch/turn_off",
         body={"entity_id": esp.get("mic_mute_switch")},
-        retries=1,
     )
-    results["external_audio_on"] = _ha_request(
-        "POST",
+    results["external_audio_on"] = write(
         "/api/services/switch/turn_on",
         body={"entity_id": esp.get("output_audio_externally_switch")},
-        retries=1,
     )
-    results["mute_local_responses"] = _ha_request(
-        "POST",
+    results["mute_local_responses"] = write(
         "/api/services/switch/turn_on",
         body={"entity_id": esp.get("mute_responses_switch")},
-        retries=1,
     )
 
     # Force ESP32 player muted to avoid overlap.
     device_mp = esp.get("device_media_player")
     if device_mp:
-        results["esp32_media_mute"] = _ha_request(
-            "POST",
+        results["esp32_media_mute"] = write(
             "/api/services/media_player/volume_mute",
             body={"entity_id": device_mp, "is_volume_muted": True},
-            retries=1,
         )
-        results["esp32_media_volume_zero"] = _ha_request(
-            "POST",
+        results["esp32_media_volume_zero"] = write(
             "/api/services/media_player/volume_set",
             body={"entity_id": device_mp, "volume_level": 0.0},
-            retries=1,
         )
 
     # Select assistant pipeline option on ESP32 selectors.
     for i, sel in enumerate(esp.get("assistant_select_entities") or []):
-        results[f"assistant_select_{i+1}"] = _ha_request(
-            "POST",
+        results[f"assistant_select_{i+1}"] = write(
             "/api/services/select/select_option",
             body={"entity_id": sel, "option": assistant_option},
-            retries=1,
         )
 
     # Prepare Sonos output target (unmute + reasonable volume)
     if sonos_entity:
-        results["sonos_unmute"] = _ha_request(
-            "POST",
+        results["sonos_unmute"] = write(
             "/api/services/media_player/volume_mute",
             body={"entity_id": sonos_entity, "is_volume_muted": False},
-            retries=1,
         )
 
     _append_audit(
@@ -949,8 +1518,15 @@ async def ha_voice_activate_esp32(req: ESP32VoiceActivateRequest) -> Dict[str, A
 
 
 @router.post("/voice/assist_tts")
-async def ha_assist_tts(req: HAVoiceRequest) -> Dict[str, Any]:
+async def ha_assist_tts(
+    req: HAVoiceRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict[str, Any]:
     """HA Assist-compatible proxy to Bard TTS with policy gates, audit, and optional Sonos playback."""
+    raise HTTPException(
+        status_code=503,
+        detail="voice device playback requires per-device action capabilities",
+    )
     if not req.text.strip():
         return {"success": False, "error": "text is required"}
 
@@ -1020,6 +1596,12 @@ async def ha_assist_tts(req: HAVoiceRequest) -> Dict[str, Any]:
             confirm=req.confirm,
             policy=policy,
         )
+        if decision["allow"] and not req.confirm:
+            decision = {
+                **decision,
+                "allow": False,
+                "reason": "explicit_confirmation_required_for_voice_device_write",
+            }
         out["media_policy"] = decision
 
         if decision["allow"]:
@@ -1028,11 +1610,12 @@ async def ha_assist_tts(req: HAVoiceRequest) -> Dict[str, Any]:
                 esp = (voice_cfg.get("esp32") or {})
                 mute_switch = esp.get("mute_responses_switch")
                 if mute_switch:
-                    out["esp32_mute_responses"] = _ha_request(
-                        "POST",
+                    mute_body = {"entity_id": mute_switch}
+                    out["esp32_mute_responses"] = _ha_write_request(
                         "/api/services/switch/turn_on",
-                        body={"entity_id": mute_switch},
-                        retries=1,
+                        body=mute_body,
+                        supplied_idempotency_key=req.idempotency_key,
+                        authorization=authorization,
                     )
 
             media_artifact = _write_voice_artifact(out["bard"]["audio_base64"])
@@ -1042,13 +1625,12 @@ async def ha_assist_tts(req: HAVoiceRequest) -> Dict[str, Any]:
                 "media_content_type": "music",
                 "announce": True,
             }
-            out["media_play"] = _ha_request(
-                "POST",
+            out["media_play"] = _ha_write_request(
                 "/api/services/media_player/play_media",
                 body=play_payload,
-                retries=2,
                 timeout=15,
-                idempotency_key=req.idempotency_key,
+                supplied_idempotency_key=req.idempotency_key,
+                authorization=authorization,
             )
             out["media_artifact"] = {
                 "filename": media_artifact["filename"],
@@ -1066,19 +1648,24 @@ async def ha_assist_tts(req: HAVoiceRequest) -> Dict[str, Any]:
             confirm=req.confirm,
             policy=policy,
         )
+        if decision["allow"] and not req.confirm:
+            decision = {
+                **decision,
+                "allow": False,
+                "reason": "explicit_confirmation_required_for_voice_device_write",
+            }
         out["ha_write_policy"] = decision
         if decision["allow"]:
             out["ha_write"] = {
                 "attempted": True,
                 "domain": req.target_domain,
                 "service": req.target_service,
-                "result": _ha_request(
-                    "POST",
+                "result": _ha_write_request(
                     f"/api/services/{req.target_domain}/{req.target_service}",
                     body=req.target_data or {},
-                    retries=2,
                     timeout=12,
-                    idempotency_key=req.idempotency_key,
+                    supplied_idempotency_key=req.idempotency_key,
+                    authorization=authorization,
                 ),
             }
         else:

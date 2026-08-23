@@ -204,8 +204,16 @@ for (const [name, minimum, defaultValue, maximum] of [
   });
 }
 
-test('route-gate schema continues to reject unknown configuration', () => {
+test('route-gate schema accepts the deprecated configured-user no-op and rejects unknown configuration', () => {
   assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.properties.preferConfiguredUserId, {
+    type: 'boolean',
+    deprecated: true,
+    description: 'Deprecated compatibility no-op. Trusted callback identity remains authoritative; configured userId is fallback-only.',
+  });
+  assert.equal(validateConfig(productionConfig({ preferConfiguredUserId: true })), true);
+  assert.equal(validateConfig(productionConfig({ preferConfiguredUserId: false })), true);
+  assert.equal(validateConfig(productionConfig({ preferConfiguredUserId: 'true' })), false);
   assert.equal(validateConfig(productionConfig({ maxCachedPlanAgeMS: 300_000 })), false);
   assert.equal(validateConfig(productionConfig({ maxResponseByte: 1_048_576 })), false);
 });

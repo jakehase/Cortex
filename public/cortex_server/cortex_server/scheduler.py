@@ -14,7 +14,17 @@ from cortex_server.construction import (
 )
 
 with read_only_construction(not runtime_construction_active()):
-    from cortex_server.worker import app as celery_app
+    from cortex_server.worker import (
+        app as celery_app,
+        task_consumes_delegated_action_capability,
+    )
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    DELEGATED_ACTION_CAPABILITY_HEADER,
+    assert_action_authorized,
+    authorize_deferred_action,
+    mint_worker_action_capability,
+)
 
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -158,6 +168,27 @@ def _safe_json_dumps(value: Any) -> str:
 
 def _sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _opaque_identifier(field: str, value: Any) -> Dict[str, Any]:
+    """Represent a caller-controlled identifier without retaining its value."""
+    if value is None:
+        return {
+            field: None,
+            f"{field}_sha256": None,
+            f"{field}_bytes": 0,
+        }
+    encoded = str(value).encode("utf-8", errors="replace")
+    return {
+        field: "[REDACTED]",
+        f"{field}_sha256": hashlib.sha256(encoded).hexdigest(),
+        f"{field}_bytes": len(encoded),
+    }
+
+
+def _scheduler_source(value: Any) -> str:
+    source = str(value or "").strip()
+    return source if source in {"scheduled", "manual_api", "internal"} else "unknown"
 
 
 def _parse_iso_ts(value: Any) -> Optional[datetime]:
@@ -351,8 +382,8 @@ def simulate_cadence_twin(
         except Exception as exc:
             scenarios.append(
                 {
-                    "cron": cron_expr,
-                    "error": str(exc),
+                    **_opaque_identifier("cron", cron_expr),
+                    "error": type(exc).__name__,
                     "is_primary": cron_expr == primary_cron,
                 }
             )
@@ -675,18 +706,18 @@ def _build_notary_packet(
         "packet_id": f"notary-{uuid.uuid4().hex[:12]}",
         "ts": ts,
         "level": 8,
-        "task": task,
-        "source": source,
-        "job_id": job_id,
-        "job_name": job_name,
+        **_opaque_identifier("task", task),
+        "source": _scheduler_source(source),
+        **_opaque_identifier("job_id", job_id),
+        **_opaque_identifier("job_name", job_name),
         "status": status,
-        "task_id": task_id,
-        "error": error,
+        **_opaque_identifier("task_id", task_id),
+        **_opaque_identifier("error", error),
         "latency_ms": max(0, int(latency_ms)),
         "input_hash": input_hash,
         "evidence": [
-            str(_TRIGGER_LEDGER_PATH),
-            str(_NOTARY_LEDGER_PATH),
+            "cron_trigger_ledger",
+            "cron_notary_ledger",
         ],
         "voi": voi,
         "escrow": escrow,
@@ -694,9 +725,22 @@ def _build_notary_packet(
         "notary_version": "l8.notary.v1",
     }
 
-    signature_raw = _safe_json_dumps({k: packet.get(k) for k in [
-        "packet_id", "ts", "task", "source", "job_id", "status", "task_id", "input_hash", "latency_ms"
-    ]})
+    signature_raw = _safe_json_dumps(
+        {
+            key: packet.get(key)
+            for key in [
+                "packet_id",
+                "ts",
+                "task_sha256",
+                "source",
+                "job_id_sha256",
+                "status",
+                "task_id_sha256",
+                "input_hash",
+                "latency_ms",
+            ]
+        }
+    )
     packet["signature"] = _sha256_hex(signature_raw)
     return packet
 
@@ -737,6 +781,7 @@ def trigger_celery_task(
     job_name: Optional[str] = None,
     policy_override: Optional[Dict[str, Any]] = None,
     submission_id: Optional[str] = None,
+    action_authorization: Optional[ActionAuthorization] = None,
 ):
     """Send task to Celery and return async_result id.
 
@@ -759,12 +804,12 @@ def trigger_celery_task(
 
     base_event = {
         "ts": _utc_now_iso(),
-        "task": task_name,
-        "source": source,
-        "job_id": job_id,
-        "job_name": job_name,
+        **_opaque_identifier("task", task_name),
+        "source": _scheduler_source(source),
+        **_opaque_identifier("job_id", job_id),
+        **_opaque_identifier("job_name", job_name),
         "args_count": len(args),
-        "kwargs_keys": sorted(list(kwargs.keys()))[:20],
+        "kwargs_count": len(kwargs),
     }
 
     apply_policy = bool(policy) and source in {"scheduled", "manual_api"}
@@ -838,20 +883,128 @@ def trigger_celery_task(
         "sample": None,
     }
 
+    scheduled = source == "scheduled"
+    sink_authorization: Optional[ActionAuthorization]
+    if scheduled:
+        sink_authorization = None
+    else:
+        # A caller-chosen source or policy object never creates authority.
+        assert_action_authorized(action_authorization)
+        sink_authorization = action_authorization
+
+    worker_hold_reason = None
+    if kwargs:
+        worker_hold_reason = "worker_capability_does_not_bind_keyword_arguments"
+    elif not task_consumes_delegated_action_capability(
+        task_name,
+        celery=celery_app,
+    ):
+        worker_hold_reason = "worker_does_not_consume_delegated_capability"
+    if worker_hold_reason is not None:
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+        event = {
+            **base_event,
+            "status": "held_worker_action_authorization",
+            "authorization_reason": worker_hold_reason,
+            "latency_ms": latency_ms,
+        }
+        _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+        packet = _build_notary_packet(
+            task=task_name,
+            args=args,
+            kwargs=kwargs,
+            source=source,
+            job_id=job_id,
+            job_name=job_name,
+            status="held_worker_action_authorization",
+            latency_ms=latency_ms,
+            voi=voi,
+            escrow=escrow,
+            novelty=novelty,
+        )
+        _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+        return None
+
+    if scheduled:
+        delegated_action = policy.get("action_capability")
+        sink_authorization = authorize_deferred_action(
+            delegated_action if isinstance(delegated_action, dict) else {},
+            task=task_name,
+            args=args,
+        )
+        if sink_authorization is None:
+            latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+            event = {
+                **base_event,
+                "status": "held_action_authorization",
+                "authorization_reason": "delegated_capability_denied",
+                "latency_ms": latency_ms,
+            }
+            _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+            packet = _build_notary_packet(
+                task=task_name,
+                args=args,
+                kwargs=kwargs,
+                source=source,
+                job_id=job_id,
+                job_name=job_name,
+                status="held_action_authorization",
+                latency_ms=latency_ms,
+            )
+            _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+            return None
+
+    try:
+        worker_capability = mint_worker_action_capability(
+            sink_authorization,  # type: ignore[arg-type]
+            task=task_name,
+            args=args,
+        )
+    except ValueError:
+        if not scheduled:
+            raise
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+        event = {
+            **base_event,
+            "status": "held_worker_action_authorization",
+            "authorization_reason": "worker_capability_runtime_unavailable",
+            "latency_ms": latency_ms,
+        }
+        _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+        packet = _build_notary_packet(
+            task=task_name,
+            args=args,
+            kwargs=kwargs,
+            source=source,
+            job_id=job_id,
+            job_name=job_name,
+            status="held_worker_action_authorization",
+            latency_ms=latency_ms,
+            voi=voi,
+            escrow=escrow,
+            novelty=novelty,
+        )
+        _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+        return None
+
     try:
         async_result = celery_app.send_task(
             task_name,
             args=args,
             kwargs=kwargs,
+            headers={
+                DELEGATED_ACTION_CAPABILITY_HEADER: worker_capability,
+            },
             **({"task_id": submission_id} if submission_id else {}),
         )
-        task_id = async_result.id
+        task_id = str(getattr(async_result, "id", "") or submission_id or "")
+        if not task_id:
+            raise RuntimeError("Celery submission returned no task identifier")
         latency_ms = int((_utc_now() - started).total_seconds() * 1000)
-
         event = {
             **base_event,
             "status": "triggered",
-            "task_id": task_id,
+            **_opaque_identifier("task_id", task_id),
             "voi": voi,
             "escrow": escrow,
             "novelty": novelty,
@@ -878,23 +1031,20 @@ def trigger_celery_task(
         )
         _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
         return task_id
-
     except Exception as exc:
         latency_ms = int((_utc_now() - started).total_seconds() * 1000)
         event = {
             **base_event,
             "status": "error",
-            "error": str(exc),
+            **_opaque_identifier("error", str(exc)),
             "voi": voi,
             "escrow": escrow,
             "novelty": novelty,
             "latency_ms": latency_ms,
         }
         _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
-
         if apply_policy and novelty.get("enabled") and job_id:
             _update_novelty_stats(job_id, novelty.get("mode", "exploit"), "error")
-
         packet = _build_notary_packet(
             task=task_name,
             args=args,
@@ -1081,6 +1231,33 @@ def _rehydrate_scheduler_jobs() -> Dict[str, Any]:
     }
 
 
+def _scheduler_rehydration_error(exc: BaseException) -> str:
+    """Return bounded structural failure telemetry without persisted values."""
+
+    message = str(exc)
+    safe_reasons = (
+        "policy store exceeds size limit",
+        "invalid persisted scheduler policy store",
+        "policies must be a JSON object",
+        "job id is invalid",
+        "policy row must be an object",
+        "legacy row missing spec_version",
+        "unsupported spec_version",
+        "missing explicit args",
+        "mismatched job_name",
+        "references an unknown task",
+        "invalid cron",
+    )
+    reason = next(
+        (candidate for candidate in safe_reasons if candidate in message),
+        "scheduler rehydration failed",
+    )
+    failure_type = type(exc).__name__
+    if not failure_type.isidentifier():
+        failure_type = "Exception"
+    return f"{failure_type[:64]}: {reason}"
+
+
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
     global scheduler, _scheduler_was_shutdown, _scheduler_loop, _scheduler_rehydration_report
@@ -1105,7 +1282,7 @@ def start_scheduler():
                 _scheduler_rehydration_report = {
                     "status": "failed",
                     "rehydrated": [],
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _scheduler_rehydration_error(exc),
                 }
                 raise
         _scheduler_loop = loop
@@ -1244,7 +1421,7 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
     held_escrow = [e for e in events if e.get("status") == "held_escrow"]
 
     source_counts = Counter((e.get("source") or "unknown") for e in triggered)
-    task_counts = Counter((e.get("task") or "unknown") for e in triggered)
+    task_counts = Counter((e.get("task_sha256") or "unknown") for e in triggered)
 
     last_trigger_at = None
     if triggered:
@@ -1258,7 +1435,10 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
         "skipped_voi_count": len(skipped_voi),
         "held_escrow_count": len(held_escrow),
         "by_source": dict(source_counts),
-        "top_tasks": [{"task": task, "count": count} for task, count in task_counts.most_common(10)],
+        "top_tasks": [
+            {"task_sha256": task_digest, "count": count}
+            for task_digest, count in task_counts.most_common(10)
+        ],
         "last_trigger_at": last_trigger_at,
     }
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -348,7 +349,12 @@ async def test_cancelled_new_service_acquisition_rolls_back_spawned_task(monkeyp
 def lifecycle_fakes(monkeypatch, tmp_path):
     _install_minimal_routers(monkeypatch)
     monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "lifecycle-write-token")
     monkeypatch.setenv("CORTEX_CHROMA_DIR", str(tmp_path / "chroma"))
+    graph_path = tmp_path / "cortex_graph.db"
+    with sqlite3.connect(graph_path):
+        pass
+    monkeypatch.setenv("CORTEX_DB_PATH", str(graph_path))
     fakes = LifecycleFakes()
     monkeypatch.setattr(main.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0))
 
@@ -441,7 +447,7 @@ async def test_repeated_lifespans_cancel_and_await_every_task(lifecycle_fakes):
 async def test_readiness_is_false_before_startup_and_after_shutdown(lifecycle_fakes):
     app = main.create_app()
     expected = {
-        name: {"ok": False, "error": "not started"}
+        name: {"ok": False}
         for name in ("redis", "scheduler", "chronos", "awareness")
     }
 
@@ -507,7 +513,6 @@ async def test_scheduler_unexpected_stop_degrades_every_owner_readiness(
                 assert response.status_code == 503
                 assert payload["checks"]["scheduler"] == {
                     "ok": False,
-                    "error": "RuntimeError: scheduler is not running",
                 }
 
 
@@ -609,7 +614,7 @@ async def test_dead_shared_service_rejects_second_owner_without_reference_corrup
         assert time.monotonic() - started < 0.5
         assert second.state.lifecycle_checks["awareness"] == {
             "ok": False,
-            "error": "SharedServiceStartupError: shared awareness service is unavailable",
+            "error": "SharedServiceStartupError",
         }
         assert first.state.lifecycle_checks["awareness"]["ok"] is False
 
@@ -730,7 +735,7 @@ async def test_failed_redis_connectivity_is_not_ready_and_never_logs_success(
         assert response.status_code == 503
         assert '"status":"not_ready"' in body
         assert app.state.lifecycle_checks["redis"]["ok"] is False
-        assert "connectivity check did not confirm readiness" in app.state.lifecycle_checks["redis"]["error"]
+        assert app.state.lifecycle_checks["redis"]["error"] == "RuntimeError"
 
     assert "Redis is reachable for background task processing" not in caplog.text
     assert "Redis is not ready" in caplog.text
@@ -769,7 +774,7 @@ async def test_redis_monitor_degrades_and_recovers_readiness(
             await asyncio.sleep(0.01)
         assert app.state.lifecycle_checks["redis"]["ok"] is False
         assert (await _route(app, "/ready")()).status_code == 503
-        assert "did not confirm readiness" in app.state.lifecycle_checks["redis"]["error"]
+        assert app.state.lifecycle_checks["redis"]["error"] == "RuntimeError"
 
         checked.clear()
         reachable = True
@@ -821,9 +826,12 @@ async def test_unexpected_redis_monitor_exit_immediately_degrades_readiness(
         await real_sleep(0)
         response = await _route(app, "/ready")()
         payload = json.loads(response.body)
+        diagnostic_payload = await app.state.async_readiness_payload()
 
         assert response.status_code == 503
-        assert payload["checks"]["redis"] == {
+        assert payload["checks"]["redis"] == {"ok": False}
+        assert "redis monitor crashed" not in response.body.decode()
+        assert diagnostic_payload["checks"]["redis"] == {
             "ok": False,
             "error": "RuntimeError: redis monitor crashed",
         }
@@ -906,7 +914,7 @@ async def test_redis_startup_timeout_does_not_block_loop_or_cleanup(
         async with app.router.lifespan_context(app):
             assert app.state.lifecycle_checks["redis"] == {
                 "ok": False,
-                "error": "Redis startup timed out after 0.1 seconds",
+                "error": "TimeoutError",
             }
             assert ticks > 0
     finally:
@@ -997,9 +1005,7 @@ async def test_redis_timeout_recovers_and_installs_connectivity_monitor(
         ):
             await asyncio.sleep(0.01)
         assert app.state.lifecycle_checks["redis"]["ok"] is False
-        assert "connectivity check did not confirm readiness" in (
-            app.state.lifecycle_checks["redis"]["error"]
-        )
+        assert app.state.lifecycle_checks["redis"]["error"] == "RuntimeError"
 
     assert monitor.cancelled()
 
@@ -1023,8 +1029,9 @@ async def test_partial_startup_failure_still_cleans_up_started_components(
     async with app.router.lifespan_context(app):
         assert app.state.lifecycle_checks["chronos"] == {
             "ok": False,
-            "error": "RuntimeError: chronos boot failed",
+            "error": "RuntimeError",
         }
+        assert "chronos boot failed" not in json.dumps(app.state.lifecycle_checks)
         assert app.state.lifecycle_checks["awareness"]["ok"] is True
 
     assert lifecycle_fakes.cancelled == ["awareness"]
@@ -1062,8 +1069,8 @@ async def test_late_background_task_crash_immediately_degrades_readiness(
         assert response.status_code == 503
         assert payload["checks"]["chronos"] == {
             "ok": False,
-            "error": "RuntimeError: chronos late crash",
         }
+        assert "chronos late crash" not in response.body.decode()
 
 
 @pytest.mark.asyncio
@@ -1076,9 +1083,9 @@ async def test_required_router_import_failure_degrades_readiness(monkeypatch, li
         assert response.status_code == 503
         payload = json.loads(response.body)
         assert payload["ready"] is False
-        assert payload["checks"]["requiredRouters"] == {"ok": False, "missing": ["knowledge"]}
+        assert payload["checks"]["requiredRouters"] == {"ok": False}
         assert payload["checks"]["routerImports"]["ok"] is False
-        assert payload["checks"]["routerImports"]["failed"][0]["router"] == "knowledge"
+        assert payload["routerLoad"]["failedCount"] == 1
 
 
 @pytest.mark.asyncio
@@ -1102,13 +1109,16 @@ async def test_nonbaseline_router_load_failure_degrades_readiness(
     async with app.router.lifespan_context(app):
         response = await _route(app, "/ready")()
         payload = json.loads(response.body)
+        diagnostic_payload = await app.state.async_readiness_payload()
 
     assert response.status_code == 503
     assert payload["checks"]["requiredRouters"]["ok"] is True
     assert payload["checks"]["routerImports"]["ok"] is False
+    assert expected_router not in json.dumps(payload)
     observed = {
-        row["router"] for row in payload["checks"]["routerImports"]["failed"]
-    } | set(payload["checks"]["routerImports"]["missingRouter"])
+        row["router"]
+        for row in diagnostic_payload["checks"]["routerImports"]["failed"]
+    } | set(diagnostic_payload["checks"]["routerImports"]["missingRouter"])
     assert observed == {expected_router}
 
 
@@ -1122,13 +1132,17 @@ async def test_missing_required_router_export_degrades_readiness(
     async with app.router.lifespan_context(app):
         response = await _route(app, "/ready")()
         payload = json.loads(response.body)
+        diagnostic_payload = await app.state.async_readiness_payload()
 
     assert response.status_code == 503
-    assert payload["checks"]["requiredRouters"] == {
+    assert payload["checks"]["requiredRouters"] == {"ok": False}
+    assert payload["checks"]["routerImports"] == {"ok": False}
+    assert "knowledge" not in json.dumps(payload)
+    assert diagnostic_payload["checks"]["requiredRouters"] == {
         "ok": False,
         "missing": ["knowledge"],
     }
-    assert payload["checks"]["routerImports"] == {
+    assert diagnostic_payload["checks"]["routerImports"] == {
         "ok": False,
         "failed": [],
         "missingRouter": ["knowledge"],
@@ -1198,11 +1212,17 @@ async def test_corrupt_graph_database_fails_structural_readiness(
 
     response = await _route(app, "/ready")()
     payload = json.loads(response.body)
+    diagnostic_payload = await app.state.async_readiness_payload()
 
     assert response.status_code == 503
     assert payload["checks"]["structuralGraph"]["ok"] is False
-    assert payload["checks"]["structuralGraph"]["quickCheck"] is None
-    assert "database" in payload["checks"]["structuralGraph"]["error"].lower()
+    assert str(corrupt_database) not in json.dumps(payload)
+    assert "error" not in payload["checks"]["structuralGraph"]
+    assert diagnostic_payload["checks"]["structuralGraph"]["quickCheck"] is None
+    assert (
+        "database"
+        in diagnostic_payload["checks"]["structuralGraph"]["error"].lower()
+    )
 
 
 @pytest.mark.asyncio
@@ -1227,6 +1247,9 @@ async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
         "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
         "test-release-artifact-transport-token-00000001",
     )
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "test-global-write-token-0000000000000001")
+    monkeypatch.setenv("CORTEX_ACTION_DELEGATION_SECRET", "test-delegation-secret-0000000000000001")
+    monkeypatch.setenv("L2_NOTARY_SECRET", "test-notary-secret-0000000000000000001")
     monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "")
     monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "")
     monkeypatch.setenv(
@@ -1264,17 +1287,24 @@ async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
     async with app.router.lifespan_context(app):
         response = await _route(app, "/ready")()
         payload = json.loads(response.body)
+        diagnostic_payload = await app.state.async_readiness_payload()
 
     assert response.status_code == 503
-    assert payload["checks"]["requiredPaths"] == {
+    assert payload["checks"]["requiredPaths"] == {"ok": False}
+    assert payload["checks"]["requiredRouters"] == {"ok": False}
+    assert payload["checks"]["routerImports"] == {"ok": False}
+    assert payload["routerLoad"]["failedCount"] == 1
+    assert "/nexus/orchestrate" not in json.dumps(payload)
+    assert "required dependency missing" not in json.dumps(payload)
+    assert diagnostic_payload["checks"]["requiredPaths"] == {
         "ok": False,
         "missing": ["/nexus/orchestrate"],
     }
-    assert payload["checks"]["requiredRouters"] == {
+    assert diagnostic_payload["checks"]["requiredRouters"] == {
         "ok": False,
         "missing": ["nexus"],
     }
-    assert payload["checks"]["routerImports"] == {
+    assert diagnostic_payload["checks"]["routerImports"] == {
         "ok": False,
         "failed": [
             {
@@ -1302,6 +1332,9 @@ async def test_canonical_readiness_requires_runtime_delivery_probe_in_production
         "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN",
         "test-release-artifact-transport-token-00000001",
     )
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "test-global-write-token-0000000000000001")
+    monkeypatch.setenv("CORTEX_ACTION_DELEGATION_SECRET", "test-delegation-secret-0000000000000001")
+    monkeypatch.setenv("L2_NOTARY_SECRET", "test-notary-secret-0000000000000000001")
     monkeypatch.setattr(
         production_build_loop,
         "probe_runtime_delivery_readiness",
@@ -1331,7 +1364,7 @@ async def test_canonical_readiness_requires_runtime_delivery_probe_in_production
         assert response.status_code == 503
         assert payload["checks"]["runtimeDelivery"]["required"] is True
         assert payload["checks"]["runtimeDelivery"]["ok"] is False
-        assert payload["checks"]["runtimeDelivery"]["checks"]["durableMount"]["ok"] is False
+        assert payload["checks"]["runtimeDelivery"]["status"] == "not_ready"
 
 
 @pytest.mark.asyncio
@@ -1384,10 +1417,10 @@ async def test_readiness_policy_is_immutable_per_factory(monkeypatch, lifecycle_
         first_payload = json.loads((await _route(first, "/ready")()).body)
         second_payload = json.loads((await _route(second, "/ready")()).body)
 
-    assert first_payload["checks"]["requiredPaths"] == {"ok": True, "missing": []}
-    assert first_payload["checks"]["requiredRouters"] == {"ok": True, "missing": []}
-    assert second_payload["checks"]["requiredPaths"] == {"ok": False, "missing": ["/absent"]}
-    assert second_payload["checks"]["requiredRouters"] == {"ok": False, "missing": ["absent"]}
+    assert first_payload["checks"]["requiredPaths"] == {"ok": True}
+    assert first_payload["checks"]["requiredRouters"] == {"ok": True}
+    assert second_payload["checks"]["requiredPaths"] == {"ok": False}
+    assert second_payload["checks"]["requiredRouters"] == {"ok": False}
     assert isinstance(first.state.readiness_config.required_paths, frozenset)
 
 

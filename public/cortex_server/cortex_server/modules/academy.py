@@ -5,7 +5,13 @@ Stores successful code patterns and consults them for future generations.
 """
 from pathlib import Path
 from typing import List, Dict, Optional
+import hashlib
 import json
+
+
+def _diagnostic_identity(value: object) -> str:
+    encoded = str(value or "").encode("utf-8", errors="replace")
+    return f"sha256={hashlib.sha256(encoded).hexdigest()} bytes={len(encoded)}"
 
 
 class TheAcademy:
@@ -35,7 +41,7 @@ class TheAcademy:
         try:
             path = Path(file_path)
             if not path.exists():
-                print(f"[ACADEMY] File not found: {file_path}")
+                print(f"[ACADEMY] File not found ({_diagnostic_identity(file_path)})")
                 return False
             
             # Read the code
@@ -69,17 +75,23 @@ class TheAcademy:
             
             if existing_idx is not None:
                 golden_code[existing_idx] = entry
-                print(f"[ACADEMY] Updated existing pattern: {module_name}")
+                print(
+                    "[ACADEMY] Updated existing pattern "
+                    f"({_diagnostic_identity(module_name)})"
+                )
             else:
                 golden_code.append(entry)
-                print(f"[ACADEMY] Learned new pattern: {module_name}")
+                print(
+                    "[ACADEMY] Learned new pattern "
+                    f"({_diagnostic_identity(module_name)})"
+                )
             
             # Save back
             self._save_golden_code(golden_code)
             return True
             
         except Exception as e:
-            print(f"[ACADEMY] Learn failed: {e}")
+            print(f"[ACADEMY] Learn failed ({type(e).__name__})")
             return False
     
     def consult(self, task_description: str, top_n: int = 2) -> List[Dict]:
@@ -132,7 +144,7 @@ class TheAcademy:
             return [entry for score, entry in scored_patterns[:top_n]]
             
         except Exception as e:
-            print(f"[ACADEMY] Consult failed: {e}")
+            print(f"[ACADEMY] Consult failed ({type(e).__name__})")
             return []
     
     def get_stats(self) -> Dict:

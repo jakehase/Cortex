@@ -52,6 +52,7 @@ from cortex_server.internal_addressing import (
     internal_reachability_response,
     probe_internal_reachability,
 )
+from cortex_server.modules.action_capabilities import normalize_action_policy_rules
 import asyncio
 import subprocess
 from dataclasses import dataclass
@@ -177,6 +178,7 @@ class ReadScopeCredential:
     credential_id: str
     secret: str
     allowed_scopes: Tuple[str, ...]
+    allowed_actions: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -291,7 +293,7 @@ class _SharedServiceOwners:
                         else:
                             exception = task.exception()
                             error = (
-                                f"{type(exception).__name__}: {exception}"
+                                type(exception).__name__
                                 if exception is not None
                                 else "RuntimeError: background task exited unexpectedly"
                             )
@@ -326,13 +328,17 @@ class _SharedServiceOwners:
                         await asyncio.gather(task, return_exceptions=True)
                     if rollback is not None:
                         await rollback()
-            except BaseException:
-                logger.exception("Failed to roll back %s startup cleanly", name)
+            except BaseException as rollback_exc:
+                logger.warning(
+                    "Failed to roll back %s startup cleanly (%s)",
+                    name,
+                    type(rollback_exc).__name__,
+                )
             finally:
                 with self._lock:
                     state = self._state(loop, name)
                     state["starting"] = False
-                    state["error"] = f"{type(exc).__name__}: {exc}"
+                    state["error"] = type(exc).__name__
                     self._prune_loop_locked(loop)
             raise
 
@@ -359,7 +365,7 @@ class _SharedServiceOwners:
                 exception = task.exception()
             except asyncio.CancelledError:
                 exception = asyncio.CancelledError()
-            error = (f"{type(exception).__name__}: {exception}" if exception is not None
+            error = (type(exception).__name__ if exception is not None
                      else "RuntimeError: background task exited unexpectedly")
         with self._lock:
             state = self._state(loop, name, create=False)
@@ -580,6 +586,32 @@ _PRINCIPAL_MUTATION_PREFIXES = (
     "/conductor/runtime/pause/",
     "/orchestrator/runtime/resume/",
     "/conductor/runtime/resume/",
+    # These surfaces can cross a process, network, device, or deferred-work
+    # boundary.  A signed principal is necessary but not sufficient: their
+    # handlers also consume an exact short-lived action capability.
+    "/browser/browse",
+    "/browser/screenshot",
+    "/browser/search",
+    "/browser/notary/create",
+    "/browser/notary/verify",
+    "/browser/sandbox/run",
+    "/browser/simulate/counterfactual",
+    "/browser/truth/arbitrate",
+    "/homeassistant/",
+    "/diplomat/",
+    "/evolution/diplomat/",
+    "/cron/",
+    "/queue/",
+    "/night_shift/",
+    "/chronos/",
+)
+_GLOBAL_ADMIN_ACTION_ROUTE_PATHS = frozenset(
+    {
+        "/homeassistant/policy",
+        "/homeassistant/policy/mode/{mode}",
+        "/homeassistant/policy/profile/{profile}",
+        "/homeassistant/policy/kill_switch/{enabled}",
+    }
 )
 _TRANSPORT_AUTH_EXEMPT_RELEASE_PREFIXES = (
     "/orchestrator/runtime/delivery/handoffs/",
@@ -605,6 +637,48 @@ def _production_environment() -> bool:
         "production",
         "prod",
         "staging",
+    }
+
+
+def _public_readiness_view(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """Expose readiness truth without paths, exception text, or probe bodies."""
+
+    safe_checks: Dict[str, Dict[str, Any]] = {}
+    raw_checks = payload.get("checks") if isinstance(payload, Mapping) else None
+    if isinstance(raw_checks, Mapping):
+        for raw_name, raw_check in raw_checks.items():
+            name = str(raw_name or "")
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,95}", name):
+                continue
+            check = raw_check if isinstance(raw_check, Mapping) else {}
+            safe: Dict[str, Any] = {"ok": bool(check.get("ok"))}
+            if "required" in check:
+                safe["required"] = bool(check.get("required"))
+            if "degraded" in check:
+                safe["degraded"] = bool(check.get("degraded"))
+            status = str(check.get("status") or "")
+            if re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", status):
+                safe["status"] = status
+            safe_checks[name] = safe
+    router_load = payload.get("routerLoad") if isinstance(payload, Mapping) else None
+    router_load = router_load if isinstance(router_load, Mapping) else {}
+    return {
+        "status": "ready" if bool(payload.get("ready")) else "not_ready",
+        "ready": bool(payload.get("ready")),
+        "service": "cortex",
+        "checks": safe_checks,
+        "routerLoad": {
+            "loadedCount": max(0, int(router_load.get("loadedCount") or 0)),
+            "failedCount": len(router_load.get("failed") or [])
+            if isinstance(router_load.get("failed"), list)
+            else 0,
+            "missingRouterCount": len(router_load.get("missingRouter") or [])
+            if isinstance(router_load.get("missingRouter"), list)
+            else 0,
+            "safeModeSkippedCount": len(router_load.get("safeModeSkipped") or [])
+            if isinstance(router_load.get("safeModeSkipped"), list)
+            else 0,
+        },
     }
 
 
@@ -644,7 +718,7 @@ def _knowledge_volume_identity_check(*, production: bool) -> Dict[str, Any]:
             raise RuntimeError("production knowledge database must be restored or explicitly bootstrapped")
     except (OSError, RuntimeError) as exc:
         check["ok"] = False
-        check["error"] = f"{type(exc).__name__}: {exc}"
+        check["error"] = type(exc).__name__
     return check
 
 
@@ -745,6 +819,7 @@ _PUBLIC_REDACTED_READ_PATHS = frozenset(
         "/nexus/context",
         "/nexus/status",
         "/oracle/status",
+        "/browser/status",
         "/meta_conductor/status",
         "/orchestrator/runtime-delivery/readiness",
         "/conductor/runtime-delivery/readiness",
@@ -844,6 +919,12 @@ def _parse_read_scope_credentials(raw: str) -> Tuple[ReadScopeCredential, ...]:
         allowed = value.get("allowed_scopes") if isinstance(value, dict) else None
         if not secret or not isinstance(allowed, list) or not allowed:
             raise ValueError(f"principal scope credential {credential_id!r} is invalid")
+        try:
+            allowed_actions = normalize_action_policy_rules(value.get("allowed_actions"))
+        except ValueError as exc:
+            raise ValueError(
+                f"principal scope credential {credential_id!r} has invalid allowed_actions: {exc}"
+            ) from exc
         normalized_scopes = []
         try:
             for scope in allowed:
@@ -872,6 +953,7 @@ def _parse_read_scope_credentials(raw: str) -> Tuple[ReadScopeCredential, ...]:
                 credential_id=credential_id,
                 secret=secret,
                 allowed_scopes=tuple(normalized_scopes),
+                allowed_actions=allowed_actions,
             )
         )
     return tuple(credentials)
@@ -1473,9 +1555,15 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
             continue
         try:
             module = importlib.import_module(f"cortex_server.routers.{module_name}")
-        except Exception as e:
-            logger.warning("Skipping router '%s' due to import error: %s", module_name, e)
-            report["failed"].append({"router": module_name, "error": f"{type(e).__name__}: {e}"})
+        except Exception as exc:
+            logger.warning(
+                "Skipping router '%s' due to import error (%s)",
+                module_name,
+                type(exc).__name__,
+            )
+            report["failed"].append(
+                {"router": module_name, "error": type(exc).__name__}
+            )
             continue
         router = getattr(module, "router", None)
         if router is not None:
@@ -1515,6 +1603,24 @@ def create_app(
         reconfigured_modules: list[str] = []
         with read_only_construction_context(bool(schema_only or inventory_only)):
             if not schema_only and not inventory_only:
+                # Reject an unsafe production transport boundary before
+                # activating any preloaded module whose own durable-runtime
+                # configuration could fail first and obscure this invariant.
+                if _production_environment():
+                    preflight_write_auth_mode = os.getenv(
+                        "CORTEX_WRITE_AUTH_MODE", "token_required"
+                    ).strip().lower()
+                    preflight_write_token = os.getenv(
+                        "CORTEX_WRITE_TOKEN", ""
+                    ).strip()
+                    if preflight_write_auth_mode == "disabled":
+                        raise RuntimeError(
+                            "production cannot disable Cortex write authorization"
+                        )
+                    if len(preflight_write_token.encode("utf-8")) < 32:
+                        raise RuntimeError(
+                            "production requires a Cortex write transport credential of at least 32 bytes"
+                        )
                 CORTEX_INTERNAL_BASE_URL = configure_internal_base_url()
                 if not _FIRST_RUNTIME_CONSTRUCTION_COMPLETE:
                     reconfigured_modules = _activate_preloaded_runtime_configuration()
@@ -1572,6 +1678,10 @@ def _create_app(
         WriteAuthorizationMiddleware,
     )
     from cortex_server.modules.consciousness_integration import ChainContextMiddleware
+    from cortex_server.modules.action_capabilities import (
+        require_action_capability,
+        require_action_capability_unless_dry_run,
+    )
     from cortex_server.modules.execution_capabilities import execution_capability_status
     from cortex_server.routers import websockets
     from cortex_server.services.parser_service import ParserService
@@ -1592,12 +1702,21 @@ def _create_app(
         False if read_only_construction else _production_environment()
     )
     write_auth_mode = configured(
-        "CORTEX_WRITE_AUTH_MODE", "token_or_loopback"
+        "CORTEX_WRITE_AUTH_MODE", "token_required"
     ).strip().lower()
     write_token = configured("CORTEX_WRITE_TOKEN", "").strip()
     write_token_header = configured(
         "CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token"
     ).strip().lower()
+    if production_environment:
+        if write_auth_mode == "disabled":
+            raise RuntimeError(
+                "production cannot disable Cortex write authorization"
+            )
+        if len(write_token.encode("utf-8")) < 32:
+            raise RuntimeError(
+                "production requires a Cortex write transport credential of at least 32 bytes"
+            )
     max_request_body_bytes = configured_max_request_body_bytes(
         None if read_only_construction else os.getenv("CORTEX_MAX_REQUEST_BODY_BYTES")
     )
@@ -1690,10 +1809,61 @@ def _create_app(
         codec_admin_token=codec_admin_token,
         configuration_error=read_configuration_error,
     )
+    action_capability_credentials = {
+        credential.credential_id: credential.secret for credential in read_credentials
+    }
+    action_capability_policies = {
+        credential.credential_id: credential.allowed_actions
+        for credential in read_credentials
+    }
+    if admin_token:
+        action_capability_credentials["cortex-admin"] = admin_token
+    if codec_admin_token:
+        action_capability_credentials["codec-admin"] = codec_admin_token
+    action_delegation_secret = configured(
+        "CORTEX_ACTION_DELEGATION_SECRET", ""
+    ).strip()
+    if action_delegation_secret and len(action_delegation_secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "deferred action signing secret must contain at least 32 bytes"
+        )
+    if action_delegation_secret and any(
+        hmac.compare_digest(action_delegation_secret, candidate)
+        for candidate in (
+            write_token,
+            admin_token,
+            codec_admin_token,
+            *(credential.secret for credential in read_credentials),
+        )
+        if candidate
+    ):
+        raise RuntimeError("deferred action signing secret must be independent")
+    action_capability_db_path = Path(
+        configured(
+            "CORTEX_ACTION_CAPABILITY_DB_PATH",
+            "/opt/clawdbot/state/action_capabilities.db",
+        )
+    ).expanduser()
+    if not action_capability_db_path.is_absolute():
+        raise RuntimeError("CORTEX_ACTION_CAPABILITY_DB_PATH must be absolute")
     if production_environment:
         from cortex_server.runtime.production_build_loop import validate_production_delivery_credentials
 
         validate_production_delivery_credentials()
+    from cortex_server.routers.browser import configured_notary_secret
+
+    browser_notary_secret = configured_notary_secret(
+        required=production_environment,
+        environ={} if read_only_construction else None,
+        disallowed_candidates=(
+            write_token,
+            admin_token,
+            codec_admin_token,
+            release_artifact_write_token,
+            action_delegation_secret,
+            *(credential.secret for credential in read_credentials),
+        ),
+    )
     baseline_required_routes = (
         PRODUCTION_REQUIRED_ROUTES if production_environment else DEFAULT_REQUIRED_ROUTES
     )
@@ -1828,16 +1998,23 @@ def _create_app(
                 logger.info("Redis is reachable for background task processing")
             except asyncio.TimeoutError:
                 redis_startup_pending = True
-                error = f"Redis startup timed out after {redis_startup_timeout:g} seconds"
-                app.state.lifecycle_checks["redis"] = {"ok": False, "error": error}
-                logger.warning("Redis is not ready: %s", error)
+                app.state.lifecycle_checks["redis"] = {
+                    "ok": False,
+                    "error": "TimeoutError",
+                }
+                logger.warning("Redis is not ready (TimeoutError)")
             except subprocess.TimeoutExpired:
-                error = f"Redis startup timed out after {redis_startup_timeout:g} seconds"
-                app.state.lifecycle_checks["redis"] = {"ok": False, "error": error}
-                logger.warning("Redis is not ready: %s", error)
-            except Exception as e:
-                app.state.lifecycle_checks["redis"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                logger.warning("Redis is not ready: %s", e)
+                app.state.lifecycle_checks["redis"] = {
+                    "ok": False,
+                    "error": "TimeoutExpired",
+                }
+                logger.warning("Redis is not ready (TimeoutExpired)")
+            except Exception as exc:
+                app.state.lifecycle_checks["redis"] = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                }
+                logger.warning("Redis is not ready (%s)", type(exc).__name__)
 
             async def monitor_redis() -> None:
                 from cortex_server.worker import check_redis_connection
@@ -1851,9 +2028,12 @@ def _create_app(
                     except Exception as exc:
                         app.state.lifecycle_checks["redis"] = {
                             "ok": False,
-                            "error": f"{type(exc).__name__}: {exc}",
+                            "error": type(exc).__name__,
                         }
-                        logger.warning("Late Redis startup failed: %s", exc)
+                        logger.warning(
+                            "Late Redis startup failed (%s)",
+                            type(exc).__name__,
+                        )
                         previously_ok = False
                     else:
                         app.state.lifecycle_checks["redis"] = {
@@ -1884,10 +2064,13 @@ def _create_app(
                     except Exception as exc:
                         app.state.lifecycle_checks["redis"] = {
                             "ok": False,
-                            "error": f"{type(exc).__name__}: {exc}",
+                            "error": type(exc).__name__,
                         }
                         if previously_ok:
-                            logger.warning("Redis connectivity monitor failed: %s", exc)
+                            logger.warning(
+                                "Redis connectivity monitor failed (%s)",
+                                type(exc).__name__,
+                            )
                         previously_ok = False
                     else:
                         app.state.lifecycle_checks["redis"] = {
@@ -1939,9 +2122,12 @@ def _create_app(
                     lambda: stop_service("scheduler"),
                 )
                 acquired.append("scheduler")
-            except Exception as e:
-                app.state.lifecycle_checks["scheduler"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                logger.warning("Scheduler is not ready: %s", e)
+            except Exception as exc:
+                app.state.lifecycle_checks["scheduler"] = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                }
+                logger.warning("Scheduler is not ready (%s)", type(exc).__name__)
             try:
                 from cortex_server.modules.chronos import get_chronos
                 async def start_chronos():
@@ -1951,9 +2137,12 @@ def _create_app(
                     lambda: stop_service("chronos"),
                 )
                 acquired.append("chronos")
-            except Exception as e:
-                app.state.lifecycle_checks["chronos"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                logger.warning("Chronos is not ready: %s", e)
+            except Exception as exc:
+                app.state.lifecycle_checks["chronos"] = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                }
+                logger.warning("Chronos is not ready (%s)", type(exc).__name__)
             try:
                 from cortex_server.routers.awareness import start_awareness
                 await _shared_service_owners.acquire(
@@ -1961,9 +2150,12 @@ def _create_app(
                     lambda: stop_service("awareness"),
                 )
                 acquired.append("awareness")
-            except Exception as e:
-                app.state.lifecycle_checks["awareness"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                logger.warning("Awareness is not ready: %s", e)
+            except Exception as exc:
+                app.state.lifecycle_checks["awareness"] = {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                }
+                logger.warning("Awareness is not ready (%s)", type(exc).__name__)
             yield
         finally:
             try:
@@ -1981,8 +2173,12 @@ def _create_app(
                         await _shared_service_owners.release(
                             name, app, lambda name=name: stop_service(name)
                         )
-                    except BaseException:
-                        logger.exception("Failed to stop %s cleanly", name)
+                    except BaseException as stop_exc:
+                        logger.warning(
+                            "Failed to stop %s cleanly (%s)",
+                            name,
+                            type(stop_exc).__name__,
+                        )
             finally:
                 app.state.lifecycle_checks = _not_started_lifecycle_checks()
 
@@ -2003,6 +2199,14 @@ def _create_app(
     )
     app.state.readiness_config = readiness_config
     app.state.read_authorization = read_authorization
+    app.state.action_capability_credentials = action_capability_credentials
+    app.state.action_capability_policies = action_capability_policies
+    app.state.action_capability_db_path = str(action_capability_db_path)
+    app.state.action_delegation_secret = action_delegation_secret
+    app.state.external_action_kill_switch = configured(
+        "CORTEX_EXTERNAL_ACTIONS_DISABLED", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    app.state.browser_notary_secret = browser_notary_secret
     app.state.max_request_body_bytes = max_request_body_bytes
     app.state.request_body_admission = {
         "idle_timeout_seconds": body_idle_timeout_seconds,
@@ -2077,8 +2281,8 @@ def _create_app(
                 if not admin_token or request.headers.get("x-cortex-admin-token", "") != admin_token:
                     from fastapi.responses import JSONResponse
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
-        if production_environment and request.method.upper() in MUTATING_METHODS:
-            path = str(request.url.path or "")
+        path = str(request.url.path or "")
+        if request.method.upper() in MUTATING_METHODS and write_auth_mode != "disabled":
             if any(path.startswith(prefix) for prefix in _INDEPENDENT_RELEASE_PRINCIPAL_AUTH_PREFIXES):
                 # Release consumers use revision-bound recipient/verifier
                 # HMACs. Artifact ingestion still passes through the separate
@@ -2336,19 +2540,27 @@ def _create_app(
             if graph_quick_check != "ok":
                 raise RuntimeError(f"graph database quick_check failed: {graph_quick_check}")
         except (OSError, RuntimeError, sqlite3.Error) as exc:
-            graph_error = f"{type(exc).__name__}: {exc}"
+            graph_error = type(exc).__name__
         try:
             from cortex_server.middleware.event_ledger_middleware import probe_event_ledger_durability
 
             event_ledger_check = probe_event_ledger_durability()
         except Exception as exc:
-            event_ledger_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
+            event_ledger_check = {
+                "ok": False,
+                "status": "degraded",
+                "error": type(exc).__name__,
+            }
         try:
             from cortex_server.routers.librarian import probe_memory_backend_readiness
 
             memory_backend_check = probe_memory_backend_readiness()
         except Exception as exc:
-            memory_backend_check = {"ok": False, "status": "degraded", "error": f"{type(exc).__name__}: {exc}"}
+            memory_backend_check = {
+                "ok": False,
+                "status": "degraded",
+                "error": type(exc).__name__,
+            }
         try:
             from cortex_server.runtime.production_build_loop import probe_runtime_delivery_readiness
 
@@ -2356,7 +2568,11 @@ def _create_app(
                 Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery"))
             )
         except Exception as exc:
-            runtime_delivery_check = {"ready": False, "status": "not_ready", "error": f"{type(exc).__name__}: {exc}"}
+            runtime_delivery_check = {
+                "ready": False,
+                "status": "not_ready",
+                "error": type(exc).__name__,
+            }
         execution_policy = execution_capability_status()
         checks = {
             "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
@@ -2391,9 +2607,25 @@ def _create_app(
                 "error": graph_error,
             },
             "writeAuthorization": {
-                "ok": write_auth_mode == "token_or_loopback" or (write_auth_mode == "token_required" and bool(write_token)),
+                "ok": write_auth_mode == "disabled" or bool(write_token),
                 "mode": write_auth_mode,
                 "tokenConfigured": bool(write_token),
+                "loopbackTrusted": False,
+            },
+            "actionCapabilityAuthorization": {
+                "ok": bool(action_capability_credentials)
+                and (
+                    not production_environment
+                    or len(action_delegation_secret.encode("utf-8")) >= 32
+                ),
+                "required": production_environment,
+                "credentialCount": len(action_capability_credentials),
+                "principalPolicyCount": sum(
+                    1 for rules in action_capability_policies.values() if rules
+                ),
+                "deferredSigningConfigured": len(action_delegation_secret.encode("utf-8")) >= 32,
+                "killSwitch": app.state.external_action_kill_switch,
+                "replayStore": str(action_capability_db_path),
             },
             "releaseArtifactTransportAuthorization": {
                 "ok": not production_environment
@@ -2478,7 +2710,7 @@ def _create_app(
             except Exception as exc:
                 checks["scheduler"] = {
                     "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": type(exc).__name__,
                 }
         ready = all(
             check["ok"]
@@ -2565,7 +2797,7 @@ def _create_app(
                 "checks": {
                     "readinessProbe": {
                         "ok": False,
-                        "error": f"{type(exc).__name__}: {exc}",
+                        "error": type(exc).__name__,
                     }
                 },
                 "routerLoad": {
@@ -2600,7 +2832,10 @@ def _create_app(
     async def readiness_check():
         from fastapi.responses import JSONResponse
         payload = await async_readiness_payload()
-        return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
+        return JSONResponse(
+            status_code=200 if payload["ready"] else 503,
+            content=_public_readiness_view(payload),
+        )
 
     @app.get(
         "/capabilities",
@@ -2609,37 +2844,99 @@ def _create_app(
     )
     async def capability_inventory():
         execution_policy = execution_capability_status()
-        capabilities = []
+        capabilities: list[dict[str, Any]] = []
+
+        def route_uses_action_dependency(dependant) -> bool:
+            for dependency in getattr(dependant, "dependencies", ()) or ():
+                if getattr(dependency, "call", None) in {
+                    require_action_capability,
+                    require_action_capability_unless_dry_run,
+                }:
+                    return True
+                if route_uses_action_dependency(dependency):
+                    return True
+            return False
+
         for route in _effective_routes(app.routes):
             original_route = getattr(route, "original_route", route)
-            if not isinstance(original_route, APIRoute) or not route.include_in_schema:
+            methods = sorted(
+                str(method).upper()
+                for method in (getattr(route, "methods", None) or [])
+                if str(method).upper() not in {"HEAD", "OPTIONS"}
+            )
+            path = str(getattr(route, "path", "") or "")
+            websocket = isinstance(route, WebSocketRoute) or (
+                not methods and path.startswith("/ws/")
+            )
+            if websocket:
+                if not path:
+                    continue
+            elif not isinstance(original_route, APIRoute) or not getattr(
+                original_route, "include_in_schema", False
+            ):
                 continue
-            methods = sorted(method for method in (getattr(route, "methods", None) or []) if method not in {"HEAD", "OPTIONS"})
-            if not methods:
+            if not methods and not websocket:
                 continue
+            inventory_methods = ["WEBSOCKET"] if websocket else methods
+            write = any(method in MUTATING_METHODS for method in methods)
+            read_policy = (
+                getattr(route, "cortex_read_policy", None)
+                if any(method in {"GET", "HEAD"} for method in methods)
+                else None
+            )
+            action_required = bool(
+                write and route_uses_action_dependency(getattr(route, "dependant", None))
+            )
+            global_admin_required = bool(
+                (write and (
+                    path in _GLOBAL_ADMIN_ACTION_ROUTE_PATHS
+                    or not _principal_mutation_path_allowed(path)
+                ))
+                or (read_policy and str(read_policy).startswith("admin_"))
+                or (websocket and path.startswith("/ws/logs/"))
+            )
+            principal_scope_required = bool(
+                (write and not global_admin_required)
+                or (read_policy and read_policy not in {"public", "public_redacted"}
+                    and not str(read_policy).startswith("admin_"))
+            )
+            if websocket:
+                sensitivity = "admin" if global_admin_required else "transport_authenticated"
+            elif global_admin_required:
+                sensitivity = "admin"
+            elif principal_scope_required:
+                sensitivity = "principal_scoped"
+            elif read_policy == "public":
+                sensitivity = "public"
+            else:
+                sensitivity = "public_redacted"
             capabilities.append({
-                "kind": "http",
-                "path": getattr(route, "path", ""),
-                "methods": methods,
-                "write": any(method in MUTATING_METHODS for method in methods),
-                "readPolicy": (
-                    getattr(route, "cortex_read_policy", None)
-                    if any(method in {"GET", "HEAD"} for method in methods)
-                    else None
-                ),
+                "kind": "websocket" if websocket else "http",
+                "path": path,
+                "methods": inventory_methods,
+                "protocol": "websocket" if websocket else "http",
+                "write": write,
+                "readPolicy": read_policy,
+                "sensitivity": sensitivity,
+                "principalScopeRequired": principal_scope_required,
+                "globalAdminRequired": global_admin_required,
+                "actionCapabilityRequired": action_required,
                 "name": getattr(route, "name", None),
                 "tag": (getattr(route, "tags", None) or [None])[0],
             })
         websocket_capabilities = [
             {
                 "kind": "websocket",
-                "path": getattr(route, "path", ""),
-                "name": getattr(route, "name", None),
-                "tag": (getattr(route, "tags", None) or [None])[0],
+                "path": row["path"],
+                "name": row["name"],
+                "tag": row["tag"],
             }
-            for route in _effective_routes(app.routes)
-            if isinstance(route, WebSocketRoute)
+            for row in capabilities
+            if row["protocol"] == "websocket"
         ]
+        http_capability_count = sum(
+            1 for row in capabilities if row["protocol"] == "http"
+        )
         return {
             "schemaVersion": "cortex.capability_inventory.v1",
             "security": {
@@ -2650,10 +2947,13 @@ def _create_app(
                 "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
             },
             "executionCapabilityPolicy": execution_policy,
-            "capabilityCount": len(capabilities) + len(websocket_capabilities),
-            "httpCapabilityCount": len(capabilities),
+            "capabilityCount": len(capabilities),
+            "httpCapabilityCount": http_capability_count,
             "websocketCapabilityCount": len(websocket_capabilities),
             "writeCapabilityCount": sum(1 for row in capabilities if row["write"]),
+            "actionCapabilityCount": sum(
+                1 for row in capabilities if row["actionCapabilityRequired"]
+            ),
             "capabilities": sorted(capabilities, key=lambda row: (row["path"], row["methods"])),
             "websockets": sorted(websocket_capabilities, key=lambda row: row["path"]),
         }
@@ -2967,7 +3267,7 @@ def _create_app(
             "type": "apiKey",
             "in": "header",
             "name": write_token_header,
-            "description": "Required for non-loopback mutating requests and browser requests from untrusted origins in token_or_loopback mode.",
+            "description": "Transport authentication for every mutating request; it does not grant action authority.",
         }
         security_schemes["CortexAdminToken"] = {
             "type": "apiKey",
@@ -2986,6 +3286,50 @@ def _create_app(
             "in": "header",
             "name": "x-cortex-scope-signature",
             "description": "HMAC signature over the complete Cortex tenant/workspace/agent/user/channel/session principal scope.",
+        }
+        security_schemes["CortexActionCapability"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-action-signature",
+            "description": "Short-lived one-use signature bound to the authenticated principal, method, path, exact body, nonce, and expiry.",
+        }
+        security_schemes["CortexActionNonce"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-action-nonce",
+            "description": "Unique 16-128 character nonce consumed with the action signature.",
+        }
+        security_schemes["CortexActionIssuedAt"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-action-issued-at",
+            "description": "Unix timestamp at which the short-lived action capability was issued.",
+        }
+        security_schemes["CortexActionExpiresAt"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-cortex-action-expires-at",
+            "description": "Unix expiry timestamp for the action capability (maximum lifetime 120 seconds).",
+        }
+        action_dependencies = {
+            require_action_capability,
+            require_action_capability_unless_dry_run,
+        }
+
+        def uses_action_dependency(dependant) -> bool:
+            for dependency in getattr(dependant, "dependencies", ()) or ():
+                if getattr(dependency, "call", None) in action_dependencies:
+                    return True
+                if uses_action_dependency(dependency):
+                    return True
+            return False
+
+        action_capability_operations = {
+            (str(getattr(route, "path", "")), str(method).lower())
+            for route in _effective_routes(app.routes)
+            if uses_action_dependency(getattr(route, "dependant", None))
+            for method in (getattr(route, "methods", None) or ())
+            if str(method).upper() in MUTATING_METHODS
         }
         # Compatibility aliases can expose aggregate/detail payloads rather
         # than a level status object. Only canonical status routes receive the
@@ -3023,8 +3367,46 @@ def _create_app(
                     ] = {"$ref": "#/components/schemas/LevelStatusResponse"}
 
                 if method in {"post", "put", "patch", "delete"}:
-                    operation["security"] = [{"CortexWriteToken": []}]
+                    action_capability_required = (
+                        path,
+                        method,
+                    ) in action_capability_operations
+                    # A signed ordinary principal is accepted only on
+                    # explicitly principal-scoped paths. Global mutations
+                    # require an administrator in addition to transport auth.
+                    global_admin_required = (
+                        path in _GLOBAL_ADMIN_ACTION_ROUTE_PATHS
+                        or not _principal_mutation_path_allowed(path)
+                    )
+                    principal_requirement = {
+                        "CortexWriteToken": [],
+                        "CortexPrincipalSignature": [],
+                    }
+                    admin_requirement = {
+                        "CortexWriteToken": [],
+                        "CortexAdminToken": [],
+                    }
+                    if action_capability_required:
+                        for action_scheme in (
+                            "CortexActionCapability",
+                            "CortexActionNonce",
+                            "CortexActionIssuedAt",
+                            "CortexActionExpiresAt",
+                        ):
+                            principal_requirement[action_scheme] = []
+                            admin_requirement[action_scheme] = []
+                    operation["security"] = (
+                        [admin_requirement]
+                        if global_admin_required
+                        else [principal_requirement, admin_requirement]
+                    )
                     operation["x-cortex-write-authorization-mode"] = write_auth_mode
+                    operation["x-cortex-action-capability-required"] = (
+                        action_capability_required
+                    )
+                    operation["x-cortex-global-admin-required"] = (
+                        global_admin_required
+                    )
                 elif method == "get":
                     read_policy = operation.get(
                         _READ_POLICY_METADATA_KEY, "admin_redacted"

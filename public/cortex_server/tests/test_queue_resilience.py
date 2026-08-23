@@ -6,6 +6,10 @@ import pytest
 from fastapi import HTTPException, Response
 from pydantic import ValidationError
 
+from cortex_server.modules.action_capabilities import (
+    DELEGATED_ACTION_CAPABILITY_HEADER,
+    authorize_deferred_action,
+)
 from cortex_server.routers import queue
 
 
@@ -32,10 +36,28 @@ class _Backend:
         return dict(self.metadata)
 
 
+class _ProofConsumingTask:
+    consumes_delegated_action_capability = True
+
+
 def _fake_celery(*, send_task=None, active=None, inspect_error=None, metadata=None):
+    logical_send = send_task or (
+        lambda *_args, **_kwargs: SimpleNamespace(id="task-1")
+    )
+
+    def proof_consuming_send(task_name, *, args, headers):
+        capability = headers.get(DELEGATED_ACTION_CAPABILITY_HEADER)
+        authorization = authorize_deferred_action(
+            capability if isinstance(capability, dict) else {},
+            task=task_name,
+            args=list(args),
+        )
+        assert authorization is not None
+        return logical_send(task_name, args=args)
+
     return SimpleNamespace(
-        tasks={"cortex_tasks.allowed": object()},
-        send_task=send_task or (lambda *_args, **_kwargs: SimpleNamespace(id="task-1")),
+        tasks={"cortex_tasks.allowed": _ProofConsumingTask()},
+        send_task=proof_consuming_send,
         control=_Control(active=active, inspect_error=inspect_error),
         backend=_Backend(metadata=metadata),
     )
@@ -105,7 +127,9 @@ def test_schedule_arguments_are_bounded(args):
         )
 
 
-def test_schedule_requires_key_deduplicates_and_rejects_capacity(monkeypatch):
+def test_schedule_requires_key_deduplicates_and_rejects_capacity(
+    monkeypatch, action_authorization_factory
+):
     calls = []
 
     def send_task(task_name, *, args):
@@ -117,7 +141,8 @@ def test_schedule_requires_key_deduplicates_and_rejects_capacity(monkeypatch):
     with pytest.raises(HTTPException) as missing:
         asyncio.run(
             queue.schedule_task(
-                queue.ScheduleRequest(task="cortex_tasks.allowed", args=[1])
+                queue.ScheduleRequest(task="cortex_tasks.allowed", args=[1]),
+                authorization=asyncio.run(action_authorization_factory()),
             )
         )
     assert missing.value.status_code == 422
@@ -127,8 +152,18 @@ def test_schedule_requires_key_deduplicates_and_rejects_capacity(monkeypatch):
         args=[1],
         idempotency_key="request-1",
     )
-    first = asyncio.run(queue.schedule_task(request))
-    replay = asyncio.run(queue.schedule_task(request))
+    first = asyncio.run(
+        queue.schedule_task(
+            request,
+            authorization=asyncio.run(action_authorization_factory()),
+        )
+    )
+    replay = asyncio.run(
+        queue.schedule_task(
+            request,
+            authorization=asyncio.run(action_authorization_factory()),
+        )
+    )
 
     assert first.task_id == "task-1"
     assert replay.task_id == first.task_id
@@ -142,7 +177,8 @@ def test_schedule_requires_key_deduplicates_and_rejects_capacity(monkeypatch):
                     task="cortex_tasks.allowed",
                     args=[2],
                     idempotency_key="request-1",
-                )
+                ),
+                authorization=asyncio.run(action_authorization_factory()),
             )
         )
     assert conflict.value.status_code == 409
@@ -155,14 +191,17 @@ def test_schedule_requires_key_deduplicates_and_rejects_capacity(monkeypatch):
                     task="cortex_tasks.allowed",
                     args=[3],
                     idempotency_key="request-2",
-                )
+                ),
+                authorization=asyncio.run(action_authorization_factory()),
             )
         )
     assert exhausted.value.status_code == 429
     assert exhausted.value.headers["Retry-After"] == "5"
 
 
-def test_slow_broker_publish_does_not_block_the_event_loop(monkeypatch):
+def test_slow_broker_publish_does_not_block_the_event_loop(
+    monkeypatch, action_authorization_factory
+):
     def slow_send_task(_task_name, *, args):
         time.sleep(0.2)
         return SimpleNamespace(id="slow-task")
@@ -181,7 +220,8 @@ def test_slow_broker_publish_does_not_block_the_event_loop(monkeypatch):
                     task="cortex_tasks.allowed",
                     args=[1],
                     idempotency_key="slow-publish",
-                )
+                ),
+                authorization=await action_authorization_factory(),
             )
         )
         await asyncio.sleep(0.03)
@@ -195,7 +235,9 @@ def test_slow_broker_publish_does_not_block_the_event_loop(monkeypatch):
     assert result.task_id == "slow-task"
 
 
-def test_unknown_publish_outcome_retains_capacity_and_blocks_duplicate(monkeypatch):
+def test_unknown_publish_outcome_retains_capacity_and_blocks_duplicate(
+    monkeypatch, action_authorization_factory
+):
     calls = []
 
     def timed_out_send(_task_name, *, args):
@@ -216,18 +258,30 @@ def test_unknown_publish_outcome_retains_capacity_and_blocks_duplicate(monkeypat
     )
 
     with pytest.raises(HTTPException) as first:
-        asyncio.run(queue.schedule_task(request))
+        asyncio.run(
+            queue.schedule_task(
+                request,
+                authorization=asyncio.run(action_authorization_factory()),
+            )
+        )
     assert first.value.status_code == 503
     assert first.value.detail["code"] == "queue_dispatch_timeout"
 
     with pytest.raises(HTTPException) as replay:
-        asyncio.run(queue.schedule_task(request))
+        asyncio.run(
+            queue.schedule_task(
+                request,
+                authorization=asyncio.run(action_authorization_factory()),
+            )
+        )
     assert replay.value.status_code == 503
     assert replay.value.detail["code"] == "queue_dispatch_outcome_unknown"
     assert calls == [[1]]
 
 
-def test_cancellation_is_cooperative_idempotent_and_releases_capacity(monkeypatch):
+def test_cancellation_is_cooperative_idempotent_and_releases_capacity(
+    monkeypatch, action_authorization_factory
+):
     published = []
 
     def send_task(_task_name, *, args):
@@ -247,14 +301,23 @@ def test_cancellation_is_cooperative_idempotent_and_releases_capacity(monkeypatc
                 task="cortex_tasks.allowed",
                 args=[],
                 idempotency_key="cancel-me",
-            )
+            ),
+            authorization=asyncio.run(action_authorization_factory()),
         )
     )
     cancelled = asyncio.run(
-        queue.cancel_task(scheduled.task_id, queue.CancelRequest(reason="operator"))
+        queue.cancel_task(
+            scheduled.task_id,
+            queue.CancelRequest(reason="operator"),
+            authorization=asyncio.run(action_authorization_factory()),
+        )
     )
     replay = asyncio.run(
-        queue.cancel_task(scheduled.task_id, queue.CancelRequest(reason="operator"))
+        queue.cancel_task(
+            scheduled.task_id,
+            queue.CancelRequest(reason="operator"),
+            authorization=asyncio.run(action_authorization_factory()),
+        )
     )
 
     assert cancelled.status == "cancellation_requested"
@@ -271,7 +334,8 @@ def test_cancellation_is_cooperative_idempotent_and_releases_capacity(monkeypatc
                 task="cortex_tasks.allowed",
                 args=[],
                 idempotency_key="replacement",
-            )
+            ),
+            authorization=asyncio.run(action_authorization_factory()),
         )
     )
     assert replacement.status == "scheduled"

@@ -5,14 +5,13 @@ Cron Router - API endpoints for cron scheduling and webhook triggers.
 from typing import Any, List, Optional, Dict
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from cortex_server.scheduler import (
     add_cron_job,
     get_scheduled_jobs,
     remove_job,
-    trigger_celery_task,
     get_trigger_events,
     get_trigger_stats,
     get_trigger_totals,
@@ -25,13 +24,27 @@ from cortex_server.scheduler import (
     get_scheduler_rehydration_status,
     evaluate_voi_gate,
     evaluate_verifier_escrow,
+    trigger_celery_task,
 )
-from cortex_server.worker import app as celery_app
+from cortex_server.worker import (
+    app as celery_app,
+    task_consumes_delegated_action_capability,
+)
 from cortex_server.modules.async_offload import (
     BlockingCallCapacityExceeded,
     BlockingCallDeadlineExceeded,
     blocking_operation_status,
     run_blocking,
+)
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    action_authorization_is_global_admin,
+    assert_action_authorized,
+    cancel_deferred_action_capability,
+    deferred_action_runtime_configuration,
+    deferred_action_owner,
+    mint_deferred_action_capability,
+    require_action_capability,
 )
 
 router = APIRouter()
@@ -42,6 +55,8 @@ class CronScheduleRequest(BaseModel):
     cron: str
     task: str
     args: List[Any] = Field(default_factory=list)
+    authorization_ttl_seconds: int = Field(default=86_400, ge=1, le=2_592_000)
+    max_runs: int = Field(default=1, ge=1, le=1000)
 
     # Idea 1: counterfactual cadence twin hints
     counterfactual_alternatives: Optional[List[str]] = None
@@ -106,12 +121,81 @@ class CadenceTwinRequest(BaseModel):
     estimated_runtime_s: float = 30.0
 
 
-@router.post("/schedule", response_model=CronJobResponse)
-async def schedule_cron(request: CronScheduleRequest) -> CronJobResponse:
-    if request.task not in celery_app.tasks:
-        raise HTTPException(status_code=404, detail=f"Unknown task: {request.task}")
+def _authorize_existing_job_mutation(
+    job_id: str,
+    *,
+    http_request: Request,
+    authorization: ActionAuthorization,
+) -> tuple[Optional[dict], Optional[str]]:
+    """Authorize replacement/deletion from an HMAC-authenticated stored owner."""
 
-    # Counterfactual cadence twin simulation (Idea #1)
+    if not any(job.id == job_id for job in get_scheduled_jobs()):
+        return None, None
+    policy = get_job_policy(job_id)
+    capability = policy.get("action_capability")
+    owner = (
+        deferred_action_owner(
+            capability,
+            secret=str(getattr(http_request.app.state, "action_delegation_secret", "")),
+        )
+        if isinstance(capability, dict)
+        else None
+    )
+    is_admin = action_authorization_is_global_admin(authorization)
+    if owner is None and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="legacy or unauthenticated cron jobs require global administrator control",
+        )
+    if owner is not None and owner != authorization.principal_id and not is_admin:
+        raise HTTPException(status_code=403, detail="job belongs to a different action principal")
+    return capability if isinstance(capability, dict) else None, owner
+
+
+@router.post("/schedule", response_model=CronJobResponse)
+async def schedule_cron(
+    request: CronScheduleRequest,
+    http_request: Request,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> CronJobResponse:
+    assert_action_authorized(authorization)
+    _authorize_existing_job_mutation(
+        request.job_name,
+        http_request=http_request,
+        authorization=authorization,
+    )
+    if not task_consumes_delegated_action_capability(
+        request.task,
+        celery=celery_app,
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="task does not consume delegated action capabilities",
+        )
+
+    try:
+        delegation_secret, _replay_path = deferred_action_runtime_configuration(
+            secret=str(
+                getattr(http_request.app.state, "action_delegation_secret", "")
+            ),
+            db_path=str(
+                getattr(http_request.app.state, "action_capability_db_path", "")
+            ),
+        )
+        delegated_action = mint_deferred_action_capability(
+            authorization,
+            task=request.task,
+            args=request.args,
+            secret=delegation_secret,
+            ttl_seconds=request.authorization_ttl_seconds,
+            max_runs=request.max_runs,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="cron worker action capability is unavailable",
+        ) from exc
+
     cadence = simulate_cadence_twin(
         primary_cron=request.cron,
         alternatives=request.counterfactual_alternatives,
@@ -125,6 +209,7 @@ async def schedule_cron(request: CronScheduleRequest) -> CronJobResponse:
         "job_name": request.job_name,
         "task": request.task,
         "cron": request.cron,
+        "action_capability": delegated_action,
         "counterfactual_alternatives": request.counterfactual_alternatives,
         "value_score": request.value_score,
         "risk_score": request.risk_score,
@@ -161,20 +246,19 @@ async def schedule_cron(request: CronScheduleRequest) -> CronJobResponse:
     next_run_time = None
     for job in get_scheduled_jobs():
         if job.id == job_id:
-            next_run_time = job.next_run_time.isoformat() if job.next_run_time else None
+            next_run_time = (
+                job.next_run_time.isoformat() if job.next_run_time else None
+            )
             break
 
-    # Idea #4 topology hint for this job
-    topo = build_topology_plan({job_id: policy})
-    group = (topo.get("groups") or [{}])[0]
-    topology_hint = group.get("topology")
-
+    topology = build_topology_plan({job_id: policy})
+    group = (topology.get("groups") or [{}])[0]
     return CronJobResponse(
         job_id=job_id,
         job_name=request.job_name,
         next_run_time=next_run_time,
         recommended_cadence=cadence.get("recommended_cron"),
-        topology_hint=topology_hint,
+        topology_hint=group.get("topology"),
     )
 
 
@@ -209,7 +293,29 @@ async def list_cron_jobs() -> JobListResponse:
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_cron_job(job_id: str) -> dict:
+async def delete_cron_job(
+    job_id: str,
+    http_request: Request,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> dict:
+    assert_action_authorized(authorization)
+    delegated_action, owner = _authorize_existing_job_mutation(
+        job_id,
+        http_request=http_request,
+        authorization=authorization,
+    )
+    if delegated_action is not None and owner is not None:
+        cancelled = cancel_deferred_action_capability(
+            delegated_action,
+            principal_id=owner,
+            db_path=str(getattr(http_request.app.state, "action_capability_db_path", "")),
+            secret=str(getattr(http_request.app.state, "action_delegation_secret", "")),
+        )
+        if not cancelled:
+            raise HTTPException(
+                status_code=503,
+                detail="cron action capability could not be cancelled",
+            )
     removed = remove_job(job_id)
     if not removed:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
@@ -231,13 +337,26 @@ def _normalize_trigger(task: str, args: List[Any], payload: Optional[dict]) -> t
 
 
 @router.post("/trigger", response_model=TriggerResponse)
-async def trigger_webhook(request: WebhookTriggerRequest) -> TriggerResponse:
-    task_name, task_args = _normalize_trigger(request.task, request.args, request.payload)
-    if task_name not in celery_app.tasks:
-        raise HTTPException(status_code=404, detail=f"Unknown task: {request.task}")
+async def trigger_webhook(
+    request: WebhookTriggerRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> TriggerResponse:
+    assert_action_authorized(authorization)
+    task_name, task_args = _normalize_trigger(
+        request.task,
+        request.args,
+        request.payload,
+    )
+    if not task_consumes_delegated_action_capability(
+        task_name,
+        celery=celery_app,
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="task does not consume delegated action capabilities",
+        )
 
     policy = dict(request.policy or {})
-
     submission_id = str(uuid.uuid4())
     try:
         task_id = await run_blocking(
@@ -250,6 +369,7 @@ async def trigger_webhook(request: WebhookTriggerRequest) -> TriggerResponse:
             job_name="manual_api_trigger",
             policy_override=policy if policy else None,
             submission_id=submission_id,
+            action_authorization=authorization,
             timeout_seconds=5.0,
         )
     except BlockingCallCapacityExceeded as exc:
@@ -270,20 +390,25 @@ async def trigger_webhook(request: WebhookTriggerRequest) -> TriggerResponse:
                 "submission": "tracked_pending_completion",
             },
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "worker action capability is unavailable",
+                "task_id": submission_id,
+                "submission": "not_dispatched",
+            },
+        ) from exc
 
     if task_id is not None:
         return TriggerResponse(task_id=task_id, status="triggered")
-
-    # Gated/no-op status inference for explicit policy path
     if policy:
         voi = evaluate_voi_gate(policy)
         if not voi.get("allowed", True):
             return TriggerResponse(task_id=None, status="skipped_voi")
-
         escrow = evaluate_verifier_escrow(task_name, task_args, {}, policy)
         if not escrow.get("allowed", True):
             return TriggerResponse(task_id=None, status="held_escrow")
-
     return TriggerResponse(task_id=None, status="not_triggered")
 
 

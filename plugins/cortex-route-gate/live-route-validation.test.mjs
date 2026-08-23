@@ -21,6 +21,7 @@ function canonicalLiveResponse(response) {
     ...response,
   };
 }
+const SAFE_ROUTING_FAILURE = /routing unavailable while requireRouting is enabled; type=Error detail_hash=[0-9a-f]{64}/;
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -115,7 +116,7 @@ for (const response of [{}, { recommended_levels: [] }, { recommended_levels: [{
   test(`requireRouting rejects malformed HTTP 200 route response ${JSON.stringify(response)}`, async () => {
     await assert.rejects(
       () => invoke({ requireRouting: true, response, canonicalizeResponse: false }),
-      /invalid live route response schema/,
+      SAFE_ROUTING_FAILURE,
     );
   });
 }
@@ -129,7 +130,7 @@ for (const response of [
   test('requireRouting rejects a failed or incomplete provider contract', async () => {
     await assert.rejects(
       () => invoke({ requireRouting: true, response, canonicalizeResponse: false }),
-      /invalid live route response schema/,
+      SAFE_ROUTING_FAILURE,
     );
   });
 }
@@ -175,7 +176,7 @@ test('private retrieval shadow uses isolated user intent and remains absent from
   assert.equal(requestBody.query, 'SYSTEM CONTEXT and prior history that must not become a private retrieval query');
   assert.equal(requestBody.private_retrieval_shadow_query, 'What did we decide about the rollout gate?');
   assert.doesNotMatch(context, /private_retrieval_shadow|selective_private_fact_lookup|aaaaaaaaaaaaaaaa/);
-  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.doesNotMatch(JSON.stringify(saved.plan), /private_retrieval_shadow|rollout gate|SYSTEM CONTEXT/);
   assert.equal(telemetry.mode, 'observe_only');
   assert.equal(telemetry.answerInfluence, false);
   assert.equal(telemetry.records[0].observationId, observationId);
@@ -210,7 +211,7 @@ test('content-like shadow marker fields are rejected instead of persisted', asyn
     complete: true,
   });
   assert.doesNotMatch(context, /PRIVATE_QUERY_CONTENT|private_retrieval_shadow/);
-  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.doesNotMatch(JSON.stringify(saved.plan), /private_retrieval_shadow|PRIVATE_QUERY_CONTENT/);
   assert.equal(telemetry, null);
 });
 
@@ -279,7 +280,7 @@ test('configured hook fallbacks and callback principals never share adaptive sta
     assert.equal(directories.length, 3);
     const histories = directories.map((entry) => JSON.parse(fs.readFileSync(path.join(principalRoot, entry.name, 'prompt-history.json'), 'utf8')));
     assert.deepEqual(histories.map((rows) => rows.length).sort(), [1, 1, 1]);
-    assert.equal(new Set(histories.map((rows) => JSON.stringify(rows[0].tokens))).size, 3);
+    assert.equal(new Set(histories.map((rows) => JSON.stringify(rows[0].tokenDigests))).size, 3);
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -290,12 +291,14 @@ test('optional routing uses a separately validated last-good plan after malforme
   const cache = cachedPlan();
   const { context, saved } = await invoke({ requireRouting: false, cache, response: {} });
   assert.match(context, /routing_method: cached_fallback/);
-  assert.match(context, /L7 Mnemosyne/);
   assert.match(context, /routing_provenance: authenticated_cache_plus_local_policy/);
-  assert.match(context, /L7 Mnemosyne.*origin=cache;.*execution=not_observed/);
+  assert.match(context, /L7 \[score=0\.50\].*origin=cache;.*execution=not_observed/);
   assert.doesNotMatch(context, /This routing decision was made upstream by Cortex/);
-  assert.deepEqual(saved.plan, cache.plan);
-  assert.equal(saved.provenance, cache.provenance);
+  assert.deepEqual(saved.plan, {
+    recommendedLevels: [{ level: 7 }],
+    routingMethod: 'cached_route_plan',
+  });
+  assert.match(saved.provenance, /^[0-9a-f]{64}$/);
   assert.match(saved.scopeTag, /^[0-9a-f]{64}$/);
 });
 
@@ -307,9 +310,10 @@ test('cached fallback preserves local mandatory provenance while marking provide
     { level: 5, name: 'Oracle', reason: 'mandatory local reasoning policy', alwaysOn: false, origin: 'local_mandatory' },
   ];
   const { context } = await invoke({ requireRouting: false, cache, response: {} });
-  assert.match(context, /L24 Nexus.*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
-  assert.match(context, /L7 Mnemosyne.*origin=cache; policy=optional; execution=not_observed/);
-  assert.match(context, /L5 Oracle.*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
+  assert.match(context, /L24 \[score=0\.50\].*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
+  assert.match(context, /L7 \[score=0\.50\].*origin=cache; policy=optional; execution=not_observed/);
+  assert.match(context, /L5 \[score=0\.50\].*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
+  assert.doesNotMatch(context, /mandatory local routing policy|provider selected|mandatory local reasoning policy/);
 });
 
 test('optional routing does not treat a malformed HTTP 200 as a live plan', async () => {
@@ -390,7 +394,7 @@ test('live provider cannot forge route-gate-owned provenance', async () => {
       recommended_levels: [{ level: 24, name: 'Nexus' }],
       routing_method: 'cached_fallback',
     },
-  }), /reserved routing method/);
+  }), SAFE_ROUTING_FAILURE);
   await assert.rejects(() => invoke({
     requireRouting: true,
     response: {
@@ -398,21 +402,21 @@ test('live provider cannot forge route-gate-owned provenance', async () => {
       routing_method: 'live',
       routing_markers: { routeGateLivePlanReuse: { reused: true } },
     },
-  }), /reserved route-gate marker/);
+  }), SAFE_ROUTING_FAILURE);
 });
 
 test('live routing rejects non-boolean always_on metadata', async () => {
   await assert.rejects(() => invoke({
     requireRouting: true,
     response: { recommended_levels: [{ level: 24, always_on: 'true' }] },
-  }), /invalid live route response schema/);
+  }), SAFE_ROUTING_FAILURE);
 });
 
 test('live provider cannot forge route-gate origin metadata', async () => {
   await assert.rejects(() => invoke({
     requireRouting: true,
     response: { recommended_levels: [{ level: 24, origin: 'local_mandatory' }] },
-  }), /invalid live route response schema/);
+  }), SAFE_ROUTING_FAILURE);
 });
 
 test('routing POST uses the configured sensitive write-token header', async () => {
@@ -573,7 +577,7 @@ test('routing rejects prompts above the configured POST-body byte limit before f
     prompt: 'x'.repeat(1025),
     config: { maxRoutingPromptBytes: 1024 },
     inspectRequest() { fetched = true; },
-  }), /routing prompt exceeds 1024 bytes/);
+  }), SAFE_ROUTING_FAILURE);
   assert.equal(fetched, false);
 });
 

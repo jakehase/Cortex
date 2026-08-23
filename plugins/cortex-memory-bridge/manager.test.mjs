@@ -130,7 +130,7 @@ test('manager forwards signed tenant, workspace, and agent scope', async () => {
   }
 });
 
-test('configured deployment user remains stable across runtime hook shapes', async () => {
+test('legacy configured-user preference cannot override trusted runtime identity', async () => {
   const originalFetch = globalThis.fetch;
   let request;
   globalThis.fetch = async (_url, options) => {
@@ -142,8 +142,8 @@ test('configured deployment user remains stable across runtime hook shapes', asy
       { ...scopedConfig, userId: 'configured-openclaw-user', preferConfiguredUserId: true },
       { userId: 'runtime-only-user' },
     ));
-    await manager.search('stable configured principal');
-    assert.equal(request.scope.user_id, 'configured-openclaw-user');
+    await manager.search('callback principal remains authoritative');
+    assert.equal(request.scope.user_id, 'runtime-only-user');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -240,8 +240,40 @@ test('manager rejects unkeyed session identity fallback', async () => {
 test('manager construction fails closed when its trusted invocation seam is incomplete', async () => {
   await assert.rejects(
     () => CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' }),
-    /trusted invocation context: missing sessionKey, userId, channelId/,
+    /trusted invocation context: missing sessionKey/,
   );
+});
+
+test('manager applies configured fallbacks to a trusted session-only callback', async () => {
+  let request;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    request = JSON.parse(String(options?.body || '{}'));
+    return new Response('{"results":[],"search_mode":"semantic"}');
+  };
+  try {
+    const manager = await CortexMemorySearchManager.create({
+      cfg: {
+        ...scopedConfig,
+        agentId: 'configured-agent',
+        userId: 'configured-user',
+        channelId: 'configured-channel',
+        retryCount: 0,
+      },
+      invocationContext: { sessionKey: 'session-only-runtime' },
+    });
+    await manager.search('runtime fallback parity');
+    assert.deepEqual(request.scope, {
+      tenant_id: 'tenant-test',
+      workspace_id: 'workspace-test',
+      agent_id: 'configured-agent',
+      user_id: 'configured-user',
+      channel_id: 'configured-channel',
+      session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('session-only-runtime').digest('hex')}`,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 for (const response of [

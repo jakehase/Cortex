@@ -464,11 +464,11 @@ test('lifecycle hooks require a trusted session and use only configured fixed-pr
   }
 });
 
-test('memory_search fails closed without complete trusted factory identity and never contacts Cortex', async () => {
+test('memory_search applies configured principal fallbacks to a trusted session-only factory callback', async () => {
   let searchFactory;
   let fetched = false;
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { fetched = true; return new Response('{"results":[]}'); };
+    globalThis.fetch = async () => { fetched = true; return new Response('{"results":[],"search_mode":"semantic"}'); };
   try {
     plugin.register({
       pluginConfig: lifecycleConfig(),
@@ -480,9 +480,8 @@ test('memory_search fails closed without complete trusted factory identity and n
       },
     });
     const result = JSON.parse(await searchFactory({ sessionKey: 'only-a-session' }).execute('missing-principal', { query: 'private memory' }));
-    assert.equal(result.disabled, true);
-    assert.match(result.error, /trusted invocation context: missing userId, channelId, agentId/);
-    assert.equal(fetched, false);
+    assert.equal(result.disabled, undefined);
+    assert.equal(fetched, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -507,7 +506,23 @@ test('memory runtime manager binds and preserves trusted invocation identity', a
 
     const unavailable = await memoryRuntime.getMemorySearchManager({ agentId: 'manager-agent' });
     assert.equal(unavailable.manager, null);
-    assert.match(unavailable.error, /trusted invocation context: missing sessionKey, userId, channelId/);
+    assert.match(unavailable.error, /cortex_memory_manager_unavailable/);
+    assert.doesNotMatch(unavailable.error, /missing sessionKey/);
+
+    const fallback = await memoryRuntime.getMemorySearchManager({
+      sessionKey: 'manager-fallback-session',
+      agentId: 'manager-agent',
+    });
+    assert.ok(fallback.manager);
+    await fallback.manager.search('manager fallback recall');
+    assert.deepEqual(requestBody.scope, {
+      tenant_id: 'tenant-test',
+      workspace_id: 'workspace-test',
+      agent_id: 'manager-agent',
+      user_id: 'local-user',
+      channel_id: 'local-channel',
+      session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('manager-fallback-session').digest('hex')}`,
+    });
 
     const available = await memoryRuntime.getMemorySearchManager({
       sessionKey: 'manager-session',
@@ -730,7 +745,7 @@ test('write-through retains an expired receipt while Nexus reports unknown commi
   }
 });
 
-test('failed lifecycle writes replay from the durable spool after plugin restart', async () => {
+test('failed lifecycle writes retain metadata only and retry after a trusted callback following restart', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-restart-'));
   const config = lifecycleConfig({
     stateDir,
@@ -774,6 +789,9 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     assert.equal(pendingRecords.length, 1);
     assert.equal(pendingRecords[0].version, 3);
     assert.equal(pendingRecords[0].assuranceReceipt, 'test-assurance-receipt');
+    const durableSpool = JSON.stringify(pendingRecords);
+    assert.doesNotMatch(durableSpool, /restart-safe durable lifecycle output|restart-session/);
+    assert.match(durableSpool, /cortex\.lifecycle-payload-metadata\.v1/);
     const firstKey = pendingRecords[0].key;
     assert.deepEqual(pendingRecords[0].principal, {
       version: 1,
@@ -786,8 +804,8 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
       session_id: `openclaw-${createHmac('sha256', 'session-test-secret').update('restart-session').digest('hex')}`,
     });
     assert.deepEqual(pendingRecords[0].context, {
-      sessionKey: 'restart-session',
-      sessionId: 'restart-session',
+      sessionKey: `openclaw-${createHmac('sha256', 'session-test-secret').update('restart-session').digest('hex')}`,
+      sessionId: `openclaw-${createHmac('sha256', 'session-test-secret').update('restart-session').digest('hex')}`,
       channelId: 'local-channel',
       agentId: 'main',
       userId: 'local-user',
@@ -795,15 +813,19 @@ test('failed lifecycle writes replay from the durable spool after plugin restart
     });
 
     acceptCommit = true;
+    const secondHandlers = new Map();
     plugin.register({
       pluginConfig: config,
       logger: { info() {}, warn() {} },
-      on() {},
+      on(name, handler) { secondHandlers.set(name, handler); },
       registerMemoryRuntime() {},
       registerTool() {},
     });
     await new Promise((resolve) => setTimeout(resolve, 25));
 
+    assert.equal(requests.length, 1, 'metadata-only restart does not replay content without a callback');
+    secondHandlers.get('llm_output')({ content: 'restart-safe durable lifecycle output' }, context);
+    await secondHandlers.get('agent_end')({}, context);
     assert.equal(requests.length, 2);
     assert.equal(receiptRequests, 1, 'restart reuses the durably retained server receipt');
     assert.equal(requests[1].body.assurance_receipt, requests[0].body.assurance_receipt);
@@ -860,6 +882,7 @@ test('separate processes reuse the retained receipt after a durable commit respo
   const secondScript = `
     import fs from 'node:fs'; import path from 'node:path';
     import plugin from ${JSON.stringify(moduleUrl)};
+    const handlers = new Map();
     globalThis.fetch = async (url, options) => {
       if (String(url).endsWith('/nexus/assurance/receipt')) throw new Error('restart minted a second receipt');
       const request = JSON.parse(String(options?.body || '{}'));
@@ -872,8 +895,11 @@ test('separate processes reuse the retained receipt after a durable commit respo
     };
     plugin.register({
       pluginConfig: ${JSON.stringify(config)}, logger: { info() {}, warn() {} },
-      on() {}, registerMemoryRuntime() {}, registerTool() {},
+      on(name, handler) { handlers.set(name, handler); }, registerMemoryRuntime() {}, registerTool() {},
     });
+    const context = ${JSON.stringify(context)};
+    handlers.get('llm_output')({ content: 'We decided to preserve the durable response-loss deployment.' }, context);
+    await handlers.get('agent_end')({ messages: [{ role: 'user', content: 'Remember the durable response-loss decision.' }] }, context);
     const root = path.join(${JSON.stringify(stateDir)}, 'lifecycle-principals-v2');
     const pending = () => fs.existsSync(root) && fs.readdirSync(root)
       .some((entry) => fs.existsSync(path.join(root, entry, 'lifecycle-spool.json')));
@@ -1006,7 +1032,7 @@ test('concurrent stale reclaimers cannot delete the replacement lifecycle lock',
   }
 });
 
-test('lifecycle replay quarantines every active-configuration principal mismatch', async () => {
+test('lifecycle restart never replays across active-configuration principal mismatches', async () => {
   const variants = [
     { tenantId: 'tenant-other' },
     { workspaceId: 'workspace-other' },
@@ -1056,12 +1082,17 @@ test('lifecycle replay quarantines every active-configuration principal mismatch
         await new Promise((resolve) => setTimeout(resolve, 25));
 
         assert.equal(commitRequests, 1, `mismatched ${Object.keys(variant)[0]} must not replay`);
-        assert.equal(fs.existsSync(spoolFile), false);
-        assert.ok(
-          fs.readdirSync(path.dirname(spoolFile)).some((name) => name.includes('principal-scope-mismatch') && name.endsWith('.quarantine')),
-          `mismatched ${Object.keys(variant)[0]} spool is quarantined`,
-        );
-        assert.ok(warnings.some((message) => message.includes('inactive principal scope')));
+        if ('sessionIdentityHmacSecret' in variant) {
+          assert.equal(fs.existsSync(spoolFile), true, 'opaque metadata remains pending but cannot replay without a trusted callback');
+          assert.ok(warnings.some((message) => message.includes('awaits trusted callback')));
+        } else {
+          assert.equal(fs.existsSync(spoolFile), false);
+          assert.ok(
+            fs.readdirSync(path.dirname(spoolFile)).some((name) => name.includes('principal-scope-mismatch') && name.endsWith('.quarantine.json')),
+            `mismatched ${Object.keys(variant)[0]} spool is quarantined`,
+          );
+          assert.ok(warnings.some((message) => message.includes('inactive principal scope')));
+        }
       } finally {
         fs.rmSync(stateDir, { recursive: true, force: true });
       }
@@ -1089,7 +1120,9 @@ test('legacy unscoped lifecycle spool is quarantined without replay', async () =
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(fetched, false);
     assert.equal(fs.existsSync(path.join(stateDir, 'lifecycle-spool.json')), false);
-    assert.ok(fs.readdirSync(stateDir).some((name) => name.includes('legacy-unscoped') && name.endsWith('.quarantine')));
+    const quarantine = fs.readdirSync(stateDir).find((name) => name.includes('legacy-unscoped') && name.endsWith('.quarantine.json'));
+    assert.ok(quarantine);
+    assert.doesNotMatch(fs.readFileSync(path.join(stateDir, quarantine), 'utf8'), /foreign output/);
     assert.ok(warnings.some((message) => message.includes('unscoped lifecycle spool')));
   } finally {
     globalThis.fetch = originalFetch;
@@ -1172,7 +1205,8 @@ test('principal namespaces preserve the global durable spool bound', async () =>
       .flatMap((spoolFile) => JSON.parse(fs.readFileSync(spoolFile, 'utf8')));
     assert.equal(retained.length, 2);
     assert.equal(requests.length, 2, 'the third principal cannot multiply the configured spool capacity');
-    assert.ok(warnings.some((message) => message.includes('exhausted across principals at 2 records')));
+    assert.ok(warnings.some((message) => /lifecycle namespace admission failed .*detail_hash=[0-9a-f]{64}/.test(message)));
+    assert.ok(warnings.every((message) => !message.includes('principal-three')));
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -1664,8 +1698,37 @@ test('parallel declared-size rejections do not await stalled body cancellation',
     assert.equal(cancellations.length, 2);
     assert.ok(cancellations.every(({ called }) => called), 'each rejected response body is canceled');
     for (const result of results) {
-      assert.match(JSON.parse(result).error, /response exceeds 64 bytes/);
+      const parsed = JSON.parse(result);
+      assert.equal(parsed.error, 'cortex_memory_search_failed');
+      assert.match(parsed.failure.detailHash, /^[0-9a-f]{64}$/);
+      assert.doesNotMatch(result, /response exceeds 64 bytes/);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('memory_search failure returns status/hash metadata without upstream error content', async () => {
+  let searchTool;
+  const marker = 'OPAQUE_UPSTREAM_ERROR_MARKER_64f99a';
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: marker }), { status: 503 });
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool(factory, options) {
+        if (options?.names?.includes('memory_search')) searchTool = factory(lifecycleContext('error-session'));
+      },
+    });
+    const result = await searchTool.execute('opaque-error', { query: 'private query marker' });
+    const parsed = JSON.parse(result);
+    assert.equal(parsed.error, 'cortex_memory_search_failed');
+    assert.equal(parsed.failure.status, 503);
+    assert.match(parsed.failure.detailHash, /^[0-9a-f]{64}$/);
+    assert.doesNotMatch(result, new RegExp(marker));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1684,8 +1747,10 @@ test('canonical project-status summaries score as durable project state', () => 
 test('write-through metadata labels model output as an unvalidated assurance candidate', () => {
   const cfg = {
     writeTags: ['durable-memory', 'assurance-candidate', 'cortex-upgrade'],
+    tenantId: 'tenant-test', workspaceId: 'workspace-test', agentId: 'main', userId: 'local-user', channelId: 'whatsapp',
+    sessionIdentityHmacSecret: 'metadata-session-secret',
   };
-  const ctx = { channelId: 'whatsapp', sessionKey: 'sess-mailchimp' };
+  const ctx = { channelId: 'whatsapp', sessionKey: 'sess-mailchimp', agentId: 'main', userId: 'local-user' };
   const text = `Mailchimp current canonical status: supervisorStatus: red, matrixStatus: partial, parityStatus: partial. Remaining surfaces: C_data_model_and_persistence_parity.`;
   const dur = durabilityScore(text);
   const metadata = buildWriteThroughMetadata(cfg, ctx, text, dur);
@@ -1697,6 +1762,8 @@ test('write-through metadata labels model output as an unvalidated assurance can
   assert.equal(metadata.topic, 'mailchimp-canonical-status');
   assert.ok(metadata.tags.includes('mailchimp'));
   assert.ok(metadata.tags.includes('canonical_project_status'));
+  assert.notEqual(metadata.sessionKey, 'sess-mailchimp');
+  assert.match(metadata.sessionKey, /^openclaw-[0-9a-f]{64}$/);
 });
 
 test('ephemeral chat stays below durability threshold', () => {

@@ -1,38 +1,18 @@
 from __future__ import annotations
 
 import os
-import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from cortex_server.models.evidence import CapabilityLayer, RuntimeEvent
+from cortex_server.modules.sensitive_data_redaction import redact_sensitive_data_with_metadata
 
 
 JsonDict = Dict[str, Any]
 EVENT_SCHEMA_VERSION = "cortex.runtime.event.v1"
 LINEAGE_SCHEMA_VERSION = "cortex.traceability.v1"
 STATE_CLASSES = ("raw_evidence", "inferred_state", "learned_preference", "operator_override")
-SENSITIVE_KEY_HINTS = (
-    "token",
-    "secret",
-    "password",
-    "passwd",
-    "api_key",
-    "apikey",
-    "credential",
-    "cookie",
-    "bearer",
-)
-SECRET_PATTERNS = [
-    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}\b"),
-    re.compile(r"\b(?:eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9._-]{8,}\.[A-Za-z0-9._-]{8,})\b"),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._=-]{10,}\b", re.IGNORECASE),
-]
-PAYLOAD_PREVIEW_LIMIT = 600
-
-
 PROCESS_EVENT_FAMILIES = {
     "command_started": "execution",
     "command_finished": "execution",
@@ -78,83 +58,13 @@ def _mode_env(name: str, default: str) -> str:
     return (raw.strip().lower() if raw is not None else default).strip() or default
 
 
-def _clean_text(value: Any, *, limit: int = PAYLOAD_PREVIEW_LIMIT) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(value).replace("\x00", "")
-    if len(text) <= limit:
-        return text
-    return text[: max(1, limit - 1)] + "…"
-
-
-def _looks_sensitive_key(key: str) -> bool:
-    lowered = str(key or "").strip().lower()
-    return any(hint in lowered for hint in SENSITIVE_KEY_HINTS)
-
-
-def _redact_string(text: str, *, replacement: str = "[REDACTED]") -> str:
-    out = str(text or "")
-    for pattern in SECRET_PATTERNS:
-        out = pattern.sub(replacement, out)
-    return out
-
-
-def _classify_string_sensitivity(text: str) -> str:
-    raw = str(text or "")
-    if any(pattern.search(raw) for pattern in SECRET_PATTERNS):
-        return "secret_never_display"
-    if len(raw) > 40 and re.search(r"[A-Za-z0-9_-]{24,}", raw):
-        return "credential_like"
-    return "operator_safe"
-
-
-def _merge_sensitivity(current: str, candidate: str) -> str:
-    ordering = {name: idx for idx, name in enumerate(REDaction_LEVELS)}
-    if ordering.get(candidate, 0) > ordering.get(current, 0):
-        return candidate
-    return current
-
-
 def redact_payload(value: Any, *, mode: str = "operator_safe") -> Tuple[Any, JsonDict]:
-    redacted_fields: List[str] = []
-    sensitivity = "public_safe"
-
-    def _walk(node: Any, path: str = "") -> Any:
-        nonlocal sensitivity
-        if isinstance(node, dict):
-            out: JsonDict = {}
-            for key, val in node.items():
-                key_text = str(key)
-                child_path = f"{path}.{key_text}" if path else key_text
-                if _looks_sensitive_key(key_text):
-                    redacted_fields.append(child_path)
-                    sensitivity = _merge_sensitivity(sensitivity, "secret_never_display")
-                    out[key_text] = "[REDACTED]"
-                else:
-                    out[key_text] = _walk(val, child_path)
-            return out
-        if isinstance(node, list):
-            return [_walk(item, f"{path}[{idx}]") for idx, item in enumerate(node)]
-        if isinstance(node, tuple):
-            return [_walk(item, f"{path}[{idx}]") for idx, item in enumerate(node)]
-        if isinstance(node, str):
-            string_sensitivity = _classify_string_sensitivity(node)
-            sensitivity = _merge_sensitivity(sensitivity, string_sensitivity)
-            redacted = _redact_string(node)
-            if redacted != node:
-                redacted_fields.append(path or "value")
-            if mode == "public_safe" and len(redacted) > 260:
-                return _clean_text(redacted, limit=260)
-            return redacted
-        return node
-
-    redacted = _walk(value)
-    meta = {
-        "mode": mode,
-        "redacted_field_count": len(redacted_fields),
-        "redacted_fields": redacted_fields[:50],
-        "highest_sensitivity": sensitivity,
-    }
+    redacted, meta = redact_sensitive_data_with_metadata(
+        value,
+        max_string_chars=260 if mode == "public_safe" else None,
+    )
+    meta = {"mode": mode, **meta}
+    meta["redacted_fields"] = list(meta.get("redacted_fields") or [])[:50]
     return redacted, meta
 
 

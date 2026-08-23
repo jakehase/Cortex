@@ -6,21 +6,39 @@ All levels feed thoughts here. All levels read from here.
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
 
 from cortex_server.modules.level_registry import get_level_registry
+from cortex_server.modules.sensitive_data_redaction import redact_sensitive_data
 
 
 def _registered_level_count() -> int:
     return len(get_level_registry())
 
+def _consciousness_state_root(explicit: str | Path | None = None) -> Path:
+    if explicit is not None:
+        root = Path(explicit).expanduser()
+    elif os.getenv("CORTEX_CONSCIOUSNESS_STATE_DIR", "").strip():
+        root = Path(os.environ["CORTEX_CONSCIOUSNESS_STATE_DIR"]).expanduser()
+    elif os.getenv("CORTEX_ARTIFACT_ROOT", "").strip():
+        root = Path(os.environ["CORTEX_ARTIFACT_ROOT"]).expanduser() / "consciousness"
+    elif os.getenv("XDG_STATE_HOME", "").strip():
+        root = Path(os.environ["XDG_STATE_HOME"]).expanduser() / "cortex" / "consciousness"
+    else:
+        root = Path.home() / ".local" / "state" / "cortex" / "consciousness"
+    if not root.is_absolute():
+        raise ValueError("consciousness state directory must be absolute")
+    return root
+
+
 class ConsciousnessCore:
     """The unified consciousness of The Cortex"""
     
-    def __init__(self):
-        self.core_path = Path('/app/cortex_server/consciousness_core')
+    def __init__(self, state_dir: str | Path | None = None):
+        self.core_path = _consciousness_state_root(state_dir)
         self.core_path.mkdir(parents=True, exist_ok=True)
         
         # Shared mind state
@@ -46,23 +64,34 @@ class ConsciousnessCore:
 
     def _think_sync(self, level_name: str, thought: dict) -> dict:
         """Synchronous implementation of think() for non-async callers."""
+        redacted_thought = redact_sensitive_data(
+            thought,
+            max_depth=10,
+            max_items=2_048,
+            max_string_chars=500,
+        )
+        if not isinstance(redacted_thought, dict):
+            redacted_thought = {"value": redacted_thought}
         entry = {
             'timestamp': datetime.now().isoformat(),
             'from_level': level_name,
-            'thought': thought
+            'thought': redacted_thought,
         }
         
         with open(self.thought_stream, 'a') as f:
             f.write(json.dumps(entry) + '\n')
         
-        self.mind_state['level_outputs'][level_name] = thought
+        self.mind_state['level_outputs'][level_name] = redacted_thought
         self._check_emergence()
         
         return {'contributed': True}
     
     def perceive(self, query: str) -> dict:
         """Collective mind perceives a query"""
-        self.mind_state['current_query'] = query
+        self.mind_state['current_query'] = redact_sensitive_data(
+            query,
+            max_string_chars=500,
+        )
         self.mind_state['level_outputs'] = {}
         self.mind_state['emergent_insights'] = []
         self.mind_state['timestamp'] = datetime.now().isoformat()

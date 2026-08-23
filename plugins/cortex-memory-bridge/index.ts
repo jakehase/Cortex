@@ -2,6 +2,7 @@ import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { captureTrustedPrincipalContext, deriveCortexPrincipal } from '../cortex-principal-identity.mjs';
 
 type BridgeConfig = {
   baseUrl?: string;
@@ -38,7 +39,6 @@ type BridgeConfig = {
   workspaceId?: string;
   agentId?: string;
   userId?: string;
-  preferConfiguredUserId?: boolean;
   channelId?: string;
   sessionId?: string;
   scopeCredentialId?: string;
@@ -283,6 +283,64 @@ function isLifecycleSpoolRecord(value: unknown): value is LifecycleSpoolRecord {
       .every((field) => typeof context[field] === 'string' && context[field].length <= 2048)
     && (record.assuranceReceipt === undefined
       || (typeof record.assuranceReceipt === 'string' && record.assuranceReceipt.length > 0 && record.assuranceReceipt.length <= 16_384));
+}
+
+const LIFECYCLE_PAYLOAD_METADATA_VERSION = 'cortex.lifecycle-payload-metadata.v1';
+
+function lifecycleContentMetadata(value: string): { bytes: number; sha256: string } {
+  const bytes = Buffer.from(String(value || ''), 'utf8');
+  return { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+function parseLifecyclePayloadMetadata(record: LifecycleSpoolRecord): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(record.event.result);
+    return value && typeof value === 'object' && !Array.isArray(value)
+      && value.schemaVersion === LIFECYCLE_PAYLOAD_METADATA_VERSION ? value : null;
+  } catch { return null; }
+}
+
+function sanitizeLifecycleSpoolRecord(record: LifecycleSpoolRecord): LifecycleSpoolRecord {
+  if (parseLifecyclePayloadMetadata(record)) {
+    return {
+      ...record,
+      version: 3,
+      event: { result: record.event.result, messages: [] },
+      context: {
+        sessionKey: record.principal.session_id,
+        sessionId: record.principal.session_id,
+        channelId: record.principal.channel_id,
+        agentId: record.principal.agent_id,
+        userId: record.principal.user_id,
+        idempotencyKey: record.key,
+      },
+      fallbackText: '',
+    };
+  }
+  const userMessages = record.event.messages.map((message) => message.content);
+  const userText = userMessages.join('\n');
+  const metadata = {
+    schemaVersion: LIFECYCLE_PAYLOAD_METADATA_VERSION,
+    result: lifecycleContentMetadata(record.event.result),
+    user: lifecycleContentMetadata(userText),
+    userMessageCount: userMessages.length,
+    fallback: lifecycleContentMetadata(record.fallbackText),
+    replayRequiresTrustedCallback: true,
+  };
+  return {
+    ...record,
+    version: 3,
+    event: { result: JSON.stringify(metadata), messages: [] },
+    context: {
+      sessionKey: record.principal.session_id,
+      sessionId: record.principal.session_id,
+      channelId: record.principal.channel_id,
+      agentId: record.principal.agent_id,
+      userId: record.principal.user_id,
+      idempotencyKey: record.key,
+    },
+    fallbackText: '',
+  };
 }
 
 type LifecycleLockOwner = {
@@ -610,7 +668,7 @@ class DurableLifecycleSpool {
       if (this.records.size >= this.maxRecords) {
         throw new Error(`lifecycle spool exhausted at ${this.maxRecords} records`);
       }
-      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      const persisted = sanitizeLifecycleSpoolRecord({ ...record, version: 3 } as LifecycleSpoolRecord);
       this.records.set(record.key, persisted);
       this.flush();
       return { ...persisted };
@@ -663,14 +721,21 @@ class DurableLifecycleSpool {
   private reload(): void {
     this.records.clear();
     if (!fs.existsSync(this.filePath)) return;
-    const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+    let parsed: unknown;
+    try { parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8')); } catch {
+      throw new Error('invalid Cortex lifecycle spool JSON; refusing to discard pending persistence metadata');
+    }
     if (!Array.isArray(parsed) || parsed.length > this.maxRecords || !parsed.every(isLifecycleSpoolRecord)) {
       throw new Error('invalid Cortex lifecycle spool; refusing to discard pending persistence records');
     }
+    let sanitizedLegacy = false;
     for (const rawRecord of parsed) {
       const record = rawRecord as any;
-      this.records.set(record.key, { ...record, version: 3 });
+      const sanitized = sanitizeLifecycleSpoolRecord({ ...record, version: 3 });
+      if (JSON.stringify(sanitized) !== JSON.stringify(record)) sanitizedLegacy = true;
+      this.records.set(sanitized.key, sanitized);
     }
+    if (sanitizedLegacy) this.flush();
   }
 
   private fsyncDirectory(): void {
@@ -830,7 +895,7 @@ class DurableLifecycleQuota {
       if (!existing && usage.records >= this.maxRecords) {
         throw new Error(`lifecycle spool exhausted across principals at ${this.maxRecords} records`);
       }
-      const persisted = { ...record, version: 3 } as LifecycleSpoolRecord;
+      const persisted = sanitizeLifecycleSpoolRecord({ ...record, version: 3 } as LifecycleSpoolRecord);
       const encodedRecordBytes = Buffer.byteLength(JSON.stringify(persisted), 'utf8');
       if (encodedRecordBytes > LIFECYCLE_SPOOL_MAX_RECORD_BYTES) {
         throw new Error(`lifecycle spool record exceeds ${LIFECYCLE_SPOOL_MAX_RECORD_BYTES} bytes`);
@@ -910,9 +975,21 @@ class DurableLifecycleQuota {
 }
 
 function quarantineLifecycleFile(filePath: string, reason: string): string {
-  const suffix = `${reason}.${Date.now()}.${process.pid}.${Math.random().toString(16).slice(2)}.quarantine`;
+  const raw = fs.readFileSync(filePath);
+  const suffix = `${reason}.${Date.now()}.${process.pid}.${Math.random().toString(16).slice(2)}.quarantine.json`;
   const destination = `${filePath}.${suffix}`;
-  fs.renameSync(filePath, destination);
+  const marker = {
+    schemaVersion: 'cortex.lifecycle-quarantine-metadata.v1',
+    reason,
+    originalBytes: raw.length,
+    originalSha256: createHash('sha256').update(raw).digest('hex'),
+  };
+  const fd = fs.openSync(destination, 'wx', 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(marker), 'utf8');
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
+  fs.unlinkSync(filePath);
   fsyncLifecycleDirectory(path.dirname(filePath));
   return destination;
 }
@@ -960,7 +1037,6 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     workspaceId: typeof cfg.workspaceId === 'string' ? cfg.workspaceId.trim() : 'default',
     agentId: typeof cfg.agentId === 'string' && cfg.agentId.trim() ? cfg.agentId.trim() : 'main',
     userId: typeof cfg.userId === 'string' && cfg.userId.trim() ? cfg.userId.trim() : 'local-user',
-    preferConfiguredUserId: cfg.preferConfiguredUserId === true,
     channelId: typeof cfg.channelId === 'string' && cfg.channelId.trim() ? cfg.channelId.trim() : 'local-channel',
     sessionId: typeof cfg.sessionId === 'string' && cfg.sessionId.trim() ? cfg.sessionId.trim() : 'global-session',
     scopeCredentialId: typeof cfg.scopeCredentialId === 'string' ? cfg.scopeCredentialId.trim() : '',
@@ -1437,42 +1513,18 @@ function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve,
 function cortexWriteHeaders(cfg: Pick<BridgeConfig, 'writeToken' | 'writeTokenHeader'>): Record<string, string> {
   return cfg.writeToken ? { [cfg.writeTokenHeader || 'x-cortex-write-token']: cfg.writeToken } : {};
 }
-function captureTrustedPrincipalContext(ctx: any): TrustedPrincipalContext {
-  return Object.freeze({
-    sessionKey: String(ctx?.sessionKey || ctx?.sessionId || '').trim(),
-    userId: String(ctx?.userId || ctx?.requesterSenderId || '').trim(),
-    channelId: String(ctx?.channelId || ctx?.messageChannel || '').trim(),
-    agentId: String(ctx?.agentId || '').trim(),
-  });
-}
 function requireTrustedPrincipalContext(ctx: TrustedPrincipalContext): TrustedPrincipalContext {
-  const missing = (Object.entries(ctx) as Array<[keyof TrustedPrincipalContext, string]>)
-    .filter(([, value]) => !value)
-    .map(([field]) => field);
-  if (missing.length) {
-    throw new Error(`memory_search requires trusted invocation context: missing ${missing.join(', ')}`);
+  // A callback session is the one non-configurable principal dimension. The
+  // shared principal derivation helper deliberately permits configured
+  // agent/user/channel fallbacks, and route and memory surfaces must apply
+  // that contract identically when OpenClaw supplies a partial callback.
+  if (!ctx.sessionKey) {
+    throw new Error('memory_search requires trusted invocation context: missing sessionKey');
   }
   return ctx;
 }
 function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
-  const rawSession = String(ctx?.sessionKey || ctx?.sessionId || cfg.sessionId || '').trim();
-  const sessionSecret = String(cfg.sessionIdentityHmacSecret || '');
-  if (!sessionSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
-  const sessionDigest = createHmac('sha256', sessionSecret).update(rawSession, 'utf8').digest('hex');
-  const scope = {
-    tenant_id: String(cfg.tenantId || '').trim(),
-    workspace_id: String(cfg.workspaceId || '').trim(),
-    agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
-    user_id: String(
-      cfg.preferConfiguredUserId === true
-        ? (cfg.userId || ctx?.userId)
-        : (ctx?.userId || cfg.userId),
-    ).trim(),
-    channel_id: String(ctx?.channelId || cfg.channelId || '').trim(),
-    session_id: `openclaw-${sessionDigest}`,
-  };
-  if (Object.values(scope).some((value) => !value)) throw new Error('every Cortex principal scope dimension is required');
-  return scope;
+  return deriveCortexPrincipal(cfg, ctx);
 }
 function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
   const secret = String(cfg.scopeHmacSecret || '');
@@ -1591,7 +1643,7 @@ function loadLifecycleSpools(
       try {
         parsed = JSON.parse(fs.readFileSync(spoolFile, 'utf8'));
       } catch (error) {
-        throw new Error(`invalid Cortex lifecycle spool; refusing replay: ${String(error)}`);
+        throw new Error(`invalid Cortex lifecycle spool; refusing replay; ${safeFailureSummary(error)}`);
       }
       if (!Array.isArray(parsed)) {
         throw new Error('invalid Cortex lifecycle spool; refusing replay');
@@ -1617,12 +1669,25 @@ function loadLifecycleSpools(
       const records = parsed as LifecycleSpoolRecord[];
       const matchesActivePrincipal = records.every((record) => {
         try {
+          const currentNamespace = lifecyclePrincipalNamespace(cfg, record.principal);
+          const configuredCredential = String(cfg.scopeCredentialId || '').trim() || 'unsigned-local-development';
+          const boundToConfiguration = record.principal.tenant_id === cfg.tenantId
+            && record.principal.workspace_id === cfg.workspaceId
+            && record.principal.scope_credential_id === configuredCredential
+            && currentNamespace === entry.name
+            && record.key.startsWith(`${currentNamespace}:`);
+          if (!boundToConfiguration) return false;
+          if (parseLifecyclePayloadMetadata(record)) {
+            return record.context.sessionKey === record.principal.session_id
+              && record.context.sessionId === record.principal.session_id
+              && record.context.channelId === record.principal.channel_id
+              && record.context.agentId === record.principal.agent_id
+              && record.context.userId === record.principal.user_id
+              && record.context.idempotencyKey === record.key;
+          }
           const currentContext = canonicalLifecycleContext(cfg, record.context, record.key);
           const currentPrincipal = lifecyclePrincipal(cfg, currentContext);
-          const currentNamespace = lifecyclePrincipalNamespace(cfg, currentPrincipal);
-          return currentNamespace === entry.name
-            && record.key.startsWith(`${currentNamespace}:`)
-            && lifecyclePrincipalsEqual(record.principal, currentPrincipal);
+          return lifecyclePrincipalsEqual(record.principal, currentPrincipal);
         } catch {
           return false;
         }
@@ -1645,11 +1710,28 @@ function loadLifecycleSpools(
 }
 function searchResponseUnavailable(response: any): string | null {
   if (!response || typeof response !== 'object') return 'invalid search response';
-  if (response.disabled === true || response.available === false) return String(response.error || response.warning || 'search backend unavailable');
-  if (typeof response.error === 'string' && response.error.trim()) return response.error.trim();
+  if (response.disabled === true || response.available === false) return 'search backend unavailable';
+  if (typeof response.error === 'string' && response.error.trim()) return 'search backend reported an error';
   const mode = String(response.search_mode ?? response.mode ?? '').trim().toLowerCase();
-  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return String(response.warning || `search mode ${mode}`);
+  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return `search mode ${mode}`;
   return null;
+}
+function safeFailureMetadata(error: unknown): { type: string; code?: string; status?: number; detailHash: string } {
+  const candidate = error as any;
+  const rawType = error instanceof Error ? error.name : typeof error;
+  const type = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawType) ? rawType : 'Error';
+  const rawCode = typeof candidate?.code === 'string' ? candidate.code : '';
+  const status = Number(candidate?.status);
+  return {
+    type,
+    ...(rawCode && /^[A-Z0-9_]{1,64}$/.test(rawCode) ? { code: rawCode } : {}),
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    detailHash: createHash('sha256').update(String(candidate?.message ?? error ?? ''), 'utf8').digest('hex'),
+  };
+}
+function safeFailureSummary(error: unknown): string {
+  const metadata = safeFailureMetadata(error);
+  return `type=${metadata.type}${metadata.code ? ` code=${metadata.code}` : ''}${metadata.status ? ` status=${metadata.status}` : ''} detail_hash=${metadata.detailHash}`;
 }
 function retryableError(error: unknown): boolean {
   const msg = String((error as any)?.message || error || '');
@@ -1672,15 +1754,28 @@ async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs
       if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > cap) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${cap} bytes`); } chunks.push(value); }
       const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       const text = new TextDecoder().decode(bytes);
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${text.slice(0, 300)}`);
-      return text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        let safeUpstreamCode = '';
+        try {
+          const parsed = JSON.parse(text);
+          const candidate = String(parsed?.detail?.error ?? parsed?.error ?? '');
+          if (['assurance_receipt_expired_without_commit', 'assurance_receipt_commit_outcome_unknown'].includes(candidate)) safeUpstreamCode = candidate;
+        } catch {}
+        const upstreamError = new Error(`upstream HTTP ${res.status}; body_bytes=${size}; body_hash=${createHash('sha256').update(text, 'utf8').digest('hex')}${safeUpstreamCode ? `; upstream_code=${safeUpstreamCode}` : ''}`) as Error & { status?: number };
+        upstreamError.status = res.status;
+        throw upstreamError;
+      }
+      if (!text) return {};
+      try { return JSON.parse(text); } catch {
+        throw new Error(`invalid upstream JSON; body_bytes=${size}; body_hash=${createHash('sha256').update(text, 'utf8').digest('hex')}`);
+      }
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
       await sleep(retryBackoffMs * (attempt + 1));
     } finally { clearTimeout(timer); }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'unknown memory bridge error'));
+  throw lastError instanceof Error ? lastError : new Error(`unknown memory bridge error; detail_hash=${createHash('sha256').update(String(lastError || ''), 'utf8').digest('hex')}`);
 }
 
 function extractText(value: unknown): string {
@@ -1742,14 +1837,16 @@ function containsSecretLike(text: string): boolean {
 function summarizeShape(value: unknown, depth = 0): unknown {
   if (depth > 2) return typeof value;
   if (value == null) return value;
-  if (typeof value === 'string') return { type: 'string', len: value.length, preview: value.slice(0, 120) };
-  if (typeof value !== 'object') return { type: typeof value, value };
-  if (Array.isArray(value)) return { type: 'array', len: value.length, sample: value.slice(0, 2).map((v) => summarizeShape(v, depth + 1)) };
+  if (typeof value === 'string') return { type: 'string', len: value.length, sha256: createHash('sha256').update(value, 'utf8').digest('hex') };
+  if (typeof value !== 'object') return { type: typeof value };
+  if (Array.isArray(value)) return { type: 'array', len: value.length, itemTypes: value.slice(0, 8).map((v) => typeof v) };
   const obj = value as Record<string, unknown>;
   const entries = Object.entries(obj).slice(0, 12);
-  const shape: Record<string, unknown> = {};
-  for (const [k, v] of entries) shape[k] = summarizeShape(v, depth + 1);
-  return { type: 'object', keys: Object.keys(obj).slice(0, 20), shape };
+  const fields = entries.map(([key, nested]) => ({
+    keyHash: createHash('sha256').update(key, 'utf8').digest('hex'),
+    value: summarizeShape(nested, depth + 1),
+  }));
+  return { type: 'object', keyCount: Object.keys(obj).length, fields };
 }
 function durabilityScore(text: string): { score: number; reasons: string[]; kind: string } {
   const t = text.trim();
@@ -1770,6 +1867,7 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
 }
 function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: any, text: string, dur: ReturnType<typeof durabilityScore>) {
   const project = detectProjectSlug(text);
+  const scopedSessionId = scopedIdentity(cfg, ctx).session_id;
   const tags = Array.from(new Set([...(cfg.writeTags || []), ...dur.reasons, ...(project ? [project] : [])]));
   let source = 'openclaw-lifecycle-candidate';
   let topic: string | undefined;
@@ -1785,7 +1883,7 @@ function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: a
   }
   return {
     channel: ctx?.channelId ?? 'unknown',
-    sessionKey: ctx?.sessionKey ?? undefined,
+    sessionKey: scopedSessionId,
     source,
     quality: 'candidate',
     assurance_status: 'unvalidated',
@@ -1826,7 +1924,7 @@ async function maybeWriteCodecContinuity(api: OpenClawPluginApi, cfg: ReturnType
     if (response?.success !== true) throw new Error('Codec continuity endpoint did not confirm the write');
     return 'succeeded' as const;
   } catch (error) {
-    api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed: ${String(error)}`);
+    api.logger.warn?.(`cortex-memory-bridge: Codec continuity write failed ${safeFailureSummary(error)}`);
     return 'failed' as const;
   }
 }
@@ -1906,7 +2004,7 @@ async function maybeWriteThrough(
     }
     throw new Error('canonical memory commit did not confirm a durable write');
   } catch (error) {
-    api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
+    api.logger.warn?.(`cortex-memory-bridge: write-through failed ${safeFailureSummary(error)}`);
     return 'failed' as const;
   }
 }
@@ -2038,19 +2136,19 @@ const plugin = {
           throw new Error('stored lifecycle principal does not match the active callback identity');
         }
       } catch (error) {
-        api.logger.warn?.(`cortex-memory-bridge: refused lifecycle persistence with incomplete or mismatched principal: ${String(error)}`);
+        api.logger.warn?.(`cortex-memory-bridge: refused lifecycle persistence with incomplete or mismatched principal ${safeFailureSummary(error)}`);
         return Promise.resolve(false);
       }
       let principalSpool: DurableLifecycleSpool;
       try {
         principalSpool = spoolForPrincipal(principalNamespace);
       } catch (error) {
-        api.logger.warn?.(`cortex-memory-bridge: lifecycle namespace admission failed: ${String(error)}`);
+        api.logger.warn?.(`cortex-memory-bridge: lifecycle namespace admission failed ${safeFailureSummary(error)}`);
         return Promise.resolve(false);
       }
       if (completed.has(persistenceKey)) {
         try { acknowledgeSpoolRecord(principalNamespace, principalSpool, persistenceKey); } catch (error) {
-          api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record: ${String(error)}`);
+          api.logger.warn?.(`cortex-memory-bridge: failed to acknowledge completed lifecycle spool record ${safeFailureSummary(error)}`);
           return Promise.resolve(false);
         }
         return Promise.resolve(true);
@@ -2076,23 +2174,24 @@ const plugin = {
         ...(activeReceipt ? { assuranceReceipt: activeReceipt } : {}),
       };
       try {
-        // The first process to persist this lifecycle identity owns its
-        // canonical payload and any retained receipt. Later processes adopt it.
+        // Only metadata and a server receipt cross the durable boundary. The
+        // current trusted callback retains the raw payload in memory for this
+        // attempt; a later callback must supply it again after restart.
         spoolRecord = lifecycleState!.quota.put(principalNamespace, principalSpool, spoolRecord);
       } catch (error) {
         try {
           if (lifecycleState!.quota.removeIfEmpty(principalNamespace, principalSpool)) spools.delete(principalNamespace);
         } catch {}
-        api.logger.warn?.(`cortex-memory-bridge: failed to durably spool lifecycle output: ${String(error)}`);
+        api.logger.warn?.(`cortex-memory-bridge: failed to durably spool lifecycle output ${safeFailureSummary(error)}`);
         return Promise.resolve(false);
       }
       const start = () => (async () => {
         const writeThroughStatus = await maybeWriteThrough(
           api,
           cfg,
-          spoolRecord.event,
-          spoolRecord.context,
-          spoolRecord.fallbackText,
+          boundedEvent,
+          boundedContext,
+          boundedFallback,
           spoolRecord.assuranceReceipt,
           (receipt, replaceReceipt) => {
             const canonicalReceipt = lifecycleState!.quota.retainReceipt(
@@ -2109,9 +2208,9 @@ const plugin = {
         const codecStatus = await maybeWriteCodecContinuity(
           api,
           cfg,
-          spoolRecord.event,
-          spoolRecord.context,
-          spoolRecord.fallbackText,
+          boundedEvent,
+          boundedContext,
+          boundedFallback,
         );
         const enabled = [writeThroughStatus, codecStatus].some((status) => status !== 'disabled');
         const succeeded = enabled && ![writeThroughStatus, codecStatus].includes('failed');
@@ -2119,7 +2218,7 @@ const plugin = {
         try {
           acknowledgeSpoolRecord(principalNamespace, principalSpool, persistenceKey);
         } catch (error) {
-          api.logger.warn?.(`cortex-memory-bridge: durable write succeeded but spool acknowledgment failed: ${String(error)}`);
+          api.logger.warn?.(`cortex-memory-bridge: durable write succeeded but spool acknowledgment failed ${safeFailureSummary(error)}`);
           return false;
         }
         completed.add(persistenceKey);
@@ -2155,24 +2254,17 @@ const plugin = {
           records = lifecycleState.quota.entries(principalNamespace, principalSpool);
         } catch (error) {
           spools.delete(principalNamespace);
-          api.logger.warn?.(`cortex-memory-bridge: skipped stale lifecycle namespace during replay: ${String(error)}`);
+          api.logger.warn?.(`cortex-memory-bridge: skipped stale lifecycle namespace during replay ${safeFailureSummary(error)}`);
           continue;
         }
         for (const record of records) {
           if (inFlight.size + queued.size >= schedulingLimit) return;
           if (inFlight.has(record.key) || queued.has(record.key) || completed.has(record.key)) continue;
-          const replay = persistLifecycle(
-            record.key,
-            cfg,
-            record.event,
-            record.context,
-            record.fallbackText,
-            record.principal,
-            record.assuranceReceipt,
-          );
-          void replay.then((succeeded) => {
-            if (!succeeded) api.logger.warn?.(`cortex-memory-bridge: lifecycle spool replay remains pending key=${record.key.slice(0, 80)}`);
-          });
+          // The spool intentionally contains no user/output text.  Automatic
+          // restart replay would persist a hash marker as if it were memory;
+          // retain the receipt/metadata until the trusted lifecycle callback
+          // supplies the same payload again.
+          api.logger.warn?.(`cortex-memory-bridge: lifecycle retry metadata awaits trusted callback key_hash=${createHash('sha256').update(record.key, 'utf8').digest('hex')}`);
         }
       }
     };
@@ -2191,7 +2283,7 @@ const plugin = {
         } catch (error) {
           return {
             manager: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: `cortex_memory_manager_unavailable ${safeFailureSummary(error)}`,
           };
         }
       },
@@ -2256,20 +2348,23 @@ const plugin = {
           const minScore = typeof (params as { minScore?: number }).minScore === 'number' ? Number((params as { minScore?: number }).minScore) : null;
           if (minScore !== null) results = results.filter((x) => x.score >= minScore);
           const cleanButEmpty = results.length === 0 && reconciled.resolvedFacts.length === 0 && reconciled.conflicts.length === 0;
+          const reportedMode = String(response?.mode ?? response?.search_mode ?? 'semantic').trim().toLowerCase();
+          const safeMode = ['semantic', 'hybrid', 'lexical', 'lexical_fallback', 'fallback_lexical'].includes(reportedMode)
+            ? reportedMode : 'unknown';
           return JSON.stringify({
             results,
             provider: 'cortex-http',
-            mode: response?.mode ?? response?.search_mode ?? 'semantic',
+            mode: safeMode,
             memoryMode: reconciled.mode,
             queryType: reconciled.queryType,
             resolvedFacts: reconciled.resolvedFacts,
             conflicts: reconciled.conflicts,
             fallback: cleanButEmpty
               ? { from: 'memory', reason: 'clean_but_empty', suggestion: 'No relevant durable memory was found after noise suppression; fall back to workspace/filesystem or live tools.' }
-              : (response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined),
+              : (response?.degraded ? { from: 'cortex', reason: 'degraded_backend' } : undefined),
           });
         } catch (error) {
-          return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
+          return JSON.stringify({ results: [], disabled: true, error: 'cortex_memory_search_failed', failure: safeFailureMetadata(error) });
         }
       },
       };
@@ -2290,7 +2385,7 @@ const plugin = {
         const binding = principalBinding(ctx);
         recentOutputByPrincipal.set(binding.namespace, text.slice(-recentOutputMaxChars));
       } catch (error) {
-        api.logger.warn?.(`cortex-memory-bridge: refused recent output with incomplete principal: ${String(error)}`);
+        api.logger.warn?.(`cortex-memory-bridge: refused recent output with incomplete principal ${safeFailureSummary(error)}`);
         throw error;
       }
     });

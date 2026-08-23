@@ -13,16 +13,25 @@ from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Callable, Dict, List, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field, field_validator
 
 from cortex_server.modules import queue_admission
-from cortex_server.worker import app as celery_app
+from cortex_server.worker import (
+    app as celery_app,
+    task_consumes_delegated_action_capability,
+)
 from cortex_server.modules.async_offload import (
     BlockingCallDeadlineExceeded,
     run_blocking,
 )
-
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    DELEGATED_ACTION_CAPABILITY_HEADER,
+    assert_action_authorized,
+    mint_worker_action_capability,
+    require_action_capability,
+)
 
 router = APIRouter()
 
@@ -482,14 +491,22 @@ async def _reconcile_terminal_admissions() -> int:
 @router.post("/schedule", response_model=TaskResponse)
 async def schedule_task(
     request: ScheduleRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
     idempotency_key: Annotated[
         Optional[str], Header(alias="Idempotency-Key")
     ] = None,
 ) -> TaskResponse:
-    """Schedule one bounded task with capacity and idempotency admission."""
+    """Schedule one proof-carrying task with bounded durable admission."""
 
-    if request.task not in celery_app.tasks:
-        raise HTTPException(status_code=404, detail=f"Unknown task: {request.task}")
+    assert_action_authorized(authorization)
+    if not task_consumes_delegated_action_capability(
+        request.task,
+        celery=celery_app,
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="task does not consume delegated action capabilities",
+        )
 
     body_key = _normalize_idempotency_key(request.idempotency_key)
     header_key = _normalize_idempotency_key(idempotency_key)
@@ -501,6 +518,18 @@ async def schedule_task(
     resolved_key = body_key or header_key
     if resolved_key is None:
         raise HTTPException(status_code=422, detail="idempotency key is required")
+
+    try:
+        worker_capability = mint_worker_action_capability(
+            authorization,
+            task=request.task,
+            args=request.args,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="worker action capability is unavailable",
+        ) from exc
 
     digest = _request_digest(request)
 
@@ -515,8 +544,8 @@ async def schedule_task(
     try:
         admission, replay = await reserve()
     except queue_admission.QueueCapacityUnavailable as initial_capacity:
-        # Finished jobs are reaped on pressure even if no client queried their
-        # individual task status.  Admission is retried once, atomically.
+        # Reap terminal jobs under pressure, then retry the atomic reservation
+        # once.  An unproven terminal state never releases capacity.
         try:
             await _reconcile_terminal_admissions()
             admission, replay = await reserve()
@@ -530,8 +559,6 @@ async def schedule_task(
                 headers={"Retry-After": str(_retry_after_seconds())},
             ) from exc
         except QueueDependencyUnavailable:
-            # Reconciliation is opportunistic.  If it cannot prove a terminal
-            # slot, preserve the original fail-closed capacity result.
             raise HTTPException(
                 status_code=429,
                 detail={
@@ -565,15 +592,20 @@ async def schedule_task(
 
     try:
         async_result = await _run_celery_call(
-            "queue_dispatch", celery_app.send_task, request.task, args=request.args
+            "queue_dispatch",
+            celery_app.send_task,
+            request.task,
+            args=request.args,
+            headers={
+                DELEGATED_ACTION_CAPABILITY_HEADER: worker_capability,
+            },
         )
         task_id = str(getattr(async_result, "id", "") or "").strip()
         if not task_id:
             raise QueueDependencyUnavailable("queue_dispatch_missing_task_id")
     except QueueDependencyUnavailable as exc:
-        # A timed-out/background publish may still complete.  Keep the
-        # idempotency reservation and capacity charge so a retry cannot create
-        # a duplicate task whose first outcome is unknown.
+        # A background publish may still complete after the API deadline. Keep
+        # the reservation charged so a retry cannot produce a duplicate action.
         try:
             await _run_admission_call(
                 "queue_admission_update",
@@ -598,8 +630,6 @@ async def schedule_task(
             task_id=task_id,
         )
     except QueueDependencyUnavailable as exc:
-        # The publish succeeded but the durable outcome could not be recorded.
-        # Never invite a retry that could dispatch the same request twice.
         raise HTTPException(
             status_code=503,
             detail={"code": "queue_dispatch_outcome_not_recorded"},
@@ -646,9 +676,14 @@ async def get_status(task_id: str) -> TaskStatus:
 
 
 @router.post("/cancel/{task_id}", response_model=CancellationResponse)
-async def cancel_task(task_id: str, request: CancelRequest) -> CancellationResponse:
+async def cancel_task(
+    task_id: str,
+    request: CancelRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> CancellationResponse:
     """Request cooperative revocation; running workers are never terminated."""
 
+    assert_action_authorized(authorization)
     try:
         admission = await _run_admission_call(
             "queue_admission_lookup", _admission_for_task, task_id

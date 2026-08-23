@@ -44,7 +44,7 @@ function validCache(secret = CACHE_SECRET) {
   }, secret);
 }
 
-async function contextForCache(cache, secret = CACHE_SECRET) {
+async function contextForCache(cache, secret = CACHE_SECRET, details = false) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-cache-'));
   const sessionKey = `agent:main:test:cache-${Math.random()}`;
   const sessionSecret = 'session-identity-route-cache-test-secret';
@@ -90,7 +90,9 @@ async function contextForCache(cache, secret = CACHE_SECRET) {
       { prompt: 'Status request', messages: [{ role: 'user', content: 'What is the status?' }] },
       { sessionKey, agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
     );
-    return String(result?.appendSystemContext || '');
+    const context = String(result?.appendSystemContext || '');
+    const persistedCache = fs.readFileSync(path.join(principalDir, 'last-good-plan.json'), 'utf8');
+    return details ? { context, persistedCache } : context;
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -98,10 +100,12 @@ async function contextForCache(cache, secret = CACHE_SECRET) {
 }
 
 test('a valid authenticated last-good route plan is used when routing is offline', async () => {
-  const context = await contextForCache(validCache());
+  const { context, persistedCache } = await contextForCache(validCache(), CACHE_SECRET, true);
 
   assert.match(context, /routing_method: cached_fallback/);
-  assert.match(context, /cached reasoning/);
+  assert.doesNotMatch(context, /cached reasoning/);
+  assert.doesNotMatch(persistedCache, /cached reasoning|coding_chain|checkpoints\.jsonl|cached routing|baseline reasoning/);
+  assert.match(persistedCache, /cached_route_plan/);
 });
 
 test('wrong or missing deployment cache key fails safe', async () => {

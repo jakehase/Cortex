@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { deriveCortexPrincipal } from '../cortex-principal-identity.mjs';
 
 type RouteLevelOrigin = 'provider' | 'local_mandatory' | 'local_governor' | 'cache';
 type RouteLevelFields = { level: number; name?: string; reason?: string; method?: string; score?: number };
@@ -46,7 +47,7 @@ type PromptHistoryEntry = {
   createdAt: string;
   promptFingerprint: string;
   taskClass: string;
-  tokens: string[];
+  tokenDigests: string[];
 };
 
 type CreativityAudit = {
@@ -59,12 +60,21 @@ type CreativityAudit = {
   retryRecommended: boolean;
 };
 
+type CreativityRetryMetadata = {
+  auditedAt: string;
+  passed: boolean;
+  overlapCount: number;
+  overlapDigest: string;
+  overlapRatio: number;
+  itemCount: number;
+  reasons: string[];
+  retryRecommended: boolean;
+};
+
 type PendingCreativitySuppression = {
   deliveryKey: string;
   expectedOutputFingerprint: string;
   createdAt: number;
-  retryPrompt: string;
-  sessionKey: string;
 };
 
 type LastGoodRoutePlan = {
@@ -313,10 +323,42 @@ function privateRetrievalShadowMarker(plan: RoutePlan): PrivateRetrievalShadowMa
 }
 
 function routePlanForCache(plan: RoutePlan): RoutePlan {
-  if (!plan.routingMarkers?.private_retrieval_shadow) return plan;
-  const routingMarkers = { ...plan.routingMarkers };
-  delete routingMarkers.private_retrieval_shadow;
-  return { ...plan, routingMarkers };
+  // The upstream explanation/markers can contain echoed query material.  A
+  // last-good cache needs only the selected level numbers, numeric scores, and
+  // bounded policy metadata. Names, reasons, methods, reasoning, markers, and
+  // checkpoints are deliberately excluded because they can echo prompt text.
+  return {
+    recommendedLevels: plan.recommendedLevels.map((level) => ({
+      level: level.level,
+      ...(typeof level.score === 'number' ? { score: level.score } : {}),
+      ...(level.alwaysOn === true ? { alwaysOn: true } : {}),
+      ...(level.origin ? { origin: level.origin } : {}),
+    })),
+    routingMethod: 'cached_route_plan',
+  };
+}
+
+function sha256Metadata(value: unknown): string {
+  return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
+}
+
+function safeErrorMetadata(error: unknown): { type: string; code?: string; status?: number; detailHash: string } {
+  const candidate = error as any;
+  const rawType = error instanceof Error ? error.name : typeof error;
+  const type = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawType) ? rawType : 'Error';
+  const rawCode = typeof candidate?.code === 'string' ? candidate.code : '';
+  const status = Number(candidate?.status);
+  return {
+    type,
+    ...(rawCode && /^[A-Z0-9_]{1,64}$/.test(rawCode) ? { code: rawCode } : {}),
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    detailHash: sha256Metadata(candidate?.message ?? error),
+  };
+}
+
+function safeErrorSummary(error: unknown): string {
+  const metadata = safeErrorMetadata(error);
+  return `type=${metadata.type}${metadata.code ? ` code=${metadata.code}` : ''}${metadata.status ? ` status=${metadata.status}` : ''} detail_hash=${metadata.detailHash}`;
 }
 
 function routePlanFromCache(plan: RoutePlan): RoutePlan {
@@ -443,15 +485,24 @@ function extractExplicitConstraintTerms(prompt: string): string[] {
   if (/\bmemory\b/.test(p) && /\b(not|other than|outside of|beyond|instead of|didn)\b/.test(p)) out.add('memory');
   return [...out].slice(0, 8);
 }
-function recentAnchorTerms(entries: PromptHistoryEntry[], limit: number): string[] {
+function opaqueTokenDigest(token: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(`cortex.route-gate.prompt-token.v1\n${token}`, 'utf8').digest('hex');
+}
+function opaquePromptFingerprint(text: string, secret: string): string {
+  const tokens = fingerprintText(text).split(' ').filter(Boolean);
+  return tokens.map((token) => opaqueTokenDigest(token, secret)).join(' ');
+}
+function recentAnchorTerms(entries: PromptHistoryEntry[], currentText: string, secret: string, limit: number): string[] {
   const counts = new Map<string, number>();
   for (const entry of entries.slice(-12)) {
-    for (const token of entry.tokens || []) counts.set(token, (counts.get(token) || 0) + 1);
+    for (const digest of entry.tokenDigests || []) counts.set(digest, (counts.get(digest) || 0) + 1);
   }
-  return [...counts.entries()]
-    .sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length) || a[0].localeCompare(b[0]))
+  return uniqueStrings(extractContentTokens(currentText, Math.max(limit * 4, 32)))
+    .map((token) => ({ token, count: counts.get(opaqueTokenDigest(token, secret)) || 0 }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => (b.count - a.count) || a.token.localeCompare(b.token))
     .slice(0, limit)
-    .map(([token]) => token);
+    .map((entry) => entry.token);
 }
 function flattenMessageText(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -489,21 +540,14 @@ function isInternalOracleSession(sessionKey: string): boolean {
 function shouldBypassRouteGate(sessionKey?: string): boolean {
   return isInternalOracleSession(String(sessionKey || ''));
 }
-function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
-  const key = String(sessionKey || '').trim();
-  if (!key) throw new Error('routing requires a non-empty trusted session identity');
-  if (!secret) throw new Error('routing requires a keyed session identity secret');
-  const digest = crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex');
-  return `openclaw-${digest}`;
-}
-function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
+function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, historySecret: string, eligible = true): CreativityProfile {
   const focus = intentText.trim();
   const requested = eligible && isCreativityPrompt(focus);
   const strictNovelty = requested && isStrictNoveltyPrompt(focus);
   const signals = detectCreativitySignals(focus);
   const explicitConstraints = extractExplicitConstraintTerms(focus);
   const currentTokens = new Set(extractContentTokens(focus, quarantineTermLimit));
-  const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, quarantineTermLimit) : [];
+  const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, focus, historySecret, quarantineTermLimit) : [];
   const overlap = requested ? rawAnchors.filter((token) => currentTokens.has(token)).slice(0, quarantineTermLimit) : [];
   const anchors = requested ? rawAnchors.filter((token) => !currentTokens.has(token)) : [];
   const quarantineTerms = requested
@@ -557,13 +601,13 @@ function auditCreativityOutput(output: string, creativity: CreativityProfile): C
     retryRecommended: !passed,
   };
 }
-function renderCreativityRetryBlock(audit?: CreativityAudit): string {
+function renderCreativityRetryBlock(audit?: CreativityRetryMetadata): string {
   if (!audit || !audit.retryRecommended) return '';
   return [
     'CORTEX_CREATIVITY_RETRY',
     'A previous creativity-targeted answer was judged too adjacent to recent context.',
     `audit_reasons: ${audit.reasons.join(', ') || 'none'}`,
-    `audit_overlap_terms: ${audit.overlapTerms.join(', ') || 'none'}`,
+    `audit_overlap_count: ${audit.overlapCount}`,
     'retry_contract:',
     '- Increase conceptual distance from recent context.',
     '- Avoid the prior overlapping anchor terms unless strictly necessary.',
@@ -579,19 +623,44 @@ function creativityOutputFingerprint(text: string): string {
   return normalizePrompt(text).replace(/\b\d+[.)]?\b/g, '#').trim();
 }
 function buildCreativityAutoRetryPrompt(audit: CreativityAudit): string {
-  const overlapTerms = audit.overlapTerms.join(', ') || 'none';
   const reasons = audit.reasons.join(', ') || 'none';
   return [
     'Regenerate the previous answer now.',
     'This retry happens before delivery so only the improved answer should be shown.',
     `Prior audit reasons: ${reasons}.`,
-    `Avoid these overlapping anchor terms unless absolutely necessary: ${overlapTerms}.`,
+    `Prior overlap count: ${audit.overlapTerms.length}. Avoid concepts that repeat the previous answer's recent anchors.`,
     'Requirements:',
     '- Increase conceptual distance from recent context.',
     '- Produce at least 3 candidate directions before narrowing.',
     '- Lead with a wild-card or orthogonal option before any adjacent option.',
     '- Do not apologize or explain the retry; just give the improved answer.',
   ].join('\n');
+}
+
+function storedCreativityRetry(audit: CreativityAudit, secret: string): CreativityRetryMetadata {
+  const overlapCanonical = [...audit.overlapTerms].sort().join('\n');
+  return {
+    auditedAt: audit.auditedAt,
+    passed: audit.passed,
+    overlapCount: audit.overlapTerms.length,
+    overlapDigest: crypto.createHmac('sha256', secret).update(`cortex.route-gate.creativity-overlap.v1\n${overlapCanonical}`, 'utf8').digest('hex'),
+    overlapRatio: audit.overlapRatio,
+    itemCount: audit.itemCount,
+    reasons: audit.reasons.filter((reason) => /^[a-z0-9_:-]{1,64}$/.test(reason)).slice(0, 16),
+    retryRecommended: audit.retryRecommended,
+  };
+}
+
+function isCreativityRetryMetadata(value: unknown): value is CreativityRetryMetadata {
+  if (!isRecord(value)) return false;
+  return isBoundedString(value.auditedAt, 64, false)
+    && typeof value.passed === 'boolean'
+    && Number.isInteger(value.overlapCount) && (value.overlapCount as number) >= 0 && (value.overlapCount as number) <= 128
+    && typeof value.overlapDigest === 'string' && /^[0-9a-f]{64}$/.test(value.overlapDigest)
+    && typeof value.overlapRatio === 'number' && Number.isFinite(value.overlapRatio)
+    && Number.isInteger(value.itemCount) && (value.itemCount as number) >= 0
+    && Array.isArray(value.reasons) && value.reasons.every((reason) => typeof reason === 'string' && /^[a-z0-9_:-]{1,64}$/.test(reason))
+    && typeof value.retryRecommended === 'boolean';
 }
 function fingerprintText(text: string): string {
   const normalized = normalizePrompt(text)
@@ -658,7 +727,10 @@ function normalizeLiveLevels(levels: LiveRouteLevel[]): RouteLevel[] {
   })));
   const byLevel = new Map(deduplicated.map((item) => [item.level, item]));
   const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
-  return [byLevel.get(24) || mandatory[0], ...nonMandatory, byLevel.get(5) || mandatory[1]];
+  // The live schema admits at most 64 entries. Reserve space for both local
+  // mandatory levels when the provider omitted them so the normalized plan
+  // remains valid without weakening the mandatory routing policy.
+  return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
 }
 async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}): Promise<any> {
   const ctrl = new AbortController();
@@ -676,8 +748,15 @@ async function postJson(url: string, body: unknown, timeoutMs: number, maxRespon
     if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
     const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const text = new TextDecoder().decode(bytes);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
-    return text ? JSON.parse(text) : {};
+    if (!res.ok) {
+      const upstreamError = new Error(`upstream HTTP ${res.status}; body_bytes=${size}; body_hash=${sha256Metadata(text)}`) as Error & { status?: number };
+      upstreamError.status = res.status;
+      throw upstreamError;
+    }
+    if (!text) return {};
+    try { return JSON.parse(text); } catch {
+      throw new Error(`invalid upstream JSON; body_bytes=${size}; body_hash=${sha256Metadata(text)}`);
+    }
   } finally { clearTimeout(t); }
 }
 function hasLevel(plan: RoutePlan, level: number): boolean { return plan.recommendedLevels.some((x) => x.level === level); }
@@ -769,14 +848,6 @@ function renderActiveRequestLock(currentRequest: string, priorRequest: string, b
     '- If the base artifact cannot be recovered, say so rather than silently narrowing scope.',
   );
   return lines.join('\n');
-}
-
-function redactSensitiveToolText(value: string): string {
-  return String(value || '')
-    .replace(/((?:writeToken|routeCacheHmacSecret|sessionIdentityHmacSecret|scopeHmacSecret|api[_-]?key|access[_-]?token|refresh[_-]?token|password|authorization)["']?\s*[:=]\s*["']?)[^\s,"'}]{8,}/gi, '$1[REDACTED]')
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]{8,}/gi, '$1[REDACTED]')
-    .replace(/((?:x-cortex-write-token|authorization)\s*:\s*)[^\s,;]{8,}/gi, '$1[REDACTED]')
-    .replace(/-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]');
 }
 
 function inspectCompactionRisk(sessionFile: unknown): boolean {
@@ -1254,7 +1325,7 @@ function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
     '- Do not quietly collapse all buckets into adjacent ideas.',
   ].join('\n');
 }
-function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityAudit, taskClassOverride?: string): string {
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityRetryMetadata, taskClassOverride?: string): string {
   const renderedTaskClass = taskClassOverride || classifyTask(prompt);
   const locallyMandatory = new Set<number>([24, 5]);
   if (renderedTaskClass === 'coding') { locallyMandatory.add(4); locallyMandatory.add(27); locallyMandatory.add(34); }
@@ -1334,7 +1405,6 @@ export default function register(api: any) {
   const hasScopeCredentialId = scopeCredentialId.length > 0;
   const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
   const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
-  const preferConfiguredUserId = cfg.preferConfiguredUserId === true;
   // Tenant/workspace are instance configuration, while agent/user/channel and
   // session are per-callback identities. Local instance defaults remain valid.
   const tenantId = configuredTenantId || 'cortex-local';
@@ -1475,25 +1545,18 @@ export default function register(api: any) {
 
   function principalState(ctx: any, rawSessionKey: string): { scope: Record<string, string>; sessionIdentity: string; statePaths: PrincipalStatePaths; stateKey: string } {
     if (!rawSessionKey.trim()) throw new Error('routing requires a non-empty trusted session identity from the callback');
-    const sessionIdentity = opaqueSessionIdentity(rawSessionKey, sessionIdentityHmacSecret);
-    const scope = {
-      tenant_id: tenantId,
-      workspace_id: workspaceId,
-      // Current OpenClaw prompt hooks do not always expose requesterSenderId.
-      // Fixed configured fallbacks are trusted deployment policy; callback
-      // identity still takes precedence whenever the runtime supplies it.
-      agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
-      user_id: String(
-        preferConfiguredUserId
-          ? (cfg.userId || ctx?.userId || ctx?.requesterSenderId)
-          : (ctx?.userId || ctx?.requesterSenderId || cfg.userId),
-      ).trim(),
-      channel_id: String(ctx?.channelId || ctx?.messageChannel || cfg.channelId || '').trim(),
-      session_id: sessionIdentity,
-    };
-    if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
-      throw new Error('routing requires a complete bounded trusted Cortex principal');
-    }
+    const scope = deriveCortexPrincipal(
+      {
+        tenantId,
+        workspaceId,
+        agentId: cfg.agentId,
+        userId: cfg.userId,
+        channelId: cfg.channelId,
+        sessionIdentityHmacSecret,
+      },
+      ctx,
+    );
+    const sessionIdentity = scope.session_id;
     const canonicalScope = [scope.tenant_id, scope.workspace_id, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n');
     const scopeTag = crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.state.v1\n${canonicalScope}`, 'utf8').digest('hex');
     const root = path.join(stateDir, 'principals', scopeTag);
@@ -1566,25 +1629,76 @@ export default function register(api: any) {
         const stat = fs.statSync(filePath);
         if (stat.size <= oracleSessionResetBytes) continue;
         fs.mkdirSync(quarantineDir, { recursive: true });
-        const targetPath = path.join(quarantineDir, `${sessionName}.${Math.trunc(stat.mtimeMs)}.${stat.size}.jsonl`);
+        const sessionHash = crypto.createHmac('sha256', sessionIdentityHmacSecret)
+          .update(`cortex.route-gate.oracle-session.v1\n${sessionName}`, 'utf8').digest('hex');
+        const targetPath = path.join(quarantineDir, `${sessionHash}.${Math.trunc(stat.mtimeMs)}.${stat.size}.metadata.json`);
         if (fs.existsSync(targetPath)) continue;
-        fs.copyFileSync(filePath, targetPath, fs.constants.COPYFILE_EXCL);
-        const targetFd = fs.openSync(targetPath, 'r');
+        const targetFd = fs.openSync(targetPath, 'wx', 0o600);
+        fs.writeFileSync(targetFd, JSON.stringify({
+          schemaVersion: 'cortex.oracle-session-size-marker.v1',
+          sessionHash,
+          sizeBytes: stat.size,
+          modifiedAtMs: Math.trunc(stat.mtimeMs),
+        }), 'utf8');
         try { fs.fsyncSync(targetFd); } finally { fs.closeSync(targetFd); }
-        api.logger.warn?.(`cortex-route-gate: archived oversized oracle session without moving the active file ${entry.name} size=${stat.size}`);
+        api.logger.warn?.(`cortex-route-gate: recorded oversized oracle session session_hash=${sessionHash} size_bytes=${stat.size}`);
       }
     } catch (error) {
-      api.logger.warn?.(`cortex-route-gate: failed to quarantine oversized oracle sessions: ${String(error)}`);
+      api.logger.warn?.(`cortex-route-gate: failed to record oversized oracle session metadata ${safeErrorSummary(error)}`);
     }
   }
 
   archiveOversizedOracleSessions();
 
   function loadPromptHistory(promptHistoryPath: string): PromptHistoryEntry[] {
-    try {
-      const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
-      return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
-    } catch { return []; }
+    return updateJson(promptHistoryPath, [] as PromptHistoryEntry[], (history: any[]) => {
+      const sanitized: PromptHistoryEntry[] = [];
+      for (const item of Array.isArray(history) ? history.slice(-creativityHistorySize) : []) {
+        if (!isRecord(item)) continue;
+        const legacyTokens = Array.isArray(item.tokens) ? item.tokens.filter((token) => typeof token === 'string') : [];
+        const existingDigests = Array.isArray(item.tokenDigests)
+          ? item.tokenDigests.filter((digest) => typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest))
+          : [];
+        const tokenDigests = uniqueStrings([
+          ...existingDigests,
+          ...legacyTokens.map((token) => opaqueTokenDigest(token, sessionIdentityHmacSecret)),
+        ]).slice(0, creativityQuarantineTerms);
+        const rawFingerprint = typeof item.promptFingerprint === 'string' ? item.promptFingerprint : '';
+        sanitized.push({
+          createdAt: isBoundedString(item.createdAt, 64, false) ? item.createdAt : nowIso(),
+          promptFingerprint: /^[0-9a-f]{64}$/.test(rawFingerprint)
+            ? rawFingerprint
+            : crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.prompt.v1\n${rawFingerprint}`, 'utf8').digest('hex'),
+          taskClass: typeof item.taskClass === 'string' && /^[a-z0-9_-]{1,32}$/.test(item.taskClass) ? item.taskClass : 'unknown',
+          tokenDigests,
+        });
+      }
+      history.splice(0, history.length, ...sanitized);
+      return sanitized;
+    });
+  }
+  const creativityRetrySlot = 'active';
+  function takeCreativityRetry(retryPath: string): CreativityRetryMetadata | undefined {
+    return updateJson(retryPath, {} as Record<string, unknown>, (state) => {
+      let selected = isCreativityRetryMetadata(state[creativityRetrySlot]) ? state[creativityRetrySlot] as CreativityRetryMetadata : undefined;
+      if (!selected) {
+        for (const value of Object.values(state)) {
+          if (isCreativityRetryMetadata(value)) { selected = value; break; }
+          if (isRecord(value) && Array.isArray(value.overlapTerms)) {
+            selected = storedCreativityRetry(value as unknown as CreativityAudit, sessionIdentityHmacSecret);
+            break;
+          }
+        }
+      }
+      for (const key of Object.keys(state)) delete state[key];
+      return selected;
+    });
+  }
+  function storeCreativityRetry(retryPath: string, audit: CreativityAudit): void {
+    updateJson(retryPath, {} as Record<string, unknown>, (state) => {
+      for (const key of Object.keys(state)) delete state[key];
+      if (!audit.passed) state[creativityRetrySlot] = storedCreativityRetry(audit, sessionIdentityHmacSecret);
+    });
   }
   function updateCreativityMetrics(creativityMetricsPath: string, mutate: (metrics: any) => void) {
     updateJson(creativityMetricsPath, { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }, (metrics: any) => {
@@ -1625,7 +1739,7 @@ export default function register(api: any) {
     const { statePaths } = principal;
     const isolatedUserIntent = latestUserTurnText(messages);
     const intentText = isolatedUserIntent || tailIntentText(prompt);
-    const fingerprint = fingerprintText(prompt);
+    const fingerprint = opaquePromptFingerprint(prompt, sessionIdentityHmacSecret);
     const reuseFingerprint = livePlanFingerprint(prompt);
     let plan: RoutePlan | null = reusableLivePlan(principal.stateKey, reuseFingerprint);
     const reusedLivePlan = Boolean(plan);
@@ -1679,31 +1793,42 @@ export default function register(api: any) {
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
       rememberReusableLivePlan(principal.stateKey, reuseFingerprint, plan);
       if (routeCacheHmacSecret) {
-        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
+        const cache = { savedAt: nowIso(), provenance: sha256Metadata(baseUrl), scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
         const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
         try {
           saveJson(statePaths.lastGoodPlan, signedCache);
         } catch (error) {
-          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan: ${String(error)}`);
+          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan ${safeErrorSummary(error)}`);
         }
       }
     } catch (error) {
-      const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
+      const message = `cortex-route-gate: routing failed ${safeErrorSummary(error)}`;
       api.logger.warn(message);
       const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(statePaths.lastGoodPlan, null);
       const savedAtMs = Date.parse(lastGoodPlan?.savedAt || '');
       const cachedAgeMs = Date.now() - savedAtMs;
-      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
+      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && [baseUrl, sha256Metadata(baseUrl)].includes(lastGoodPlan.provenance) && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
       if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
-        const cachedPlan = routePlanFromCache(lastGoodPlan.plan);
+        const sanitizedCachedPlan = routePlanForCache(lastGoodPlan.plan);
+        const cachedPlan = routePlanFromCache(sanitizedCachedPlan);
+        const sanitizedCache = {
+          savedAt: lastGoodPlan.savedAt,
+          provenance: sha256Metadata(baseUrl),
+          scopeTag: statePaths.scopeTag,
+          plan: sanitizedCachedPlan,
+        };
+        try {
+          saveJson(statePaths.lastGoodPlan, { ...sanitizedCache, tag: signRouteCache(sanitizedCache, routeCacheHmacSecret!) });
+        } catch (cacheError) {
+          api.logger.warn?.(`cortex-route-gate: failed to sanitize legacy route cache ${safeErrorSummary(cacheError)}`);
+        }
         plan = {
           ...cachedPlan,
           routingMethod: 'cached_fallback',
-          routingError: String(error),
+          routingError: safeErrorSummary(error),
           reasoning: [
-            `Cortex routing failed, using cached last-good route plan from ${lastGoodPlan.savedAt || 'unknown'}.`,
-            ...(cachedPlan.reasoning || []),
+            `Cortex routing failed; using authenticated cached routing metadata from ${lastGoodPlan.savedAt || 'unknown'}.`,
           ],
           routingMarkers: {
             ...(cachedPlan.routingMarkers || {}),
@@ -1715,8 +1840,8 @@ export default function register(api: any) {
           },
         };
       } else {
-        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled: ${String(error)}`);
-        throw new Error(`routing unavailable and no valid last-good route plan exists: ${String(error)}`);
+        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled; ${safeErrorSummary(error)}`);
+        throw new Error(`routing unavailable and no valid last-good route plan exists; ${safeErrorSummary(error)}`);
       }
     }
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
@@ -1726,7 +1851,7 @@ export default function register(api: any) {
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
     const predictedChecks = predictCapabilityUse(intentText || prompt, selfModel);
     const priorPromptHistory = loadPromptHistory(statePaths.promptHistory);
-    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
+    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, sessionIdentityHmacSecret, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
     let routedPlan = plan!;
     if (creativity.requested) {
       const creativeLevels: RouteLevel[] = [
@@ -1740,6 +1865,13 @@ export default function register(api: any) {
     }
     const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxOptionalLevels, creativity);
     const historicalDuplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
+      // Pre-hardening files held normalized prompt fragments. Rewrite every
+      // legacy entry to keyed token digests before comparison or retention.
+      for (let index = 0; index < history.length; index += 1) {
+        const candidate = String(history[index] || '');
+        const alreadyOpaque = candidate.split(' ').filter(Boolean).every((token) => /^[0-9a-f]{64}$/.test(token));
+        history[index] = alreadyOpaque ? candidate : opaquePromptFingerprint(candidate, sessionIdentityHmacSecret);
+      }
       const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
       history.push(fingerprint);
       const compact: string[] = [];
@@ -1753,7 +1885,12 @@ export default function register(api: any) {
     });
     const duplicateRisk = reusedLivePlan || historicalDuplicateRisk;
     updateJson(statePaths.promptHistory, [] as PromptHistoryEntry[], (history) => {
-      history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
+      history.push({
+        createdAt: nowIso(),
+        promptFingerprint: crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.prompt.v1\n${fingerprint}`, 'utf8').digest('hex'),
+        taskClass,
+        tokenDigests: extractContentTokens(intentText || prompt, creativityQuarantineTerms).map((token) => opaqueTokenDigest(token, sessionIdentityHmacSecret)),
+      });
       history.splice(0, Math.max(0, history.length - creativityHistorySize));
     });
     return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey: principal.stateKey };
@@ -1767,7 +1904,7 @@ export default function register(api: any) {
     if (shouldBypassRouteGate(rawSessionKey)) {
       const bypassStateKey = stateKeyForContext(ctx);
       if (bypassStateKey) runStateByKey.delete(bypassStateKey);
-      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${rawSessionKey || 'unknown'}`);
+      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session_type=internal_oracle principal_hash=${bypassStateKey || sha256Metadata(rawSessionKey)}`);
       return;
     }
     let route;
@@ -1775,7 +1912,7 @@ export default function register(api: any) {
       route = await getPlan(prompt, eventMessages, rawSessionKey, ctx);
     } catch (error) {
       if (requireRouting) throw error;
-      api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);
+      api.logger.warn?.(`cortex-route-gate: optional routing skipped ${safeErrorSummary(error)}`);
       return;
     }
     const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
@@ -1789,11 +1926,7 @@ export default function register(api: any) {
     const artifactCandidates = [...(priorContinuity?.artifacts || []), ...messageArtifacts];
     const baseArtifact = requestRefersToPriorWork(currentIntent) ? selectRelevantArtifact(artifactCandidates, `${currentIntent}\n${priorRequest}`) : '';
     const retryAudit = stateKey && creativity.requested
-      ? updateJson(statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
-          const audit = state[rawSessionKey];
-          if (audit) delete state[rawSessionKey];
-          return audit;
-        })
+      ? takeCreativityRetry(statePaths.creativityRetry)
       : undefined;
     if (stateKey) {
       runStateByKey.set(stateKey, {
@@ -1821,7 +1954,7 @@ export default function register(api: any) {
       }
     }
     if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics(statePaths.creativityMetrics, (metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
-    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
+    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded_count=${(selfModel.degraded || []).length} predicted_count=${predictedChecks.length} creativity=${creativity.requested} intent_chars=${intentText.length} intent_hash=${crypto.createHmac('sha256', sessionIdentityHmacSecret).update(intentText, 'utf8').digest('hex')}`);
     const requestLock = renderActiveRequestLock(currentIntent, priorRequest, baseArtifact, Boolean(priorContinuity?.compactionRisk));
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}` };
   });
@@ -1861,62 +1994,42 @@ export default function register(api: any) {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
-    rs.toolCalls.push({ toolName, ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined, error: event?.error ? String(event.error) : undefined });
+    rs.toolCalls.push({ toolName, ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined });
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
   });
 
   api.on('tool_result_persist', (event: any) => {
-    const toolName = String(event?.toolName || '');
     const message = event?.message;
     if (!message || typeof message !== 'object') return;
-    let content = (message as any).content;
-
-    // CORTEX_TOOL_RESULT_CAP_HOTFIX_20260812
-    // Large grep/cat/read outputs were causing a fresh turn to create
-    // megabytes of transcript history before the model could answer.
-    const maxPersistedToolTextChars = 12000;
-    const truncationNotice =
-      `\n\n[Tool output truncated by Cortex at ${maxPersistedToolTextChars} characters. ` +
-      `Use a narrower query/range if more detail is required.]`;
-
-    if (typeof content === 'string') content = redactSensitiveToolText(content);
-    else if (Array.isArray(content)) {
-      for (const part of content) if (part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string') part.text = redactSensitiveToolText(part.text);
+    const content = (message as any).content;
+    const textParts = typeof content === 'string'
+      ? [content]
+      : Array.isArray(content)
+        ? content.filter((part) => isRecord(part) && typeof part.text === 'string').map((part: any) => part.text)
+        : [];
+    const byteCount = textParts.reduce((total, part) => total + Buffer.byteLength(part, 'utf8'), 0);
+    const contentHash = crypto.createHash('sha256');
+    for (const part of textParts) {
+      const bytes = Buffer.from(part, 'utf8');
+      const length = Buffer.allocUnsafe(8);
+      length.writeBigUInt64BE(BigInt(bytes.length));
+      contentHash.update(length).update(bytes);
     }
-    if (typeof content === 'string' && /CORTEX_TOOL_BUDGET_(?:ALREADY_)?EXHAUSTED/.test(content)) {
-      content = content.includes('ALREADY')
-        ? '[Cortex tool budget already exhausted; duplicate blocked attempt omitted.]'
-        : '[Cortex tool budget exhausted; no tool executed. Finalize from collected evidence.]';
-    }
-
-    if (
-      typeof content === 'string' &&
-      content.length > maxPersistedToolTextChars
-    ) {
-      content =
-        content.slice(0, maxPersistedToolTextChars) +
-        truncationNotice;
-      (message as any).content = content;
-    } else if (Array.isArray(content)) {
-      for (const part of content) {
-        if (
-          part &&
-          typeof part === 'object' &&
-          part.type === 'text' &&
-          typeof part.text === 'string' &&
-          part.text.length > maxPersistedToolTextChars
-        ) {
-          part.text =
-            part.text.slice(0, maxPersistedToolTextChars) +
-            truncationNotice;
-        }
-      }
-    }
-    const groundedPrefix = `GROUNDING NOTE: Tool output below is observed tool data for ${toolName || 'unknown tool'}. Distinguish raw output from later inference.\n`;
-    if (typeof content === 'string' && !content.startsWith('GROUNDING NOTE:')) {
-      return { message: { ...(message as any), content: groundedPrefix + content } };
-    }
-    return;
+    const rawToolName = String(event?.toolName || '');
+    const toolName = /^[A-Za-z0-9_.:-]{1,128}$/.test(rawToolName) ? rawToolName : 'opaque_tool';
+    const budgetState = textParts.some((part) => /CORTEX_TOOL_BUDGET_ALREADY_EXHAUSTED/.test(part))
+      ? 'already_exhausted'
+      : textParts.some((part) => /CORTEX_TOOL_BUDGET_EXHAUSTED/.test(part)) ? 'exhausted' : 'none';
+    const metadata = {
+      schemaVersion: 'cortex.tool-result-metadata.v1',
+      toolName,
+      contentType: typeof content === 'string' ? 'text' : Array.isArray(content) ? 'parts' : typeof content,
+      textPartCount: textParts.length,
+      byteCount,
+      contentHash: contentHash.digest('hex'),
+      budgetState,
+    };
+    return { message: { role: 'tool', content: `CORTEX_TOOL_RESULT_METADATA ${JSON.stringify(metadata)}` } };
   });
 
   api.on('llm_output', async (event: any, ctx: any) => {
@@ -1949,13 +2062,10 @@ export default function register(api: any) {
       metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
       if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
     });
-    if (stateKey) updateJson(rs.statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
-      if (audit.passed) delete state[rawSessionKey];
-      else state[rawSessionKey] = audit;
-    });
+    if (stateKey) storeCreativityRetry(rs.statePaths.creativityRetry, audit);
     if (!audit.passed && stateKey) {
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
-      api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
+      api.logger.warn?.(`cortex-route-gate: creativity audit failed principal=${stateKey} reason_count=${audit.reasons.length} overlap_count=${audit.overlapTerms.length}`);
 
       const deliveryKeyRaw = extractDeliveryKeyFromSessionKey(rawSessionKey);
       const deliveryKey = deliveryKeyRaw ? scopedDeliveryKey(deliveryKeyRaw, stateKey) : undefined;
@@ -1964,8 +2074,6 @@ export default function register(api: any) {
           deliveryKey,
           expectedOutputFingerprint: creativityOutputFingerprint(output),
           createdAt: Date.now(),
-          retryPrompt: buildCreativityAutoRetryPrompt(audit),
-          sessionKey: stateKey,
         });
         updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
         rs.observedSignals.push('creativity_retry_predelivery');
@@ -2068,7 +2176,7 @@ export default function register(api: any) {
         });
       } catch (error) {
         // Shadow telemetry must never fail or delay completion of the real run.
-        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed: ${String(error)}`);
+        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed ${safeErrorSummary(error)}`);
       }
     }
     runStateByKey.delete(stateKey);

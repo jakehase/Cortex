@@ -51,6 +51,21 @@ def _configure_sentinel_health(monkeypatch, **overrides):
         monkeypatch.setattr(sentinel, name, value)
 
 
+def _allow_scan_mechanics(monkeypatch):
+    """Isolate scan-health mechanics from separately tested action/egress gates."""
+
+    monkeypatch.setattr(
+        sentinel,
+        "assert_action_authorized",
+        lambda _authorization: None,
+    )
+    monkeypatch.setattr(
+        sentinel,
+        "_authorized_persistent_target",
+        lambda value: value,
+    )
+
+
 def _run_preflight(payload):
     async def preflight():
         return payload
@@ -169,6 +184,7 @@ def test_agg_f057_stopped_sentinel_with_no_scan_fails_closed(monkeypatch):
 
 
 def test_agg_f057_completed_scan_with_down_watcher_is_degraded(monkeypatch):
+    _allow_scan_mechanics(monkeypatch)
     _configure_sentinel_health(
         monkeypatch,
         _scheduler_started_at=time.time() - 1,
@@ -209,6 +225,7 @@ def test_agg_f057_completed_scan_with_down_watcher_is_degraded(monkeypatch):
 
 
 def test_agg_f057_scoped_manual_scan_cannot_clear_full_scan_failure(monkeypatch):
+    _allow_scan_mechanics(monkeypatch)
     _configure_sentinel_health(
         monkeypatch,
         _last_scan_issues=1,
@@ -270,6 +287,7 @@ def test_agg_f057_stale_scan_and_failed_scheduler_task_fail_closed(monkeypatch):
 
 
 def test_agg_f057_scan_exception_is_retained_for_status(monkeypatch):
+    _allow_scan_mechanics(monkeypatch)
     _configure_sentinel_health(
         monkeypatch,
         _last_scan_attempt_at=None,

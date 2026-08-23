@@ -6,6 +6,7 @@ import functools
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -97,6 +98,93 @@ def _asgi_test_client(*args, **kwargs):
 
 fastapi.testclient.TestClient = _asgi_test_client
 starlette.testclient.TestClient = _asgi_test_client
+
+
+@pytest.fixture
+def action_authorization_factory(tmp_path, monkeypatch):
+    """Issue verifier-sealed receipts and isolate delegated-proof state."""
+
+    from fastapi import Depends, FastAPI, Request
+
+    from cortex_server.modules.action_capabilities import (
+        ActionAuthorization,
+        action_capability_headers,
+        require_action_capability,
+    )
+
+    action_secret = "positive-action-secret-0000000000000001"
+    delegation_secret = "positive-delegation-secret-000000000000000001"
+    capability_db_path = tmp_path / "action-capabilities.sqlite3"
+    monkeypatch.setenv("CORTEX_ACTION_DELEGATION_SECRET", delegation_secret)
+    monkeypatch.setenv(
+        "CORTEX_ACTION_CAPABILITY_DB_PATH",
+        str(capability_db_path),
+    )
+    issued = 0
+
+    async def issue() -> ActionAuthorization:
+        nonlocal issued
+        issued += 1
+        path = "/test/authorized-action"
+        principal = SimpleNamespace(
+            role="principal",
+            credential_id="positive-action-test",
+            tenant_id="tenant-positive",
+            workspace_id="workspace-positive",
+            agent_id="agent-positive",
+            user_id="user-positive",
+            channel_id="channel-positive",
+            session_id="session-positive",
+        )
+        app = FastAPI()
+        app.state.action_capability_credentials = {
+            principal.credential_id: action_secret,
+        }
+        app.state.action_capability_policies = {
+            principal.credential_id: (f"POST:{path}",),
+        }
+        app.state.action_capability_db_path = str(capability_db_path)
+        app.state.action_delegation_secret = delegation_secret
+        app.state.external_action_kill_switch = False
+        receipts = []
+
+        @app.middleware("http")
+        async def authenticated_principal(request: Request, call_next):
+            request.state.cortex_principal = principal
+            return await call_next(request)
+
+        @app.post(path)
+        async def capture_receipt(
+            authorization: ActionAuthorization = Depends(require_action_capability),
+        ):
+            receipts.append(authorization)
+            return {"authorized": True}
+
+        body = json.dumps(
+            {"positive_action_receipt": issued},
+            separators=(",", ":"),
+        ).encode("utf-8")
+        now = int(time.time())
+        headers = action_capability_headers(
+            secret=action_secret,
+            principal=principal,
+            method="POST",
+            path=path,
+            body=body,
+            nonce=f"positive_action_nonce_{issued:08d}",
+            issued_at=now,
+            expires_at=now + 60,
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(path, content=body, headers=headers)
+        assert response.status_code == 200
+        assert len(receipts) == 1
+        return receipts[0]
+
+    return issue
 
 
 async def _shutdown_default_executor_synchronously(loop, _timeout=None):

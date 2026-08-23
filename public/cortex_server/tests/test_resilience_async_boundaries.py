@@ -83,7 +83,9 @@ async def test_blocking_offload_is_responsive_bounded_and_retains_late_completio
 
 
 @pytest.mark.asyncio
-async def test_cron_celery_submission_does_not_block_the_event_loop(monkeypatch):
+async def test_cron_celery_submission_does_not_block_the_event_loop(
+    monkeypatch, action_authorization_factory
+):
     entered = threading.Event()
 
     def slow_submission(task_name, **kwargs):
@@ -93,8 +95,11 @@ async def test_cron_celery_submission_does_not_block_the_event_loop(monkeypatch)
 
     monkeypatch.setattr(cron, "trigger_celery_task", slow_submission)
     request = cron.WebhookTriggerRequest(task="cortex_tasks.add", args=[1, 2])
+    authorization = await action_authorization_factory()
 
-    submission = asyncio.create_task(cron.trigger_webhook(request))
+    submission = asyncio.create_task(
+        cron.trigger_webhook(request, authorization=authorization)
+    )
     await asyncio.wait_for(asyncio.sleep(0.01), timeout=0.03)
     assert entered.is_set()
     assert not submission.done()
@@ -145,15 +150,18 @@ async def test_cancelled_caller_leaves_blocking_side_effect_tracked(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_cron_capacity_exhaustion_reports_not_dispatched(monkeypatch):
+async def test_cron_capacity_exhaustion_reports_not_dispatched(
+    monkeypatch, action_authorization_factory
+):
     async def reject(*args, **kwargs):
         raise async_offload.BlockingCallCapacityExceeded("celery.trigger_task", 1)
 
     monkeypatch.setattr(cron, "run_blocking", reject)
     request = cron.WebhookTriggerRequest(task="cortex_tasks.add", args=[1, 2])
+    authorization = await action_authorization_factory()
 
     with pytest.raises(HTTPException) as caught:
-        await cron.trigger_webhook(request)
+        await cron.trigger_webhook(request, authorization=authorization)
 
     assert caught.value.status_code == 503
     assert caught.value.detail["submission"] == "not_dispatched"

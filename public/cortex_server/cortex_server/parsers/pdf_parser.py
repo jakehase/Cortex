@@ -91,8 +91,8 @@ class PDFParser:
         try:
             with open(path, "rb") as source:
                 raw = source.read(self.config.max_file_bytes + 1)
-        except Exception:
-            logger.exception("Unable to read PDF input")
+        except Exception as exc:
+            logger.error("Unable to read PDF input (%s)", type(exc).__name__)
             return PDFParseResult(error="PDF parsing failed")
         return self.parse_bytes(raw, path)
 
@@ -166,8 +166,11 @@ class PDFParser:
                         return result
                     result.pages.append(page_result)
                     
-        except Exception:
-            logger.exception("PDF library failed while parsing document")
+        except Exception as exc:
+            logger.error(
+                "PDF library failed while parsing document (%s)",
+                type(exc).__name__,
+            )
             result.document = None
             result.pages = []
             result.error = "PDF parsing failed"

@@ -185,7 +185,7 @@ class Dreamer:
             
             return True
         except Exception as e:
-            print(f"Failed to save to registry: {e}")
+            print(f"Failed to save to registry ({type(e).__name__})")
             return False
     
     def dream(self) -> str:

@@ -298,6 +298,11 @@ async def test_chain_context_crosses_request_boundary_and_stops_a_b_a_cycle(
 
     monkeypatch.setattr(consciousness.httpx, "AsyncClient", _FakeChainClient)
     monkeypatch.setattr(consciousness, "_get_bus", lambda: _Bus())
+    monkeypatch.setattr(
+        consciousness,
+        "configured_internal_memory_headers",
+        lambda: {},
+    )
 
     first = await consciousness.chain_to("alpha", "beta/work", {"value": 1})
     assert first == {"success": True}

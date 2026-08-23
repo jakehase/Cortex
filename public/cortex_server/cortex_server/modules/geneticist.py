@@ -192,7 +192,7 @@ NEW PERSONA:"""
             self._log_fitness("⚠️ Oracle timeout - mutation skipped")
             return None
         except Exception as e:
-            print(f"[GENETICIST] Mutation failed: {e}")
+            print(f"[GENETICIST] Mutation failed ({type(e).__name__})")
             return None
     
     def test_and_apply_mutation(self, new_persona: str, weakness: str) -> Dict:
@@ -284,7 +284,7 @@ NEW PERSONA:"""
             return True
             
         except Exception as e:
-            print(f"[GENETICIST] Failed to apply mutation: {e}")
+            print(f"[GENETICIST] Failed to apply mutation ({type(e).__name__})")
             return False
     
     def apply_mutation(self, new_persona: str, weakness: str) -> bool:

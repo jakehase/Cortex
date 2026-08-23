@@ -261,7 +261,7 @@ test('runtime wrapper text with creative labels does not false-trigger when late
   assert.doesNotMatch(context, /governor_markers: .*creativity_mode=true/);
 });
 
-test('oversized oracle sessions are archived only when explicitly enabled and active file remains', async () => {
+test('oversized oracle sessions produce metadata-only markers and active file remains', async () => {
   const oracleSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-oracle-sessions-'));
   const giantPath = path.join(oracleSessionDir, 'oracle-prod-bridge-short-deadbeef.jsonl');
   fs.writeFileSync(giantPath, 'x'.repeat(4096));
@@ -270,8 +270,11 @@ test('oversized oracle sessions are archived only when explicitly enabled and ac
 
   assert.equal(fs.existsSync(giantPath), true);
   const quarantineDir = path.join(oracleSessionDir, 'quarantine');
-  const quarantined = fs.readdirSync(quarantineDir).filter((name) => name.includes('oracle-prod-bridge-short-deadbeef'));
+  const quarantined = fs.readdirSync(quarantineDir).filter((name) => name.endsWith('.metadata.json'));
   assert.equal(quarantined.length, 1);
+  const durable = `${quarantined[0]}\n${fs.readFileSync(path.join(quarantineDir, quarantined[0]), 'utf8')}`;
+  assert.doesNotMatch(durable, /oracle-prod-bridge-short-deadbeef|xxxx/);
+  assert.match(durable, /sessionHash/);
 });
 
 test('oversized oracle session archival is disabled by default', () => {
@@ -313,8 +316,9 @@ test('recent anchors are quarantined on later strict-novelty prompts', async () 
   assert.match(context, /CORTEX_CREATIVITY_GOVERNOR/);
   assert.match(context, /context_quarantine:/);
   assert.match(context, /- memory/);
-  assert.match(context, /- graphs/);
-  assert.match(context, /- trust/);
+  const promptHistory = fs.readFileSync(harness.statePath('agent:main:test:anchor-history', 'prompt-history.json'), 'utf8');
+  assert.doesNotMatch(promptHistory, /vector|knowledge|graphs|trust|layers/i);
+  assert.match(promptHistory, /tokenDigests/);
 });
 
 test('creative outputs that stay too adjacent are suppressed before delivery and create fallback retry state', async () => {
@@ -353,8 +357,10 @@ test('creative outputs that stay too adjacent are suppressed before delivery and
   assert.equal(allowed, undefined);
 
   const retryState = JSON.parse(fs.readFileSync(harness.statePath(sessionKey, 'creativity-retry.json'), 'utf8'));
-  assert.ok(retryState[sessionKey]);
-  assert.equal(retryState[sessionKey].retryRecommended, true);
+  assert.ok(retryState.active);
+  assert.equal(retryState.active.retryRecommended, true);
+  assert.equal(retryState.active.overlapTerms, undefined);
+  assert.doesNotMatch(JSON.stringify(retryState), new RegExp(sessionKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
   const nextContext = await runBeforePromptBuild(harness, {
     prompt: 'Wrapper prompt two.',
@@ -387,7 +393,7 @@ test('strong creative outputs do not create retry state', async () => {
   const retryPath = harness.statePath(sessionKey, 'creativity-retry.json');
   if (fs.existsSync(retryPath)) {
     const retryState = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
-    assert.equal(Boolean(retryState[sessionKey]), false);
+    assert.equal(Boolean(retryState.active), false);
   }
 });
 
@@ -414,6 +420,6 @@ test('passing retry clears stored fallback retry state', async () => {
   const retryPath = harness.statePath(sessionKey, 'creativity-retry.json');
   if (fs.existsSync(retryPath)) {
     const retryState = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
-    assert.equal(Boolean(retryState[sessionKey]), false);
+    assert.equal(Boolean(retryState.active), false);
   }
 });

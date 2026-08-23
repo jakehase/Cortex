@@ -298,19 +298,28 @@ def test_maintenance_retention_preserves_active_and_newest_terminal(tmp_path):
 
 
 def test_maintenance_corruption_and_interrupted_replace_preserve_prior_content(tmp_path, monkeypatch):
-    from cortex_server.runtime import maintenance_queue
-
     path = tmp_path / "queue.json"
     path.write_bytes(b"not-json")
-    with pytest.raises(json.JSONDecodeError):
-        MaintenanceQueueStore(path).enqueue(_queue_item("new"))
+    corrupt_store = MaintenanceQueueStore(path)
+    with pytest.raises(ValueError, match="requires recovery"):
+        corrupt_store.enqueue(_queue_item("new"))
     assert path.read_bytes() == b"not-json"
+    quarantines = list(tmp_path.glob("queue.json.corrupt.*"))
+    assert len(quarantines) == 1 and quarantines[0].read_bytes() == b"not-json"
+    assert corrupt_store.persistence_health()["write_blocked"] is True
 
     path.unlink()
     store = MaintenanceQueueStore(path)
     store.enqueue(_queue_item("keep"))
     prior = path.read_bytes()
-    monkeypatch.setattr(maintenance_queue.os, "replace", lambda *_: (_ for _ in ()).throw(OSError("injected")))
+    original_atomic_write = store._state_store._atomic_write
+
+    def fail_primary(target, encoded):
+        if target == path:
+            raise OSError("injected")
+        return original_atomic_write(target, encoded)
+
+    monkeypatch.setattr(store._state_store, "_atomic_write", fail_primary)
     with pytest.raises(OSError, match="injected"):
         store.enqueue(_queue_item("new"))
     assert path.read_bytes() == prior

@@ -2,7 +2,7 @@
 Tools Router - API endpoints for CLI tool operations.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 import shutil
 from cortex_server.models.requests import (
     FFMPEGConvertRequest, FFMPEGExtractAudioRequest, FFMPEGThumbnailRequest,
@@ -11,6 +11,7 @@ from cortex_server.models.requests import (
     ToolResultResponse
 )
 from cortex_server.modules.runtime_trace import extract_trace_context
+from cortex_server.modules.action_capabilities import require_action_capability
 from cortex_server.modules.execution_capabilities import (
     ExecutionCapabilityDenied,
     authorize_execution_request,
@@ -45,7 +46,7 @@ def _tool_response(result):
 
 
 # FFmpeg endpoints
-@router.post("/ffmpeg/convert", response_model=ToolResultResponse)
+@router.post("/ffmpeg/convert", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def ffmpeg_convert(request: FFMPEGConvertRequest, http_request: Request):
     """Convert media file using FFmpeg."""
     grant = _grant(http_request, "tools.ffmpeg.convert")
@@ -57,7 +58,7 @@ async def ffmpeg_convert(request: FFMPEGConvertRequest, http_request: Request):
         return _internal_failure()
 
 
-@router.post("/ffmpeg/extract-audio", response_model=ToolResultResponse)
+@router.post("/ffmpeg/extract-audio", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def ffmpeg_extract_audio(request: FFMPEGExtractAudioRequest, http_request: Request):
     """Extract audio from video file."""
     grant = _grant(http_request, "tools.ffmpeg.extract_audio")
@@ -69,7 +70,7 @@ async def ffmpeg_extract_audio(request: FFMPEGExtractAudioRequest, http_request:
         return _internal_failure()
 
 
-@router.post("/ffmpeg/thumbnail", response_model=ToolResultResponse)
+@router.post("/ffmpeg/thumbnail", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def ffmpeg_thumbnail(request: FFMPEGThumbnailRequest, http_request: Request):
     """Create thumbnail from video."""
     grant = _grant(http_request, "tools.ffmpeg.thumbnail")
@@ -96,7 +97,7 @@ async def ffmpeg_info(input_path: str, http_request: Request):
 
 
 # Git endpoints
-@router.post("/git/clone", response_model=ToolResultResponse)
+@router.post("/git/clone", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def git_clone(request: GitCloneRequest, http_request: Request):
     """Clone a Git repository."""
     grant = _grant(http_request, "tools.git.clone")
@@ -108,7 +109,7 @@ async def git_clone(request: GitCloneRequest, http_request: Request):
         return _internal_failure()
 
 
-@router.post("/git/pull", response_model=ToolResultResponse)
+@router.post("/git/pull", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def git_pull(request: GitPullRequest, http_request: Request):
     """Pull from remote."""
     grant = _grant(http_request, "tools.git.pull")
@@ -148,7 +149,7 @@ async def git_log(repo_path: str, max_count: int = 10, http_request: Request = N
         return _internal_failure()
 
 
-@router.post("/git/init")
+@router.post("/git/init", dependencies=[Depends(require_action_capability)])
 async def git_init(repo_path: str, http_request: Request):
     """Initialize a new Git repository."""
     grant = _grant(http_request, "tools.git.init")
@@ -162,7 +163,7 @@ async def git_init(repo_path: str, http_request: Request):
         return _internal_failure()
 
 
-@router.post("/git/add")
+@router.post("/git/add", dependencies=[Depends(require_action_capability)])
 async def git_add(repo_path: str, files: str = ".", http_request: Request = None):
     """Add files to staging area."""
     grant = _grant(http_request, "tools.git.add")
@@ -176,7 +177,7 @@ async def git_add(repo_path: str, files: str = ".", http_request: Request = None
         return _internal_failure()
 
 
-@router.post("/git/commit")
+@router.post("/git/commit", dependencies=[Depends(require_action_capability)])
 async def git_commit(repo_path: str, message: str, http_request: Request = None):
     """Create a commit."""
     grant = _grant(http_request, "tools.git.commit")
@@ -191,7 +192,7 @@ async def git_commit(repo_path: str, message: str, http_request: Request = None)
 
 
 # Docker endpoints
-@router.post("/docker/run", response_model=ToolResultResponse)
+@router.post("/docker/run", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def docker_run(request: DockerRunRequest, http_request: Request):
     """Run a Docker container."""
     grant = _grant(http_request, "tools.docker.run")
@@ -217,7 +218,7 @@ async def docker_list(all: bool = False, http_request: Request = None):
         return _internal_failure()
 
 
-@router.post("/docker/stop/{container_id}")
+@router.post("/docker/stop/{container_id}", dependencies=[Depends(require_action_capability)])
 async def docker_stop(container_id: str, http_request: Request):
     """Stop a Docker container."""
     grant = _grant(http_request, "tools.docker.stop")
@@ -231,7 +232,7 @@ async def docker_stop(container_id: str, http_request: Request):
         return _internal_failure()
 
 
-@router.post("/docker/build", response_model=ToolResultResponse)
+@router.post("/docker/build", response_model=ToolResultResponse, dependencies=[Depends(require_action_capability)])
 async def docker_build(request: DockerBuildRequest, http_request: Request):
     """Build a Docker image."""
     grant = _grant(http_request, "tools.docker.build")
@@ -243,7 +244,7 @@ async def docker_build(request: DockerBuildRequest, http_request: Request):
         return _internal_failure()
 
 
-@router.post("/docker/pull")
+@router.post("/docker/pull", dependencies=[Depends(require_action_capability)])
 async def docker_pull(image_name: str, tag: str = "latest", http_request: Request = None):
     """Pull a Docker image."""
     grant = _grant(http_request, "tools.docker.pull")

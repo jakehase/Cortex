@@ -112,7 +112,7 @@ class Cartographer:
                     self.backup_path.unlink()
                 self.identity_path.rename(self.backup_path)
             except Exception as e:
-                print(f'[Cartographer] Warning: Could not archive identity: {e}')
+                print(f'[Cartographer] Warning: Could not archive identity ({type(e).__name__})')
         
         # Build identity map
         identity = {
@@ -137,7 +137,7 @@ class Cartographer:
                 json.dump(identity, f, indent=2)
             print(f'[Cartographer] Identity map saved to {self.identity_path}')
         except Exception as e:
-            print(f'[Cartographer] Error saving identity: {e}')
+            print(f'[Cartographer] Error saving identity ({type(e).__name__})')
         
         return identity
     

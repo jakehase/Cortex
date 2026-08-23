@@ -2,11 +2,12 @@
 
 Level 13: Triggers skill evolution cycles via the Dreamer engine.
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import json
+import os
 import requests
 import re
 
@@ -21,6 +22,11 @@ from cortex_server.modules.execution_capabilities import (
     ExecutionGrant,
     authorize_execution_request,
     resolve_authorized_path,
+)
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    assert_action_authorized,
+    require_action_capability,
 )
 
 router = APIRouter()
@@ -198,7 +204,25 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
         }
         
         try:
-            oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, timeout=120)
+            # Preserve the authenticated initiating administrator across the
+            # same-origin hop. Loopback location is never authority.
+            allowed_headers = {
+                os.getenv(
+                    "CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token"
+                ).strip().lower(),
+                "x-cortex-admin-token",
+            }
+            oracle_headers = {
+                name: value
+                for name, value in http_request.headers.items()
+                if name.lower() in allowed_headers and value
+            }
+            oracle_resp = requests.post(
+                ORACLE_URL,
+                json=oracle_payload,
+                headers=oracle_headers,
+                timeout=120,
+            )
             oracle_resp.raise_for_status()
             oracle_data = oracle_resp.json()
             generated_code = verified_completion_text(oracle_data)
@@ -207,8 +231,11 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
                     status_code=503,
                     detail="Oracle materialization requires a response-bound completion receipt",
                 )
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Oracle code generation failed: {str(e)}")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Oracle code generation failed ({type(exc).__name__})",
+            )
         
         # Clean up generated code (remove markdown if present)
         generated_code = generated_code.strip()
@@ -445,13 +472,26 @@ class DiplomatSendRequest(BaseModel):
 
 
 @router.post("/diplomat/send")
-async def send_diplomat_message(request: DiplomatSendRequest) -> Dict:
+async def send_diplomat_message(
+    request: DiplomatSendRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict:
     """Send a custom message via The Diplomat."""
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path="/evolution/diplomat/send",
+    )
+    raise HTTPException(
+        status_code=503,
+        detail="Diplomat delivery requires durable operation idempotency",
+    )
     try:
         diplomat = get_diplomat()
         success = diplomat.send_briefing(
             message=request.message,
-            title=request.title
+            title=request.title,
+            authorization=authorization,
         )
         return {
             "status": "sent" if success else "failed",
@@ -459,18 +499,32 @@ async def send_diplomat_message(request: DiplomatSendRequest) -> Dict:
             "name": "The Diplomat",
             "message_sent": success
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Diplomat send failed: {str(e)}")
 
 
 @router.post("/diplomat/test")
-async def test_diplomat() -> Dict:
+async def test_diplomat(
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> Dict:
     """Test The Diplomat messaging capability."""
+    assert_action_authorized(
+        authorization,
+        expected_method="POST",
+        expected_path="/evolution/diplomat/test",
+    )
+    raise HTTPException(
+        status_code=503,
+        detail="Diplomat delivery requires durable operation idempotency",
+    )
     try:
         diplomat = get_diplomat()
         success = diplomat.send_briefing(
             message="🧪 Test message from The Cortex.\\n\\nThe Diplomat module is now active and can send autonomous notifications.",
-            title="🤖 Level 18: The Diplomat"
+            title="🤖 Level 18: The Diplomat",
+            authorization=authorization,
         )
         return {
             "status": "active" if success else "failed",
@@ -478,6 +532,8 @@ async def test_diplomat() -> Dict:
             "name": "The Diplomat",
             "message_sent": success
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Diplomat test failed: {str(e)}")
 
