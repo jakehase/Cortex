@@ -91,15 +91,17 @@ READINESS_COLLECTION_NAME = "cortex-durability-readiness"
 
 
 def _production_memory_mode() -> bool:
+    # This predicate is also used by request handlers and readiness probes
+    # after the application-construction context has exited.  Read the live
+    # environment here; schema-only construction still receives deterministic
+    # defaults because construction.py temporarily masks os.getenv.
     environment = str(
-        construction_config(
+        os.getenv(
             "CORTEX_ENV",
-            construction_config("CORTEX_ENVIRONMENT", "development"),
+            os.getenv("CORTEX_ENVIRONMENT", "development"),
         )
     ).strip().lower()
-    strict = str(
-        construction_config("CORTEX_REQUIRE_DURABLE_MEMORY", "")
-    ).strip().lower()
+    strict = str(os.getenv("CORTEX_REQUIRE_DURABLE_MEMORY", "")).strip().lower()
     return environment in {"production", "prod", "staging"} or strict in {"1", "true", "yes", "on"}
 
 

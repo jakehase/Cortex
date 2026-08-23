@@ -27,6 +27,7 @@ def main_module(monkeypatch, tmp_path):
     """Load app construction only after every ambient path is isolated."""
     monkeypatch.setenv("CORTEX_ENV", "development")
     monkeypatch.setenv("CORTEX_SAFE_MODE", "true")
+    monkeypatch.setenv("CORTEX_WRITE_TOKEN", "focused-readiness-token-000000000000")
     monkeypatch.setenv("CORTEX_FAIL_CLOSED_MEMORY_ENDPOINTS", "false")
     monkeypatch.setenv("CORTEX_DB_PATH", str(tmp_path / "cortex.db"))
     monkeypatch.setenv(
@@ -145,6 +146,11 @@ def _ready_response(app):
     return asyncio.run(endpoint())
 
 
+def _raw_readiness_payload(app) -> dict:
+    """Read internal diagnostics without weakening the redacted public contract."""
+    return asyncio.run(app.state.async_readiness_payload())
+
+
 def _response_payload(response) -> dict:
     return json.loads(response.body)
 
@@ -162,11 +168,14 @@ def test_readiness_accepts_each_required_post_route_exactly_once(
 
     response = _ready_response(app)
     payload = _response_payload(response)
+    raw_payload = _raw_readiness_payload(app)
 
     assert response.status_code == 200
     assert payload["checks"]["requiredRoutes"]["ok"] is True
-    assert payload["checks"]["requiredRoutes"]["missing"] == []
-    assert payload["checks"]["routeCollisions"] == {
+    assert "missing" not in payload["checks"]["requiredRoutes"]
+    assert "collisions" not in payload["checks"]["routeCollisions"]
+    assert raw_payload["checks"]["requiredRoutes"]["missing"] == []
+    assert raw_payload["checks"]["routeCollisions"] == {
         "ok": True,
         "collisions": [],
     }
@@ -185,9 +194,13 @@ def test_readiness_rejects_get_only_replacements_for_required_post_routes(
 
     response = _ready_response(app)
     payload = _response_payload(response)
+    raw_payload = _raw_readiness_payload(app)
 
     assert response.status_code == 503
-    assert payload["checks"]["requiredRoutes"] == {
+    assert payload["checks"]["requiredRoutes"]["ok"] is False
+    assert "missing" not in payload["checks"]["requiredRoutes"]
+    assert "collisions" not in payload["checks"]["routeCollisions"]
+    assert raw_payload["checks"]["requiredRoutes"] == {
         "ok": False,
         "required": [
             {"method": "POST", "path": "/knowledge/search"},
@@ -198,7 +211,7 @@ def test_readiness_rejects_get_only_replacements_for_required_post_routes(
             {"method": "POST", "path": "/l22/store"},
         ],
     }
-    assert payload["checks"]["routeCollisions"]["ok"] is True
+    assert raw_payload["checks"]["routeCollisions"]["ok"] is True
 
 
 def test_readiness_rejects_duplicate_exact_method_and_path_registration(
@@ -215,12 +228,17 @@ def test_readiness_rejects_duplicate_exact_method_and_path_registration(
 
     response = _ready_response(app)
     payload = _response_payload(response)
+    raw_payload = _raw_readiness_payload(app)
 
     assert response.status_code == 503
-    assert payload["checks"]["requiredRoutes"]["missing"] == [
+    assert payload["checks"]["requiredRoutes"]["ok"] is False
+    assert payload["checks"]["routeCollisions"]["ok"] is False
+    assert "missing" not in payload["checks"]["requiredRoutes"]
+    assert "collisions" not in payload["checks"]["routeCollisions"]
+    assert raw_payload["checks"]["requiredRoutes"]["missing"] == [
         {"method": "POST", "path": "/l22/store"}
     ]
-    assert payload["checks"]["routeCollisions"] == {
+    assert raw_payload["checks"]["routeCollisions"] == {
         "ok": False,
         "collisions": [
             {"method": "POST", "path": "/l22/store", "count": 2}

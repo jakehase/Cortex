@@ -286,7 +286,15 @@ def is_sensitive_field(key: Any, *, header: bool = False) -> bool:
         return True
     parts = _key_parts(normalized)
     if normalized.endswith(
-        ("_api_key", "_private_key", "_access_key", "_signing_key", "_encryption_key", "_hmac_key")
+        (
+            "_api_key",
+            "_private_key",
+            "_access_key",
+            "_signing_key",
+            "_encryption_key",
+            "_hmac_key",
+            "_session_key",
+        )
     ):
         return True
     if parts & _CREDENTIAL_PARTS:
@@ -480,9 +488,17 @@ def redact_sensitive_data_with_metadata(
     max_string_chars: Optional[int] = None,
     allowed_fields: Optional[Iterable[str]] = None,
     allowed_headers: Optional[Iterable[str]] = None,
+    allowed_sensitive_containers: Optional[Iterable[str]] = None,
     allow_root_scalar: bool = False,
 ) -> Tuple[Any, Dict[str, Any]]:
-    """Recursively retain only allowlisted metadata under resource bounds."""
+    """Recursively retain only allowlisted metadata under resource bounds.
+
+    ``allowed_sensitive_containers`` is an exact, caller-scoped exception for
+    known structural objects whose names are conservatively credential-like
+    (for example, a boolean authorization decision summary). Scalar values
+    never receive this exception, and nested fields remain independently
+    subject to the sensitive-field and retention allowlists.
+    """
     state = _RedactionState(max_items=max_items)
     retained_fields = frozenset(
         _normalize_key(field)
@@ -499,6 +515,9 @@ def redact_sensitive_data_with_metadata(
             if allowed_headers is None
             else allowed_headers
         )
+    )
+    retained_sensitive_containers = frozenset(
+        _normalize_key(field) for field in (allowed_sensitive_containers or ())
     )
 
     def walk(
@@ -531,7 +550,10 @@ def redact_sensitive_data_with_metadata(
                         state.note_redaction(child_path)
                         out[key_text] = REDACTION_MARKER
                         continue
-                    if is_sensitive_field(key_text, header=header_context):
+                    if is_sensitive_field(key_text, header=header_context) and not (
+                        normalized in retained_sensitive_containers
+                        and isinstance(child, Mapping)
+                    ):
                         state.note_redaction(child_path)
                         out[key_text] = REDACTION_MARKER
                         continue
@@ -619,6 +641,7 @@ def redact_sensitive_data(
     max_string_chars: Optional[int] = None,
     allowed_fields: Optional[Iterable[str]] = None,
     allowed_headers: Optional[Iterable[str]] = None,
+    allowed_sensitive_containers: Optional[Iterable[str]] = None,
     allow_root_scalar: bool = False,
 ) -> Any:
     redacted, _metadata = redact_sensitive_data_with_metadata(
@@ -628,6 +651,7 @@ def redact_sensitive_data(
         max_string_chars=max_string_chars,
         allowed_fields=allowed_fields,
         allowed_headers=allowed_headers,
+        allowed_sensitive_containers=allowed_sensitive_containers,
         allow_root_scalar=allow_root_scalar,
     )
     return redacted

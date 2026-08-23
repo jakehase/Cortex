@@ -6,7 +6,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from cortex_server.models.evidence import CapabilityLayer, RuntimeEvent
-from cortex_server.modules.sensitive_data_redaction import redact_sensitive_data_with_metadata
+from cortex_server.modules.reasoning_observability import POLICY_PATCHABLE_SETTINGS
+from cortex_server.modules.sensitive_data_redaction import (
+    DEFAULT_RETENTION_FIELD_ALLOWLIST,
+    redact_sensitive_data_with_metadata,
+)
 
 
 JsonDict = Dict[str, Any]
@@ -41,6 +45,50 @@ PROCESS_EVENT_FAMILIES = {
 
 REDaction_LEVELS = ("public_safe", "operator_safe", "sensitive_local", "credential_like", "secret_never_display")
 
+_HOMEOSTASIS_AUDIT_ALLOWED_FIELDS = DEFAULT_RETENTION_FIELD_ALLOWLIST | frozenset(
+    {
+        "actor",
+        "actor_id",
+        "actor_session_key",
+        "authorization",
+        "authorized",
+        "basis",
+        "control",
+        "dry_run",
+        "policy_revision_id",
+        "process_owner",
+        "process_session_key",
+        "reason",
+        "requested_settings",
+        "task_id",
+        "workflow_id",
+    }
+)
+_POLICY_PATCH_EVENT_ALLOWED_FIELDS = _HOMEOSTASIS_AUDIT_ALLOWED_FIELDS | frozenset(
+    POLICY_PATCHABLE_SETTINGS
+) | frozenset(
+    {
+        "after",
+        "allow_confirmation_required",
+        "allow_intervening_revisions",
+        "applied_count",
+        "applied_settings",
+        "audit",
+        "before",
+        "intervening_revisions",
+        "kind",
+        "metadata_overrides",
+        "op",
+        "operator_overrides",
+        "previous_values",
+        "recommendation_version",
+        "revision_id",
+        "rolled_back_from_revision_id",
+        "setting",
+        "settings",
+    }
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -58,10 +106,18 @@ def _mode_env(name: str, default: str) -> str:
     return (raw.strip().lower() if raw is not None else default).strip() or default
 
 
-def redact_payload(value: Any, *, mode: str = "operator_safe") -> Tuple[Any, JsonDict]:
+def redact_payload(
+    value: Any,
+    *,
+    mode: str = "operator_safe",
+    allowed_fields: Optional[Iterable[str]] = None,
+    allowed_sensitive_containers: Optional[Iterable[str]] = None,
+) -> Tuple[Any, JsonDict]:
     redacted, meta = redact_sensitive_data_with_metadata(
         value,
         max_string_chars=260 if mode == "public_safe" else None,
+        allowed_fields=allowed_fields,
+        allowed_sensitive_containers=allowed_sensitive_containers,
     )
     meta = {"mode": mode, **meta}
     meta["redacted_fields"] = list(meta.get("redacted_fields") or [])[:50]
@@ -124,7 +180,23 @@ def normalize_runtime_event(
     payload_value.pop("redaction_level", None)
     payload_value.pop("presentation_policy", None)
     payload_value.pop("storage_policy", None)
-    redacted_payload, redaction_meta = redact_payload(payload_value, mode=requested_redaction)
+    allowed_fields = None
+    allowed_sensitive_containers = None
+    if kind_value in {"policy_patch_applied", "policy_patch_rolled_back"}:
+        # Policy history is an executable rollback contract, not an opaque
+        # diagnostic blob. Retain only its closed, typed schema while still
+        # redacting credential-like nested values.
+        allowed_fields = _POLICY_PATCH_EVENT_ALLOWED_FIELDS
+        allowed_sensitive_containers = {"authorization"}
+    elif kind_value == "homeostasis_control_audit":
+        allowed_fields = _HOMEOSTASIS_AUDIT_ALLOWED_FIELDS
+        allowed_sensitive_containers = {"authorization"}
+    redacted_payload, redaction_meta = redact_payload(
+        payload_value,
+        mode=requested_redaction,
+        allowed_fields=allowed_fields,
+        allowed_sensitive_containers=allowed_sensitive_containers,
+    )
 
     model = RuntimeEvent(
         event_id=str(event_id or raw.get("event_id") or f"ev_{uuid4().hex[:10]}").strip() or f"ev_{uuid4().hex[:10]}",

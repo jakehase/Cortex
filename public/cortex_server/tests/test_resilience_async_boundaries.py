@@ -201,6 +201,32 @@ async def test_hive_submission_reports_dispatch_truth(
 
 
 @pytest.mark.asyncio
+async def test_hive_admitted_submission_forwards_action_authorization(monkeypatch):
+    captured = {}
+    authorization = object()
+
+    async def admitted(request, authorization=None, idempotency_key=None):
+        captured["request"] = request
+        captured["authorization"] = authorization
+        return queue.TaskResponse(task_id="task-hive", status="scheduled")
+
+    monkeypatch.setattr(hive, "schedule_task", admitted)
+
+    response = await hive.swarm_orchestrate(
+        hive.AdmittedSwarmRequest(
+            goal="bounded admitted swarm",
+            idempotency_key="hive-integration-1",
+        ),
+        authorization=authorization,
+    )
+
+    assert response.task_id == "task-hive"
+    assert captured["authorization"] is authorization
+    assert captured["request"].task == "cortex_tasks.process_swarm"
+    assert captured["request"].idempotency_key == "hive-integration-1"
+
+
+@pytest.mark.asyncio
 async def test_hive_dependency_failure_is_unavailable_not_active(monkeypatch):
     class OfflineClient:
         async def __aenter__(self):

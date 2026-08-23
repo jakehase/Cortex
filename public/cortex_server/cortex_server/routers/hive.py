@@ -1,7 +1,7 @@
 """The Hive - Swarm Orchestration for The Cortex.
 Uses Celery for non-blocking async task processing.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import httpx
@@ -16,6 +16,10 @@ from cortex_server.modules.async_offload import (
     run_blocking,
 )
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_entry
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    require_action_capability,
+)
 from cortex_server.modules.memory_scope import (
     MemoryScopeAuthError,
     configured_internal_memory_headers,
@@ -78,7 +82,10 @@ class QueuedResponse(BaseModel):
     message: str
 
 
-async def _swarm_orchestrate(request: SwarmRequest) -> QueuedResponse:
+async def _swarm_orchestrate(
+    request: SwarmRequest,
+    authorization: Optional[ActionAuthorization] = None,
+) -> QueuedResponse:
     """Queue a swarm planning task for async processing. Returns immediately.
 
     When novelty_mode=l3_novel, a full six-idea novelty plan is generated and
@@ -113,7 +120,8 @@ async def _swarm_orchestrate(request: SwarmRequest) -> QueuedResponse:
                 task="cortex_tasks.process_swarm",
                 args=[request.goal, context_payload],
                 idempotency_key=request.idempotency_key,
-            )
+            ),
+            authorization=authorization,
         )
         task_id = task.task_id
     else:
@@ -160,10 +168,13 @@ async def _swarm_orchestrate(request: SwarmRequest) -> QueuedResponse:
 
 
 @router.post("/swarm", response_model=QueuedResponse)
-async def swarm_orchestrate(request: AdmittedSwarmRequest) -> QueuedResponse:
+async def swarm_orchestrate(
+    request: AdmittedSwarmRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> QueuedResponse:
     """Expose the admitted HTTP contract while retaining direct-call compatibility."""
 
-    return await _swarm_orchestrate(request)
+    return await _swarm_orchestrate(request, authorization)
 
 
 @router.post("/swarm/novel/plan")

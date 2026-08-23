@@ -45,6 +45,53 @@ def test_normalize_runtime_event_accepts_legacy_aliases_and_redacts_sensitive_fi
     assert event["lineage"]["redaction"]["redacted_field_count"] >= 1
 
 
+def test_policy_patch_event_retains_closed_rollback_schema_without_session_secrets():
+    event = normalize_runtime_event(
+        process_id="proc_policy",
+        kind="policy_patch_applied",
+        payload={
+            "revision_id": "polrev_123",
+            "settings": ["step_timeout_seconds"],
+            "applied_settings": [
+                {
+                    "setting": "step_timeout_seconds",
+                    "before": 15,
+                    "after": 30,
+                    "op": "replace",
+                }
+            ],
+            "metadata_overrides": {"step_timeout_seconds": 30},
+            "previous_values": {"step_timeout_seconds": 15},
+            "operator_overrides": {"step_timeout_seconds": 30},
+            "audit": {
+                "control": "freeze_policy",
+                "actor": {
+                    "actor_id": "cortex",
+                    "actor_session_key": "session-secret-value",
+                },
+                "authorization": {
+                    "authorized": True,
+                    "basis": "owner_match",
+                    "process_session_key": "process-session-secret",
+                },
+            },
+        },
+    )
+
+    assert event["payload"]["metadata_overrides"] == {
+        "step_timeout_seconds": 30
+    }
+    assert event["payload"]["previous_values"] == {
+        "step_timeout_seconds": 15
+    }
+    assert event["payload"]["audit"]["authorization"]["authorized"] is True
+    assert event["payload"]["audit"]["actor"]["actor_session_key"] == "[REDACTED]"
+    assert (
+        event["payload"]["audit"]["authorization"]["process_session_key"]
+        == "[REDACTED]"
+    )
+
+
 def test_validate_state_class_collection_rejects_cross_class_promotion():
     with pytest.raises(ValueError, match="state_class_mismatch"):
         validate_state_class_collection(

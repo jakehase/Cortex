@@ -28,6 +28,7 @@ from cortex_server.knowledge.graph import (
     NodeType,
     SQLiteStorage,
 )
+from cortex_server.construction import read_only_construction
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
 from cortex_server.modules.bounded_health_probe import SingleFlightHealthProbe
 from cortex_server.modules.prior_art_gate import build_prior_art_gate
@@ -652,7 +653,7 @@ def test_production_knowledge_identity_binds_marker_database_and_mount_id(
     marker.write_text("replacement-volume\n", encoding="utf-8")
     mismatch = cortex_main._knowledge_volume_identity_check(production=True)
     assert mismatch["ok"] is False
-    assert "identity mismatch" in mismatch["error"]
+    assert mismatch["error"] == "RuntimeError"
 
 
 def test_high_degree_neighbors_are_limited_in_sql_without_per_neighbor_loading(tmp_path):
@@ -1508,8 +1509,11 @@ def test_external_memory_scope_requires_authenticated_signature(monkeypatch):
 def test_production_memory_path_never_silently_falls_back_to_home(monkeypatch):
     monkeypatch.setenv("CORTEX_ENV", "production")
     monkeypatch.delenv("CORTEX_CHROMA_DIR", raising=False)
-    with pytest.raises(RuntimeError, match="required"):
-        librarian._default_chroma_dir()
+    # The path resolver is intentionally inert outside an explicit runtime
+    # construction boundary so schema inventory cannot touch persistence.
+    with read_only_construction(False):
+        with pytest.raises(RuntimeError, match="required"):
+            librarian._default_chroma_dir()
 
 
 def test_production_memory_path_verifies_durable_mount_identity(monkeypatch, tmp_path):

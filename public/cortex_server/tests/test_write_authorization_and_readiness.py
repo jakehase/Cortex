@@ -82,6 +82,9 @@ def test_non_loopback_write_requires_configured_token(monkeypatch):
 
 def test_openapi_declares_security_for_mutating_operations(monkeypatch):
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback")
+    # Inventory the unsafe-action schemas explicitly; production safe mode
+    # correctly deny-loads these routers by default.
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "false")
     app = create_app()
     schema = app.openapi()
     assert schema["components"]["securitySchemes"]["CortexWriteToken"]["type"] == "apiKey"
@@ -155,6 +158,9 @@ def test_readiness_and_capability_inventory_are_explicit(monkeypatch):
         return {"ok": True, "status": "reachable", "target": "http://127.0.0.1:8000/_internal/reachability"}
 
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_or_loopback")
+    # This assertion covers Home Assistant action metadata, so opt into the
+    # unsafe-action inventory without changing the safe-mode default.
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "false")
     monkeypatch.setattr("cortex_server.main.probe_internal_reachability", reachable_probe)
     app = create_app()
     client = TestClient(app)

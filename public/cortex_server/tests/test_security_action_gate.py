@@ -259,6 +259,9 @@ def test_real_app_requires_principal_policy_and_exact_action_capability(
     }
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", "transport-token")
+    # This real-app exercise targets a Home Assistant action route. Opt into
+    # the unsafe-action router without changing the fail-closed safe-mode default.
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "false")
     monkeypatch.setenv("CORTEX_ACTION_CAPABILITY_DB_PATH", str(tmp_path / "actions.sqlite3"))
     monkeypatch.setenv(
         "CORTEX_MEMORY_SCOPE_CREDENTIALS",
