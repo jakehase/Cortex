@@ -5,7 +5,7 @@ import time
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -17,18 +17,23 @@ from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 
 @asynccontextmanager
 async def _sentinel_lifespan(_app):
+    global _startup_error
+    _startup_error = None
     try:
         _load_watchers()
+    except Exception as exc:
+        _startup_error = _format_error("watcher_load_failed", exc)
+    try:
         await start_scheduler()
-    except Exception:
-        pass
+    except Exception as exc:
+        _startup_error = _format_error("scheduler_start_failed", exc)
     try:
         yield
     finally:
         try:
             await stop_scheduler()
-        except Exception:
-            pass
+        except Exception as exc:
+            _startup_error = _format_error("scheduler_stop_failed", exc)
 
 
 router = APIRouter(lifespan=_sentinel_lifespan)
@@ -37,12 +42,23 @@ _scheduler_running: bool = False
 _scheduler_task: Optional[asyncio.Task] = None
 _scan_interval: int = 1800
 _lock: asyncio.Lock = asyncio.Lock()
+_scheduler_started_at: Optional[float] = None
+_last_scan_attempt_at: Optional[float] = None
+_last_scan_success_at: Optional[float] = None
+_last_scan_error: Optional[str] = None
+_last_scan_issues: Optional[int] = None
+_startup_error: Optional[str] = None
+_last_load_error: Optional[str] = None
+_last_save_error: Optional[str] = None
+_last_task_error: Optional[str] = None
 
 _watchers: Dict[str, Dict[str, Any]] = {}
 _scan_history: List[Dict[str, Any]] = []
 
 MAX_HISTORY = 120
 DEFAULT_ENDPOINT_TIMEOUT_S = 2.5
+MIN_SCAN_STALE_SECONDS = 30.0
+SCAN_STALE_INTERVAL_MULTIPLIER = 2.0
 BASE_URL = CORTEX_INTERNAL_BASE_URL
 STATE_FILE = Path("/app/cortex_server/knowledge/evolution/sentinel_watchers.json")
 _self_heal_events: List[Dict[str, Any]] = []
@@ -62,26 +78,52 @@ class ScanRequest(BaseModel):
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat()
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _timestamp_iso(value: Optional[float]) -> Optional[str]:
+    if value is None:
+        return None
+    return datetime.fromtimestamp(value, timezone.utc).isoformat()
+
+
+def _age_seconds(value: Optional[float], *, now: Optional[float] = None) -> Optional[float]:
+    if value is None:
+        return None
+    observed = time.time() if now is None else now
+    return round(max(0.0, observed - value), 3)
+
+
+def _format_error(stage: str, exc: BaseException) -> str:
+    detail = " ".join(str(exc).split())[:500]
+    suffix = f":{detail}" if detail else ""
+    return f"{stage}:{type(exc).__name__}{suffix}"
 
 
 def _save_watchers():
+    global _last_save_error
     try:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         STATE_FILE.write_text(json.dumps(_watchers))
-    except Exception:
-        pass
+        _last_save_error = None
+    except Exception as exc:
+        _last_save_error = _format_error("watcher_save_failed", exc)
+        raise
 
 
 def _load_watchers():
+    global _last_load_error
     try:
         if STATE_FILE.exists():
             data = json.loads(STATE_FILE.read_text())
-            if isinstance(data, dict):
-                _watchers.clear()
-                _watchers.update(data)
-    except Exception:
-        pass
+            if not isinstance(data, dict):
+                raise ValueError("watcher state must be a JSON object")
+            _watchers.clear()
+            _watchers.update(data)
+        _last_load_error = None
+    except Exception as exc:
+        _last_load_error = _format_error("watcher_load_failed", exc)
+        raise
 
 
 
@@ -131,7 +173,7 @@ async def _check_endpoint(url: str, timeout_s: float) -> Dict[str, Any]:
         }
 
 
-async def _run_scan(only_watch_id: Optional[str] = None, timeout_override: Optional[float] = None) -> Dict[str, Any]:
+async def _execute_scan(only_watch_id: Optional[str] = None, timeout_override: Optional[float] = None) -> Dict[str, Any]:
     watchers_items = list(_watchers.items())
     if only_watch_id:
         watchers_items = [(only_watch_id, _watchers.get(only_watch_id))]
@@ -185,28 +227,164 @@ async def _run_scan(only_watch_id: Optional[str] = None, timeout_override: Optio
     return scan
 
 
+async def _run_scan(
+    only_watch_id: Optional[str] = None,
+    timeout_override: Optional[float] = None,
+) -> Dict[str, Any]:
+    global _last_scan_attempt_at, _last_scan_success_at
+    global _last_scan_error, _last_scan_issues
+
+    full_health_scan = only_watch_id is None
+    if full_health_scan:
+        _last_scan_attempt_at = time.time()
+    try:
+        scan = await _execute_scan(
+            only_watch_id=only_watch_id,
+            timeout_override=timeout_override,
+        )
+    except Exception as exc:
+        if full_health_scan:
+            _last_scan_error = _format_error("scan_failed", exc)
+        raise
+
+    # A scoped manual scan is useful diagnostic evidence but cannot prove that
+    # every configured watcher is healthy.  Only a complete scan may update
+    # subsystem health authority.
+    if full_health_scan:
+        _last_scan_success_at = time.time()
+        _last_scan_error = None
+        _last_scan_issues = int(scan.get("issues_found", 0) or 0)
+    return scan
+
+
+def _scheduler_task_done(task: asyncio.Task) -> None:
+    global _scheduler_running, _last_task_error
+
+    if not _scheduler_running:
+        return
+    _scheduler_running = False
+    if task.cancelled():
+        _last_task_error = "scheduler_task_cancelled_unexpectedly"
+        return
+    try:
+        exc = task.exception()
+    except Exception as task_exc:
+        _last_task_error = _format_error("scheduler_task_observation_failed", task_exc)
+        return
+    _last_task_error = (
+        _format_error("scheduler_task_failed", exc)
+        if exc is not None
+        else "scheduler_task_exited_unexpectedly"
+    )
+
+
 async def _periodic_scan_loop() -> None:
-    global _scheduler_running
-    while True:
-        async with _lock:
-            if not _scheduler_running:
-                break
-        try:
-            await _run_scan()
-        except Exception:
-            pass
-        await asyncio.sleep(_scan_interval)
+    global _scheduler_running, _last_task_error
+    try:
+        while True:
+            async with _lock:
+                if not _scheduler_running:
+                    break
+            try:
+                await _run_scan()
+            except Exception:
+                # _run_scan retains the failure for the status surface. Continue
+                # probing so a transient failure can recover without a restart.
+                pass
+            await asyncio.sleep(_scan_interval)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        _last_task_error = _format_error("scheduler_task_failed", exc)
+        _scheduler_running = False
+        raise
+
+
+def _scheduler_task_state() -> tuple[str, Optional[str]]:
+    task = _scheduler_task
+    if task is None:
+        return "missing", None
+    if task.cancelled():
+        return "cancelled", "scheduler_task_cancelled_unexpectedly"
+    if not task.done():
+        return "running", None
+    try:
+        exc = task.exception()
+    except BaseException as task_exc:
+        return "error", _format_error("scheduler_task_observation_failed", task_exc)
+    if exc is not None:
+        return "error", _format_error("scheduler_task_failed", exc)
+    return "exited", "scheduler_task_exited_unexpectedly"
+
+
+def _sentinel_health_snapshot(*, now: Optional[float] = None) -> Dict[str, Any]:
+    observed = time.time() if now is None else now
+    stale_after = max(
+        MIN_SCAN_STALE_SECONDS,
+        float(_scan_interval) * SCAN_STALE_INTERVAL_MULTIPLIER,
+    )
+    task_state, observed_task_error = _scheduler_task_state()
+    task_error = _last_task_error or observed_task_error
+    scan_age = _age_seconds(_last_scan_success_at, now=observed)
+    attempt_age = _age_seconds(_last_scan_attempt_at, now=observed)
+    scan_belongs_to_current_run = bool(
+        _last_scan_success_at is not None
+        and _scheduler_started_at is not None
+        and _last_scan_success_at >= _scheduler_started_at
+    )
+
+    health_error = _startup_error or _last_load_error or _last_save_error or task_error
+    if health_error:
+        status, severity, reason = "error", "unavailable", health_error
+    elif not _scheduler_running:
+        status, severity, reason = "stopped", "unavailable", "scheduler_not_running"
+    elif task_state != "running":
+        status, severity, reason = "error", "unavailable", f"scheduler_task_{task_state}"
+    elif _last_scan_error and (
+        _last_scan_success_at is None
+        or (_last_scan_attempt_at or 0.0) >= _last_scan_success_at
+    ):
+        status, severity, reason = "error", "degraded", _last_scan_error
+    elif not scan_belongs_to_current_run:
+        status, severity, reason = "starting", "degraded", "no_successful_scan_for_current_scheduler_run"
+    elif scan_age is None or scan_age > stale_after:
+        status, severity, reason = "stale", "degraded", "successful_scan_is_stale"
+    elif int(_last_scan_issues or 0) > 0:
+        status, severity, reason = "degraded", "degraded", "latest_scan_found_issues"
+    else:
+        status, severity, reason = "active", "healthy", "scheduler_and_scan_are_healthy"
+
+    success = status == "active"
+    return {
+        "success": success,
+        "status": status,
+        "severity": severity,
+        "health_reason": reason,
+        "scheduler_running": bool(_scheduler_running and task_state == "running"),
+        "scheduler_requested": _scheduler_running,
+        "scheduler_task_state": task_state,
+        "scheduler_started_at": _timestamp_iso(_scheduler_started_at),
+        "last_scan_attempt_at": _timestamp_iso(_last_scan_attempt_at),
+        "last_scan_attempt_age_seconds": attempt_age,
+        "last_scan_success_at": _timestamp_iso(_last_scan_success_at),
+        "last_scan_age_seconds": scan_age,
+        "scan_stale_after_seconds": stale_after,
+        "latest_scan_issues": _last_scan_issues,
+        "startup_error": _startup_error,
+        "load_error": _last_load_error,
+        "save_error": _last_save_error,
+        "scan_error": _last_scan_error,
+        "task_error": task_error,
+    }
 
 
 @router.get("/status")
 async def sentinel_status():
+    health = _sentinel_health_snapshot()
     return {
-        "success": True,
+        **health,
         "level": 21,
         "name": "Sentinel",
-        "status": "active",
-        "severity": "healthy",
-        "scheduler_running": _scheduler_running,
         "scan_interval_seconds": _scan_interval,
         "active_watchers": len(_watchers),
         "scans_completed": len(_scan_history),
@@ -243,9 +421,10 @@ async def add_watcher(request: WatchRequest):
 
 @router.get("/scheduler/status")
 async def scheduler_status():
+    health = _sentinel_health_snapshot()
     return {
-        "success": True,
-        "running": _scheduler_running,
+        **health,
+        "running": health["scheduler_running"],
         "interval_seconds": _scan_interval,
         "scans_completed": len(_scan_history),
         "watchers_count": len(_watchers),
@@ -255,13 +434,17 @@ async def scheduler_status():
 @router.post("/scheduler/start")
 async def start_scheduler(interval_seconds: Optional[int] = None):
     global _scheduler_running, _scheduler_task, _scan_interval
+    global _scheduler_started_at, _last_task_error
     async with _lock:
         if interval_seconds is not None:
             _scan_interval = max(10, int(interval_seconds))
         if _scheduler_running and _scheduler_task and not _scheduler_task.done():
             return {"success": True, "message": "Already running"}
         _scheduler_running = True
+        _scheduler_started_at = time.time()
+        _last_task_error = None
         _scheduler_task = asyncio.create_task(_periodic_scan_loop())
+        _scheduler_task.add_done_callback(_scheduler_task_done)
         return {"success": True, "message": "Scheduler started", "interval_seconds": _scan_interval}
 
 

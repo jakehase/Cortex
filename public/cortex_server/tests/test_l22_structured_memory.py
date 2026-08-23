@@ -1,13 +1,114 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import sqlite3
 import threading
+import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
+# Router import constructs its persistence client, so keep collection-time state
+# inside the writable test sandbox rather than an operator path.
+os.environ.setdefault("CORTEX_CHROMA_DIR", "/tmp/cortex-l22-structured-tests-chroma")
+
 from cortex_server.routers import l22, librarian
+from cortex_server.modules.bounded_health_probe import SingleFlightHealthProbe
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_l22_status_is_off_loop_and_bounds_both_stores(monkeypatch):
+    principal = SimpleNamespace(
+        memory_principal_key="l22-health-principal",
+        codec_session_key="l22-health-codec-session",
+        tenant_id="tenant-health",
+        storage_workspace_id="workspace-health",
+    )
+    collection_calls = []
+    structured_calls = []
+    worker_threads = []
+
+    class RecordingCollection:
+        def get(self, **kwargs):
+            worker_threads.append(threading.current_thread().name)
+            collection_calls.append(kwargs)
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                    for _ in range(3)
+                ]
+            }
+
+    def structured_records(**kwargs):
+        structured_calls.append(kwargs)
+        return [{"id": "one"}, {"id": "two"}]
+
+    monkeypatch.setattr(l22, "collection", RecordingCollection())
+    monkeypatch.setattr(l22, "list_structured_memory_records", structured_records)
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+    monkeypatch.setattr(l22, "_L22_HEALTH_PRINCIPAL_SCAN_MAX_ROWS", 2)
+    monkeypatch.setattr(l22, "_L22_HEALTH_STRUCTURED_MAX_ROWS", 3)
+    monkeypatch.setattr(
+        l22,
+        "_L22_STATUS_PROBE",
+        SingleFlightHealthProbe("l22-status-bounds-test"),
+    )
+
+    result = await l22.l22_status(object())
+
+    assert result["success"] is True, (
+        result,
+        collection_calls,
+        structured_calls,
+        worker_threads,
+    )
+    assert result["memory_count"] == 2
+    assert result["memory_count_is_lower_bound"] is True
+    assert result["memory_scan_limit"] == 2
+    assert result["structured_memory_count"] == 2
+    assert result["structured_memory_scan_limit"] == 3
+    assert collection_calls[0]["limit"] == 3
+    assert structured_calls[0]["limit"] == 3
+    assert len(worker_threads) == 1
+    assert worker_threads[0].startswith("cortex-health-probe")
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_l22_status_timeout_remains_single_flight(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="l22-slow-principal")
+    release = threading.Event()
+    calls = []
+
+    def slow_payload(_principal):
+        calls.append(threading.current_thread().name)
+        release.wait(timeout=0.25)
+        return {"success": True, "status": "active"}
+
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "_l22_status_payload", slow_payload)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+    monkeypatch.setattr(
+        l22,
+        "_L22_STATUS_PROBE",
+        SingleFlightHealthProbe("l22-status-timeout-test"),
+    )
+    monkeypatch.setenv("CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS", "0.03")
+
+    started = time.perf_counter()
+    first = await l22.l22_status(object())
+    second = await l22.l22_status(object())
+    elapsed = time.perf_counter() - started
+    release.set()
+    await asyncio.sleep(0.03)
+
+    assert first["probe_status"] == "timeout"
+    assert second["probe_status"] == "timeout"
+    assert elapsed < 0.15
+    assert len(calls) == 1
+    assert calls[0].startswith("cortex-health-probe")
 
 
 def test_structured_l22_memory_round_trip_and_delete(monkeypatch, tmp_path):

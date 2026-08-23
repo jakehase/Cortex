@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optional, Tuple
 
@@ -33,6 +33,19 @@ BuildWorkflowPolicyFn = Callable[..., JsonDict]
 @asynccontextmanager
 async def _no_process_execution_fence():
     yield
+
+
+
+def _parse_deadline(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 
@@ -394,6 +407,7 @@ async def execute_runtime_batch(
                         step_index=step_index_for_node_fn(workflow, node_id),
                         results_by_node=results_by_node,
                         workflow_metadata=workflow.get("metadata") or {},
+                        deadline_at=_parse_deadline(refreshed.get("deadline_at")),
                     )
                     if not isinstance(step_result.get("belief_context"), dict):
                         backfilled_context = step_belief_context_fn(step, workflow.get("metadata") or {})

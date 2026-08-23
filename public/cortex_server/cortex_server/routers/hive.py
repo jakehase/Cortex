@@ -5,16 +5,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import httpx
-import uuid
 import json
 
 from cortex_server.internal_addressing import internal_url
-from cortex_server.worker import app as celery_app
 from cortex_server.modules.hive_novelty import build_l3_novel_plan
 from cortex_server.modules.memory_scope import (
     MemoryScopeAuthError,
     configured_internal_memory_headers,
 )
+from cortex_server.routers.queue import ScheduleRequest, schedule_task
 
 router = APIRouter()
 
@@ -31,6 +30,11 @@ class SwarmRequest(BaseModel):
     worker_pool: Optional[List[str]] = None
     assumptions: Optional[List[str]] = None
     options: Optional[Dict[str, Any]] = None
+    idempotency_key: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+    )
 
 
 class NovelSwarmRequest(BaseModel):
@@ -83,17 +87,20 @@ async def swarm_orchestrate(request: SwarmRequest):
             ensure_ascii=False,
         )
 
-    # Dispatch the heavy processing to Celery
-    task = celery_app.send_task(
-        "cortex_tasks.process_swarm",
-        args=[request.goal, context_payload],
-        countdown=0,
+    # Reuse the queue's bounded admission/idempotency contract instead of
+    # blocking this event loop on a direct broker call.
+    task = await schedule_task(
+        ScheduleRequest(
+            task="cortex_tasks.process_swarm",
+            args=[request.goal, context_payload],
+            idempotency_key=request.idempotency_key,
+        )
     )
 
     suffix = " (L3 novel plan attached)" if (request.novelty_mode or "").lower() == "l3_novel" else ""
     return QueuedResponse(
         status="queued",
-        task_id=task.id,
+        task_id=task.task_id,
         message=f"Swarm planning task dispatched{suffix}. Check task status via /queue/status/",
     )
 

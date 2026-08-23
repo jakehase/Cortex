@@ -11,6 +11,7 @@ import httpx
 
 from cortex_server.modules.reasoning_failures import enrich_failure
 from cortex_server.modules.reasoning_planner import dependency_failures, render_plan_templates
+from cortex_server.modules.reasoning_retry_policy import retry_settings
 from cortex_server.modules.reasoning_safety import evaluate_step_permission
 from cortex_server.modules.runtime_constraint_compiler import compile_runtime_constraint_settings
 from cortex_server.modules.verification_contracts import evaluate_contracts
@@ -46,12 +47,23 @@ def effective_step_timeout(step: JsonDict, workflow_metadata: Optional[JsonDict]
     policy_timeout = policy_settings.get("step_timeout_seconds")
     timeout_s = step.get("timeout_seconds")
     chosen = timeout_s if timeout_s is not None else policy_timeout
-    if chosen is None:
-        return step_timeout_max_s
-    try:
-        return min(step_timeout_max_s, max(0.1, float(chosen)))
-    except Exception:
-        return step_timeout_max_s
+    timeout = step_timeout_max_s
+    if chosen is not None:
+        try:
+            timeout = min(step_timeout_max_s, max(0.1, float(chosen)))
+        except Exception:
+            timeout = step_timeout_max_s
+
+    # execute_step_with_retry sets this private, per-attempt value immediately
+    # before the call.  Unlike authored timeout metadata it may legitimately be
+    # below the normal 100 ms floor because a workflow deadline is authoritative.
+    remaining = step.get("_remaining_workflow_budget_seconds")
+    if remaining is not None:
+        try:
+            timeout = min(timeout, max(0.0, float(remaining)))
+        except Exception:
+            pass
+    return timeout
 
 
 
@@ -275,29 +287,7 @@ def cancelled_step_result(step: JsonDict, *, step_index: int, reason: str) -> Js
 
 def step_retry_settings(step: JsonDict, workflow_metadata: Optional[JsonDict]) -> JsonDict:
     policy_settings = workflow_policy_settings(workflow_metadata)
-    metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
-    failure_mode = str(step.get("failure_mode") or "continue")
-    default_attempts = int(policy_settings.get("retry_max_attempts", 1 if failure_mode != "retry" else 2) or 1)
-    max_attempts = int(metadata.get("max_attempts", metadata.get("retry_max_attempts", default_attempts)) or default_attempts)
-    backoff = float(metadata.get("retry_backoff_seconds", policy_settings.get("retry_backoff_seconds", 0.0)) or 0.0)
-    retry_on_timeout = bool(metadata.get("retry_on_timeout", policy_settings.get("retry_on_timeout", True)))
-    retry_on_status_codes = [
-        int(x)
-        for x in (metadata.get("retry_on_status_codes", policy_settings.get("retry_on_status_codes", [])) or [])
-        if str(x).strip()
-    ]
-    retry_on_error_types = [
-        str(x).lower()
-        for x in (metadata.get("retry_on_error_types", policy_settings.get("retry_on_error_types", [])) or [])
-        if str(x).strip()
-    ]
-    return {
-        "max_attempts": max(1, max_attempts),
-        "retry_backoff_seconds": max(0.0, backoff),
-        "retry_on_timeout": retry_on_timeout,
-        "retry_on_status_codes": retry_on_status_codes,
-        "retry_on_error_types": retry_on_error_types,
-    }
+    return retry_settings(step, policy_settings)
 
 
 
@@ -610,10 +600,34 @@ def workflow_deadline_at(workflow_metadata: Optional[JsonDict], *, started_at: O
 
 
 
-def deadline_exceeded(deadline_at: Optional[datetime]) -> bool:
+def remaining_deadline_seconds(deadline_at: Optional[datetime]) -> Optional[float]:
     if deadline_at is None:
-        return False
-    return datetime.now(timezone.utc) >= deadline_at
+        return None
+    normalized = deadline_at
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return max(
+        0.0,
+        (normalized.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds(),
+    )
+
+
+
+def deadline_exceeded(deadline_at: Optional[datetime]) -> bool:
+    remaining = remaining_deadline_seconds(deadline_at)
+    return remaining is not None and remaining <= 0.0
+
+
+
+def _step_with_remaining_deadline(
+    step: JsonDict, deadline_at: Optional[datetime]
+) -> JsonDict:
+    remaining = remaining_deadline_seconds(deadline_at)
+    if remaining is None:
+        return step
+    bounded = dict(step)
+    bounded["_remaining_workflow_budget_seconds"] = remaining
+    return bounded
 
 
 
@@ -697,22 +711,36 @@ async def execute_step_with_retry(
     retry_settings = step_retry_settings(step, workflow_metadata)
     max_attempts = int(retry_settings.get("max_attempts", 1) or 1)
     backoff = float(retry_settings.get("retry_backoff_seconds", 0.0) or 0.0)
+    max_cumulative_backoff = float(
+        retry_settings.get("max_cumulative_retry_backoff_seconds", 0.0) or 0.0
+    )
     attempts = 0
+    cumulative_backoff = 0.0
     last_result: Optional[JsonDict] = None
+
+    def deadline_outcome() -> JsonDict:
+        outcome = deadline_result(
+            step,
+            step_index=step_index,
+            deadline_at=deadline_at,
+            redact_headers_fn=redact_headers_fn,
+        )
+        outcome["policy"] = workflow_policy_settings(workflow_metadata)
+        outcome["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
+        outcome["attempts"] = attempts
+        outcome["max_attempts"] = max_attempts
+        outcome["retry_count"] = max(0, attempts)
+        outcome["cumulative_retry_backoff_seconds"] = cumulative_backoff
+        return outcome
 
     while attempts < max_attempts:
         if deadline_exceeded(deadline_at):
-            result = deadline_result(step, step_index=step_index, deadline_at=deadline_at, redact_headers_fn=redact_headers_fn)
-            result["policy"] = workflow_policy_settings(workflow_metadata)
-            result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
-            result["attempts"] = attempts
-            result["max_attempts"] = max_attempts
-            result["retry_count"] = max(0, attempts)
-            return result
+            return deadline_outcome()
         attempts += 1
+        attempt_step = _step_with_remaining_deadline(step, deadline_at)
         result = await execute_single_step_fn(
             client,
-            step,
+            attempt_step,
             step_index=step_index,
             results_by_node=results_by_node,
             workflow_metadata=workflow_metadata,
@@ -747,6 +775,7 @@ async def execute_step_with_retry(
         result["attempts"] = attempts
         result["max_attempts"] = max_attempts
         result["retry_backoff_seconds"] = backoff
+        result["cumulative_retry_backoff_seconds"] = cumulative_backoff
         if bool(result.get("success")):
             result["retry_count"] = max(0, attempts - 1)
             return result
@@ -765,14 +794,25 @@ async def execute_step_with_retry(
             return result
         last_result = result
         if backoff > 0:
-            if deadline_exceeded(deadline_at):
+            remaining = remaining_deadline_seconds(deadline_at)
+            if remaining is not None and remaining <= 0.0:
+                return deadline_outcome()
+            sleep_for = backoff if remaining is None else min(backoff, remaining)
+            cumulative_remaining = max(0.0, max_cumulative_backoff - cumulative_backoff)
+            sleep_for = min(sleep_for, cumulative_remaining)
+            if sleep_for <= 0.0:
                 break
-            await asyncio.sleep(backoff)
+            deadline_truncated = remaining is not None and sleep_for < backoff
+            await asyncio.sleep(sleep_for)
+            cumulative_backoff += sleep_for
+            if deadline_truncated:
+                return deadline_outcome()
 
     final = dict(last_result or deadline_result(step, step_index=step_index, deadline_at=deadline_at, redact_headers_fn=redact_headers_fn))
     final["attempts"] = attempts
     final["max_attempts"] = max_attempts
     final["retry_count"] = max(0, attempts - 1)
+    final["cumulative_retry_backoff_seconds"] = cumulative_backoff
     return final
 
 
@@ -896,6 +936,7 @@ __all__ = [
     "execute_single_step",
     "execute_step_with_retry",
     "execute_workflow",
+    "remaining_deadline_seconds",
     "retry_result_matches_policy",
     "runtime_homeostasis_summary",
     "runtime_routing_summary",

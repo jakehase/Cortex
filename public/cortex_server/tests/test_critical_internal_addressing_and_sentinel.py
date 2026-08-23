@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +8,47 @@ from fastapi.testclient import TestClient
 from cortex_server import internal_addressing
 from cortex_server import main as main_module
 from cortex_server.modules import reasoning_runtime_service
+from cortex_server.routers import sentinel
+
+
+class _RunningSentinelTask:
+    @staticmethod
+    def cancelled():
+        return False
+
+    @staticmethod
+    def done():
+        return False
+
+
+class _FailedSentinelTask(_RunningSentinelTask):
+    @staticmethod
+    def done():
+        return True
+
+    @staticmethod
+    def exception():
+        return RuntimeError("scheduler crashed")
+
+
+def _configure_sentinel_health(monkeypatch, **overrides):
+    defaults = {
+        "_scheduler_running": True,
+        "_scheduler_task": _RunningSentinelTask(),
+        "_scan_interval": 10,
+        "_scheduler_started_at": time.time() - 10,
+        "_last_scan_attempt_at": time.time() - 1,
+        "_last_scan_success_at": time.time() - 1,
+        "_last_scan_error": None,
+        "_last_scan_issues": 0,
+        "_startup_error": None,
+        "_last_load_error": None,
+        "_last_save_error": None,
+        "_last_task_error": None,
+    }
+    defaults.update(overrides)
+    for name, value in defaults.items():
+        monkeypatch.setattr(sentinel, name, value)
 
 
 def _run_preflight(payload):
@@ -102,6 +144,197 @@ def test_agg_f002_runtime_self_calls_have_no_legacy_8888_origin():
                 legacy_lines.append((source_path.relative_to(package_root).as_posix(), line_number, line.strip()))
 
     assert legacy_lines == []
+
+
+def test_agg_f057_stopped_sentinel_with_no_scan_fails_closed(monkeypatch):
+    _configure_sentinel_health(
+        monkeypatch,
+        _scheduler_running=False,
+        _scheduler_task=None,
+        _scheduler_started_at=None,
+        _last_scan_attempt_at=None,
+        _last_scan_success_at=None,
+        _last_scan_issues=None,
+    )
+
+    payload = asyncio.run(sentinel.sentinel_status())
+
+    assert payload["success"] is False
+    assert payload["status"] == "stopped"
+    assert payload["severity"] == "unavailable"
+    assert payload["scheduler_running"] is False
+    assert payload["last_scan_attempt_at"] is None
+    assert payload["last_scan_success_at"] is None
+    assert payload["last_scan_age_seconds"] is None
+
+
+def test_agg_f057_completed_scan_with_down_watcher_is_degraded(monkeypatch):
+    _configure_sentinel_health(
+        monkeypatch,
+        _scheduler_started_at=time.time() - 1,
+        _last_scan_attempt_at=None,
+        _last_scan_success_at=None,
+        _last_scan_issues=None,
+    )
+    monkeypatch.setattr(
+        sentinel,
+        "_watchers",
+        {
+            "watch_down": {
+                "name": "down dependency",
+                "type": "endpoint",
+                "target": "http://127.0.0.1:1/status",
+                "timeout_s": 0.01,
+            }
+        },
+    )
+    monkeypatch.setattr(sentinel, "_scan_history", [])
+
+    async def endpoint_down(_url, timeout_s):
+        assert timeout_s == 0.01
+        return {"ok": False, "error": "connection refused", "latency_ms": 1}
+
+    monkeypatch.setattr(sentinel, "_check_endpoint", endpoint_down)
+    scan = asyncio.run(sentinel._run_scan())
+    payload = asyncio.run(sentinel.sentinel_status())
+
+    assert scan["issues_found"] == 1
+    assert payload["success"] is False
+    assert payload["status"] == "degraded"
+    assert payload["severity"] == "degraded"
+    assert payload["health_reason"] == "latest_scan_found_issues"
+    assert payload["last_scan_attempt_at"] is not None
+    assert payload["last_scan_success_at"] is not None
+    assert payload["last_scan_age_seconds"] is not None
+
+
+def test_agg_f057_scoped_manual_scan_cannot_clear_full_scan_failure(monkeypatch):
+    _configure_sentinel_health(
+        monkeypatch,
+        _last_scan_issues=1,
+        _last_scan_success_at=time.time() - 1,
+    )
+    monkeypatch.setattr(
+        sentinel,
+        "_watchers",
+        {
+            "healthy": {
+                "name": "healthy dependency",
+                "type": "endpoint",
+                "target": "http://127.0.0.1/healthy",
+                "timeout_s": 0.01,
+            },
+            "down": {
+                "name": "down dependency",
+                "type": "endpoint",
+                "target": "http://127.0.0.1/down",
+                "timeout_s": 0.01,
+            },
+        },
+    )
+
+    async def endpoint_healthy(_url, timeout_s):
+        assert timeout_s == 0.01
+        return {"ok": True, "status_code": 200, "latency_ms": 1}
+
+    monkeypatch.setattr(sentinel, "_check_endpoint", endpoint_healthy)
+    scoped = asyncio.run(sentinel._run_scan(only_watch_id="healthy"))
+    payload = asyncio.run(sentinel.sentinel_status())
+
+    assert scoped["issues_found"] == 0
+    assert payload["success"] is False
+    assert payload["status"] == "degraded"
+    assert payload["latest_scan_issues"] == 1
+
+
+def test_agg_f057_stale_scan_and_failed_scheduler_task_fail_closed(monkeypatch):
+    now = time.time()
+    _configure_sentinel_health(
+        monkeypatch,
+        _scheduler_started_at=now - 120,
+        _last_scan_attempt_at=now - 60,
+        _last_scan_success_at=now - 60,
+    )
+
+    stale = sentinel._sentinel_health_snapshot(now=now)
+    assert stale["success"] is False
+    assert stale["status"] == "stale"
+    assert stale["last_scan_age_seconds"] == 60.0
+    assert stale["scan_stale_after_seconds"] == 30.0
+
+    monkeypatch.setattr(sentinel, "_scheduler_task", _FailedSentinelTask())
+    failed = sentinel._sentinel_health_snapshot(now=now)
+    assert failed["success"] is False
+    assert failed["status"] == "error"
+    assert "scheduler_task_failed:RuntimeError" in failed["task_error"]
+
+
+def test_agg_f057_scan_exception_is_retained_for_status(monkeypatch):
+    _configure_sentinel_health(
+        monkeypatch,
+        _last_scan_attempt_at=None,
+        _last_scan_success_at=None,
+        _last_scan_issues=None,
+    )
+
+    async def fail_scan(**_kwargs):
+        raise RuntimeError("scan backend unavailable")
+
+    monkeypatch.setattr(sentinel, "_execute_scan", fail_scan)
+    with pytest.raises(RuntimeError, match="scan backend unavailable"):
+        asyncio.run(sentinel._run_scan())
+
+    payload = asyncio.run(sentinel.sentinel_status())
+    assert payload["success"] is False
+    assert payload["status"] == "error"
+    assert payload["last_scan_attempt_at"] is not None
+    assert payload["last_scan_success_at"] is None
+    assert "scan_failed:RuntimeError" in payload["scan_error"]
+
+
+def test_agg_f057_load_and_save_failures_are_observable(monkeypatch, tmp_path):
+    _configure_sentinel_health(monkeypatch)
+    invalid_state_target = tmp_path / "sentinel-state-directory"
+    invalid_state_target.mkdir()
+    monkeypatch.setattr(sentinel, "STATE_FILE", invalid_state_target)
+
+    with pytest.raises(IsADirectoryError):
+        sentinel._load_watchers()
+    load_failed = asyncio.run(sentinel.sentinel_status())
+    assert load_failed["success"] is False
+    assert load_failed["status"] == "error"
+    assert "watcher_load_failed:IsADirectoryError" in load_failed["load_error"]
+
+    monkeypatch.setattr(sentinel, "_last_load_error", None)
+    with pytest.raises(IsADirectoryError):
+        sentinel._save_watchers()
+    save_failed = asyncio.run(sentinel.sentinel_status())
+    assert save_failed["success"] is False
+    assert save_failed["status"] == "error"
+    assert "watcher_save_failed:IsADirectoryError" in save_failed["save_error"]
+
+
+def test_agg_f057_lifespan_retains_startup_failure(monkeypatch):
+    _configure_sentinel_health(monkeypatch)
+
+    def fail_load():
+        raise ValueError("invalid watcher state")
+
+    async def no_op():
+        return {"success": True}
+
+    monkeypatch.setattr(sentinel, "_load_watchers", fail_load)
+    monkeypatch.setattr(sentinel, "start_scheduler", no_op)
+    monkeypatch.setattr(sentinel, "stop_scheduler", no_op)
+
+    async def observe_lifespan():
+        async with sentinel._sentinel_lifespan(None):
+            return await sentinel.sentinel_status()
+
+    payload = asyncio.run(observe_lifespan())
+    assert payload["success"] is False
+    assert payload["status"] == "error"
+    assert "watcher_load_failed:ValueError" in payload["startup_error"]
 
 
 @pytest.mark.parametrize(

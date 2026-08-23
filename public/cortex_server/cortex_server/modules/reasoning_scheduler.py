@@ -12,6 +12,7 @@ from cortex_server.modules.evidence_governance import normalize_runtime_event
 
 from cortex_server.modules.reasoning_kernel import model_dump_compat
 from cortex_server.modules.reasoning_failures import normalize_failure_code
+from cortex_server.modules.reasoning_retry_policy import RetryPolicyError, retry_settings
 from cortex_server.modules.reasoning_store import list_docs, list_events, replace_namespace_docs, replace_namespace_events
 
 
@@ -242,22 +243,11 @@ def _policy_settings_from_workflow(workflow: Optional[Dict[str, Any]]) -> Dict[s
 
 
 def _node_retry_settings(step: Dict[str, Any], *, workflow: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
     policy_settings = _policy_settings_from_workflow(workflow)
-    failure_mode = str(step.get("failure_mode") or "continue")
-    default_attempts = int(policy_settings.get("retry_max_attempts", 1 if failure_mode != "retry" else 2) or 1)
-    max_attempts = int(metadata.get("max_attempts", metadata.get("retry_max_attempts", default_attempts)) or default_attempts)
-    backoff = float(metadata.get("retry_backoff_seconds", policy_settings.get("retry_backoff_seconds", 0.0)) or 0.0)
-    retry_on_timeout = bool(metadata.get("retry_on_timeout", policy_settings.get("retry_on_timeout", True)))
-    retry_on_status_codes = [int(x) for x in (metadata.get("retry_on_status_codes", policy_settings.get("retry_on_status_codes", [])) or []) if str(x).strip()]
-    retry_on_error_types = [str(x).lower() for x in (metadata.get("retry_on_error_types", policy_settings.get("retry_on_error_types", [])) or []) if str(x).strip()]
-    return {
-        "max_attempts": max(1, max_attempts),
-        "retry_backoff_seconds": max(0.0, backoff),
-        "retry_on_timeout": retry_on_timeout,
-        "retry_on_status_codes": retry_on_status_codes,
-        "retry_on_error_types": retry_on_error_types,
-    }
+    try:
+        return retry_settings(step, policy_settings)
+    except RetryPolicyError as exc:
+        raise ReasoningSchedulerError(str(exc)) from exc
 
 
 
@@ -310,10 +300,19 @@ def _result_matches_retry_policy(result: Dict[str, Any], row: Dict[str, Any]) ->
 
 
 
-def _retry_wait_until(*, backoff_seconds: float) -> Optional[str]:
+def _retry_wait_until(
+    *, backoff_seconds: float, deadline_at: Optional[datetime] = None
+) -> Optional[str]:
+    now = _now()
     if backoff_seconds <= 0:
-        return _now_iso()
-    return _to_iso(_now() + timedelta(seconds=backoff_seconds))
+        return _to_iso(now)
+    retry_at = now + timedelta(seconds=backoff_seconds)
+    if deadline_at is not None:
+        normalized_deadline = deadline_at
+        if normalized_deadline.tzinfo is None:
+            normalized_deadline = normalized_deadline.replace(tzinfo=timezone.utc)
+        retry_at = min(retry_at, normalized_deadline.astimezone(timezone.utc))
+    return _to_iso(retry_at)
 
 
 
@@ -351,6 +350,9 @@ def _make_node_state(step: Dict[str, Any], *, default_start_at: Optional[str] = 
         "failure_mode": str(step.get("failure_mode") or "continue"),
         "max_attempts": int(retry_settings.get("max_attempts", 1) or 1),
         "retry_backoff_seconds": float(retry_settings.get("retry_backoff_seconds", 0.0) or 0.0),
+        "cumulative_retry_backoff_seconds": float(
+            retry_settings.get("cumulative_retry_backoff_seconds", 0.0) or 0.0
+        ),
         "retry_on_timeout": bool(retry_settings.get("retry_on_timeout", True)),
         "retry_on_status_codes": list(retry_settings.get("retry_on_status_codes", []) or []),
         "retry_on_error_types": list(retry_settings.get("retry_on_error_types", []) or []),
@@ -590,6 +592,9 @@ def replace_process_workflow(process_id: str, workflow: Dict[str, Any], *, event
             row["failure_mode"] = str(step.get("failure_mode") or "continue")
             row["max_attempts"] = int(retry_settings.get("max_attempts", 1) or 1)
             row["retry_backoff_seconds"] = float(retry_settings.get("retry_backoff_seconds", 0.0) or 0.0)
+            row["cumulative_retry_backoff_seconds"] = float(
+                retry_settings.get("cumulative_retry_backoff_seconds", 0.0) or 0.0
+            )
             row["retry_on_timeout"] = bool(retry_settings.get("retry_on_timeout", True))
             row["retry_on_status_codes"] = list(retry_settings.get("retry_on_status_codes", []) or [])
             row["retry_on_error_types"] = list(retry_settings.get("retry_on_error_types", []) or [])
@@ -870,9 +875,12 @@ def record_node_result(process_id: str, node_id: str, result: Dict[str, Any]) ->
 
         if retry_allowed:
             backoff = float(row.get("retry_backoff_seconds", 0.0) or 0.0)
+            deadline_at = _parse_dt(process.get("deadline_at"))
             row["status"] = "waiting"
             row["completed_at"] = None
-            row["retry_at"] = _retry_wait_until(backoff_seconds=backoff)
+            row["retry_at"] = _retry_wait_until(
+                backoff_seconds=backoff, deadline_at=deadline_at
+            )
             row["wait_until"] = row.get("retry_at")
             process["wake_requested_at"] = None
             process.setdefault("results_by_node", {}).pop(node_id, None)
