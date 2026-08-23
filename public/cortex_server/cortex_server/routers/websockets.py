@@ -4,6 +4,7 @@ WebSocket Router - Real-time communication endpoints.
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
+import hashlib
 import inspect
 import json
 import re
@@ -230,8 +231,15 @@ async def ws_logs(websocket: WebSocket, container_id: str):
                 )
                 return
             try:
+                raw_line = str(line or "")
+                encoded_line = raw_line.encode("utf-8", errors="replace")
+                safe_line = (
+                    "[REDACTED] "
+                    f"sha256={hashlib.sha256(encoded_line).hexdigest()} "
+                    f"bytes={len(encoded_line)}"
+                )
                 await asyncio.wait_for(
-                    websocket.send_text(line),
+                    websocket.send_text(safe_line),
                     timeout=min(send_timeout, max(0.001, lifetime_deadline - time.monotonic())),
                 )
             except asyncio.TimeoutError:

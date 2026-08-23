@@ -108,16 +108,18 @@ test('tool calls remain uncapped per turn', async () => {
   assert.equal(await before({ toolName: 'exec' }, ctx), undefined);
 });
 
-test('tool persistence redacts secrets, bounds output, and collapses duplicate budget noise', () => {
+test('tool persistence retains metadata only and never opaque tool or stdout content', () => {
   const h = harness();
   const persist = h.handlers.get('tool_result_persist');
-  const secret = persist({ toolName: 'exec', message: { content: '{"writeToken":"super-secret-value-123456789"}' } }, ctx);
-  assert.doesNotMatch(String(secret?.message?.content || ''), /super-secret-value/);
-  assert.match(String(secret?.message?.content || ''), /REDACTED/);
+  const opaque = 'OPAQUE_TOOL_STDOUT_MARKER_7f69baba';
+  const secret = persist({ toolName: 'exec', message: { content: `{"writeToken":"super-secret-value-123456789","stdout":"${opaque}"}` } }, ctx);
+  assert.doesNotMatch(JSON.stringify(secret), /super-secret-value|OPAQUE_TOOL_STDOUT_MARKER/);
+  assert.match(String(secret?.message?.content || ''), /CORTEX_TOOL_RESULT_METADATA/);
+  assert.match(String(secret?.message?.content || ''), /contentHash/);
   const long = persist({ toolName: 'exec', message: { content: 'x'.repeat(20_000) } }, ctx);
-  assert.ok(String(long?.message?.content || '').length < 13_000);
+  assert.ok(String(long?.message?.content || '').length < 1000);
   const duplicate = persist({ toolName: 'exec', message: { content: 'CORTEX_TOOL_BUDGET_ALREADY_EXHAUSTED duplicate_attempt=9' } }, ctx);
-  assert.match(String(duplicate?.message?.content || ''), /duplicate blocked attempt omitted/);
+  assert.match(String(duplicate?.message?.content || ''), /already_exhausted/);
 });
 
 test('noisy compaction sets a fail-closed warning on the next turn', async () => {

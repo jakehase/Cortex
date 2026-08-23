@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import register from './index.ts';
 
 const CACHE_SECRET = 'deployment-held-test-secret';
+const SAFE_ROUTING_FAILURE = /routing unavailable while requireRouting is enabled; type=Error detail_hash=[0-9a-f]{64}/;
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -99,7 +100,7 @@ async function invoke({ requireRouting, cache, response, config = {}, context = 
 
 for (const response of [{}, { recommended_levels: [] }, { recommended_levels: [{ level: '24' }] }]) {
   test(`requireRouting rejects malformed HTTP 200 route response ${JSON.stringify(response)}`, async () => {
-    await assert.rejects(() => invoke({ requireRouting: true, response }), /invalid live route response schema/);
+    await assert.rejects(() => invoke({ requireRouting: true, response }), SAFE_ROUTING_FAILURE);
   });
 }
 
@@ -135,7 +136,7 @@ test('private retrieval shadow uses isolated user intent and remains absent from
   assert.equal(requestBody.query, 'SYSTEM CONTEXT and prior history that must not become a private retrieval query');
   assert.equal(requestBody.private_retrieval_shadow_query, 'What did we decide about the rollout gate?');
   assert.doesNotMatch(context, /private_retrieval_shadow|selective_private_fact_lookup|aaaaaaaaaaaaaaaa/);
-  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.doesNotMatch(JSON.stringify(saved.plan), /private_retrieval_shadow|rollout gate|SYSTEM CONTEXT/);
   assert.equal(telemetry.mode, 'observe_only');
   assert.equal(telemetry.answerInfluence, false);
   assert.equal(telemetry.records[0].observationId, observationId);
@@ -170,7 +171,7 @@ test('content-like shadow marker fields are rejected instead of persisted', asyn
     complete: true,
   });
   assert.doesNotMatch(context, /PRIVATE_QUERY_CONTENT|private_retrieval_shadow/);
-  assert.equal(saved.plan.routingMarkers.private_retrieval_shadow, undefined);
+  assert.doesNotMatch(JSON.stringify(saved.plan), /private_retrieval_shadow|PRIVATE_QUERY_CONTENT/);
   assert.equal(telemetry, null);
 });
 
@@ -239,7 +240,7 @@ test('configured hook fallbacks and callback principals never share adaptive sta
     assert.equal(directories.length, 3);
     const histories = directories.map((entry) => JSON.parse(fs.readFileSync(path.join(principalRoot, entry.name, 'prompt-history.json'), 'utf8')));
     assert.deepEqual(histories.map((rows) => rows.length).sort(), [1, 1, 1]);
-    assert.equal(new Set(histories.map((rows) => JSON.stringify(rows[0].tokens))).size, 3);
+    assert.equal(new Set(histories.map((rows) => JSON.stringify(rows[0].tokenDigests))).size, 3);
   } finally {
     globalThis.fetch = originalFetch;
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -250,9 +251,12 @@ test('optional routing uses a separately validated last-good plan after malforme
   const cache = cachedPlan();
   const { context, saved } = await invoke({ requireRouting: false, cache, response: {} });
   assert.match(context, /routing_method: cached_fallback/);
-  assert.match(context, /L7 Mnemosyne/);
-  assert.deepEqual(saved.plan, cache.plan);
-  assert.equal(saved.provenance, cache.provenance);
+  assert.match(context, /L7 \[score=0\.50\]/);
+  assert.deepEqual(saved.plan, {
+    recommendedLevels: [{ level: 7 }],
+    routingMethod: 'cached_route_plan',
+  });
+  assert.match(saved.provenance, /^[0-9a-f]{64}$/);
   assert.match(saved.scopeTag, /^[0-9a-f]{64}$/);
 });
 
@@ -276,7 +280,7 @@ test('live routing rejects non-boolean always_on metadata', async () => {
   await assert.rejects(() => invoke({
     requireRouting: true,
     response: { recommended_levels: [{ level: 24, always_on: 'true' }] },
-  }), /invalid live route response schema/);
+  }), SAFE_ROUTING_FAILURE);
 });
 
 test('routing POST uses the configured sensitive write-token header', async () => {
@@ -430,7 +434,7 @@ test('routing rejects prompts above the configured POST-body byte limit before f
     prompt: 'x'.repeat(1025),
     config: { maxRoutingPromptBytes: 1024 },
     inspectRequest() { fetched = true; },
-  }), /routing prompt exceeds 1024 bytes/);
+  }), SAFE_ROUTING_FAILURE);
   assert.equal(fetched, false);
 });
 

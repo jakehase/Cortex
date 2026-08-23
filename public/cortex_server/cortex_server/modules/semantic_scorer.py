@@ -114,7 +114,7 @@ class SemanticScorer:
                 'method': 'embedding'
             }
         except Exception as e:
-            print(f"[SEMANTIC] Embedding error: {e}")
+            print(f"[SEMANTIC] Embedding error ({type(e).__name__})")
             return self._semantic_heuristic_score(query, purpose, level_num)
     
     def _semantic_heuristic_score(self, query: str, purpose: str, level_num: int) -> Dict[str, Any]:

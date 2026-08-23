@@ -196,7 +196,7 @@ def configured_internal_memory_headers() -> Optional[Dict[str, str]]:
     )
     if not signature:
         raise MemoryScopeAuthError("configured internal memory credential cannot sign requests")
-    return {
+    headers = {
         **{
             MEMORY_PRINCIPAL_HEADERS[field]: scope[field]
             for field in PRINCIPAL_FIELDS
@@ -204,6 +204,16 @@ def configured_internal_memory_headers() -> Optional[Dict[str, str]]:
         "x-cortex-scope-credential-id": credential_id,
         "x-cortex-scope-signature": signature,
     }
+    # The write token authenticates the transport only; the signed scope above
+    # remains the actor authority. Internal calls need both once loopback trust
+    # is removed.
+    write_token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
+    write_header = os.getenv(
+        "CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token"
+    ).strip().lower()
+    if write_token and write_header:
+        headers[write_header] = write_token
+    return headers
 
 
 def _configured_credentials() -> Dict[str, Dict[str, object]]:

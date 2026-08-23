@@ -1337,9 +1337,10 @@ def _add_memory_with_supersession(
                 _remove_fact_supersession_journal(journal_path)
             except Exception as exc:
                 logger.warning(
-                    "fact supersession committed; recovery journal cleanup remains pending for %s: %s",
-                    journal_path.name,
-                    exc,
+                    "fact supersession committed; recovery journal cleanup remains pending "
+                    "(journal_sha256=%s error_type=%s)",
+                    sha256(journal_path.name.encode("utf-8")).hexdigest(),
+                    type(exc).__name__,
                 )
 
 

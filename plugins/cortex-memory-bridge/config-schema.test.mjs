@@ -81,3 +81,20 @@ test('production plugin schemas require a write token and advertise the Compose 
     assert.equal(manifest.uiHints.baseUrl.placeholder, 'http://127.0.0.1:8888');
   }
 });
+
+test('plugin schemas accept the deprecated configured-user no-op and reject unknown configuration', () => {
+  for (const manifest of [memoryManifest, routeManifest]) {
+    const config = {
+      sessionIdentityHmacSecret: SHARED_SESSION_SECRET,
+      ...PRODUCTION_SCOPE,
+    };
+    const legacyProperty = manifest.configSchema.properties.preferConfiguredUserId;
+    assert.equal(legacyProperty.type, 'boolean');
+    assert.equal(legacyProperty.deprecated, true);
+    assert.match(legacyProperty.description, /compatibility no-op/);
+    assert.equal(validates({ ...config, preferConfiguredUserId: true }, manifest.configSchema), true);
+    assert.equal(validates({ ...config, preferConfiguredUserId: false }, manifest.configSchema), true);
+    assert.equal(validates({ ...config, preferConfiguredUserId: 'true' }, manifest.configSchema), false);
+    assert.equal(validates({ ...config, configuredUserPrecedence: true }, manifest.configSchema), false);
+  }
+});

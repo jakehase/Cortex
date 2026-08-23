@@ -272,7 +272,7 @@ def test_credentials_inside_url_valued_query_parameters_are_redacted(monkeypatch
     assert event["query"] == (
         "redirect=https%3A%2F%2Fexample.test%2Fcallback%3Fview%3Dsummary%26"
         "X-Amz-Signature%3D%255BREDACTED%255D%26empty%3D"
-        "&return_to=%2Fordinary%2Fpath%3Fsignature%3Dnot-a-url"
+        "&return_to=%2Fordinary%2Fpath%3Fsignature%3D%255BREDACTED%255D"
     )
     assert "nested-secret" not in path.read_text(encoding="utf-8")
 
@@ -287,6 +287,58 @@ def test_nested_url_credentials_are_redacted_recursively():
 
     assert "deep-secret" not in sanitized
     assert "%25255BREDACTED%25255D" in sanitized
+
+
+def test_query_telemetry_allowlist_redacts_unknown_opaque_values_recursively():
+    opaque_code = "opaque-command-secret-1234567890"
+    opaque_value = "patient-record-without-a-sensitive-key"
+
+    sanitized = ledger._safe_query(
+        "next=https%3A%2F%2Fexample.test%2Fcontinue%3Fcode%3D"
+        + opaque_code
+        + "&unknown="
+        + opaque_value
+        + "&view=summary&ok=1&limit=25"
+    )
+
+    assert opaque_code not in sanitized
+    assert opaque_value not in sanitized
+    assert "view=summary" in sanitized
+    assert "ok=1" in sanitized
+    assert "limit=25" in sanitized
+    assert sanitized.count("%5BREDACTED%5D") >= 1
+
+
+def test_event_ledger_path_prefers_route_template_and_redacts_unmatched_segments(
+    monkeypatch, tmp_path
+):
+    path = tmp_path / "events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(path))
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_MAX_BYTES", 100_000)
+    middleware = ledger.EventLedgerMiddleware(app=lambda scope, receive, send: None)
+    opaque_id = "opaque-patient-record-1234567890"
+    request = _request(f"/patients/{opaque_id}")
+
+    async def application(inner_request):
+        inner_request.scope["route"] = SimpleNamespace(path="/patients/{patient_id}")
+        return JSONResponse({"ok": True})
+
+    assert asyncio.run(middleware.dispatch(request, application)).status_code == 200
+    event = json.loads(path.read_text(encoding="utf-8"))
+    assert event["path"] == "/patients/{patient_id}"
+    assert opaque_id not in path.read_text(encoding="utf-8")
+
+    unmatched_path = tmp_path / "unmatched-events.jsonl"
+    monkeypatch.setattr(ledger, "EVENT_LEDGER_PATH", str(unmatched_path))
+    unmatched = _request(f"/missing/{opaque_id}/12345")
+
+    async def unmatched_application(_request):
+        return JSONResponse({"ok": True})
+
+    assert asyncio.run(middleware.dispatch(unmatched, unmatched_application)).status_code == 200
+    unmatched_event = json.loads(unmatched_path.read_text(encoding="utf-8"))
+    assert unmatched_event["path"] == "/missing/[REDACTED]/[REDACTED]"
+    assert opaque_id not in unmatched_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -696,7 +748,8 @@ def test_process_lock_failure_is_fail_closed_and_observable(monkeypatch, tmp_pat
         ledger._append_event({"must_not_be_written": True})
 
     assert path.read_bytes() == before
-    assert "event_ledger_append_failed: contended ledger" in caplog.text
+    assert "event_ledger_append_failed: _LedgerLockTimeout" in caplog.text
+    assert "contended ledger" not in caplog.text
 
 
 def test_concurrent_rotation_is_locked_atomic_and_has_bounded_generations(

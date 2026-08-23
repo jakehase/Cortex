@@ -102,6 +102,14 @@ def _configured_production_app(monkeypatch, tmp_path):
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", WRITE_SECRET)
     monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", RELEASE_ARTIFACT_SECRET)
+    monkeypatch.setenv(
+        "CORTEX_ACTION_DELEGATION_SECRET",
+        "read-test-delegation-secret-00000000000001",
+    )
+    monkeypatch.setenv(
+        "L2_NOTARY_SECRET",
+        "read-test-notary-secret-00000000000000001",
+    )
     monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", _credential_registry())
     monkeypatch.setenv("CORTEX_ADMIN_TOKEN", ADMIN_SECRET)
     monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret-0000000000000001")
@@ -765,6 +773,7 @@ async def test_read_route_inventory_is_explicit_and_guards_aliases_and_state(mon
 
     assert declared["/conductor/runtime/processes"] == "runtime_collection"
     assert declared["/conductor/runtime/process/{process_id}"] == "runtime_resource"
+    assert declared["/browser/status"] == "public_redacted"
     assert declared["/orchestrator/runtime-delivery/readiness"] == "public_redacted"
     assert declared["/conductor/runtime-delivery/readiness"] == "public_redacted"
     for path in (

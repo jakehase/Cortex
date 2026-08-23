@@ -31,6 +31,9 @@ import httpx
 from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.level_registry import get_level_registry
 from cortex_server.modules.memory_scope import configured_internal_memory_headers
+from cortex_server.modules.sensitive_data_redaction import (
+    redact_sensitive_data,
+)
 
 logger = logging.getLogger("consciousness_integration")
 
@@ -47,8 +50,11 @@ def _get_core():
     try:
         from cortex_server.modules.consciousness_core import get_consciousness_core
         return get_consciousness_core()
-    except Exception:
-        logger.debug("consciousness_core unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=core failure_type=%s",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -57,8 +63,11 @@ def _get_bus():
     try:
         from cortex_server.modules.unified_messaging import get_bus
         return get_bus()
-    except Exception:
-        logger.debug("unified_messaging unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=bus failure_type=%s",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -67,8 +76,11 @@ def _report(level_name: str, activity_type: str, data: dict):
     try:
         from cortex_server.modules.auto_reporting import report_activity
         report_activity(level_name, activity_type, data)
-    except Exception:
-        logger.debug("auto_reporting unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=auto_reporting failure_type=%s",
+            type(exc).__name__,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +139,11 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 "input": _safe_summary(input_data),
                 "timestamp": datetime.now().isoformat(),
             })
-    except Exception:
-        logger.debug("conscious_action enter think failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "conscious_action_internal_failure phase=enter_think failure_type=%s",
+            type(exc).__name__,
+        )
 
     try:
         bus = _get_bus()
@@ -137,8 +152,11 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 "action": action_type,
                 "input": _safe_summary(input_data),
             })
-    except Exception:
-        logger.debug("conscious_action enter broadcast failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "conscious_action_internal_failure phase=enter_broadcast failure_type=%s",
+            type(exc).__name__,
+        )
 
     error_occurred: Optional[BaseException] = None
     try:
@@ -151,13 +169,14 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
 
         if error_occurred is not None:
             # ── Error path ──
+            failure_type = type(error_occurred).__name__
             try:
                 core = _get_core()
                 if core:
                     await core.think(level_name, {
                         "type": "error",
                         "action": action_type,
-                        "error": str(error_occurred)[:500],
+                        "failure_type": failure_type,
                         "elapsed_ms": elapsed_ms,
                     })
             except Exception:
@@ -167,7 +186,7 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 if bus:
                     bus.broadcast(level_name, "action_error", {
                         "action": action_type,
-                        "error": str(error_occurred)[:500],
+                        "failure_type": failure_type,
                     })
             except Exception:
                 pass
@@ -244,17 +263,15 @@ async def chain_to(
         pass
 
     try:
-        normalized_endpoint = endpoint.lstrip("/")
-        memory_endpoint = normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search"
-        memory_headers = configured_internal_memory_headers() if memory_endpoint else None
-        if memory_endpoint and memory_headers is None:
+        internal_headers = configured_internal_memory_headers()
+        if internal_headers is None:
             return None
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method.upper() == "GET":
-                resp = await client.get(url, params=payload, headers=memory_headers)
+                resp = await client.get(url, params=payload, headers=internal_headers)
             else:
                 body = dict(payload or {})
-                resp = await client.post(url, json=body, headers=memory_headers)
+                resp = await client.post(url, json=body, headers=internal_headers)
             resp.raise_for_status()
             result = resp.json()
 
@@ -276,18 +293,27 @@ async def chain_to(
         _broadcast_chain_error(from_level, endpoint, "timeout")
         return None
     except Exception as exc:
-        logger.warning("chain_to %s -> %s failed: %s", from_level, endpoint, exc)
-        _broadcast_chain_error(from_level, endpoint, str(exc)[:300])
+        logger.warning(
+            "consciousness_chain_failure failure_type=%s",
+            type(exc).__name__,
+        )
+        _broadcast_chain_error(from_level, endpoint, type(exc).__name__)
         return None
 
 
-def _broadcast_chain_error(from_level: str, endpoint: str, error: str):
+def _broadcast_chain_error(from_level: str, endpoint: str, failure_type: str):
+    safe_failure_type = (
+        str(failure_type)
+        if str(failure_type).replace("_", "").isalnum()
+        and len(str(failure_type)) <= 64
+        else "InternalFailure"
+    )
     try:
         bus = _get_bus()
         if bus:
             bus.broadcast(from_level, "chain_error", {
                 "target_endpoint": endpoint,
-                "error": error,
+                "failure_type": safe_failure_type,
             })
     except Exception:
         pass
@@ -316,8 +342,11 @@ def subscribe_to(
         bus = _get_bus()
         if bus:
             bus.subscribe(level_name, event_types, handler)
-    except Exception:
-        logger.debug("subscribe_to failed for %s", level_name, exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_subscription_failure failure_type=%s",
+            type(exc).__name__,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +402,11 @@ def get_collective_context() -> Dict[str, Any]:
                         pass
             except FileNotFoundError:
                 pass
-    except Exception:
-        logger.debug("get_collective_context core read failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_context_read_failure failure_type=%s",
+            type(exc).__name__,
+        )
 
     # Bus shared state
     try:
@@ -391,19 +423,17 @@ def get_collective_context() -> Dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _safe_summary(obj: Any, max_len: int = 500) -> Any:
-    """Return a JSON-safe, truncated summary of an object for thought storage."""
+def _bounded_summary(obj: Any, max_len: int) -> Any:
     if obj is None:
         return None
     if isinstance(obj, (str, int, float, bool)):
         s = str(obj)
         return s[:max_len] if len(s) > max_len else obj
     if isinstance(obj, dict):
-        # Keep keys but truncate values
         out = {}
         total = 0
         for k, v in obj.items():
-            sv = _safe_summary(v, max_len=200)
+            sv = _bounded_summary(v, 200)
             out[str(k)[:100]] = sv
             total += len(str(sv))
             if total > max_len:
@@ -413,10 +443,21 @@ def _safe_summary(obj: Any, max_len: int = 500) -> Any:
     if isinstance(obj, (list, tuple)):
         out = []
         for item in obj[:20]:
-            out.append(_safe_summary(item, max_len=100))
+            out.append(_bounded_summary(item, 100))
         if len(obj) > 20:
             out.append(f"... +{len(obj) - 20} more")
         return out
     # Fallback
     s = str(obj)
     return s[:max_len] if len(s) > max_len else s
+
+
+def _safe_summary(obj: Any, max_len: int = 500) -> Any:
+    """Return a bounded, recursively redacted summary for trace storage."""
+    redacted = redact_sensitive_data(
+        obj,
+        max_depth=8,
+        max_items=512,
+        max_string_chars=max(1, int(max_len)),
+    )
+    return _bounded_summary(redacted, max(1, int(max_len)))

@@ -51,6 +51,7 @@ from cortex_server.modules.reasoning_planner import (
 )
 from cortex_server.modules.reasoning_policy import build_workflow_policy
 from cortex_server.modules.reasoning_store import get_doc as store_get_doc, list_docs as store_list_docs, upsert_doc as store_upsert_doc
+from cortex_server.modules.sensitive_data_redaction import redact_headers
 from cortex_server.modules.reasoning_scheduler import (
     ReasoningSchedulerError,
     create_process_from_workflow,
@@ -4074,16 +4075,7 @@ class RuntimeMaintenanceIntakeRequest(BaseModel):
 
 
 def _redact_headers(h: Any) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    if not isinstance(h, dict):
-        return out
-    for k,v in h.items():
-        lk=str(k).lower()
-        if lk in ("authorization","x-bridge-token","x-api-key","cookie"):
-            out[str(k)] = "[REDACTED]"
-        else:
-            out[str(k)] = str(v)[:200]
-    return out
+    return redact_headers(h, max_value_chars=200)
 
 def _validate_endpoint(ep: str) -> None:
     if not isinstance(ep, str) or not ep.startswith('/'):
@@ -4145,50 +4137,13 @@ def _payload_size_ok(obj: Any) -> bool:
 
 
 async def _sentinel_preflight() -> Dict[str, Any]:
-    required_targets = [
-        internal_url('/health'),
-        internal_url('/oracle/status'),
-        internal_url('/augmenter/status'),
-    ]
-    try:
-        async with httpx.AsyncClient(timeout=4.0, trust_env=False) as client:
-            for target in required_targets:
-                watch_response = await client.post(
-                    internal_url('/sentinel/watch'),
-                    json={
-                        'name': 'orchestrator-required-preflight',
-                        'watch_type': 'endpoint',
-                        'target': target,
-                        'timeout_seconds': 1.5,
-                    },
-                )
-                watch_response.raise_for_status()
-                watch_payload = watch_response.json()
-                if not isinstance(watch_payload, dict) or watch_payload.get('success') is not True or not watch_payload.get('watch_id'):
-                    raise RuntimeError('malformed_sentinel_watch_response')
-            r = await client.post(SENTINEL_SCAN_URL, json={})
-            r.raise_for_status()
-            payload = r.json()
-            scan = payload.get('scan') if isinstance(payload, dict) else None
-            results = scan.get('results') if isinstance(scan, dict) else None
-            if not isinstance(results, list):
-                raise RuntimeError('malformed_sentinel_scan_results')
-            by_target = {
-                str(row.get('target')): row
-                for row in results
-                if isinstance(row, dict) and row.get('target')
-            }
-            for target in required_targets:
-                result = by_target.get(target)
-                try:
-                    status_code = int(result.get('status_code')) if isinstance(result, dict) else 0
-                except (TypeError, ValueError):
-                    status_code = 0
-                if not isinstance(result, dict) or result.get('ok') is not True or not 0 < status_code < 400:
-                    raise RuntimeError(f'sentinel_required_target_failed:{target}')
-            return payload
-    except Exception as e:
-        return {"success": False, "error": f"sentinel_preflight_failed:{type(e).__name__}:{e}"}
+    # Sentinel mutations now require an initiating principal's one-shot action
+    # receipt. This background workflow has no such delegated authority, so it
+    # must fail closed instead of manufacturing ambient internal authority.
+    return {
+        "success": False,
+        "error": "sentinel_preflight_requires_delegated_action_capability",
+    }
 
 
 def _trim_response_body(body: Any) -> Any:
@@ -4643,12 +4598,10 @@ def _runtime_follow_up_attempt_allowed(record: RuntimeFollowUpDispatch, *, now: 
 
 
 def _deliver_runtime_follow_up(record: RuntimeFollowUpDispatch) -> tuple[bool, Optional[str]]:
-    try:
-        diplomat = get_diplomat()
-        success = bool(diplomat.send_briefing(message=record.message, title=record.title))
-        return success, None if success else "diplomat_send_failed"
-    except Exception as exc:  # pragma: no cover - defensive guard
-        return False, str(exc)
+    # A queued follow-up cannot reuse the scheduling request's consumed action
+    # receipt. Hold it until the queue stores and revalidates a delegated,
+    # sink-bound capability with durable operation idempotency.
+    return False, "diplomat_delivery_requires_delegated_action_capability"
 
 
 

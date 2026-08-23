@@ -6,11 +6,16 @@ from typing import Any, List
 import asyncio
 
 from celery.result import AsyncResult
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from cortex_server.worker import app as celery_app
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    assert_action_authorized,
+    require_action_capability,
+)
 
 router = APIRouter()
 
@@ -57,13 +62,23 @@ def _count_active_jobs_sync() -> int:
 
 
 @router.post("/schedule", response_model=TaskResponse)
-async def schedule_task(request: ScheduleRequest) -> TaskResponse:
+async def schedule_task(
+    request: ScheduleRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+) -> TaskResponse:
     """Schedule a task by name with optional args."""
-    if request.task not in celery_app.tasks:
-        raise HTTPException(status_code=404, detail=f"Unknown task: {request.task}")
-
-    async_result = celery_app.send_task(request.task, args=request.args)
-    return TaskResponse(task_id=async_result.id, status="scheduled")
+    assert_action_authorized(authorization)
+    # Arbitrary Celery tasks do not yet share a worker-side contract for
+    # consuming a delegated, principal-bound action capability.  Enqueuing
+    # after checking only the HTTP edge would defer/amplify authority, so this
+    # generic endpoint remains closed until workers can revalidate the proof.
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "generic task scheduling is disabled until workers consume "
+            "delegated action capabilities"
+        ),
+    )
 
 
 @router.get("/status/{task_id}", response_model=TaskStatus)

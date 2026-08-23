@@ -44,6 +44,22 @@ services:
       CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN: ${CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN:?set a verifier-only artifact transport token in .env}
       CORTEX_ADMIN_TOKEN: ${CORTEX_ADMIN_TOKEN:?set an independent production administrator token in .env}
       CORTEX_MEMORY_SCOPE_CREDENTIALS: ${CORTEX_MEMORY_SCOPE_CREDENTIALS:?set principal-scoped credentials in .env}
+      CORTEX_ACTION_DELEGATION_SECRET: ${CORTEX_ACTION_DELEGATION_SECRET:?set an independent server-only deferred-action signing secret in .env}
+      CORTEX_ACTION_CAPABILITY_DB_PATH: /opt/clawdbot/state/action_capabilities.db
+      CORTEX_AWARENESS_STATE_PATH: /opt/clawdbot/state/awareness/working_memory.json
+      CORTEX_SENTINEL_STATE_PATH: /opt/clawdbot/state/sentinel/watchers.json
+      CORTEX_CONSCIOUSNESS_STATE_DIR: /opt/clawdbot/state/consciousness
+      CORTEX_CHRONOS_STATE_DIR: /opt/clawdbot/state/chronos
+      CORTEX_DIPLOMAT_STATE_DIR: /opt/clawdbot/state/diplomat
+      EXECUTION_TRANSACTION_DIR: /opt/clawdbot/state/transactions
+      L2_NOTARY_SECRET: ${L2_NOTARY_SECRET:?set a dedicated browser-notary signing secret in .env}
+      # Each outbound capability is independently server-authorized. Empty
+      # lists intentionally disable that capability rather than allowing all.
+      CORTEX_BROWSER_EGRESS_ALLOWED_HOSTS: ${CORTEX_BROWSER_EGRESS_ALLOWED_HOSTS:-}
+      CORTEX_DIPLOMAT_EGRESS_ALLOWED_HOSTS: ${CORTEX_DIPLOMAT_EGRESS_ALLOWED_HOSTS:-}
+      CORTEX_SENTINEL_EGRESS_ALLOWED_HOSTS: ${CORTEX_SENTINEL_EGRESS_ALLOWED_HOSTS:-}
+      CORTEX_SENTINEL_PERSISTENT_TARGETS: ${CORTEX_SENTINEL_PERSISTENT_TARGETS:-}
+      CORTEX_PARSER_EGRESS_ALLOWED_HOSTS: ${CORTEX_PARSER_EGRESS_ALLOWED_HOSTS:-}
       # Default-on, observe-only selective private retrieval. It cannot inject
       # candidate content into answers; the kill switch is immediate.
       CORTEX_PRIVATE_RETRIEVAL_SHADOW_ENABLED: ${CORTEX_PRIVATE_RETRIEVAL_SHADOW_ENABLED:-true}

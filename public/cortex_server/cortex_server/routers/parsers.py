@@ -18,7 +18,9 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 
 from cortex_server.modules.consciousness_integration import chain_to
+from cortex_server.modules.action_capabilities import require_action_capability
 from cortex_server.models.requests import ParsePythonRequest, ParsePDFRequest, ParseJavaScriptRequest, ParseDirectoryRequest
+from cortex_server.outbound_egress import EgressPolicy, EgressPolicyError
 from cortex_server.services.parser_service import ParserService
 
 MAX_DOWNLOAD_BYTES = 2_000_000
@@ -129,6 +131,7 @@ class _BodyLimitedRoute(APIRoute):
 
 
 router = APIRouter(route_class=_BodyLimitedRoute)
+_ACTION_DEPENDENCIES = [Depends(require_action_capability)]
 def get_parser_service(request: Request) -> ParserService:
     """Resolve the immutable parser policy owned by this FastAPI app."""
     return request.app.state.parser_service
@@ -156,8 +159,8 @@ async def _best_effort_auto_index(content_type: str, summary: str, metadata: dic
         logger.warning("HTML auto-indexing failed: request deadline exceeded")
     except asyncio.CancelledError:
         raise
-    except Exception:
-        logger.exception("HTML auto-indexing failed")
+    except Exception as exc:
+        logger.error("HTML auto-indexing failed (%s)", type(exc).__name__)
     finally:
         _auto_index_admissions.release()
 
@@ -313,6 +316,13 @@ async def _public_http_url(value: str, *, deadline: Optional[float] = None) -> _
         raise _ExtractPolicyError("Invalid HTTP(S) URL") from exc
     if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
         raise _ExtractPolicyError("Only public HTTP(S) URLs without credentials are allowed")
+    try:
+        policy = EgressPolicy.from_environment("parser")
+        hostname_allowed = policy.permits_hostname(hostname)
+    except EgressPolicyError as exc:
+        raise _ExtractPolicyError("Parser egress policy is invalid") from exc
+    if not hostname_allowed:
+        raise _ExtractPolicyError("URL hostname is not server-authorized")
     if deadline is None:
         deadline = time.monotonic() + MAX_EXTRACT_SECONDS
     if not _dns_slots.acquire(blocking=False):
@@ -372,20 +382,24 @@ async def _fetch_html(value: str, *, deadline: Optional[float] = None) -> str:
             if isinstance(pinned, _PinnedURL):
                 headers["Host"] = pinned.host_header
                 extensions = {"sni_hostname": pinned.sni_hostname.encode("idna")}
-            async with client.stream("GET", target, headers=headers, extensions=extensions) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise _ExtractUpstreamError("Invalid redirect")
-                    current = urljoin(current, location)
-                    continue
-                response.raise_for_status()
-                content = bytearray()
-                async for chunk in response.aiter_bytes():
-                    if len(content) + len(chunk) > MAX_DOWNLOAD_BYTES:
-                        raise _ExtractPolicyError("Remote content exceeds byte limit")
-                    content.extend(chunk)
-                return bytes(content).decode(response.encoding or "utf-8", errors="replace")
+            # httpx timeouts apply to individual socket operations.  Keep the
+            # request's absolute deadline authoritative across a slow-drip
+            # response whose chunks each arrive inside that per-read timeout.
+            async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
+                async with client.stream("GET", target, headers=headers, extensions=extensions) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise _ExtractUpstreamError("Invalid redirect")
+                        current = urljoin(current, location)
+                        continue
+                    response.raise_for_status()
+                    content = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(content) + len(chunk) > MAX_DOWNLOAD_BYTES:
+                            raise _ExtractPolicyError("Remote content exceeds byte limit")
+                        content.extend(chunk)
+                    return bytes(content).decode(response.encoding or "utf-8", errors="replace")
         raise _ExtractUpstreamError("Too many redirects")
 
 @router.get("/status")
@@ -404,7 +418,7 @@ async def _read_extract_request(request: Request) -> ExtractRequest:
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="Invalid request body") from exc
 
-@router.post("/extract")
+@router.post("/extract", dependencies=_ACTION_DEPENDENCIES)
 async def extract(request: Request):
     deadline = time.monotonic() + MAX_EXTRACT_SECONDS
     parsed_request = await _read_extract_request(request) if not isinstance(request, ExtractRequest) else request
@@ -486,7 +500,7 @@ def _parser_failure_response(result: Dict[str, Any], parsed: str, *, indexed: Op
     return JSONResponse(status_code=status_code, content=content)
 
 
-@router.post("/python")
+@router.post("/python", dependencies=_ACTION_DEPENDENCIES)
 async def parse_python(request: ParsePythonRequest, service: ParserService = Depends(get_parser_service)):
     _parse_count["python"] += 1
     result = await service.parse_python(request)
@@ -494,7 +508,7 @@ async def parse_python(request: ParsePythonRequest, service: ParserService = Dep
         return _parser_failure_response(result, "python")
     return {"success": True, "parsed": "python", **result}
 
-@router.post("/pdf")
+@router.post("/pdf", dependencies=_ACTION_DEPENDENCIES)
 async def parse_pdf(request: ParsePDFRequest, service: ParserService = Depends(get_parser_service)):
     _parse_count["pdf"] += 1
     result = await service.parse_pdf(request)
@@ -502,7 +516,7 @@ async def parse_pdf(request: ParsePDFRequest, service: ParserService = Depends(g
         return _parser_failure_response(result, "pdf")
     return {"success": True, "parsed": "pdf", **result}
 
-@router.post("/javascript")
+@router.post("/javascript", dependencies=_ACTION_DEPENDENCIES)
 async def parse_js(request: ParseJavaScriptRequest, service: ParserService = Depends(get_parser_service)):
     _parse_count["javascript"] += 1
     result = await service.parse_javascript(request)
@@ -510,7 +524,7 @@ async def parse_js(request: ParseJavaScriptRequest, service: ParserService = Dep
         return _parser_failure_response(result, "javascript")
     return {"success": True, "parsed": "javascript", **result}
 
-@router.post("/directory")
+@router.post("/directory", dependencies=_ACTION_DEPENDENCIES)
 async def parse_dir(request: ParseDirectoryRequest, service: ParserService = Depends(get_parser_service)):
     _parse_count["directory"] += 1
     result = await service.parse_directory(request)
@@ -518,7 +532,7 @@ async def parse_dir(request: ParseDirectoryRequest, service: ParserService = Dep
         return _parser_failure_response(result, "directory")
     return {"success": True, "parsed": "directory", **result}
 
-@router.post("/index-codebase")
+@router.post("/index-codebase", dependencies=_ACTION_DEPENDENCIES)
 async def index_codebase(request: ParseDirectoryRequest, service: ParserService = Depends(get_parser_service)):
     """Alias for directory parsing with codebase-memory terminology."""
     _parse_count["directory"] += 1

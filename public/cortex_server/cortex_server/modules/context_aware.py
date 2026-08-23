@@ -221,7 +221,7 @@ def score_query_for_level(query: str, level_num: int) -> dict:
         
         return result
     except Exception as e:
-        print(f"[CONTEXT] Semantic scoring failed: {e}, using fallback")
+        print(f"[CONTEXT] Semantic scoring failed ({type(e).__name__}), using fallback")
         return _keyword_fallback(query, level_num)
 
 def _keyword_fallback(query: str, level_num: int) -> dict:

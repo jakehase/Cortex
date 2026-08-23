@@ -40,7 +40,7 @@
       "workspaceId": { "type": "string", "minLength": 1 },
       "agentId": { "type": "string", "minLength": 1 },
       "userId": { "type": "string", "minLength": 1 },
-      "preferConfiguredUserId": { "type": "boolean" },
+      "preferConfiguredUserId": { "type": "boolean", "deprecated": true, "description": "Deprecated compatibility no-op. Trusted callback identity remains authoritative; configured userId is fallback-only." },
       "channelId": { "type": "string", "minLength": 1 },
       "sessionId": { "type": "string", "minLength": 1 },
       "scopeCredentialId": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$" },
@@ -134,6 +134,11 @@
       "sensitive": true,
       "advanced": true,
       "help": "Explicitly provision the exact same secret in cortex-memory-bridge and cortex-route-gate. It has no built-in default."
+    },
+    "preferConfiguredUserId": {
+      "label": "Deprecated configured-user preference (ignored)",
+      "advanced": true,
+      "help": "Accepted only for configuration compatibility. Trusted callback user identity always wins; configured userId is used only when the callback omits user identity."
     },
     "curatedBoost": {
       "label": "Curated Result Boost",

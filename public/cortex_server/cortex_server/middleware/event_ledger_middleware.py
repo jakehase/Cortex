@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Any, Deque, Dict, List
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import asyncio
 import errno
@@ -23,12 +22,20 @@ import hashlib
 import json
 import logging
 import os
+import re
 import stat
 import threading
 import time
 import uuid
+from urllib.parse import unquote
 
 from cortex_server.modules.metrics_store import record_event_ledger_durable_write_drop
+from cortex_server.modules.sensitive_data_redaction import (
+    is_sensitive_query_key,
+    redact_query_string,
+    redact_sensitive_text,
+    redact_url_query_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +144,9 @@ def _record_durable_outcome(
         raise ValueError(f"unknown durable ledger outcome: {outcome}")
     if ledger_path is None:
         ledger_path = _active_write_config().path
+    ledger_path_sha256 = hashlib.sha256(
+        os.fsencode(os.path.abspath(ledger_path))
+    ).hexdigest()
     now_unix = time.time()
     now_iso = _now_iso()
     with _durable_health_lock:
@@ -147,7 +157,7 @@ def _record_durable_outcome(
                 "ts_unix": now_unix,
                 "ts": now_iso,
                 "error": error,
-                "ledger_path": ledger_path,
+                "ledger_path_sha256": ledger_path_sha256,
             }
         )
         if outcome == "success":
@@ -373,9 +383,10 @@ def _append_event(entry: Dict[str, Any]) -> bool:
             _record_durable_outcome("success")
             return True
         except Exception as exc:
-            _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
+            safe_error = type(exc).__name__
+            _record_durable_outcome("failure", error=safe_error)
             try:
-                logger.warning("event_ledger_append_failed: %s", exc)
+                logger.warning("event_ledger_append_failed: %s", safe_error)
             except Exception:
                 pass
             return False
@@ -486,101 +497,93 @@ def _reconcile_retained_generations(
                 continue
 
 
-_SENSITIVE_QUERY_PARTS = (
-    "token", "secret", "password", "signature", "credential", "api_key", "apikey", "key", "auth",
-)
 EVENT_LEDGER_MAX_QUERY_CHARS = _positive_int_env("CORTEX_EVENT_LEDGER_MAX_QUERY_CHARS", 8192)
 EVENT_LEDGER_MAX_QUERY_FIELDS = _positive_int_env("CORTEX_EVENT_LEDGER_MAX_QUERY_FIELDS", 64)
 _QUERY_LIMIT_MARKER = "[TRUNCATED]"
 _QUERY_REDACTION_MARKER = "[REDACTED]"
 _MAX_NESTED_URL_DEPTH = 4
-_URL_LEADING_C0_AND_SPACE = "".join(chr(codepoint) for codepoint in range(0x21))
+_PATH_REDACTION_MARKER = "[REDACTED]"
+_MAX_EVENT_PATH_CHARS = 2048
+_SAFE_STATIC_PATH_SEGMENT = re.compile(r"[A-Za-z_-]{1,48}")
+_SAFE_API_VERSION_SEGMENT = re.compile(r"v[0-9]{1,3}", re.IGNORECASE)
+_SENSITIVE_PATH_HINT = re.compile(
+    r"(?:auth|bearer|credential|password|patient|secret|session|signature|token)",
+    re.IGNORECASE,
+)
 
 
 def _is_sensitive_query_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return normalized == "sig" or any(part in normalized for part in _SENSITIVE_QUERY_PARTS)
+    return is_sensitive_query_key(key)
 
 
 def _sanitize_url_value(value: str, depth: int) -> str:
     """Redact credentials in the query component of a URL-valued parameter."""
-    # Match urlsplit/browser preprocessing so leading controls or spaces cannot
-    # hide a credential-bearing URL from classification.
-    normalized_value = value.lstrip(_URL_LEADING_C0_AND_SPACE)
-    lowered_value = normalized_value.lower()
-    is_http_url = False
-    if lowered_value.startswith(("http:", "https:")):
-        expected_prefix = "https://" if lowered_value.startswith("https:") else "http://"
-        authority = normalized_value[len(expected_prefix):]
-        if (
-            not lowered_value.startswith(expected_prefix)
-            or not authority
-            or authority[0] in {"/", "\\"}
-        ):
-            return _QUERY_REDACTION_MARKER
-        is_http_url = True
-    elif normalized_value.startswith("//"):
-        if len(normalized_value) == 2 or normalized_value[2] in {"/", "\\"}:
-            return _QUERY_REDACTION_MARKER
-        is_http_url = True
-    if not is_http_url:
-        # Non-HTTP connection URLs commonly carry database/service credentials;
-        # they are not useful enough as request telemetry to risk persisting.
-        if "://" in normalized_value:
-            return _QUERY_REDACTION_MARKER
-        return value
-    if "\\" in normalized_value or any(
-        ord(character) <= 0x20 for character in normalized_value
-    ):
-        return _QUERY_REDACTION_MARKER
-    try:
-        parsed = urlsplit(normalized_value)
-    except ValueError:
-        # A URL-like value that cannot be safely parsed is not useful telemetry.
-        return _QUERY_REDACTION_MARKER
-    if (
-        not parsed.netloc
-        or parsed.hostname is None
-        or parsed.username is not None
-        or parsed.password is not None
-    ):
-        return _QUERY_REDACTION_MARKER
-    # URL fragments are client-side state and can contain OAuth credentials;
-    # omit them entirely from server telemetry, including otherwise safe anchors.
-    fragment = ""
-    if not parsed.query:
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", fragment))
-    if depth >= _MAX_NESTED_URL_DEPTH:
-        return _QUERY_REDACTION_MARKER
-    if (
-        len(parsed.query) > EVENT_LEDGER_MAX_QUERY_CHARS
-        or parsed.query.count("&") + 1 > EVENT_LEDGER_MAX_QUERY_FIELDS
-    ):
-        return _QUERY_REDACTION_MARKER
-    query = _sanitize_query(parsed.query, depth + 1)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, fragment))
+    return redact_url_query_value(
+        value,
+        depth=depth,
+        max_chars=EVENT_LEDGER_MAX_QUERY_CHARS,
+        max_fields=EVENT_LEDGER_MAX_QUERY_FIELDS,
+        max_depth=_MAX_NESTED_URL_DEPTH,
+        marker=_QUERY_REDACTION_MARKER,
+    )
 
 
 def _sanitize_query(query: str, depth: int = 0) -> str:
-    pairs = []
-    for key, value in parse_qsl(
-        query, keep_blank_values=True, max_num_fields=EVENT_LEDGER_MAX_QUERY_FIELDS
-    ):
-        if _is_sensitive_query_key(key):
-            value = _QUERY_REDACTION_MARKER
-        else:
-            value = _sanitize_url_value(value, depth)
-        pairs.append((key, value))
-    return urlencode(pairs)
+    return redact_query_string(
+        query,
+        depth=depth,
+        max_chars=EVENT_LEDGER_MAX_QUERY_CHARS,
+        max_fields=EVENT_LEDGER_MAX_QUERY_FIELDS,
+        max_depth=_MAX_NESTED_URL_DEPTH,
+        marker=_QUERY_REDACTION_MARKER,
+        limit_marker=_QUERY_LIMIT_MARKER,
+    )
 
 
 def _safe_query(query: str) -> str:
     """Keep useful query metadata without doing unbounded parsing on the event loop."""
-    if not query:
-        return ""
-    if len(query) > EVENT_LEDGER_MAX_QUERY_CHARS or query.count("&") + 1 > EVENT_LEDGER_MAX_QUERY_FIELDS:
-        return _QUERY_LIMIT_MARKER
     return _sanitize_query(query)
+
+
+def _safe_request_path(request: Request, fallback_path: str) -> str:
+    """Prefer a trusted route template and bound/redact an unmatched raw path."""
+
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    if (
+        isinstance(route_path, str)
+        and route_path.startswith("/")
+        and len(route_path) <= _MAX_EVENT_PATH_CHARS
+        and "?" not in route_path
+        and "#" not in route_path
+        and not any(ord(character) < 0x20 for character in route_path)
+    ):
+        return route_path
+
+    raw_path = str(fallback_path or "/")
+    if len(raw_path) > _MAX_EVENT_PATH_CHARS:
+        return "/" + _PATH_REDACTION_MARKER
+
+    safe_segments = []
+    for raw_segment in raw_path.split("/"):
+        if not raw_segment:
+            safe_segments.append("")
+            continue
+        decoded = unquote(raw_segment)
+        redacted = redact_sensitive_text(decoded, max_chars=96)
+        if (
+            redacted != decoded.replace("\x00", "")
+            or _SENSITIVE_PATH_HINT.search(decoded)
+            or not (
+                _SAFE_STATIC_PATH_SEGMENT.fullmatch(decoded)
+                or _SAFE_API_VERSION_SEGMENT.fullmatch(decoded)
+            )
+        ):
+            safe_segments.append(_PATH_REDACTION_MARKER)
+        else:
+            safe_segments.append(decoded)
+    safe_path = "/".join(safe_segments)
+    return safe_path if safe_path.startswith("/") else "/" + safe_path
 
 
 def get_recent_events(seconds: int = 300, limit: int = 200) -> List[Dict[str, Any]]:
@@ -628,9 +631,14 @@ def get_event_health(seconds: int = 300) -> Dict[str, Any]:
 
     cutoff = time.time() - max(1, int(seconds))
     ledger_path = EVENT_LEDGER_PATH
+    ledger_path_sha256 = hashlib.sha256(
+        os.fsencode(os.path.abspath(ledger_path))
+    ).hexdigest()
     with _durable_health_lock:
         path_outcomes = [
-            row for row in _durable_outcomes if row.get("ledger_path") == ledger_path
+            row
+            for row in _durable_outcomes
+            if row.get("ledger_path_sha256") == ledger_path_sha256
         ]
         outcomes = [
             row
@@ -746,7 +754,7 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
                     "ts": _now_iso(),
                     "ts_unix": time.time(),
                     "method": request.method,
-                    "path": path,
+                    "path": _safe_request_path(request, path),
                     "query": _safe_query(str(request.url.query or "")),
                     "status_code": status_code,
                     "latency_ms": latency_ms,
@@ -772,9 +780,10 @@ class EventLedgerMiddleware(BaseHTTPMiddleware):
                     except asyncio.TimeoutError:
                         pass
             except BaseException as exc:  # also protect against replaced/test writers
-                _record_durable_outcome("failure", error=f"{type(exc).__name__}: {exc}")
+                safe_error = type(exc).__name__
+                _record_durable_outcome("failure", error=safe_error)
                 try:
-                    logger.warning("event_ledger_append_failed: %s", exc)
+                    logger.warning("event_ledger_append_failed: %s", safe_error)
                 except BaseException:
                     pass
                 # Telemetry must never replace an application result. A
