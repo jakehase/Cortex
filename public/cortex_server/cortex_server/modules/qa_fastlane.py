@@ -56,6 +56,11 @@ def build_template(qtype: str) -> Dict[str, Any]:
 
 
 def confidence_score(answer: str, checks: Dict[str, Any]) -> float:
+    # Fastlane confidence is evidence confidence, not a prose-quality score.
+    # Without at least one backend-grounded retrieval receipt, a well-shaped
+    # canned answer must never become eligible for an early exit.
+    if checks.get("grounded_retrieval") is not True or checks.get("retrieval_hits", 0) <= 0:
+        return 0.0
     score = 0.45
     if answer and len(answer.strip()) > 20:
         score += 0.12
@@ -65,8 +70,7 @@ def confidence_score(answer: str, checks: Dict[str, Any]) -> float:
         score += 0.1
     if not checks.get("overclaim_detected"):
         score += 0.08
-    if checks.get("retrieval_hits", 0) > 0:
-        score += 0.05
+    score += 0.05
     if checks.get("has_structure"):
         score += 0.06
     if checks.get("missing_constraints_count", 0) > 0:

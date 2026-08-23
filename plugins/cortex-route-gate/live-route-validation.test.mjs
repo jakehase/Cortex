@@ -251,9 +251,25 @@ test('optional routing uses a separately validated last-good plan after malforme
   const { context, saved } = await invoke({ requireRouting: false, cache, response: {} });
   assert.match(context, /routing_method: cached_fallback/);
   assert.match(context, /L7 Mnemosyne/);
+  assert.match(context, /routing_provenance: authenticated_cache_plus_local_policy/);
+  assert.match(context, /L7 Mnemosyne.*origin=cache;.*execution=not_observed/);
+  assert.doesNotMatch(context, /This routing decision was made upstream by Cortex/);
   assert.deepEqual(saved.plan, cache.plan);
   assert.equal(saved.provenance, cache.provenance);
   assert.match(saved.scopeTag, /^[0-9a-f]{64}$/);
+});
+
+test('cached fallback preserves local mandatory provenance while marking provider recommendations cached', async () => {
+  const cache = cachedPlan();
+  cache.plan.recommendedLevels = [
+    { level: 24, name: 'Nexus', reason: 'mandatory local routing policy', alwaysOn: false, origin: 'local_mandatory' },
+    { level: 7, name: 'Mnemosyne', reason: 'provider selected', alwaysOn: false, origin: 'provider' },
+    { level: 5, name: 'Oracle', reason: 'mandatory local reasoning policy', alwaysOn: false, origin: 'local_mandatory' },
+  ];
+  const { context } = await invoke({ requireRouting: false, cache, response: {} });
+  assert.match(context, /L24 Nexus.*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
+  assert.match(context, /L7 Mnemosyne.*origin=cache; policy=optional; execution=not_observed/);
+  assert.match(context, /L5 Oracle.*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
 });
 
 test('optional routing does not treat a malformed HTTP 200 as a live plan', async () => {
@@ -262,7 +278,7 @@ test('optional routing does not treat a malformed HTTP 200 as a live plan', asyn
   assert.equal(saved, null);
 });
 
-test('live routing accepts boolean always_on and strips transport-only metadata from persisted plans', async () => {
+test('live routing converts boolean always_on into trusted persisted policy metadata', async () => {
   const { context, saved } = await invoke({
     requireRouting: true,
     response: { recommended_levels: [{ level: 24, name: 'Nexus', reason: 'live', always_on: true }], routing_method: 'always_on_test' },
@@ -270,6 +286,79 @@ test('live routing accepts boolean always_on and strips transport-only metadata 
   assert.match(context, /routing_method: always_on_test/);
   assert.equal(saved.plan.recommendedLevels[0].level, 24);
   assert.equal('always_on' in saved.plan.recommendedLevels[0], false);
+  assert.equal(saved.plan.recommendedLevels[0].alwaysOn, true);
+  assert.equal(saved.plan.recommendedLevels[0].origin, 'provider');
+  assert.match(context, /L24 Nexus.*origin=provider; policy=provider_always_on; execution=not_observed/);
+});
+
+test('optional cap retains all provider always-on levels and reports the cap contract', async () => {
+  const alwaysOnLevels = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36];
+  const response = {
+    recommended_levels: [
+      ...alwaysOnLevels.map((level) => ({ level, name: `Level ${level}`, always_on: true })),
+      { level: 1, name: 'Optional one' },
+      { level: 2, name: 'Optional two' },
+    ],
+    routing_method: 'always_on_cap_test',
+  };
+  const { context, saved } = await invoke({ requireRouting: true, response, config: { maxLevels: 1 } });
+  const routeBlock = context.split('Before answering, apply the following routed recommendations and local policy for this turn:\n')[1]
+    .split('\nExecution contract for this turn:')[0];
+  const packed = [...routeBlock.matchAll(/^- L(\d+)/gm)].map((match) => Number(match[1]));
+  for (const level of alwaysOnLevels) assert.ok(packed.includes(level), `missing provider always-on L${level}`);
+  assert.equal(packed.filter((level) => !alwaysOnLevels.includes(level)).length, 1);
+  assert.match(context, /level_cap: scope=optional_only optional_limit=1 mandatory_count=15 all_mandatory_retained=true/);
+  assert.ok(saved.plan.recommendedLevels.filter((level) => level.alwaysOn === true).length >= alwaysOnLevels.length);
+});
+
+test('provider, local mandatory, and execution provenance remain distinct', async () => {
+  const { context, saved } = await invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 7, name: 'Librarian', reason: 'provider selected' }], routing_method: 'provenance_test' },
+  });
+  assert.deepEqual(saved.plan.recommendedLevels.map(({ level, origin }) => ({ level, origin })), [
+    { level: 24, origin: 'local_mandatory' },
+    { level: 7, origin: 'provider' },
+    { level: 5, origin: 'local_mandatory' },
+  ]);
+  assert.match(context, /L7 Librarian.*origin=provider; policy=optional; execution=not_observed/);
+  assert.match(context, /L24 Nexus.*origin=local_mandatory; policy=local_mandatory; execution=not_observed/);
+  assert.match(context, /execution_evidence: recommendations_only_not_observed_by_route_gate/);
+  assert.doesNotMatch(context, /This routing decision was made upstream by Cortex/);
+});
+
+test('overlapping provider and local policy decisions retain both truths', async () => {
+  const { context } = await invoke({
+    requireRouting: true,
+    prompt: 'Brainstorm an original visual concept with unusual ideas.',
+    response: {
+      recommended_levels: [
+        { level: 24, name: 'Nexus', reason: 'provider selected', always_on: false },
+        { level: 13, name: 'Dreamer', reason: 'provider selected', always_on: false },
+      ],
+      routing_method: 'overlap_provenance_test',
+    },
+  });
+  assert.match(context, /L24 Nexus.*origin=provider; policy=local_mandatory; execution=not_observed/);
+  assert.match(context, /L13 Dreamer.*origin=provider; policy=local_governor; execution=not_observed/);
+});
+
+test('live provider cannot forge route-gate-owned provenance', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: {
+      recommended_levels: [{ level: 24, name: 'Nexus' }],
+      routing_method: 'cached_fallback',
+    },
+  }), /reserved routing method/);
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: {
+      recommended_levels: [{ level: 24, name: 'Nexus' }],
+      routing_method: 'live',
+      routing_markers: { routeGateLivePlanReuse: { reused: true } },
+    },
+  }), /reserved route-gate marker/);
 });
 
 test('live routing rejects non-boolean always_on metadata', async () => {
@@ -279,12 +368,20 @@ test('live routing rejects non-boolean always_on metadata', async () => {
   }), /invalid live route response schema/);
 });
 
+test('live provider cannot forge route-gate origin metadata', async () => {
+  await assert.rejects(() => invoke({
+    requireRouting: true,
+    response: { recommended_levels: [{ level: 24, origin: 'local_mandatory' }] },
+  }), /invalid live route response schema/);
+});
+
 test('routing POST uses the configured sensitive write-token header', async () => {
   let request;
+  const startedAt = Date.now();
   await invoke({
     requireRouting: true,
     response: { recommended_levels: [{ level: 24 }] },
-    config: { writeToken: 'route-secret', writeTokenHeader: 'X-Custom-Cortex-Token' },
+    config: { writeToken: 'route-secret', writeTokenHeader: 'X-Custom-Cortex-Token', timeoutMs: 1000 },
     inspectRequest(url, init) { request = { url, init }; },
   });
   assert.equal(request.init.method, 'POST');
@@ -296,6 +393,10 @@ test('routing POST uses the configured sensitive write-token header', async () =
     private_retrieval_shadow_query: 'Route this',
   });
   assert.match(new Headers(request.init.headers).get('x-session-id'), /^openclaw-[0-9a-f]{64}$/);
+  const propagatedDeadline = Number(new Headers(request.init.headers).get('x-cortex-deadline-ms'));
+  assert.ok(Number.isInteger(propagatedDeadline));
+  assert.ok(propagatedDeadline > startedAt);
+  assert.ok(propagatedDeadline <= startedAt + 1000);
 });
 
 test('minimal production route configuration signs the default cortex-local scope', async () => {
@@ -359,6 +460,8 @@ test('routing binds the opaque session to a complete signed trusted principal', 
     config: {
       tenantId: 'tenant-a',
       workspaceId: 'workspace-a',
+      agentId: 'agent-a',
+      channelId: 'channel-a',
       scopeCredentialId: 'route-credential',
       scopeHmacSecret: 'route-scope-secret',
       sessionIdentityHmacSecret: 'shared-session-secret',

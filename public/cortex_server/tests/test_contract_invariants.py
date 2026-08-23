@@ -49,7 +49,9 @@ def test_orchestrated_response_has_contract_and_routing_method(
     body = r.json()
     assert isinstance(body.get("routing_method"), str) and body["routing_method"]
     assert "contract" in body
-    assert body["contract"]["activation_metadata_available"] is True
+    assert body["contract"]["activation_metadata_available"] is False
+    assert body["contract"]["activation_metadata_source"] == "selection_only"
+    assert body["activation_receipt"]["complete"] is False
     assert body["contract"]["identity_phrase"]
     assert "assurance" in body
     assert body["contract"]["assurance_version"] == body["assurance"]["version"]

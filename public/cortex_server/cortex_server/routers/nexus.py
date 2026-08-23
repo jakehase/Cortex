@@ -45,6 +45,7 @@ from cortex_server.modules import routing_autotune as _routing_autotune_module
 from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
 from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
 from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
+from cortex_server.modules.level_registry import get_level_registry
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import RouteHealthMonitor
@@ -78,6 +79,7 @@ from cortex_server.runtime.assurance_receipt_ledger import (
 )
 from cortex_server.runtime.durable_files import durable_mkdir
 from cortex_server.routers.librarian import robust_search
+from cortex_server.routers.openclaw import load_config as load_openclaw_config
 from services.routing.adaptive_router_policy import choose_route
 from services.routing.route_feature_pipeline import build_route_features
 
@@ -91,6 +93,20 @@ router = APIRouter(lifespan=_nexus_lifespan)
 
 # OpenRouter configuration for L5 Oracle semantic analysis
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+_ORACLE_SEMANTIC_INTENTS = frozenset({
+    "web_search",
+    "code_execution",
+    "memory_recall",
+    "security_scan",
+    "creative_writing",
+    "data_analysis",
+    "scheduling",
+    "translation",
+    "prediction",
+    "optimization",
+})
+_ORACLE_SEMANTIC_KEYS = frozenset({"intents", "levels", "confidence", "reasoning"})
 
 def _load_openrouter_key() -> str:
     """Load OpenRouter API key."""
@@ -108,6 +124,135 @@ def _load_openrouter_key() -> str:
     return ""
 
 OPENROUTER_API_KEY = _load_openrouter_key()
+
+
+def _oracle_semantic_provider_policy() -> Optional[Dict[str, str]]:
+    """Resolve the semantic model from the standing runtime policy.
+
+    Nexus owns an OpenRouter transport, so a non-OpenRouter standing provider is
+    unavailable to this helper rather than silently being replaced by a model
+    hardcoded in source. Deployments may provide an explicit semantic override,
+    but provider and model must be supplied as one policy pair.
+    """
+    try:
+        config = load_openclaw_config() or {}
+    except Exception:
+        config = {}
+    runtime = config.get("runtime") if isinstance(config, dict) else {}
+    if not isinstance(runtime, dict):
+        runtime = {}
+
+    provider = str(
+        os.getenv("NEXUS_ORACLE_SEMANTIC_PROVIDER")
+        or runtime.get("semantic_provider")
+        or runtime.get("provider")
+        or ""
+    ).strip().lower()
+    model = str(
+        os.getenv("NEXUS_ORACLE_SEMANTIC_MODEL")
+        or runtime.get("semantic_model")
+        or runtime.get("base_model")
+        or ""
+    ).strip()
+
+    if model.startswith("openrouter/"):
+        provider = provider or "openrouter"
+        model = model.removeprefix("openrouter/")
+    if provider != "openrouter" or not model:
+        return None
+    if len(model) > 200 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model) is None:
+        return None
+    return {"provider": provider, "model": model}
+
+
+def _parse_oracle_semantic_content(content: Any) -> Dict[str, Any]:
+    """Validate the complete provider response before granting semantic credit."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("semantic_content_missing")
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("semantic_json_invalid") from exc
+    if not isinstance(result, dict) or set(result) != _ORACLE_SEMANTIC_KEYS:
+        raise ValueError("semantic_schema_invalid")
+
+    intents = result.get("intents")
+    if (
+        not isinstance(intents, list)
+        or not 1 <= len(intents) <= 10
+        or any(not isinstance(intent, str) or intent not in _ORACLE_SEMANTIC_INTENTS for intent in intents)
+        or len(set(intents)) != len(intents)
+    ):
+        raise ValueError("semantic_intents_invalid")
+
+    levels = result.get("levels")
+    if (
+        not isinstance(levels, list)
+        or not 1 <= len(levels) <= 20
+        or any(isinstance(level, bool) or not isinstance(level, int) or level not in LEVEL_MAP for level in levels)
+        or len(set(levels)) != len(levels)
+    ):
+        raise ValueError("semantic_levels_invalid")
+
+    confidence = result.get("confidence")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(float(confidence))
+        or not 0.0 <= float(confidence) <= 1.0
+    ):
+        raise ValueError("semantic_confidence_invalid")
+
+    reasoning_text = result.get("reasoning")
+    if not isinstance(reasoning_text, str) or not reasoning_text.strip() or len(reasoning_text) > 2000:
+        raise ValueError("semantic_reasoning_invalid")
+    return {
+        "intents": list(intents),
+        "levels": list(levels),
+        "confidence": float(confidence),
+        "reasoning": reasoning_text.strip(),
+    }
+
+
+def _oracle_semantic_timeout(deadline_monotonic: Optional[float]) -> Optional[float]:
+    try:
+        configured = float(os.getenv("NEXUS_ORACLE_SEMANTIC_TIMEOUT_S", "6"))
+    except (TypeError, ValueError):
+        configured = 6.0
+    configured = max(0.1, min(configured, 15.0))
+    if deadline_monotonic is None:
+        return configured
+    remaining = float(deadline_monotonic) - time.monotonic() - 0.05
+    if remaining <= 0.05:
+        return None
+    return max(0.05, min(configured, remaining))
+
+
+def _oracle_semantic_deadline(
+    request: Optional[Request],
+    *,
+    started_monotonic: float,
+    latency_plan: Mapping[str, Any],
+) -> float:
+    """Derive one absolute deadline shared by retries and the nested provider."""
+    try:
+        local_budget_s = max(0.1, min(float(latency_plan.get("max_latency_ms", 2200)) / 1000.0, 15.0))
+    except (TypeError, ValueError):
+        local_budget_s = 2.2
+    deadline = started_monotonic + local_budget_s
+
+    raw_header = ""
+    if request is not None:
+        raw_header = str(request.headers.get("x-cortex-deadline-ms") or "").strip()
+    if raw_header:
+        try:
+            upstream_remaining_s = (int(raw_header) - int(time.time() * 1000)) / 1000.0
+        except (TypeError, ValueError):
+            upstream_remaining_s = 0.0
+        if upstream_remaining_s <= 0:
+            return time.monotonic()
+        deadline = min(deadline, time.monotonic() + upstream_remaining_s)
+    return deadline
 
 CODEC_EVAL_MIN_RATIO = float(os.getenv("CODEC_EVAL_MIN_RATIO", "1.05"))
 CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(os.getenv("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
@@ -262,7 +407,8 @@ _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
         "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
     )
 )
-_OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
+_OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.causal-outcome-receipt.v2"
+_ROUTE_SELECTION_RECEIPT_VERSION = "nexus.route-selection-receipt.v1"
 _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
     30,
     min(int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
@@ -3833,6 +3979,139 @@ def _normalized_commit_levels(levels: List[int]) -> List[int]:
     return sorted(out)
 
 
+def _deduplicate_route_levels(levels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep the last decision for each level while preserving final-plan order."""
+    selected_reversed: List[Dict[str, Any]] = []
+    seen: set[int] = set()
+    for raw in reversed(levels or []):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            level = int(raw.get("level"))
+        except (TypeError, ValueError):
+            continue
+        if level not in LEVEL_MAP or level in seen:
+            continue
+        seen.add(level)
+        row = dict(raw)
+        row["level"] = level
+        row["name"] = str(row.get("name") or LEVEL_MAP[level]["name"])
+        selected_reversed.append(row)
+    return list(reversed(selected_reversed))
+
+
+def _canonical_chain_level_map() -> Dict[str, int]:
+    """Resolve logical chain members from the canonical level registry."""
+    resolved: Dict[str, int] = {}
+    ambiguous: set[str] = set()
+    for row in get_level_registry():
+        try:
+            level = int(row.get("level"))
+        except (TypeError, ValueError):
+            continue
+        name = str(row.get("name") or "").strip().lower()
+        candidates = {
+            token
+            for token in re.split(r"[^a-z0-9_]+", name)
+            if token
+        }
+        for endpoint in [row.get("canonical_status"), *(row.get("aliases") or [])]:
+            prefix = str(endpoint or "").strip().strip("/").split("/", 1)[0].lower()
+            if prefix:
+                candidates.add(prefix)
+        for candidate in candidates:
+            if candidate in ambiguous:
+                continue
+            existing = resolved.get(candidate)
+            if existing is not None and existing != level:
+                resolved.pop(candidate, None)
+                ambiguous.add(candidate)
+            else:
+                resolved[candidate] = level
+    return resolved
+
+
+def _final_route_contract(
+    *,
+    tx_id: str,
+    routing_method: str,
+    recommended: List[Dict[str, Any]],
+    routing_markers: Mapping[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Build the sole final selection plus an evidence-bounded activation receipt."""
+    selected_levels = [int(row["level"]) for row in recommended]
+    chain_fields = {
+        "brainstorm": "brainstorm_chain",
+        "coding": "coding_chain",
+        "incident": "incident_chain",
+        "research": "research_chain",
+        "architecture": "l9_chain",
+        "translation": "translation_chain",
+        "schedule": "schedule_chain",
+        "mediation": "mediation_chain",
+        "forecast": "forecast_chain",
+        "training": "training_chain",
+        "ethics": "ethics_chain",
+    }
+    chain_levels = _canonical_chain_level_map()
+    selected_level_set = set(selected_levels)
+    selected_chains: Dict[str, List[str]] = {}
+    omitted_chain_members: Dict[str, List[str]] = {}
+    for name, field in chain_fields.items():
+        raw_chain = routing_markers.get(field)
+        if not isinstance(raw_chain, list) or not raw_chain:
+            continue
+        normalized_chain = [str(member).strip().lower() for member in raw_chain if str(member).strip()]
+        selected = [
+            member
+            for member in normalized_chain
+            if chain_levels.get(member) in selected_level_set
+        ]
+        omitted = [member for member in normalized_chain if member not in selected]
+        if selected:
+            selected_chains[name] = selected
+        if omitted:
+            omitted_chain_members[name] = omitted
+    primary_name = {
+        "brainstorm_chain_forced": "brainstorm",
+        "coding_chain_forced": "coding",
+        "incident_chain_forced": "incident",
+        "research_chain_forced": "research",
+        "l9_chain_forced": "architecture",
+    }.get(str(routing_method or ""))
+    primary_chain = list(selected_chains.get(primary_name, [])) if primary_name else []
+    digest_payload = {
+        "chain_id": str(tx_id),
+        "routing_method": str(routing_method),
+        "selected_levels": selected_levels,
+        "primary_chain": primary_chain,
+        "selected_chains": selected_chains,
+        "omitted_chain_members": omitted_chain_members,
+    }
+    plan_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    final_plan = {
+        "schema_version": "nexus.final-route-plan.v1",
+        **digest_payload,
+        "plan_digest": plan_digest,
+        "immutable": True,
+    }
+    activation_receipt = {
+        "schema_version": "nexus.activation-receipt.v1",
+        "chain_id": str(tx_id),
+        "plan_digest": plan_digest,
+        "selected_levels": selected_levels,
+        # Nexus can prove only its own handler/transaction at response time.
+        # Downstream level execution must append independently observed results.
+        "activated_levels": [{"level": 24, "name": "nexus", "evidence": "nexus_router_transaction"}],
+        "level_results": [{"level": 24, "status": "completed", "transaction_id": str(tx_id)}],
+        "complete": False,
+        "terminal_reason": "awaiting_downstream_execution_evidence",
+    }
+    return final_plan, activation_receipt
+
+
 def _bounded_scope_value(value: str, default: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -4352,6 +4631,16 @@ def _outcome_receipt_scope(scope: Mapping[str, Any]) -> Dict[str, str]:
     return {field: str(scope.get(field) or "") for field in fields}
 
 
+def _strict_causal_levels(values: Any, *, field: str) -> List[int]:
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"{field}_required")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value not in LEVEL_MAP for value in values):
+        raise ValueError(f"{field}_invalid")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{field}_invalid")
+    return sorted(values)
+
+
 def _issue_outcome_feedback_receipt(
     *,
     scope: Mapping[str, Any],
@@ -4360,15 +4649,36 @@ def _issue_outcome_feedback_receipt(
     task_archetype: str,
     policy_label: str,
     codec_variant: str,
+    output: str,
+    user_outcome: str,
+    executed_levels: List[int],
+    selected_levels: List[int],
+    plan_digest: str,
     validator_pass: bool,
-    execution_success: bool,
     recovery_needed: bool,
     latency_ms: int,
     outcome_confidence: float,
 ) -> Dict[str, Any]:
+    """Issue a trainable receipt only from complete causal outcome evidence."""
+    output_text = str(output or "")
+    if not output_text.strip() or len(output_text) > 1_048_576:
+        raise ValueError("verified_output_required")
+    normalized_outcome = str(user_outcome or "").strip().lower()
+    if normalized_outcome not in {"accepted", "corrected", "failed"}:
+        raise ValueError("explicit_user_outcome_required")
+    normalized_executed = _strict_causal_levels(executed_levels, field="executed_levels")
+    normalized_selected = _strict_causal_levels(selected_levels, field="selected_levels")
+    if not set(normalized_executed).issubset(normalized_selected):
+        raise ValueError("executed_levels_not_selected")
+    normalized_plan_digest = str(plan_digest or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", normalized_plan_digest) is None:
+        raise ValueError("invalid_plan_binding")
+
     issued_at = int(time.time())
     payload = {
         "version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+        "receipt_kind": "causal_outcome",
+        "trainable": True,
         "jti": secrets.token_hex(16),
         "issued_at": issued_at,
         "expires_at": issued_at + _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS,
@@ -4377,11 +4687,49 @@ def _issue_outcome_feedback_receipt(
         "task_archetype": str(task_archetype or "simple_qa")[:80],
         "policy_label": str(policy_label or "unknown")[:128],
         "codec_variant": str(codec_variant or "query_only")[:64],
+        "plan_digest": normalized_plan_digest,
+        "selected_levels": normalized_selected,
+        "executed_levels": normalized_executed,
+        "output_observed": True,
+        "output_hash": hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
+        "user_outcome": normalized_outcome,
+        "activation_complete": True,
+        "causal_evidence_complete": True,
         "validator_pass": bool(validator_pass),
-        "execution_success": bool(execution_success),
         "recovery_needed": bool(recovery_needed),
         "latency_ms": max(0, int(latency_ms)),
         "outcome_confidence": round(max(0.0, min(1.0, float(outcome_confidence))), 3),
+        "scope": _outcome_receipt_scope(scope),
+    }
+    return {"receipt": _encode_outcome_feedback_receipt(payload), "payload": payload}
+
+
+def _issue_route_selection_receipt(
+    *,
+    scope: Mapping[str, Any],
+    execution_id: str,
+    query: str,
+    final_plan: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Sign a non-trainable orchestration selection for later causal binding."""
+    selected_levels = _strict_causal_levels(list(final_plan.get("selected_levels") or []), field="selected_levels")
+    plan_digest = str(final_plan.get("plan_digest") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", plan_digest) is None:
+        raise ValueError("invalid_plan_binding")
+    issued_at = int(time.time())
+    payload = {
+        "version": _ROUTE_SELECTION_RECEIPT_VERSION,
+        "receipt_kind": "route_selection",
+        "trainable": False,
+        "jti": secrets.token_hex(16),
+        "issued_at": issued_at,
+        "expires_at": issued_at + _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS,
+        "execution_id": str(execution_id or "")[:128],
+        "query_hash": hashlib.sha256(str(query or "").encode("utf-8")).hexdigest(),
+        "plan_digest": plan_digest,
+        "selected_levels": selected_levels,
+        "activation_complete": False,
+        "causal_evidence_complete": False,
         "scope": _outcome_receipt_scope(scope),
     }
     return {"receipt": _encode_outcome_feedback_receipt(payload), "payload": payload}
@@ -4393,6 +4741,14 @@ def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -
     if payload.get("version") != _OUTCOME_FEEDBACK_RECEIPT_VERSION:
         raise ValueError("unsupported_receipt_version")
     if (
+        payload.get("receipt_kind") != "causal_outcome"
+        or payload.get("trainable") is not True
+        or payload.get("output_observed") is not True
+        or payload.get("activation_complete") is not True
+        or payload.get("causal_evidence_complete") is not True
+    ):
+        raise ValueError("incomplete_causal_evidence")
+    if (
         int(payload.get("issued_at", 0)) > now + 5
         or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0))
     ):
@@ -4401,6 +4757,16 @@ def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -
         raise ValueError("missing_receipt_identity")
     if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("query_hash") or "")):
         raise ValueError("invalid_query_binding")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("output_hash") or "")):
+        raise ValueError("invalid_output_binding")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("plan_digest") or "")):
+        raise ValueError("invalid_plan_binding")
+    selected_levels = _strict_causal_levels(payload.get("selected_levels"), field="selected_levels")
+    executed_levels = _strict_causal_levels(payload.get("executed_levels"), field="executed_levels")
+    if not set(executed_levels).issubset(selected_levels):
+        raise ValueError("executed_levels_not_selected")
+    if payload.get("user_outcome") not in {"accepted", "corrected", "failed"}:
+        raise ValueError("explicit_user_outcome_required")
     if payload.get("codec_variant") not in {"query_only", "referents_only", "referents_plus_codec"}:
         raise ValueError("invalid_codec_variant")
     current_scope = _outcome_receipt_scope(_assurance_scope(request))
@@ -5262,14 +5628,41 @@ def _codec_events_replay_result(
     return dict(response)
 
 
-def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
+def analyze_intent_with_oracle(
+    query: str,
+    *,
+    route_health: Optional[RouteHealthMonitor] = None,
+    deadline_monotonic: Optional[float] = None,
+) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
     if not OPENROUTER_API_KEY:
-        return {"intents": [], "confidence": 0, "method": "fallback"}
+        return {"intents": [], "levels": [], "confidence": 0, "method": "fallback"}
+
+    provider_policy = _oracle_semantic_provider_policy()
+    if provider_policy is None:
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "provider_policy_unavailable",
+            "reasoning": "Standing semantic provider/model policy is unavailable or incompatible.",
+        }
+
+    provider_timeout = _oracle_semantic_timeout(deadline_monotonic)
+    if provider_timeout is None:
+        if route_health is not None:
+            route_health.record_failure("oracle", error="deadline_exhausted", latency_ms=0.0)
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "deadline_exhausted",
+            "reasoning": "Semantic provider deadline was exhausted before dispatch.",
+        }
 
     gate = route_health.allow("oracle") if route_health is not None else {"allowed": True}
     if not gate.get("allowed"):
-        return {"intents": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
+        return {"intents": [], "levels": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -5310,7 +5703,7 @@ Intents to detect:
 - optimization: Improving efficiency"""
 
     payload = {
-        "model": "openrouter/moonshotai/kimi-k2.5",
+        "model": provider_policy["model"],
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Analyze intent: \"{query}\""}
@@ -5321,33 +5714,61 @@ Intents to detect:
 
     started = datetime.utcnow()
     try:
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            OPENROUTER_URL,
+            headers=headers,
+            json=payload,
+            timeout=provider_timeout,
+        )
         response.raise_for_status()
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ValueError("semantic_envelope_invalid")
+        provider_model = str(data.get("model") or "").strip()
+        if not provider_model or not hmac.compare_digest(
+            provider_model.casefold(),
+            provider_policy["model"].casefold(),
+        ):
+            raise ValueError("semantic_model_mismatch")
+        finish_reason = str(choices[0].get("finish_reason") or "").strip().lower()
+        if finish_reason != "stop":
+            raise ValueError("semantic_completion_incomplete")
+        message = choices[0].get("message")
+        if not isinstance(message, dict):
+            raise ValueError("semantic_envelope_invalid")
+        content = message.get("content")
         latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
 
-        # Parse JSON from response
         try:
-            result = json.loads(content)
+            result = _parse_oracle_semantic_content(content)
             if route_health is not None:
                 route_health.record_success("oracle", latency_ms=latency_ms)
             return {
-                "intents": result.get("intents", []),
-                "levels": result.get("levels", []),
-                "confidence": result.get("confidence", 0.5),
-                "reasoning": result.get("reasoning", "Semantic analysis"),
+                **result,
                 "method": "oracle_semantic"
             }
-        except json.JSONDecodeError:
+        except ValueError as exc:
             if route_health is not None:
-                route_health.record_failure("oracle", error="parse_error", latency_ms=latency_ms)
-            return {"intents": [], "confidence": 0, "method": "parse_error"}
-    except Exception as e:
+                route_health.record_failure("oracle", error=str(exc), latency_ms=latency_ms)
+            return {
+                "intents": [],
+                "levels": [],
+                "confidence": 0,
+                "method": "invalid_schema",
+                "reasoning": str(exc),
+            }
+    except Exception as exc:
         latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
         if route_health is not None:
-            route_health.record_failure("oracle", error=str(e), latency_ms=latency_ms)
-        return {"intents": [], "confidence": 0, "method": f"error: {str(e)}"}
+            route_health.record_failure("oracle", error=type(exc).__name__, latency_ms=latency_ms)
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "provider_error",
+            "reasoning": "Semantic provider call failed.",
+        }
 
 
 def _fetch_kernel_online_levels() -> Optional[set]:
@@ -6610,11 +7031,17 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         "query_hash": receipt["query_hash"][:16],
         "task_archetype": receipt["task_archetype"],
         "policy_label": receipt["policy_label"],
-        "execution_success": bool(receipt["execution_success"]),
-        "validator_result": {"pass": bool(receipt["validator_pass"]), "source": "nexus.orchestrate.receipt"},
+        "execution_success": bool(
+            receipt["user_outcome"] == "accepted" and receipt["validator_pass"]
+        ),
+        "validator_result": {"pass": bool(receipt["validator_pass"]), "source": "causal_outcome_receipt"},
         "latency_ms": int(receipt["latency_ms"]),
-        "user_correction": False,
+        "user_correction": receipt["user_outcome"] == "corrected",
         "recovery_needed": bool(receipt["recovery_needed"]),
+        "executed_levels": list(receipt["executed_levels"]),
+        "selected_levels": list(receipt["selected_levels"]),
+        "output_hash": receipt["output_hash"],
+        "plan_digest": receipt["plan_digest"],
         "execution_id": receipt["execution_id"],
         "receipt_id": receipt["jti"],
         "tenant_id": scope.get("tenant_id"),
@@ -6636,7 +7063,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
                 scope,
                 {
                     "status": "success"
-                    if receipt["execution_success"]
+                    if receipt["user_outcome"] == "accepted"
                     and receipt["validator_pass"]
                     and not receipt["recovery_needed"]
                     else "failure",
@@ -6728,6 +7155,7 @@ async def orchestrate_query(
     adaptive_policies = None
     outcome_tuner = None
     started = datetime.utcnow()
+    started_monotonic = time.monotonic()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
     tx: Optional[ExecutionTransaction] = None
@@ -6891,6 +7319,11 @@ async def orchestrate_query(
             enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
         )
         latency_plan = adaptive_policies.latency.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
+        oracle_deadline_monotonic = _oracle_semantic_deadline(
+            request,
+            started_monotonic=started_monotonic,
+            latency_plan=latency_plan,
+        )
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
@@ -7021,7 +7454,8 @@ async def orchestrate_query(
             routing_markers["incident_chain"] = ["sentinel", "seer", "council", "diplomat", "chronos"]
             reasoning.append("Incident trigger detected; forcing Sentinel+Seer+Council+Diplomat+Chronos chain.")
             for lvl in [21, 30, 15, 18, 14]:
-                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "incident_forced"})
+                name = "sentinel" if lvl == 21 else LEVEL_MAP[lvl]["name"]
+                recommended.append({"level": lvl, "name": name, "method": "incident_forced"})
         elif architecture_forced:
             routing_method = "l9_chain_forced"
             routing_markers["l9_triggered"] = True
@@ -7218,9 +7652,11 @@ async def orchestrate_query(
                 if lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "complexity_gate"})
         if complexity_gate.get("l9_triggered"):
+            l9_already_forced = bool(routing_markers.get("l9_triggered"))
             routing_markers["l9_triggered"] = True
             if _architect_healthy(route_health=adaptive_policies.health):
-                routing_markers["l9_chain"] = ["architect"]
+                if not l9_already_forced:
+                    routing_markers["l9_chain"] = ["architect"]
                 if 9 not in [r.get("level") for r in recommended]:
                     recommended.append({"level": 9, "name": "architect", "method": "autotune_l9"})
                 reasoning.append("Autotune L9 activation threshold met; adding Architect.")
@@ -7363,7 +7799,11 @@ async def orchestrate_query(
         if not semantic_result:
             semantic_result = tx.run_step(
                 "semantic_analysis",
-                lambda: analyze_intent_with_oracle(query, route_health=adaptive_policies.health),
+                lambda: analyze_intent_with_oracle(
+                    query,
+                    route_health=adaptive_policies.health,
+                    deadline_monotonic=oracle_deadline_monotonic,
+                ),
                 retry_policy=RetryPolicy.for_kind("transient_io"),
                 verify=lambda x: isinstance(x, dict),
             )
@@ -7420,30 +7860,6 @@ async def orchestrate_query(
         for lvl in ALWAYS_ON_LEVELS:
             if lvl not in [r["level"] for r in recommended]:
                 recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "always_on": True})
-
-        kernel_online = _fetch_kernel_online_levels()
-        offline_filtered: List[int] = []
-        if kernel_online is not None:
-            filtered = []
-            for item in recommended:
-                lvl = int(item.get("level"))
-                if lvl in kernel_online or item.get("always_on"):
-                    filtered.append(item)
-                else:
-                    offline_filtered.append(lvl)
-            recommended = filtered
-            if offline_filtered:
-                reasoning.append(f"Kernel consistency guard filtered offline levels: {sorted(set(offline_filtered))}")
-
-        hud_parts = []
-        for lvl in recommended[:5]:
-            level_num = lvl.get('level', '?')
-            name = lvl.get('name', 'Unknown').title()
-            hud_parts.append(f"🟢 L{level_num} ({name})")
-        hud_line = " | ".join(hud_parts)
-
-        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'adaptive_router_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
-        workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
 
         try:
             private_retrieval_shadow = submit_private_retrieval_shadow(
@@ -7503,6 +7919,51 @@ async def orchestrate_query(
             recommended.append({"level": 13, "name": "dreamer", "method": "cognitive_policy"})
             reasoning.append("Cognitive policy selected divergent path; ensuring Dreamer participation.")
 
+        # No route mutations occur after this point. Deduplicate once, apply the
+        # live-kernel filter once, then derive every plan/receipt/checkpoint view
+        # from that same immutable selection.
+        recommended = _deduplicate_route_levels(recommended)
+        kernel_online = _fetch_kernel_online_levels()
+        offline_filtered: List[int] = []
+        if kernel_online is not None:
+            filtered = []
+            for item in recommended:
+                lvl = int(item.get("level"))
+                if lvl in kernel_online or item.get("always_on"):
+                    filtered.append(item)
+                else:
+                    offline_filtered.append(lvl)
+            recommended = filtered
+            if offline_filtered:
+                reasoning.append(f"Kernel consistency guard filtered offline levels: {sorted(set(offline_filtered))}")
+
+        final_plan, activation_receipt = _final_route_contract(
+            tx_id=tx_id,
+            routing_method=routing_method,
+            recommended=recommended,
+            routing_markers=routing_markers,
+        )
+        for chain_name, marker_field in {
+            "brainstorm": "brainstorm_chain",
+            "coding": "coding_chain",
+            "incident": "incident_chain",
+            "research": "research_chain",
+            "architecture": "l9_chain",
+            "translation": "translation_chain",
+            "schedule": "schedule_chain",
+            "mediation": "mediation_chain",
+            "forecast": "forecast_chain",
+            "training": "training_chain",
+            "ethics": "ethics_chain",
+        }.items():
+            routing_markers[marker_field] = list(
+                final_plan["selected_chains"].get(chain_name, [])
+            )
+        routing_markers["final_plan"] = final_plan
+        activated = list(activation_receipt["activated_levels"])
+        hud_line = "🟢 L24 (Nexus)"
+        workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
+
         cognitive_slice = {
             "enabled": bool(cognitive_cfg.get("enabled", True)),
             "stage": cognitive_stage["effective_stage"],
@@ -7539,9 +8000,9 @@ async def orchestrate_query(
         )
 
         if request is not None:
-            for item in recommended:
-                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "adaptive_router_policy", "autotune_l9", "complexity_gate", "world_grounding"}:
-                    track_level(request, item["level"], item["name"], always_on=False)
+            # Selection is not activation. This handler can prove Nexus itself;
+            # downstream workers must contribute their own result receipts.
+            track_level(request, 24, LEVEL_MAP[24]["name"], always_on=False)
             request.state.routing_method = routing_method
 
         execution_tx = tx.finalize({"recommended_levels": recommended, "routing_method": routing_method}, verify=lambda payload: bool(payload.get("recommended_levels")) and bool(payload.get("routing_method")))
@@ -7593,46 +8054,19 @@ async def orchestrate_query(
             recommended_levels=recommended,
             quality_score=quality_score,
         )
-        if adaptive_observation_allowed:
-            autotune_policy = _scoped_routing_policy_call(
-                adaptive_policies,
-                observe_outcome,
-                routing_method,
-                quality_score,
-                l9_used=bool(routing_markers.get("l9_triggered")),
-                complexity_score=float(complexity_gate.get("score", 0.0)),
-                intent_flags={
-                    "architecture": archetype in {"planning", "complex_general"},
-                    "coding": archetype == "coding",
-                    "incident": archetype == "ops_triage",
-                    "research": archetype == "citation_required",
-                    "training": False,
-                    "ethics": bool(risk_flags),
-                },
-            )
+        # Route completion is not answer quality. Keep the current policy
+        # snapshot unchanged; only complete causal outcome receipts may train.
         observed_policy_label = str((bandit_choice or {}).get("selected_arm") or routing_method)
-        with _PRINCIPAL_OUTCOME_TUNER_LOCK:
-            outcome_artifact = outcome_tuner.observe({
-                "query": query,
-                "task_archetype": archetype,
-                "activated_chain": activated,
-                "policy_label": observed_policy_label,
-                "routing_method": routing_method,
-                "model_used": str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "fallback")),
-                "tools_attempted": tool_path_observability.get("steps", []),
-                "tools_used": [step for step in tool_path_observability.get("steps", []) if step not in {"escalate"}],
-                "latency_ms": elapsed_ms,
-                "retry_count": int(execution_tx.get("step_attempts_total", 0)) - len(execution_tx.get("steps", [])),
-                "validator_result": validator_result,
-                "execution_success": True,
-                "user_correction": False,
-                "recovery_needed": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
-                "assurance_verdict": assurance.get("verdict"),
-                "assurance_reason_codes": assurance.get("reason_codes", []),
-                "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
-                "tenant_id": principal.tenant_id,
-                "storage_workspace_id": principal.storage_workspace_id,
-            }) if adaptive_observation_allowed else {"recorded": False, "reason": "principal_rate_limit"}
+        # A routing response proves selection, not execution of the selected
+        # levels. OutcomeTuner accepts only the separately controlled signed
+        # feedback path after downstream causal evidence is available.
+        outcome_artifact = {
+            "recorded": False,
+            "reason": "downstream_activation_evidence_required",
+            "chain_id": final_plan["chain_id"],
+            "plan_digest": final_plan["plan_digest"],
+            "policy_label": observed_policy_label,
+        }
         codec_execution_artifact = _observe_codec_execution_outcome(
             query=query,
             session_key=continuity_session_key,
@@ -7678,29 +8112,11 @@ async def orchestrate_query(
             if isinstance(codec_execution_artifact, dict)
             else {}
         )
-        receipt_recovery_needed = bool(
-            execution_metrics.get("escalated")
-            or not execution_metrics.get("validator_pass")
-            or not execution_metrics.get("tx_completed")
-            or int(execution_metrics.get("failed_steps", 0) or 0) > 0
-            or int(execution_metrics.get("rollback_count", 0) or 0) > 0
-        )
-        outcome_feedback_receipt = _issue_outcome_feedback_receipt(
+        route_selection_receipt = _issue_route_selection_receipt(
             scope=principal_scope,
             execution_id=tx_id,
             query=query,
-            task_archetype=archetype,
-            policy_label=observed_policy_label,
-            codec_variant=served_codec_variant,
-            validator_pass=bool(validator_result.get("pass")),
-            execution_success=bool(
-                execution_metrics.get("tx_completed")
-                and execution_metrics.get("validator_pass")
-                and not receipt_recovery_needed
-            ),
-            recovery_needed=receipt_recovery_needed,
-            latency_ms=elapsed_ms,
-            outcome_confidence=float(execution_metrics.get("confidence", 0.0) or 0.0),
+            final_plan=final_plan,
         )
 
         return {
@@ -7711,13 +8127,15 @@ async def orchestrate_query(
             "semantic_analysis": semantic_result,
             "routing_method": routing_method,
             "routing_markers": routing_markers,
+            "final_plan": final_plan,
+            "activation_receipt": activation_receipt,
             "workflow_checkpoint": workflow_checkpoint,
             "contract_version": "orchestrate_guard_v3",
             "contract": {
                 "contract_version": "orchestrate_guard_v3",
                 "identity_phrase": "Cortex-first orchestration active",
-                "activation_metadata_available": True,
-                "activation_metadata_source": "router",
+                "activation_metadata_available": False,
+                "activation_metadata_source": "selection_only",
                 "consistency_guard": "kernel_levels_filtered" if kernel_online is not None else "best_effort",
                 "canary_first": True,
                 "assurance_version": assurance.get("version"),
@@ -7745,10 +8163,17 @@ async def orchestrate_query(
             "validator_result": validator_result,
             "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=kernel_result),
             "outcome_feedback": {
-                "receipt": outcome_feedback_receipt["receipt"],
-                "receipt_version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
-                "expires_at": outcome_feedback_receipt["payload"]["expires_at"],
+                "available": False,
+                "reason": "complete_causal_outcome_evidence_required",
+                "required_receipt_version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+            },
+            "route_selection_receipt": {
+                "receipt": route_selection_receipt["receipt"],
+                "receipt_version": _ROUTE_SELECTION_RECEIPT_VERSION,
+                "expires_at": route_selection_receipt["payload"]["expires_at"],
                 "execution_id": tx_id,
+                "trainable": False,
+                "plan_digest": final_plan["plan_digest"],
             },
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,

@@ -15,6 +15,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.provider_result import (
+    ProviderResultEnvelope,
+    provider_text_fields,
+    validated_oracle_provider_text,
+)
 from cortex_server.routers import oracle as oracle_router
 
 router = APIRouter()
@@ -47,7 +52,7 @@ class MediateRequest(BaseModel):
     context: Optional[str] = Field(None, description="Optional additional context")
 
 
-class MediateResponse(BaseModel):
+class MediateResponse(ProviderResultEnvelope):
     success: bool
     common_ground: List[Dict[str, str]]
     core_differences: List[Dict[str, str]]
@@ -63,7 +68,7 @@ class ResolveRequest(BaseModel):
     conflict: str = Field(..., description="Conflict to resolve")
 
 
-class ResolveResponse(BaseModel):
+class ResolveResponse(ProviderResultEnvelope):
     success: bool
     conflict_summary: str
     strategies: List[Dict[str, Any]]
@@ -112,17 +117,30 @@ async def _call_oracle(prompt: str, system: str, *, priority: str = "high") -> s
     """Call Oracle in-process (avoids nested HTTP self-call timeouts)."""
 
     with anyio.fail_after(MEDIATOR_DEADLINE_S):
-        out, _model, _route = await run_in_threadpool(
+        answer = await run_in_threadpool(
             oracle_router._best_effort_answer,
             prompt,
             system,
             priority,
         )
+        out, model, _route = answer
         if not isinstance(out, str):
             out = _text(out, max_len=8000)
         if not out.strip():
             raise ValueError("oracle_empty_response")
-        return out
+        completion = oracle_router._backend_completion(answer, response=out)
+        return validated_oracle_provider_text(
+            {
+                "response": out,
+                "model": model,
+                "done": completion["done"],
+                "lane": "mediator_in_process",
+                "origin": completion["origin"],
+                "provider_invoked": completion["provider_invoked"],
+                "degraded": completion["degraded"],
+                "completion_receipt": completion["completion_receipt"],
+            }
+        )
 
 
 def _extract_json(raw: str) -> Optional[Any]:
@@ -170,6 +188,16 @@ def _extract_json(raw: str) -> Optional[Any]:
             continue
 
     return None
+
+
+def _is_exact_json_object(raw: Any) -> bool:
+    """True only when the complete provider response is one JSON object."""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        return isinstance(json.loads(raw.strip()), dict)
+    except (TypeError, ValueError):
+        return False
 
 
 def _normalize_common_ground(v: Any) -> List[Dict[str, str]]:
@@ -365,6 +393,73 @@ def _ensure_usable_mediate_payload(payload: Dict[str, Any], request: MediateRequ
     }
 
 
+def _mediate_payload_needs_repair(parsed: Any, normalized: Dict[str, Any]) -> bool:
+    """Return true whenever normalization would invent or substitute content."""
+
+    del normalized  # Raw-provider shape is the authority for repair detection.
+
+    def exact_rows(value: Any, fields: set[str], *, choices: Optional[Dict[str, set[str]]] = None) -> bool:
+        if not isinstance(value, list) or not value or len(value) > 5:
+            return False
+        for row in value:
+            if not isinstance(row, dict) or set(row) != fields:
+                return False
+            for field in fields:
+                candidate = row.get(field)
+                if not isinstance(candidate, str) or not candidate.strip():
+                    return False
+                if choices and field in choices and candidate.strip().lower() not in choices[field]:
+                    return False
+        return True
+
+    return not (
+        isinstance(parsed, dict)
+        and set(parsed) == {
+            "common_ground",
+            "core_differences",
+            "compromise_proposals",
+            "recommended_resolution",
+        }
+        and exact_rows(parsed.get("common_ground"), {"area", "explanation"})
+        and exact_rows(
+            parsed.get("core_differences"),
+            {"issue", "position_a_view", "position_b_view"},
+        )
+        and exact_rows(
+            parsed.get("compromise_proposals"),
+            {"proposal", "fairness_rating", "rationale"},
+            choices={"fairness_rating": {"high", "medium", "low"}},
+        )
+        and isinstance(parsed.get("recommended_resolution"), str)
+        and bool(parsed["recommended_resolution"].strip())
+    )
+
+
+def _resolve_payload_needs_repair(parsed: Any) -> bool:
+    if not isinstance(parsed, dict) or set(parsed) != {"strategies"}:
+        return True
+    strategies = parsed.get("strategies")
+    if not isinstance(strategies, list) or not 1 <= len(strategies) <= 5:
+        return True
+    required = {"order", "name", "approach", "pros", "cons", "best_when"}
+    for row in strategies:
+        if not isinstance(row, dict) or set(row) != required:
+            return True
+        if isinstance(row.get("order"), bool) or not isinstance(row.get("order"), int):
+            return True
+        for field in ("name", "approach", "best_when"):
+            if not isinstance(row.get(field), str) or not row[field].strip():
+                return True
+        for field in ("pros", "cons"):
+            if (
+                not isinstance(row.get(field), list)
+                or not row[field]
+                or any(not isinstance(item, str) or not item.strip() for item in row[field])
+            ):
+                return True
+    return False
+
+
 def _normalize_strategies(parsed: Any) -> List[Dict[str, Any]]:
     if isinstance(parsed, dict):
         raw_items = (
@@ -459,6 +554,12 @@ def _fallback_mediate_response(request: MediateRequest, error: str, raw: Optiona
         ),
         raw_response=(raw.strip()[:1500] if raw else None),
         error=f"degraded:{error}",
+        origin="deterministic_fallback",
+        provider_invoked=False,
+        provider=None,
+        degraded=True,
+        repair_applied=True,
+        validated_evidence=[],
     )
 
 
@@ -495,6 +596,12 @@ def _fallback_resolve_response(request: ResolveRequest, error: str, raw: Optiona
         ],
         raw_response=(raw.strip()[:1500] if raw else None),
         error=f"degraded:{error}",
+        origin="deterministic_fallback",
+        provider_invoked=False,
+        provider=None,
+        degraded=True,
+        repair_applied=True,
+        validated_evidence=[],
     )
 
 
@@ -551,6 +658,10 @@ async def mediate(request: MediateRequest):
 
         parsed = _extract_json(raw)
         normalized = _normalize_mediate_payload(parsed)
+        repair_applied = (
+            not _is_exact_json_object(raw)
+            or _mediate_payload_needs_repair(parsed, normalized)
+        )
         normalized = _ensure_usable_mediate_payload(normalized, request)
 
         return MediateResponse(
@@ -559,7 +670,19 @@ async def mediate(request: MediateRequest):
             core_differences=normalized["core_differences"],
             compromise_proposals=normalized["compromise_proposals"],
             recommended_resolution=normalized["recommended_resolution"],
-            raw_response=(None if parsed is not None else raw.strip()[:4000]),
+            raw_response=(raw.strip()[:4000] if repair_applied else None),
+            error=("degraded:oracle_schema_repair" if repair_applied else None),
+            **provider_text_fields(
+                raw,
+                origin=("schema_repair" if repair_applied else "provider"),
+                degraded=repair_applied,
+                repair_applied=repair_applied,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if repair_applied
+                    else ["oracle_completion_receipt", "mediation_schema_complete"]
+                ),
+            ),
         )
 
     except TimeoutError:
@@ -623,13 +746,42 @@ async def resolve(request: ResolveRequest):
 
         parsed = _extract_json(raw)
         strategies = _normalize_strategies(parsed)
+        repair_applied = not _is_exact_json_object(raw) or _resolve_payload_needs_repair(parsed)
         conflict_summary = request.conflict[:200] + ("…" if len(request.conflict) > 200 else "")
+
+        if not strategies:
+            fallback = _fallback_resolve_response(request, "oracle_schema_repair", raw=raw)
+            return ResolveResponse(
+                **{
+                    **fallback.model_dump(),
+                    "error": "degraded:oracle_schema_repair",
+                    **provider_text_fields(
+                        raw,
+                        origin="schema_repair",
+                        degraded=True,
+                        repair_applied=True,
+                        validated_evidence=["oracle_completion_receipt"],
+                    ),
+                }
+            )
 
         return ResolveResponse(
             success=True,
             conflict_summary=conflict_summary,
             strategies=strategies,
-            raw_response=(None if parsed is not None else raw.strip()[:4000]),
+            raw_response=(raw.strip()[:4000] if repair_applied else None),
+            error=("degraded:oracle_schema_repair" if repair_applied else None),
+            **provider_text_fields(
+                raw,
+                origin=("schema_repair" if repair_applied else "provider"),
+                degraded=repair_applied,
+                repair_applied=repair_applied,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if repair_applied
+                    else ["oracle_completion_receipt", "resolution_schema_complete"]
+                ),
+            ),
         )
 
     except TimeoutError:

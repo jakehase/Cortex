@@ -19,6 +19,11 @@ import anyio
 import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, ValidationError
+from cortex_server.modules.provider_result import (
+    ProviderResultEnvelope,
+    provider_text_fields,
+    validated_oracle_provider_text,
+)
 
 from cortex_server.internal_addressing import internal_url
 
@@ -87,7 +92,7 @@ class OpportunityItem(BaseModel):
     action: str
 
 
-class PredictResponse(BaseModel):
+class PredictResponse(ProviderResultEnvelope):
     success: bool
     scenario: str
     time_horizon: str
@@ -112,7 +117,7 @@ class TrendItem(BaseModel):
     timeline: str
 
 
-class TrendsResponse(BaseModel):
+class TrendsResponse(ProviderResultEnvelope):
     success: bool
     topic: str
     emerging: List[TrendItem]
@@ -163,12 +168,7 @@ async def _call_oracle(prompt: str, system: str) -> str:
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    text = data.get("response", data.get("text"))
-                    if not isinstance(text, str):
-                        raise ValueError("oracle_non_string_response")
-                    if not text.strip():
-                        raise ValueError("oracle_empty_response")
-                    return text
+                    return validated_oracle_provider_text(data)
             except (httpx.RequestError, httpx.HTTPStatusError, ValueError) as e:
                 last_err = e
                 if i >= attempts:
@@ -198,6 +198,32 @@ def _extract_json(raw: str) -> Optional[dict]:
         return json.loads(text)
     except Exception:
         return None
+
+
+def _is_exact_json_object(raw: Any) -> bool:
+    """True only when the complete provider response is one JSON object."""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        return isinstance(json.loads(raw.strip()), dict)
+    except (TypeError, ValueError):
+        return False
+
+
+def _failed_provider_provenance(raw: Any) -> Dict[str, Any]:
+    """Preserve a verified invocation even when its content is unusable."""
+    if raw is None:
+        return {}
+    try:
+        return provider_text_fields(
+            raw,
+            origin="provider",
+            degraded=True,
+            repair_applied=False,
+            validated_evidence=["oracle_completion_receipt"],
+        )
+    except ValueError:
+        return {}
 
 
 def _confidence_to_label(value: Any) -> str:
@@ -447,6 +473,70 @@ def _repair_trends_payload(canonical: Dict[str, Any], topic: str) -> Dict[str, A
     }
 
 
+def _predict_payload_needs_repair(parsed: Any) -> bool:
+    if not isinstance(parsed, dict) or set(parsed) != {
+        "risks", "opportunities", "overall_outlook", "confidence", "reasoning"
+    }:
+        return True
+
+    def exact_rows(value: Any, fields: set[str], choices: Dict[str, set[str]]) -> bool:
+        if not isinstance(value, list) or len(value) != 3:
+            return False
+        for row in value:
+            if not isinstance(row, dict) or set(row) != fields:
+                return False
+            for field in fields:
+                candidate = row.get(field)
+                if not isinstance(candidate, str) or not candidate.strip():
+                    return False
+                if field in choices and candidate.strip().lower() not in choices[field]:
+                    return False
+        return True
+
+    return not (
+        exact_rows(
+            parsed.get("risks"),
+            {"risk", "severity", "likelihood", "mitigation"},
+            {"severity": _ALLOWED_SEVERITY, "likelihood": _ALLOWED_LIKELIHOOD},
+        )
+        and exact_rows(
+            parsed.get("opportunities"),
+            {"opportunity", "impact", "difficulty", "action"},
+            {"impact": _ALLOWED_IMPACT, "difficulty": _ALLOWED_DIFFICULTY},
+        )
+        and isinstance(parsed.get("overall_outlook"), str)
+        and parsed["overall_outlook"].strip().lower() in _ALLOWED_OUTLOOK
+        and isinstance(parsed.get("confidence"), str)
+        and parsed["confidence"].strip().lower() in {"low", "medium", "high"}
+        and isinstance(parsed.get("reasoning"), str)
+        and bool(parsed["reasoning"].strip())
+    )
+
+
+def _trends_payload_needs_repair(parsed: Any) -> bool:
+    if not isinstance(parsed, dict) or set(parsed) != {"emerging", "declining", "disruption"}:
+        return True
+
+    def exact_trends(value: Any, count: int) -> bool:
+        if not isinstance(value, list) or len(value) != count:
+            return False
+        return all(
+            isinstance(row, dict)
+            and set(row) == {"trend", "evidence", "timeline"}
+            and all(isinstance(row[field], str) and row[field].strip() for field in row)
+            for row in value
+        )
+
+    disruption = parsed.get("disruption")
+    return not (
+        exact_trends(parsed.get("emerging"), 3)
+        and exact_trends(parsed.get("declining"), 2)
+        and isinstance(disruption, dict)
+        and set(disruption) == {"trend", "evidence", "timeline"}
+        and all(isinstance(disruption[field], str) and disruption[field].strip() for field in disruption)
+    )
+
+
 
 
 
@@ -471,6 +561,12 @@ def _fallback_predict_response(request: PredictRequest, error: str, raw: Optiona
         ),
         raw_response=(raw.strip() if (SEER_DEBUG_RAW_RESPONSE and raw) else None),
         error=f"degraded:{error}",
+        origin="deterministic_fallback",
+        provider_invoked=False,
+        provider=None,
+        degraded=True,
+        repair_applied=True,
+        validated_evidence=[],
     )
 
 
@@ -486,6 +582,12 @@ def _fallback_trends_response(request: TrendsRequest, error: str, raw: Optional[
         raw_response=(raw.strip() if (SEER_DEBUG_RAW_RESPONSE and raw) else None),
         generated_at=datetime.now().isoformat(),
         error=f"degraded:{error}",
+        origin="deterministic_fallback",
+        provider_invoked=False,
+        provider=None,
+        degraded=True,
+        repair_applied=True,
+        validated_evidence=[],
     )
 
 
@@ -551,6 +653,7 @@ async def predict(request: PredictRequest):
             raise ValueError("oracle_invalid_json")
 
         canonical = _normalize_predict_payload(parsed)
+        repair_applied = not _is_exact_json_object(raw) or _predict_payload_needs_repair(parsed)
         repaired = _repair_predict_payload(
             canonical,
             scenario=request.scenario,
@@ -568,6 +671,19 @@ async def predict(request: PredictRequest):
             overall_outlook=envelope.overall_outlook,
             confidence=envelope.confidence,
             reasoning=envelope.reasoning,
+            raw_response=(raw.strip() if (repair_applied and SEER_DEBUG_RAW_RESPONSE) else None),
+            error=("degraded:oracle_schema_repair" if repair_applied else None),
+            **provider_text_fields(
+                raw,
+                origin=("schema_repair" if repair_applied else "provider"),
+                degraded=repair_applied,
+                repair_applied=repair_applied,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if repair_applied
+                    else ["oracle_completion_receipt", "prediction_schema_complete"]
+                ),
+            ),
         )
 
     except TimeoutError:
@@ -626,6 +742,7 @@ async def predict(request: PredictRequest):
             reasoning="",
             raw_response=(raw.strip() if (SEER_DEBUG_RAW_RESPONSE and raw) else None),
             error=str(e),
+            **_failed_provider_provenance(raw),
         )
     except ValidationError:
         if SEER_ALLOW_DEGRADED_FALLBACK:
@@ -693,6 +810,7 @@ async def trends(request: TrendsRequest):
             raise ValueError("oracle_invalid_json")
 
         canonical = _normalize_trends_payload(parsed)
+        repair_applied = not _is_exact_json_object(raw) or _trends_payload_needs_repair(parsed)
         repaired = _repair_trends_payload(canonical, topic=request.topic)
         envelope = _TrendsEnvelope.model_validate(repaired)
         _predictions_count += 1
@@ -704,6 +822,19 @@ async def trends(request: TrendsRequest):
             declining=envelope.declining[:2],
             disruption=envelope.disruption,
             generated_at=datetime.now().isoformat(),
+            raw_response=(raw.strip() if (repair_applied and SEER_DEBUG_RAW_RESPONSE) else None),
+            error=("degraded:oracle_schema_repair" if repair_applied else None),
+            **provider_text_fields(
+                raw,
+                origin=("schema_repair" if repair_applied else "provider"),
+                degraded=repair_applied,
+                repair_applied=repair_applied,
+                validated_evidence=(
+                    ["oracle_completion_receipt"]
+                    if repair_applied
+                    else ["oracle_completion_receipt", "trends_schema_complete"]
+                ),
+            ),
         )
 
     except TimeoutError:
@@ -755,6 +886,18 @@ async def trends(request: TrendsRequest):
             raw_response=(raw.strip() if (SEER_DEBUG_RAW_RESPONSE and raw) else None),
             generated_at=datetime.now().isoformat(),
             error="oracle_invalid_json_schema",
+        )
+    except ValueError as e:
+        return TrendsResponse(
+            success=False,
+            topic=request.topic,
+            emerging=[],
+            declining=[],
+            disruption=TrendItem(trend="", evidence="", timeline=""),
+            raw_response=(raw.strip() if (SEER_DEBUG_RAW_RESPONSE and raw) else None),
+            generated_at=datetime.now().isoformat(),
+            error=str(e),
+            **_failed_provider_provenance(raw),
         )
     except Exception as e:
         if SEER_ALLOW_DEGRADED_FALLBACK:

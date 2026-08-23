@@ -140,6 +140,8 @@ test('tampered last-good route plans are rejected as a whole', async (t) => {
     'invalid nested routing marker': (cache) => { cache.plan.routingMarkers.payload = Array(129).fill('x'); },
     'invalid checkpoint retry bound': (cache) => { cache.plan.workflowCheckpoint.retry_policy.max_attempts = 101; },
     'invalid checkpoint level': (cache) => { cache.plan.workflowCheckpoint.levels = [0]; },
+    'non-boolean always-on policy': (cache) => { cache.plan.recommendedLevels[0].alwaysOn = 'true'; },
+    'untrusted level origin': (cache) => { cache.plan.recommendedLevels[0].origin = 'user'; },
     'unexpected nested level field': (cache) => { cache.plan.recommendedLevels[0].action = '/admin'; },
   };
 

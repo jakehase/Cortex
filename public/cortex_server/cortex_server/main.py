@@ -47,6 +47,7 @@ from cortex_server.internal_addressing import (
     probe_internal_reachability,
 )
 from cortex_server.modules.execution_capabilities import execution_capability_status
+from cortex_server.modules.consciousness_integration import ChainContextMiddleware
 from cortex_server.routers import websockets
 import asyncio
 import subprocess
@@ -1962,6 +1963,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger", "/augmenter/chat", "/bard/speak", "/homeassistant/voice/assist_tts"])
     app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)
+    app.add_middleware(ChainContextMiddleware)
     # This must remain the last added user middleware: Starlette places the
     # most recently added middleware outermost, before auth and body parsing.
     app.add_middleware(

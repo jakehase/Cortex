@@ -586,8 +586,12 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         task_archetype="planning",
         policy_label="server-observed-policy",
         codec_variant="referents_plus_codec",
+        output="Verified final answer from causally observed execution.",
+        user_outcome="accepted",
+        executed_levels=[9, 24],
+        selected_levels=[9, 24, 34],
+        plan_digest="d" * 64,
         validator_pass=True,
-        execution_success=True,
         recovery_needed=False,
         latency_ms=321,
         outcome_confidence=0.91,
@@ -634,7 +638,9 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     assert result["recorded"] is True
     assert result["codec_policy"]["variant"] == "referents_plus_codec"
     assert observed[0]["policy_label"] == "server-observed-policy"
-    assert observed[0]["validator_result"] == {"pass": True, "source": "nexus.orchestrate.receipt"}
+    assert observed[0]["validator_result"] == {"pass": True, "source": "causal_outcome_receipt"}
+    assert observed[0]["executed_levels"] == [9, 24]
+    assert observed[0]["user_correction"] is False
     assert codec_calls[0][0]["tenant_id"] == principal.tenant_id
     assert codec_calls[0][0]["storage_workspace_id"] == principal.storage_workspace_id
     assert codec_calls[0][2] == issued["payload"]["jti"]
@@ -653,8 +659,12 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         task_archetype="planning",
         policy_label="server-observed-policy",
         codec_variant="query_only",
+        output="Observed failed execution output.",
+        user_outcome="failed",
+        executed_levels=[24],
+        selected_levels=[24],
+        plan_digest="e" * 64,
         validator_pass=False,
-        execution_success=False,
         recovery_needed=True,
         latency_ms=654,
         outcome_confidence=0.62,
@@ -680,8 +690,17 @@ async def test_outcome_feedback_resumes_partial_projection_and_replays_exact_res
         "task_archetype": "planning",
         "policy_label": "server-policy",
         "codec_variant": "referents_plus_codec",
+        "receipt_kind": "causal_outcome",
+        "trainable": True,
+        "plan_digest": "d" * 64,
+        "selected_levels": [9, 24, 34],
+        "executed_levels": [9, 24],
+        "output_observed": True,
+        "output_hash": "c" * 64,
+        "user_outcome": "accepted",
+        "activation_complete": True,
+        "causal_evidence_complete": True,
         "validator_pass": True,
-        "execution_success": True,
         "recovery_needed": False,
         "latency_ms": 123,
         "outcome_confidence": 0.9,
