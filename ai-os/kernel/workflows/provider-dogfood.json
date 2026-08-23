@@ -3,7 +3,10 @@
   "provider": "cortex",
   "policy": "kernel/policy/provider-read-compute.json",
   "outputBoundary": "internal-artifact-only",
-  "externalWrites": false,
+  "externalWrites": true,
+  "externalTransportEffect": "network-post",
+  "resultStorageExternalWrites": false,
+  "remoteSideEffects": "not_observable",
   "workflows": [
     {
       "id": "research-synthesis",

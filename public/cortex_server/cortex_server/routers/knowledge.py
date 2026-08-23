@@ -34,6 +34,12 @@ from cortex_server.routers.librarian import (
 )
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
+from cortex_server.modules.bounded_health_probe import (
+    HealthProbeBusy,
+    HealthProbeTimedOut,
+    SingleFlightHealthProbe,
+    bounded_principal_metadata_probe,
+)
 from cortex_server.modules.memory_scope import (
     AuthenticatedMemoryPrincipal,
     memory_principal_for_request,
@@ -61,6 +67,12 @@ _LEGACY_MEMORY_STORE_PATHS = [
     Path("/root/cortex_server/chroma_db"),
 ]
 
+HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+HEALTH_PRINCIPAL_SCAN_MAX_ROWS = 256
+
+_KNOWLEDGE_STATUS_PROBE = SingleFlightHealthProbe("knowledge-status")
+_KNOWLEDGE_MEMORY_HEALTH_PROBE = SingleFlightHealthProbe("knowledge-memory-health")
+
 BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
 
 MAX_GRAPH_STRING_LENGTH = 16_384
@@ -71,6 +83,29 @@ MAX_GRAPH_METADATA_DEPTH = 8
 MAX_GRAPH_METADATA_NODES = 1_000
 MAX_GRAPH_METADATA_STRING = 16_384
 MAX_GRAPH_METADATA_KEY = 256
+
+
+def _bounded_float_setting(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return min(maximum, max(minimum, value))
+
+
+def _health_probe_timeout_seconds() -> float:
+    return _bounded_float_setting(
+        "CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS",
+        HEALTH_PROBE_TIMEOUT_SECONDS,
+        minimum=0.01,
+        maximum=10.0,
+    )
 
 
 def _validate_graph_metadata(value: Dict[str, Any]) -> Dict[str, Any]:
@@ -340,25 +375,26 @@ def _principal_graph_neighbors(
     )
 
 
+def _principal_semantic_memory_probe(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    """Return bounded reachability/count evidence for one authenticated principal."""
+
+    return bounded_principal_metadata_probe(
+        collection,
+        where=principal_memory_where(principal),
+        principal_key=principal.memory_principal_key,
+        max_rows=HEALTH_PRINCIPAL_SCAN_MAX_ROWS,
+    )
+
+
 def _principal_semantic_memory_count(
     principal: AuthenticatedMemoryPrincipal,
 ) -> Optional[int]:
-    """Count only rows carrying this principal's server-issued namespace."""
+    """Compatibility accessor over the bounded health probe."""
 
-    try:
-        data = collection.get(
-            where=principal_memory_where(principal),
-            include=["metadatas"],
-        )
-    except Exception:
-        return None
-    metadatas = data.get("metadatas") or []
-    return sum(
-        1
-        for metadata in metadatas
-        if isinstance(metadata, dict)
-        and str(metadata.get("memory_principal_key") or "") == principal.memory_principal_key
-    )
+    probe = _principal_semantic_memory_probe(principal)
+    return int(probe["count"]) if probe.get("available") else None
 
 
 def _principal_memory_health_payload(
@@ -366,13 +402,18 @@ def _principal_memory_health_payload(
 ) -> Dict[str, Any]:
     """Return bounded principal-local health without scanning shared stores."""
 
-    semantic_count = _principal_semantic_memory_count(principal)
+    semantic_probe = _principal_semantic_memory_probe(principal)
+    semantic_count = semantic_probe.get("count")
     semantic = {
-        "ok": semantic_count is not None,
-        "status": "available" if semantic_count is not None else "unavailable",
+        "ok": bool(semantic_probe.get("available")),
+        "status": "available" if semantic_probe.get("available") else "unavailable",
         "count": semantic_count,
+        "countIsLowerBound": bool(semantic_probe.get("countIsLowerBound")),
+        "scanLimit": semantic_probe.get("scanLimit"),
         "principalScoped": True,
     }
+    if semantic_probe.get("error"):
+        semantic["error"] = semantic_probe["error"]
     try:
         from cortex_server.modules.cortex_codec import get_codec_debug_view
 
@@ -1602,6 +1643,55 @@ def _memory_health_payload() -> Dict[str, Any]:
     }
 
 
+def _knowledge_status_payload(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    semantic = _principal_semantic_memory_probe(principal)
+    available = bool(semantic.get("available"))
+    payload = {
+        "success": available,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "active" if available else "unavailable",
+        "capabilities": [
+            "knowledge_graph",
+            "semantic_search",
+            "memory_persistence",
+        ],
+        "memory_count": semantic.get("count"),
+        "memory_count_is_lower_bound": bool(semantic.get("countIsLowerBound")),
+        "memory_scan_limit": semantic.get("scanLimit"),
+        "principal_scoped": True,
+        "aggregate_details": "withheld",
+        "canonical_endpoint": "/knowledge/status",
+    }
+    if semantic.get("error"):
+        payload["error"] = semantic["error"]
+    return payload
+
+
+def _knowledge_probe_failure(*, surface: str, error: BaseException) -> Dict[str, Any]:
+    if isinstance(error, HealthProbeTimedOut):
+        probe_status = "timeout"
+    elif isinstance(error, HealthProbeBusy):
+        probe_status = "busy"
+    else:
+        probe_status = "error"
+    return {
+        "success": False,
+        "ok": False,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "unavailable",
+        "memory_count": None,
+        "principal_scoped": True,
+        "aggregate_details": "withheld",
+        "canonical_endpoint": surface,
+        "probe_status": probe_status,
+        "error": f"health_probe_{probe_status}:{type(error).__name__}",
+    }
+
+
 @router.get("/status")
 async def knowledge_status(http_request: Request = None):
     """L22 Mnemosyne status endpoint (canonical)."""
@@ -1615,32 +1705,13 @@ async def knowledge_status(http_request: Request = None):
                 None,
             )
         )
-        memory_count = _principal_semantic_memory_count(principal)
-
-        available = memory_count is not None
-        return {
-            "success": available,
-            "level": 22,
-            "name": "Mnemosyne",
-            "status": "active" if available else "unavailable",
-            "capabilities": [
-                "knowledge_graph",
-                "semantic_search",
-                "memory_persistence",
-            ],
-            "memory_count": memory_count,
-            "principal_scoped": True,
-            "aggregate_details": "withheld",
-            "canonical_endpoint": "/knowledge/status",
-        }
+        return await _KNOWLEDGE_STATUS_PROBE.run(
+            key=principal.memory_principal_key,
+            function=lambda: _knowledge_status_payload(principal),
+            timeout_seconds=_health_probe_timeout_seconds(),
+        )
     except Exception as e:
-        return {
-            "success": False,
-            "level": 22,
-            "name": "Mnemosyne",
-            "status": "degraded",
-            "error": str(e),
-        }
+        return _knowledge_probe_failure(surface="/knowledge/status", error=e)
 
 
 @router.get("/memory-health")
@@ -1655,7 +1726,25 @@ async def memory_health(http_request: Request = None):
             None,
         )
     )
-    return _principal_memory_health_payload(principal)
+    try:
+        return await _KNOWLEDGE_MEMORY_HEALTH_PROBE.run(
+            key=principal.memory_principal_key,
+            function=lambda: _principal_memory_health_payload(principal),
+            timeout_seconds=_health_probe_timeout_seconds(),
+        )
+    except Exception as exc:
+        payload = _knowledge_probe_failure(surface="/knowledge/memory-health", error=exc)
+        payload.update(
+            {
+                "components": {},
+                "aggregateDetails": "withheld",
+                "truthBoundary": (
+                    "The bounded principal-local health probe did not complete; "
+                    "no aggregate or cross-principal health is inferred."
+                ),
+            }
+        )
+        return payload
 
 
 @router.post("/search")

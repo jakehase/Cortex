@@ -1,5 +1,5 @@
 # Capability-gated provider read + compute workflow.
-# Provider responses are retained inside the AIOS artifact root; external writes stay blocked.
+# Provider POST transport is external; returned responses stay inside the AIOS artifact root.
 job cortexProviderAssist {
   capability aios.status: read @internal;
   capability provider.cortex.read: read @external;

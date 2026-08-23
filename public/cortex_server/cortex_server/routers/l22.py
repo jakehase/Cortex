@@ -11,7 +11,7 @@ Plus novelty-aware extensions:
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-from typing import Callable, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 from datetime import datetime, timedelta, timezone
 import fcntl
 import json
@@ -51,6 +51,12 @@ from cortex_server.modules.memory_scope import (
     require_authenticated_memory_principal,
     scoped_memory_metadata,
 )
+from cortex_server.modules.bounded_health_probe import (
+    HealthProbeBusy,
+    HealthProbeTimedOut,
+    SingleFlightHealthProbe,
+    bounded_principal_metadata_probe,
+)
 
 router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 logger = logging.getLogger(__name__)
@@ -65,6 +71,10 @@ _L22_IDEMPOTENCY_TTL_SECONDS = 30 * 24 * 60 * 60
 _L22_IDEMPOTENCY_MAX_RECORDS = 100_000
 _L22_IDEMPOTENCY_MAX_BYTES = 64 * 1024 * 1024
 _L22_IDEMPOTENCY_FIXED_RECORD_BYTES = 256
+_L22_HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+_L22_HEALTH_PRINCIPAL_SCAN_MAX_ROWS = 256
+_L22_HEALTH_STRUCTURED_MAX_ROWS = 64
+_L22_STATUS_PROBE = SingleFlightHealthProbe("l22-status")
 _L22_QUOTA_LIMIT_DEFAULTS = {
     "workspace_records": 100_000,
     "workspace_bytes": 512 * 1024 * 1024,
@@ -78,6 +88,19 @@ _L22_QUOTA_LIMIT_DEFAULTS = {
 _QUOTA_WRITER_IDENTITY_LOCK = threading.Lock()
 _QUOTA_WRITER_IDENTITY: dict[str, object] = {}
 _QuotaWriteResult = TypeVar("_QuotaWriteResult")
+
+
+def _l22_health_probe_timeout_seconds() -> float:
+    try:
+        configured = float(
+            os.getenv(
+                "CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS",
+                str(_L22_HEALTH_PROBE_TIMEOUT_SECONDS),
+            )
+        )
+    except (TypeError, ValueError):
+        configured = _L22_HEALTH_PROBE_TIMEOUT_SECONDS
+    return min(10.0, max(0.01, configured))
 
 
 @router.on_event("startup")
@@ -1504,15 +1527,25 @@ def count_structured_memory_records(
     *,
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    limit: Optional[int] = None,
 ) -> int:
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
+    params: List[object] = [tenant, workspace]
+    if limit is None:
+        query = (
+            "SELECT COUNT(*) FROM structured_memory "
+            "WHERE tenant_id = ? AND workspace_id = ?"
+        )
+    else:
+        query = (
+            "SELECT COUNT(*) FROM (SELECT 1 FROM structured_memory "
+            "WHERE tenant_id = ? AND workspace_id = ? LIMIT ?)"
+        )
+        params.append(max(1, min(int(limit), 1000)))
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
-            return int(connection.execute(
-                "SELECT COUNT(*) FROM structured_memory WHERE tenant_id = ? AND workspace_id = ?",
-                (tenant, workspace),
-            ).fetchone()[0])
+            return int(connection.execute(query, params).fetchone()[0])
         finally:
             connection.close()
 
@@ -1955,39 +1988,45 @@ def _route_memory_principal(request, http_request: Optional[Request]):
     )
 
 
-@router.get("/status")
-async def l22_status(http_request: Request):
-    principal = memory_principal_for_request(http_request)
+def _l22_status_payload(principal) -> Dict[str, Any]:
+    semantic = bounded_principal_metadata_probe(
+        collection,
+        where=principal_memory_where(principal),
+        principal_key=principal.memory_principal_key,
+        max_rows=_L22_HEALTH_PRINCIPAL_SCAN_MAX_ROWS,
+    )
+    semantic_ready = bool(semantic.get("available"))
     semantic_error = None
-    try:
-        scoped = collection.get(
-            where=principal_memory_where(principal),
-            include=["metadatas"],
-        )
-        memory_count = sum(
-            1
-            for metadata in (scoped.get("metadatas") or [])
-            if isinstance(metadata, dict)
-            and str(metadata.get("memory_principal_key") or "") == principal.memory_principal_key
-        )
-    except Exception as exc:
-        memory_count = None
+    if not semantic_ready:
         semantic_error = "semantic_memory_backend_unavailable"
-        logger.warning("L22 semantic status probe failed: %s", type(exc).__name__)
+        logger.warning("L22 semantic status probe failed")
+
     structured_error = None
     try:
-        structured_memory_count = count_structured_memory_records(
+        structured_records = list_structured_memory_records(
+            memory_type="codec_state",
+            lookup_key=principal.codec_session_key,
+            limit=_L22_HEALTH_STRUCTURED_MAX_ROWS,
             tenant_id=principal.tenant_id,
             workspace_id=principal.storage_workspace_id,
         )
+        # Preserve the accumulated backend-readiness check without restoring an
+        # unbounded COUNT scan. The bounded session lookup above remains the
+        # only structured metric exposed to the caller.
+        count_structured_memory_records(
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+            limit=_L22_HEALTH_STRUCTURED_MAX_ROWS,
+        )
+        structured_memory_count = len(structured_records)
+        structured_ready = True
     except Exception as exc:
         structured_memory_count = None
+        structured_ready = False
         structured_error = "structured_memory_backend_unavailable"
         logger.warning("L22 structured status probe failed: %s", type(exc).__name__)
 
     scope_auth_ready = _memory_scope_auth_ready()
-    semantic_ready = memory_count is not None
-    structured_ready = structured_memory_count is not None
     active = scope_auth_ready and semantic_ready and structured_ready
     any_backend_ready = semantic_ready or structured_ready
     status = (
@@ -1997,7 +2036,7 @@ async def l22_status(http_request: Request):
         if scope_auth_ready and any_backend_ready
         else "unavailable"
     )
-    return {
+    payload = {
         "success": active,
         "level": 22,
         "name": "Mnemosyne",
@@ -2005,7 +2044,7 @@ async def l22_status(http_request: Request):
         "checks": {
             "semantic_memory": {
                 "ok": semantic_ready,
-                "count": memory_count,
+                "count": semantic.get("count"),
                 "error": semantic_error,
             },
             "structured_memory": {
@@ -2026,14 +2065,55 @@ async def l22_status(http_request: Request):
             "canonical_persistence",
             "exact_structured_persistence",
         ],
-        "memory_count": memory_count,
+        "memory_count": semantic.get("count"),
+        "memory_count_is_lower_bound": bool(semantic.get("countIsLowerBound")),
+        "memory_scan_limit": semantic.get("scanLimit"),
         "structured_memory_count": structured_memory_count,
+        "structured_memory_scan_limit": _L22_HEALTH_STRUCTURED_MAX_ROWS,
         "principal_scoped": True,
         "aggregate_storage_metrics": "withheld",
         "structured_memory_backend": "l22_structured_sqlite_v1",
         "scope_auth_ready": scope_auth_ready,
         "novelty_version": "l7l22.v1.1",
     }
+    if semantic_error:
+        payload["semantic_memory_error"] = semantic_error
+    return payload
+
+
+def _l22_probe_failure(error: BaseException) -> Dict[str, Any]:
+    if isinstance(error, HealthProbeTimedOut):
+        probe_status = "timeout"
+    elif isinstance(error, HealthProbeBusy):
+        probe_status = "busy"
+    else:
+        probe_status = "error"
+    return {
+        "success": False,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "unavailable",
+        "memory_count": None,
+        "structured_memory_count": None,
+        "principal_scoped": True,
+        "aggregate_storage_metrics": "withheld",
+        "scope_auth_ready": _memory_scope_auth_ready(),
+        "probe_status": probe_status,
+        "error": f"health_probe_{probe_status}:{type(error).__name__}",
+    }
+
+
+@router.get("/status")
+async def l22_status(http_request: Request):
+    principal = memory_principal_for_request(http_request)
+    try:
+        return await _L22_STATUS_PROBE.run(
+            key=principal.memory_principal_key,
+            function=lambda: _l22_status_payload(principal),
+            timeout_seconds=_l22_health_probe_timeout_seconds(),
+        )
+    except Exception as exc:
+        return _l22_probe_failure(exc)
 
 
 @router.post("/store")

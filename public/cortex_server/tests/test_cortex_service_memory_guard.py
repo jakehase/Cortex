@@ -270,3 +270,34 @@ def test_ct101_dropin_has_root_fix_and_last_resort_cgroup_boundary():
     assert "MemoryMax=3G" in dropin
     assert "MemorySwapMax=512M" in dropin
     assert "OOMPolicy=stop" in dropin
+
+
+def test_agg_f059_ct101_snapshot_captures_effective_resource_and_timer_policy():
+    snapshot = (WORKSPACE_ROOT / "scripts" / "ct101-snapshot.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "systemctl-cortex-effective-properties.txt" in snapshot
+    assert "systemctl show cortex.service" in snapshot
+    for property_name in (
+        "FragmentPath",
+        "DropInPaths",
+        "Restart",
+        "RestartUSec",
+        "MemoryCurrent",
+        "MemoryHigh",
+        "MemoryMax",
+        "MemorySwapMax",
+        "TasksCurrent",
+        "TasksMax",
+        "OOMPolicy",
+    ):
+        assert f"-p {property_name}" in snapshot
+    assert "systemctl-cortex-effective-unit.txt" in snapshot
+    assert "systemctl cat cortex.service" in snapshot
+    assert "systemctl-cortex-relevant-timers.txt" in snapshot
+    assert "systemctl list-timers --all" in snapshot
+    assert "systemctl-cortex-timer-properties.txt" in snapshot
+    assert "NextElapseUSecRealtime" in snapshot
+    assert "LastTriggerUSec" in snapshot
+    assert "Persistent" in snapshot

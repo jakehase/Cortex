@@ -72,8 +72,8 @@ def add(x, y):
     return x + y
 
 
-@app.task(name="cortex_tasks.process_swarm")
-def process_swarm(goal: str, context: str | None = None) -> dict:
+@app.task(bind=True, name="cortex_tasks.process_swarm")
+def process_swarm(self, goal: str, context: str | None = None) -> dict:
     """Process a swarm orchestration task using native modules.
     
     Uses Ghost for web search, makes local API calls for Oracle/Librarian.
@@ -160,11 +160,16 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             f"Summarize: {goal}"
         ]
 
+    # Celery preserves the task id across redelivery.  Deriving child admission
+    # keys from it prevents a retried parent from duplicating its three child
+    # tasks.  Direct/eager invocations without an id retain a unique fallback.
+    master_plan_id = str(getattr(self.request, "id", "") or uuid.uuid4())
     task_ids = []
     for i, task in enumerate(sub_tasks[:3], 1):
         queue_payload = {
             "task": "cortex_tasks.long_running_research",
-            "args": [f"Swarm Task {i}: {task}"]
+            "args": [f"Swarm Task {i}: {task}"],
+            "idempotency_key": f"swarm:{master_plan_id}:{i}",
         }
         try:
             queue_resp = requests.post(QUEUE_URL, json=queue_payload, headers=_cortex_write_headers(), timeout=10)
@@ -173,8 +178,6 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
                 task_ids.append(task_id)
         except:
             task_ids.append(f"failed-{uuid.uuid4()}")
-
-    master_plan_id = str(uuid.uuid4())
 
     novelty_summary = None
     if isinstance(novel_plan, dict):

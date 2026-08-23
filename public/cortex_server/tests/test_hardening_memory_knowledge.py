@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import fcntl
 import json
@@ -5,7 +6,9 @@ import multiprocessing
 import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -26,6 +29,7 @@ from cortex_server.knowledge.graph import (
     SQLiteStorage,
 )
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
+from cortex_server.modules.bounded_health_probe import SingleFlightHealthProbe
 from cortex_server.modules.prior_art_gate import build_prior_art_gate
 from cortex_server.routers import knowledge, librarian
 from cortex_server.services.knowledge_service import KnowledgeService
@@ -1128,6 +1132,109 @@ async def test_memory_status_is_unavailable_when_persistence_backend_fails(monke
     assert result["status"] == "unavailable"
     assert result["memory_count"] is None
     assert result["canonical_endpoint"] == "/knowledge/status"
+
+
+def test_agg_f059_principal_health_scan_has_a_hard_row_bound(monkeypatch):
+    calls = []
+    principal = SimpleNamespace(memory_principal_key="principal-health-key")
+
+    class OversizedCollection:
+        def get(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                    for _ in range(4)
+                ]
+            }
+
+    monkeypatch.setattr(knowledge, "collection", OversizedCollection())
+    monkeypatch.setattr(knowledge, "HEALTH_PRINCIPAL_SCAN_MAX_ROWS", 3)
+
+    probe = knowledge._principal_semantic_memory_probe(principal)
+
+    assert calls == [
+        {
+            "where": {"memory_principal_key": principal.memory_principal_key},
+            "include": ["metadatas"],
+            "limit": 4,
+        }
+    ]
+    assert probe["available"] is True
+    assert probe["count"] == 3
+    assert probe["countIsLowerBound"] is True
+    assert probe["scanLimit"] == 3
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_knowledge_status_timeout_is_off_loop_and_single_flight(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="principal-slow-health")
+    release = threading.Event()
+    calls = []
+    tick_observed = []
+
+    def slow_payload(_principal):
+        calls.append(threading.current_thread().name)
+        release.wait(timeout=0.25)
+        return {"success": True, "status": "active"}
+
+    monkeypatch.setattr(
+        knowledge,
+        "_authenticated_memory_principal_scope",
+        lambda *_args, **_kwargs: principal,
+    )
+    monkeypatch.setattr(knowledge, "_knowledge_status_payload", slow_payload)
+    monkeypatch.setattr(
+        knowledge,
+        "_KNOWLEDGE_STATUS_PROBE",
+        SingleFlightHealthProbe("knowledge-status-test"),
+    )
+    monkeypatch.setenv("CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS", "0.03")
+
+    started = time.perf_counter()
+
+    async def event_loop_tick():
+        await asyncio.sleep(0.005)
+        tick_observed.append(time.perf_counter() - started)
+
+    first, _ = await asyncio.gather(knowledge.knowledge_status(), event_loop_tick())
+    second = await knowledge.knowledge_status()
+    release.set()
+    await asyncio.sleep(0.03)
+
+    assert first["probe_status"] == "timeout"
+    assert second["probe_status"] == "timeout"
+    assert tick_observed and tick_observed[0] < 0.1
+    assert len(calls) == 1
+    assert calls[0].startswith("cortex-health-probe")
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_principal_memory_health_runs_off_event_loop(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="principal-memory-health")
+    worker_threads = []
+
+    def payload(_principal):
+        worker_threads.append(threading.current_thread().name)
+        return {"success": True, "ok": True, "status": "principal_scoped"}
+
+    monkeypatch.setattr(
+        knowledge,
+        "_authenticated_memory_principal_scope",
+        lambda *_args, **_kwargs: principal,
+    )
+    monkeypatch.setattr(knowledge, "_principal_memory_health_payload", payload)
+    monkeypatch.setattr(
+        knowledge,
+        "_KNOWLEDGE_MEMORY_HEALTH_PROBE",
+        SingleFlightHealthProbe("knowledge-memory-health-test"),
+    )
+
+    result = await knowledge.memory_health()
+
+    assert result["success"] is True, result
+    assert len(worker_threads) == 1
+    assert worker_threads[0].startswith("cortex-health-probe")
 
 
 @pytest.mark.asyncio

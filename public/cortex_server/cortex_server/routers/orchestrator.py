@@ -50,6 +50,7 @@ from cortex_server.modules.reasoning_planner import (
     validate_plan_graph,
 )
 from cortex_server.modules.reasoning_policy import build_workflow_policy
+from cortex_server.modules.reasoning_retry_policy import validate_retry_metadata
 from cortex_server.modules.reasoning_store import get_doc as store_get_doc, list_docs as store_list_docs, upsert_doc as store_upsert_doc
 from cortex_server.modules.reasoning_scheduler import (
     ReasoningSchedulerError,
@@ -3644,12 +3645,29 @@ class WorkflowStep(BaseModel):
     failure_mode: str = "continue"
     metadata: Dict[str, Any] = {}
 
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        validate_retry_metadata(value)
+        return value
+
 
 class CreateWorkflowRequest(BaseModel):
     """Workflow definition."""
     name: str
     steps: List[WorkflowStep]
     metadata: Optional[Dict[str, Any]] = {}
+
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(
+        cls, value: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        validate_retry_metadata(value)
+        policy = value.get("policy") if isinstance(value, dict) and isinstance(value.get("policy"), dict) else {}
+        settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
+        validate_retry_metadata(settings)
+        return value
 
 
 class RuntimeScheduleOptions(BaseModel):

@@ -59,6 +59,7 @@ function emitRuntimeJob(contract, sourceJob, context, providerAccess) {
     recovery: adapter.recovery ?? sourceJob?.rollback?.strategy ?? "halt",
   }));
   const truthBoundaries = contract.verifier?.truthBoundaries ?? [];
+  const hasProviderTransport = providerAccess.grants.length > 0;
 
   return Object.freeze({
     schemaVersion: "aios.language-job.v1",
@@ -73,11 +74,14 @@ function emitRuntimeJob(contract, sourceJob, context, providerAccess) {
       hash: context.sourceHash,
     }),
     boundary: Object.freeze({
-      mode: providerAccess.grants.length > 0 ? "capability-gated-read-compute" : "internal-only",
+      mode: hasProviderTransport ? "capability-gated-read-compute" : "internal-only",
       tenantId: context.tenantId,
       workspaceId: context.workspaceId,
-      externalWrites: false,
-      providerAccess: providerAccess.grants.length > 0,
+      externalWrites: hasProviderTransport,
+      externalTransportEffect: hasProviderTransport ? "network-post" : "none",
+      resultStorageExternalWrites: false,
+      remoteSideEffects: hasProviderTransport ? "not_observable" : "none",
+      providerAccess: hasProviderTransport,
       outputBoundary: "internal-artifact-only",
     }),
     capabilities: Object.freeze([...(contract.capabilities ?? [])]),
@@ -96,7 +100,9 @@ function emitRuntimeJob(contract, sourceJob, context, providerAccess) {
     handoff: Object.freeze({
       providers: Object.freeze([...(contract.adapterHandoff?.providers ?? [])]),
       external: contract.adapterHandoff?.external === true,
-      externalWrites: false,
+      externalWrites: hasProviderTransport,
+      externalTransportEffect: hasProviderTransport ? "network-post" : "none",
+      resultStorageExternalWrites: false,
       lifecycle: contract.lifecycle ?? null,
     }),
     providerAccess,
@@ -236,7 +242,10 @@ export function compileCanonicalAiosSource(source = "", options = {}) {
       mode: providerGrantCount > 0 ? "capability-gated-read-compute" : "internal-only",
       tenantId,
       workspaceId,
-      externalWrites: false,
+      externalWrites: providerGrantCount > 0,
+      externalTransportEffect: providerGrantCount > 0 ? "network-post" : "none",
+      resultStorageExternalWrites: false,
+      remoteSideEffects: providerGrantCount > 0 ? "not_observable" : "none",
       runtimeReplacement: false,
       providerGrantCount,
       outputBoundary: "internal-artifact-only",

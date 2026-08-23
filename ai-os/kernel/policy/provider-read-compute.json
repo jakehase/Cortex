@@ -3,7 +3,10 @@
   "enabled": true,
   "mode": "capability-gated-read-compute",
   "outputBoundary": "internal-artifact-only",
-  "externalWrites": false,
+  "externalWrites": true,
+  "externalTransportEffect": "network-post",
+  "resultStorageExternalWrites": false,
+  "remoteSideEffects": "not_observable",
   "runtimeReplacement": false,
   "providers": {
     "cortex": {

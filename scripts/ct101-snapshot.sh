@@ -51,6 +51,10 @@ save_text "$SNAP_DIR/metadata/root-crontab.txt" "crontab -l 2>/dev/null || true"
 save_text "$SNAP_DIR/metadata/system-cron-grep.txt" "grep -RInE 'observability|openclaw|pm2|clawdbot|cortex|docker compose|docker restart' /etc/cron* /var/spool/cron 2>/dev/null || true"
 save_text "$SNAP_DIR/metadata/systemctl-user-openclaw.txt" "systemctl --user cat openclaw-gateway.service 2>/dev/null || true"
 save_text "$SNAP_DIR/metadata/systemctl-user-relevant.txt" "systemctl --user list-unit-files --no-pager 2>/dev/null | egrep -i 'openclaw|pm2|claw|cortex' || true"
+save_text "$SNAP_DIR/metadata/systemctl-cortex-effective-properties.txt" "systemctl show cortex.service --no-pager -p Id -p LoadState -p ActiveState -p SubState -p FragmentPath -p DropInPaths -p Restart -p RestartUSec -p MemoryCurrent -p MemoryHigh -p MemoryMax -p MemorySwapMax -p TasksCurrent -p TasksMax -p OOMPolicy 2>/dev/null || true"
+save_text "$SNAP_DIR/metadata/systemctl-cortex-effective-unit.txt" "systemctl cat cortex.service --no-pager 2>/dev/null || true"
+save_text "$SNAP_DIR/metadata/systemctl-cortex-relevant-timers.txt" "systemctl list-timers --all --no-pager 2>/dev/null | egrep -i 'cortex|health|watchdog' || true"
+save_text "$SNAP_DIR/metadata/systemctl-cortex-timer-properties.txt" 'for unit in $(systemctl list-unit-files --type=timer --no-legend --no-pager 2>/dev/null | awk "{print \$1}" | egrep -i "cortex|health|watchdog"); do printf "[%s]\n" "$unit"; systemctl show "$unit" --no-pager -p Id -p LoadState -p ActiveState -p SubState -p Unit -p NextElapseUSecRealtime -p LastTriggerUSec -p Persistent -p AccuracyUSec -p RandomizedDelayUSec -p FragmentPath -p DropInPaths; systemctl cat "$unit" --no-pager; done 2>/dev/null || true'
 
 # Docker metadata
 save_text "$SNAP_DIR/metadata/docker-ps-a.txt" "docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.RunningFor}}'"

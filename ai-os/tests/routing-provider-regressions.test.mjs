@@ -8,45 +8,23 @@ import path from 'node:path';
 import {
   buildProviderAccessContract,
   executeCapabilityGatedProviderOperation,
-  normalizeProviderPolicy,
+  validateProviderResultContract,
 } from '../packages/aios-language/runtime/provider-read-compute.mjs';
 
+const ORACLE_RESULT_CONTRACT = 'cortex.oracle-chat.v1';
+const reviewedProviderPolicy = JSON.parse(fs.readFileSync(
+  new URL('../kernel/policy/provider-read-compute.json', import.meta.url),
+  'utf8',
+));
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
 
-function providerPolicy({ resultContract = 'cortex.oracle-chat.v1', allowedModels = ['auto', 'tinyllama', 'gpt-5'] } = {}) {
-  const compute = {
-    enabled: true,
-    path: '/oracle/chat',
-    method: 'POST',
-    capability: 'provider.cortex.compute',
-    allowedModels,
-  };
-  if (resultContract) compute.resultContract = resultContract;
-  return normalizeProviderPolicy({
-    schemaVersion: 'aios.provider-read-compute-policy.v1',
-    enabled: true,
-    outputBoundary: 'internal-artifact-only',
-    externalWrites: false,
-    providers: {
-      cortex: {
-        enabled: true,
-        transport: 'http-json',
-        baseUrl: 'http://127.0.0.1:8000',
-        allowLoopbackHttp: true,
-        operations: { compute },
-      },
-    },
-  });
-}
-
-
-function providerAccess(policy) {
+function providerAccess() {
   return buildProviderAccessContract({
-    policy,
+    policy: reviewedProviderPolicy,
     capabilities: [{ name: 'provider.cortex.compute', scope: 'compute', boundary: 'external' }],
     syscalls: [{ op: 'provider.compute', args: { provider: 'cortex' } }],
   });
@@ -86,9 +64,34 @@ function validOracleBody(overrides = {}) {
 }
 
 
-async function executeWithBody({ policy, access, artifactRoot, ordinal, body, model = 'auto' }) {
+function validTinyllamaBody(overrides = {}) {
+  const completionReceipt = overrides.completion_receipt;
+  return validOracleBody({
+    model: 'tinyllama',
+    provider: 'ollama',
+    lane: 'requested_tinyllama',
+    origin: 'ollama_provider',
+    ...overrides,
+    completion_receipt: completionReceipt === null ? null : {
+      evidence: {
+        provider: 'ollama',
+        model: 'tinyllama',
+        identity_source: 'ollama_response',
+      },
+      ...(completionReceipt ?? {}),
+    },
+  });
+}
+
+
+function validateOracleBody(body, { requestedModel = 'auto', allowedModels = ['auto', 'tinyllama', 'gpt-5'] } = {}) {
+  return validateProviderResultContract(ORACLE_RESULT_CONTRACT, body, { requestedModel, allowedModels });
+}
+
+
+async function executeWithBody({ access, artifactRoot, ordinal, body, model = 'tinyllama' }) {
   return executeCapabilityGatedProviderOperation({
-    policy,
+    policy: reviewedProviderPolicy,
     access,
     op: 'provider.compute',
     args: { provider: 'cortex', prompt: 'test prompt', model },
@@ -104,25 +107,24 @@ async function executeWithBody({ policy, access, artifactRoot, ordinal, body, mo
 
 
 test('Cortex Oracle result contract rejects empty, incomplete, synthetic, and receiptless success before writing', async () => {
-  const policy = providerPolicy();
-  const access = providerAccess(policy);
+  const access = providerAccess();
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-oracle-contract-reject-'));
   const cases = [
     [{}, 'AIOS_PROVIDER_RESULT_SCHEMA_INVALID'],
-    [validOracleBody({ response: '' }), 'AIOS_PROVIDER_RESULT_SCHEMA_INVALID'],
-    [validOracleBody({ done: false }), 'AIOS_PROVIDER_RESULT_INCOMPLETE'],
-    [validOracleBody({ degraded: true }), 'AIOS_PROVIDER_RESULT_DEGRADED'],
-    [validOracleBody({ provider_invoked: false }), 'AIOS_PROVIDER_RESULT_DEGRADED'],
-    [validOracleBody({ lane: 'emergency_static', origin: 'static_acknowledgement' }), 'AIOS_PROVIDER_RESULT_PROVENANCE_REJECTED'],
-    [validOracleBody({ lane: 'local_heuristic', origin: 'schema_repair' }), 'AIOS_PROVIDER_RESULT_PROVENANCE_REJECTED'],
-    [validOracleBody({ completion_receipt: null }), 'AIOS_PROVIDER_RESULT_RECEIPT_INVALID'],
-    [validOracleBody({ completion_receipt: { response_sha256: '0'.repeat(64) } }), 'AIOS_PROVIDER_RESULT_RECEIPT_INVALID'],
+    [validTinyllamaBody({ response: '' }), 'AIOS_PROVIDER_RESULT_SCHEMA_INVALID'],
+    [validTinyllamaBody({ done: false }), 'AIOS_PROVIDER_RESULT_INCOMPLETE'],
+    [validTinyllamaBody({ degraded: true }), 'AIOS_PROVIDER_RESULT_DEGRADED'],
+    [validTinyllamaBody({ provider_invoked: false }), 'AIOS_PROVIDER_RESULT_DEGRADED'],
+    [validTinyllamaBody({ lane: 'emergency_static', origin: 'static_acknowledgement' }), 'AIOS_PROVIDER_RESULT_PROVENANCE_REJECTED'],
+    [validTinyllamaBody({ lane: 'local_heuristic', origin: 'schema_repair' }), 'AIOS_PROVIDER_RESULT_PROVENANCE_REJECTED'],
+    [validTinyllamaBody({ completion_receipt: null }), 'AIOS_PROVIDER_RESULT_RECEIPT_INVALID'],
+    [validTinyllamaBody({ completion_receipt: { response_sha256: '0'.repeat(64) } }), 'AIOS_PROVIDER_RESULT_RECEIPT_INVALID'],
   ];
   try {
     for (let index = 0; index < cases.length; index += 1) {
       const [body, code] = cases[index];
       await assert.rejects(
-        executeWithBody({ policy, access, artifactRoot, ordinal: index + 1, body }),
+        executeWithBody({ access, artifactRoot, ordinal: index + 1, body }),
         (error) => error.code === code,
       );
     }
@@ -134,13 +136,11 @@ test('Cortex Oracle result contract rejects empty, incomplete, synthetic, and re
 
 
 test('Cortex Oracle result contract enforces exact concrete model requests', async () => {
-  const policy = providerPolicy();
-  const access = providerAccess(policy);
+  const access = providerAccess();
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-oracle-contract-model-'));
   try {
     await assert.rejects(
       executeWithBody({
-        policy,
         access,
         artifactRoot,
         ordinal: 1,
@@ -155,31 +155,21 @@ test('Cortex Oracle result contract enforces exact concrete model requests', asy
   }
 });
 
-test('Cortex Oracle auto selection still enforces the selected-model allowlist', async () => {
-  const policy = providerPolicy({ allowedModels: ['auto', 'tinyllama'] });
-  const access = providerAccess(policy);
+test('Cortex Oracle auto selection still enforces the selected-model allowlist without granting transport authority', () => {
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-oracle-contract-auto-model-'));
   try {
-    await assert.rejects(
-      executeWithBody({
-        policy,
-        access,
-        artifactRoot,
-        ordinal: 1,
-        body: validOracleBody({ model: 'unallowlisted-frontier-model' }),
-        model: 'auto',
-      }),
+    assert.throws(
+      () => validateOracleBody(
+        validOracleBody({ model: 'unallowlisted-frontier-model' }),
+        { requestedModel: 'auto', allowedModels: ['auto', 'tinyllama'] },
+      ),
       (error) => error.code === 'AIOS_PROVIDER_RESULT_MODEL_MISMATCH',
     );
-    await assert.rejects(
-      executeWithBody({
-        policy,
-        access,
-        artifactRoot,
-        ordinal: 2,
-        body: validOracleBody({ model: 'auto' }),
-        model: 'auto',
-      }),
+    assert.throws(
+      () => validateOracleBody(
+        validOracleBody({ model: 'auto' }),
+        { requestedModel: 'auto', allowedModels: ['auto', 'tinyllama'] },
+      ),
       (error) => error.code === 'AIOS_PROVIDER_RESULT_IDENTITY_MISMATCH',
     );
     assert.equal(fs.existsSync(path.join(artifactRoot, 'provider-results')), false);
@@ -189,24 +179,14 @@ test('Cortex Oracle auto selection still enforces the selected-model allowlist',
 });
 
 
-test('verified dynamic Oracle identity is persisted while generic providers remain contract-opt-in', async () => {
+test('dynamic Oracle identity validates without authority, reviewed transport persists identity, and generic contracts remain opt-in', async () => {
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-oracle-contract-valid-'));
   try {
-    const policy = providerPolicy();
-    const access = providerAccess(policy);
-    const verified = await executeWithBody({
-      policy,
-      access,
-      artifactRoot,
-      ordinal: 1,
-      body: validOracleBody(),
+    const dynamicCompletion = validateOracleBody(validOracleBody(), {
+      requestedModel: 'auto',
+      allowedModels: ['auto', 'tinyllama', 'gpt-5'],
     });
-    assert.equal(verified.resultContract, 'cortex.oracle-chat.v1');
-    assert.equal(verified.selectedProvider, 'openrouter');
-    assert.equal(verified.selectedModel, 'gpt-5');
-    assert.equal(verified.selectedLane, 'gated_direct');
-    const artifact = JSON.parse(fs.readFileSync(verified.resultPath, 'utf8'));
-    assert.deepEqual(artifact.response.verifiedCompletion, {
+    assert.deepEqual(dynamicCompletion, {
       provider: 'openrouter',
       model: 'gpt-5',
       lane: 'gated_direct',
@@ -215,45 +195,51 @@ test('verified dynamic Oracle identity is persisted while generic providers rema
       identitySource: 'openclaw_agent_meta',
       responseSha256: sha256('verified provider answer'),
     });
+    assert.equal(fs.existsSync(path.join(artifactRoot, 'provider-results')), false);
 
-    const genericPolicy = providerPolicy({ resultContract: null });
-    const generic = await executeWithBody({
-      policy: genericPolicy,
-      access: providerAccess(genericPolicy),
+    const access = providerAccess();
+    const verified = await executeWithBody({
+      access,
       artifactRoot,
-      ordinal: 2,
-      body: { answer: 'generic provider result' },
+      ordinal: 1,
+      body: validTinyllamaBody(),
     });
-    assert.equal(generic.resultContract, null);
-    assert.equal(generic.selectedModel, null);
+    assert.equal(verified.resultContract, ORACLE_RESULT_CONTRACT);
+    assert.equal(verified.selectedProvider, 'ollama');
+    assert.equal(verified.selectedModel, 'tinyllama');
+    assert.equal(verified.selectedLane, 'requested_tinyllama');
+    const artifact = JSON.parse(fs.readFileSync(verified.resultPath, 'utf8'));
+    assert.deepEqual(artifact.response.verifiedCompletion, {
+      provider: 'ollama',
+      model: 'tinyllama',
+      lane: 'requested_tinyllama',
+      origin: 'ollama_provider',
+      receiptId: 'oracle_verified_receipt',
+      identitySource: 'ollama_response',
+      responseSha256: sha256('verified provider answer'),
+    });
+
+    const genericResultContract = null;
+    const genericCompletion = validateProviderResultContract(
+      genericResultContract,
+      { answer: 'generic provider result' },
+    );
+    assert.equal(genericResultContract, null);
+    assert.equal(genericCompletion?.model ?? null, null);
   } finally {
     fs.rmSync(artifactRoot, { recursive: true, force: true });
   }
 });
 
 test('production-shaped tinyllama policy accepts only a receipt-bound tinyllama completion', async () => {
-  const policy = providerPolicy({ allowedModels: ['tinyllama'] });
-  const access = providerAccess(policy);
+  const access = providerAccess();
   const artifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-oracle-contract-tinyllama-'));
   try {
     const result = await executeWithBody({
-      policy,
       access,
       artifactRoot,
       ordinal: 1,
-      body: validOracleBody({
-        model: 'tinyllama',
-        provider: 'ollama',
-        lane: 'requested_tinyllama',
-        origin: 'ollama_provider',
-        completion_receipt: {
-          evidence: {
-            provider: 'ollama',
-            model: 'tinyllama',
-            identity_source: 'ollama_response',
-          },
-        },
-      }),
+      body: validTinyllamaBody(),
       model: 'tinyllama',
     });
     assert.equal(result.selectedProvider, 'ollama');

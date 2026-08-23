@@ -16,6 +16,16 @@ const runCli = (args, { expect = 0 } = {}) => {
   }
   return parsed;
 };
+const runVerifier = (args) => {
+  const result = spawnSync(process.execPath, ['apps/aios-verifier.mjs', ...args], { cwd: repoRoot, encoding: 'utf8' });
+  const stdout = result.stdout.trim();
+  const stderr = result.stderr.trim();
+  const parsed = stdout ? JSON.parse(stdout) : stderr ? JSON.parse(stderr) : null;
+  if (result.status !== 0 || parsed?.ok !== true) {
+    throw new Error(JSON.stringify({ command: args, actualStatus: result.status, stdout: parsed || stdout, stderr }, null, 2));
+  }
+  return parsed;
+};
 const compile = runCli(['compile', 'examples/internal-adapter-status.aios', '--artifact-root', artifactRoot, '--workspace', 'operator-smoke']);
 const jobPath = compile?.jobPaths?.[0];
 if (!compile?.ok || !jobPath) throw new Error('canonical AIOS compile did not emit a runnable job');
@@ -25,21 +35,11 @@ const processId = run?.process?.id;
 if (!processId) throw new Error('run proof did not expose process.id');
 const ps = runCli(['ps', '--artifact-root', artifactRoot]);
 const logs = runCli(['logs', '--artifact-root', artifactRoot, '--process', processId]);
-fs.mkdirSync(path.join(artifactRoot, 'packets'), { recursive: true });
-fs.writeFileSync(path.join(artifactRoot, 'packets', 'verifier-evidence.packet.json'), JSON.stringify({
-  ok: true,
-  status: 'green',
-  packetType: 'aios.verifier.evidence',
-  generatedAt: new Date().toISOString(),
-  evidence: [{ kind: 'operator_smoke', boot: boot.ok === true, run: run.ok === true, processId }],
-  checks: [
-    { name: 'language_compile', ok: compile.ok === true && compile.status?.state === 'ready' },
-    { name: 'boot', ok: boot.ok === true },
-    { name: 'run', ok: run.ok === true },
-    { name: 'ps', ok: ps.ok === true && ps.count >= 1 },
-    { name: 'logs', ok: logs.ok === true && logs.count >= 1 }
-  ]
-}, null, 2));
+if (!(compile.ok === true && compile.status?.state === 'ready' && boot.ok === true && run.ok === true
+    && ps.ok === true && ps.count >= 1 && logs.ok === true && logs.count >= 1)) {
+  throw new Error('operator smoke checks failed before trusted verification');
+}
+const verifier = runVerifier(['--job', jobPath, '--artifact-root', artifactRoot]);
 const claim = runCli(['claim', jobPath, '--artifact-root', artifactRoot]);
 const report = {
   ok: true,
@@ -50,6 +50,7 @@ const report = {
   processId,
   bootProof: boot.proofPath,
   runProof: run.proofPath,
+  verifierEvidence: verifier.verifierPath,
   psCount: ps.count,
   logCount: logs.count,
   claimStatus: claim.claimStatus,
