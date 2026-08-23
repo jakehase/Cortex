@@ -17,7 +17,7 @@ from cortex_server.runtime.production_build_loop import (
 )
 
 
-def _install_minimal_routers(monkeypatch, *, failed=()):
+def _install_minimal_routers(monkeypatch, *, failed=(), missing=()):
     def load(app, *, safe_mode=True):
         async def store():
             return {"success": True}
@@ -33,7 +33,7 @@ def _install_minimal_routers(monkeypatch, *, failed=()):
 
         routes = {
             "l22": ("/l22/store", store, ["POST"]),
-            "knowledge": ("/knowledge/search", search, ["GET"]),
+            "knowledge": ("/knowledge/search", search, ["POST"]),
             "nexus": ("/nexus/orchestrate", orchestrate, ["POST"]),
             "orchestrator": (
                 "/orchestrator/runtime-delivery/readiness",
@@ -42,17 +42,19 @@ def _install_minimal_routers(monkeypatch, *, failed=()):
             ),
         }
         for name, (path, endpoint, methods) in routes.items():
-            if name not in failed:
+            if name not in failed and name not in missing:
                 app.add_api_route(path, endpoint, methods=methods)
 
         report = {
-            "loaded": [name for name in routes if name not in failed],
+            "loaded": [
+                name for name in routes if name not in failed and name not in missing
+            ],
             "safeModeSkipped": [],
             "failed": [
                 {"router": name, "error": "ImportError: required dependency missing"}
                 for name in failed
             ],
-            "missingRouter": [],
+            "missingRouter": sorted(missing),
         }
         app.state.router_load_report = report
         return report
@@ -68,7 +70,7 @@ def _install_included_routers(monkeypatch):
         async def store():
             return {"success": True}
 
-        @router.get("/knowledge/search")
+        @router.post("/knowledge/search")
         async def search():
             return {"results": []}
 
@@ -800,6 +802,34 @@ async def test_redis_monitor_is_cancelled_and_awaited_on_shutdown(
 
 
 @pytest.mark.asyncio
+async def test_unexpected_redis_monitor_exit_immediately_degrades_readiness(
+    monkeypatch,
+    lifecycle_fakes,
+):
+    real_sleep = asyncio.sleep
+
+    async def crash_monitor(delay, result=None):
+        if asyncio.current_task().get_name() == "cortex-redis-monitor":
+            raise RuntimeError("redis monitor crashed")
+        return await real_sleep(delay, result)
+
+    monkeypatch.setattr(main.asyncio, "sleep", crash_monitor)
+    app = main.create_app()
+
+    async with app.router.lifespan_context(app):
+        await real_sleep(0)
+        await real_sleep(0)
+        response = await _route(app, "/ready")()
+        payload = json.loads(response.body)
+
+        assert response.status_code == 503
+        assert payload["checks"]["redis"] == {
+            "ok": False,
+            "error": "RuntimeError: redis monitor crashed",
+        }
+
+
+@pytest.mark.asyncio
 async def test_redis_monitor_shutdown_waits_for_inflight_connectivity_check(
     monkeypatch, lifecycle_fakes
 ):
@@ -1052,6 +1082,130 @@ async def test_required_router_import_failure_degrades_readiness(monkeypatch, li
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failed", "missing", "expected_router"),
+    [
+        (("oracle",), (), "oracle"),
+        ((), ("ghost",), "ghost"),
+    ],
+)
+async def test_nonbaseline_router_load_failure_degrades_readiness(
+    monkeypatch,
+    lifecycle_fakes,
+    failed,
+    missing,
+    expected_router,
+):
+    _install_minimal_routers(monkeypatch, failed=failed, missing=missing)
+    app = main.create_app()
+
+    async with app.router.lifespan_context(app):
+        response = await _route(app, "/ready")()
+        payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["checks"]["requiredRouters"]["ok"] is True
+    assert payload["checks"]["routerImports"]["ok"] is False
+    observed = {
+        row["router"] for row in payload["checks"]["routerImports"]["failed"]
+    } | set(payload["checks"]["routerImports"]["missingRouter"])
+    assert observed == {expected_router}
+
+
+@pytest.mark.asyncio
+async def test_missing_required_router_export_degrades_readiness(
+    monkeypatch, lifecycle_fakes
+):
+    _install_minimal_routers(monkeypatch, missing=("knowledge",))
+    app = main.create_app()
+
+    async with app.router.lifespan_context(app):
+        response = await _route(app, "/ready")()
+        payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["checks"]["requiredRouters"] == {
+        "ok": False,
+        "missing": ["knowledge"],
+    }
+    assert payload["checks"]["routerImports"] == {
+        "ok": False,
+        "failed": [],
+        "missingRouter": ["knowledge"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_health_reports_restricted_when_safe_mode_skips_action_routers(
+    lifecycle_fakes,
+):
+    app = main.create_app()
+    app.state.router_load_report["safeModeSkipped"] = ["architect"]
+
+    async with app.router.lifespan_context(app):
+        response = await _route(app, "/health")()
+        payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["readiness"] is True
+    assert payload["status"] == "restricted"
+    assert payload["routerLoad"]["safeModeSkipped"] == ["architect"]
+
+
+@pytest.mark.asyncio
+async def test_health_returns_degraded_contract_when_readiness_probe_raises(
+    monkeypatch, lifecycle_fakes
+):
+    async def failed_reachability(**_kwargs):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(main, "probe_internal_reachability", failed_reachability)
+    app = main.create_app()
+    response = await _route(app, "/health")()
+    payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["status"] == "degraded"
+    assert payload["readiness"] is False
+    assert payload["checks"]["readinessProbe"]["ok"] is False
+    assert payload["one_brain"] == {
+        "autonomy_control_plane": True,
+        "event_ledger": False,
+        "memory_backend": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_corrupt_graph_database_fails_structural_readiness(
+    monkeypatch, lifecycle_fakes, tmp_path
+):
+    corrupt_database = tmp_path / "corrupt.sqlite3"
+    corrupt_database.write_bytes(b"not a sqlite database")
+    monkeypatch.setattr(
+        main,
+        "_knowledge_volume_identity_check",
+        lambda *, production: {
+            "ok": True,
+            "required": production,
+            "path": str(corrupt_database),
+            "marker": None,
+            "mountIdConfigured": False,
+            "error": None,
+        },
+    )
+    app = main.create_app()
+    app.state.lifecycle_checks = {}
+
+    response = await _route(app, "/ready")()
+    payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["checks"]["structuralGraph"]["ok"] is False
+    assert payload["checks"]["structuralGraph"]["quickCheck"] is None
+    assert "database" in payload["checks"]["structuralGraph"]["error"].lower()
+
+
+@pytest.mark.asyncio
 async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
     monkeypatch, lifecycle_fakes
 ):
@@ -1128,6 +1282,7 @@ async def test_production_nexus_baseline_cannot_be_removed_by_configuration(
                 "error": "ImportError: required dependency missing",
             }
         ],
+        "missingRouter": [],
     }
 
 
@@ -1220,7 +1375,8 @@ async def test_readiness_policy_is_immutable_per_factory(monkeypatch, lifecycle_
     monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "l22")
     first = main.create_app()
 
-    monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "/absent")
+    monkeypatch.setenv("CORTEX_REQUIRED_PATHS", "")
+    monkeypatch.setenv("CORTEX_REQUIRED_ROUTES", "GET /absent")
     monkeypatch.setenv("CORTEX_REQUIRED_ROUTERS", "absent")
     second = main.create_app()
 

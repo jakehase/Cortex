@@ -10,12 +10,15 @@ import register from './index.ts';
 const originalFetch = globalThis.fetch;
 
 globalThis.fetch = async () => new Response(JSON.stringify({
+    success: true,
     recommended_levels: [
       { level: 24, name: 'Nexus', reason: 'test routing' },
       { level: 5, name: 'Oracle', reason: 'test routing' },
     ],
     routing_method: 'semantic_orchestration',
     reasoning: ['test harness routing'],
+    routing_markers: {},
+    contract: { contract_version: 'orchestrate_guard_v3' },
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 
 test.after(() => {
@@ -168,12 +171,15 @@ test('requireRouting rejects the turn when Cortex fetch fails', async () => {
   }), /routing unavailable while requireRouting is enabled/);
 
   globalThis.fetch = async () => new Response(JSON.stringify({
+      success: true,
       recommended_levels: [
         { level: 24, name: 'Nexus', reason: 'test routing' },
         { level: 5, name: 'Oracle', reason: 'test routing' },
       ],
       routing_method: 'semantic_orchestration',
       reasoning: ['test harness routing'],
+      routing_markers: {},
+      contract: { contract_version: 'orchestrate_guard_v3' },
     }), { status: 200, headers: { 'content-type': 'application/json' } });
 });
 

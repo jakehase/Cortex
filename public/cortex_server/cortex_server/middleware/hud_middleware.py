@@ -17,29 +17,15 @@ import hashlib
 import re
 import pathlib
 
+from cortex_server.modules.level_registry import get_route_level_hints
+
 # Track activated levels per request
 _request_levels: Dict[str, List[Dict[str, Any]]] = {}
 _recent_activations: deque = deque(maxlen=50000)
 _recent_traces: deque = deque(maxlen=20000)
 
 # Minimal route-to-level map used only when a router doesn't explicitly track levels.
-_ROUTE_LEVEL_HINTS: Dict[str, Dict[str, Any]] = {
-    "nexus": {"level": 24, "name": "nexus"},
-    "conductor": {"level": 36, "name": "conductor"},
-    "orchestrator": {"level": 36, "name": "conductor"},
-    "oracle": {"level": 5, "name": "oracle"},
-    "librarian": {"level": 7, "name": "librarian"},
-    "knowledge": {"level": 22, "name": "mnemosyne"},
-    "l22": {"level": 22, "name": "mnemosyne"},
-    "muse": {"level": 29, "name": "muse"},
-    "dreamer": {"level": 13, "name": "dreamer"},
-    "synthesist": {"level": 32, "name": "synthesist"},
-    "architect": {"level": 9, "name": "architect"},
-    "meta_conductor": {"level": 36, "name": "conductor"},
-    "council": {"level": 15, "name": "council"},
-    "hud_display": {"level": 36, "name": "conductor"},
-    "autonomy": {"level": 36, "name": "conductor"},
-}
+_ROUTE_LEVEL_HINTS: Dict[str, Dict[str, Any]] = get_route_level_hints()
 
 CONTRACT_IDENTITY_PHRASE = "Cortex-first orchestration active"
 RESPONSE_SHAPE_VERSION = "cortex.v1"
@@ -492,7 +478,6 @@ class HUDMiddleware(BaseHTTPMiddleware):
                 )
 
             # Deterministic response contract for parser reliability.
-            body.setdefault("success", True)
             for key in RESPONSE_TEXT_KEYS:
                 if isinstance(body.get(key), str):
                     body[key] = body[key].strip()

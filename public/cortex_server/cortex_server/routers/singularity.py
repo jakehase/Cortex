@@ -6,6 +6,10 @@ Real self-improvement analysis powered by L5 Oracle (cloud reasoning).
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from cortex_server.models.api_contracts import (
+    AcceptedJobResponse,
+    SingularityAnalysisResponse,
+)
 from typing import Optional, Dict, Any, List
 import asyncio
 import ast
@@ -768,7 +772,11 @@ async def _run_async_analyze_job(job_id: str, code: str, source_label: str, scop
 
 
 # ── Routes ──────────────────────────────────────────────────────────
-@router.post("/analyze")
+@router.post(
+    "/analyze",
+    response_model=SingularityAnalysisResponse,
+    responses={202: {"model": AcceptedJobResponse, "description": "Analysis accepted"}},
+)
 async def analyze_code(request: AnalyzeRequest, http_request: Request):
     """Analyze code (string or file path) for improvements via Oracle.
 

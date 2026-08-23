@@ -104,7 +104,7 @@ LEVEL_RELEVANCE = {
         'weight': 0.3,
         'action': 'Simulation testing'
     },
-    21: {  # Ouroboros
+    21: {  # Sentinel
         'terms': ['regenerate', 'self-heal', 'maintain', 'health check'],
         'weight': 0.2,
         'action': 'System health'

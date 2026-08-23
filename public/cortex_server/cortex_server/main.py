@@ -5,7 +5,7 @@ Main entry point and FastAPI application factory.
 
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from datetime import datetime, timezone
 import importlib
 import hashlib
@@ -22,6 +22,23 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.routing import APIRoute
+from starlette.routing import WebSocketRoute
+
+from cortex_server.capability_manifest import (
+    CAPABILITY_BY_MODULE,
+    ROUTER_CAPABILITIES,
+    UNSAFE_ACTION_MODULES,
+)
+from cortex_server.models.api_contracts import (
+    CapabilityInventoryResponse,
+    ErrorResponse,
+    HealthResponse,
+    LevelStatusResponse,
+    ReadinessResponse,
+    RootResponse,
+)
+from cortex_server.modules.level_registry import get_level_registry
 
 from cortex_server.middleware.error_handler import register_exception_handlers, RequestIDMiddleware
 from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
@@ -61,21 +78,17 @@ logger = logging.getLogger(__name__)
 _RELEASE_OBSERVATION_MAX_AGE_SECONDS = 30.0
 _RELEASE_OBSERVATION_MAX_REPLAY_ENTRIES = 4096
 
-DANGEROUS_ROUTERS = {
-    "lab_fixed",
-    "architect",
-    "oracle_budget",
-    "plugin_test",
-    "test_module",
-    "demo",
-}
-
 LIFECYCLE_SERVICES = ("redis", "scheduler", "chronos", "awareness")
 
-DEFAULT_REQUIRED_PATHS = frozenset({"/l22/store", "/knowledge/search"})
+DEFAULT_REQUIRED_ROUTES = frozenset(
+    {("POST", "/l22/store"), ("POST", "/knowledge/search")}
+)
 DEFAULT_REQUIRED_ROUTERS = frozenset({"l22", "knowledge"})
-PRODUCTION_REQUIRED_PATHS = DEFAULT_REQUIRED_PATHS | frozenset(
-    {"/nexus/orchestrate", "/orchestrator/runtime-delivery/readiness"}
+PRODUCTION_REQUIRED_ROUTES = DEFAULT_REQUIRED_ROUTES | frozenset(
+    {
+        ("POST", "/nexus/orchestrate"),
+        ("GET", "/orchestrator/runtime-delivery/readiness"),
+    }
 )
 PRODUCTION_REQUIRED_ROUTERS = DEFAULT_REQUIRED_ROUTERS | frozenset(
     {"nexus", "orchestrator"}
@@ -107,8 +120,13 @@ class WebSocketSecurityConfig:
 
 @dataclass(frozen=True)
 class ReadinessConfig:
-    required_paths: frozenset[str]
+    required_routes: frozenset[tuple[str, str]]
     required_routers: frozenset[str]
+
+    @property
+    def required_paths(self) -> frozenset[str]:
+        """Compatibility view; readiness itself uses method/path identities."""
+        return frozenset(path for _method, path in self.required_routes)
 
 
 @dataclass(frozen=True)
@@ -360,6 +378,66 @@ def _route_paths(routes) -> set[str]:
         for route in _effective_routes(routes)
         if (path := getattr(route, "path", None)) is not None
     }
+
+
+def _route_inventory(routes) -> Counter[tuple[str, str]]:
+    """Count concrete HTTP method/path identities without collapsing aliases."""
+    inventory: Counter[tuple[str, str]] = Counter()
+    for route in _effective_routes(routes):
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        for method in getattr(route, "methods", None) or ():
+            normalized = str(method).upper()
+            if normalized not in {"HEAD", "OPTIONS"}:
+                inventory[(normalized, str(path))] += 1
+    return inventory
+
+
+def _parse_required_routes(raw_routes: str, raw_legacy_paths: str) -> frozenset[tuple[str, str]]:
+    """Parse explicit route requirements, retaining a narrow legacy bridge.
+
+    ``CORTEX_REQUIRED_ROUTES`` entries use ``METHOD /path``.  Legacy
+    ``CORTEX_REQUIRED_PATHS`` entries are mapped to the method of a built-in
+    requirement when known. Unknown legacy paths fail closed rather than
+    silently inventing a GET contract.
+    """
+    parsed: set[tuple[str, str]] = set()
+    for value in raw_routes.split(","):
+        value = value.strip()
+        if not value:
+            continue
+        match = re.fullmatch(r"([A-Za-z]+)\s+(/\S*)", value)
+        if match is None:
+            raise RuntimeError(
+                "CORTEX_REQUIRED_ROUTES entries must use 'METHOD /path'"
+            )
+        method, path = match.groups()
+        method = method.upper()
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+            raise RuntimeError(
+                "CORTEX_REQUIRED_ROUTES method must be GET, POST, PUT, PATCH, or DELETE"
+            )
+        parsed.add((method, path))
+
+    built_in_methods = {
+        path: method
+        for method, path in PRODUCTION_REQUIRED_ROUTES
+    }
+    for value in raw_legacy_paths.split(","):
+        path = value.strip()
+        if not path:
+            continue
+        if not path.startswith("/") or any(character.isspace() for character in path):
+            raise RuntimeError("CORTEX_REQUIRED_PATHS entries must be absolute paths")
+        method = built_in_methods.get(path)
+        if method is None:
+            raise RuntimeError(
+                "unknown CORTEX_REQUIRED_PATHS entry; migrate it to "
+                f"CORTEX_REQUIRED_ROUTES with an explicit method: {path}"
+            )
+        parsed.add((method, path))
+    return frozenset(parsed)
 
 
 _READ_SCOPE_FIELDS = (
@@ -1302,18 +1380,52 @@ async def _transform_sensitive_json_response(
 
 
 def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
-    """Dynamically discover and mount routers from cortex_server.routers."""
+    """Mount only explicitly declared production HTTP capabilities."""
     routers_dir = Path(__file__).parent / "routers"
-    report = {"loaded": [], "safeModeSkipped": [], "failed": [], "missingRouter": []}
-    for file_path in routers_dir.glob("*.py"):
-        module_name = file_path.stem
-        if module_name == "__init__" or module_name.startswith("_"):
+    discovered = {
+        file_path.stem
+        for file_path in routers_dir.glob("*.py")
+        if file_path.stem != "__init__" and not file_path.stem.startswith("_")
+    }
+    declared = set(CAPABILITY_BY_MODULE)
+    if discovered != declared:
+        undeclared = sorted(discovered - declared)
+        missing_files = sorted(declared - discovered)
+        raise RuntimeError(
+            "router capability manifest mismatch: "
+            f"undeclared={undeclared}, missing_files={missing_files}"
+        )
+
+    report = {
+        "loaded": [],
+        "safeModeSkipped": [],
+        "disabled": [],
+        "failed": [],
+        "missingRouter": [],
+    }
+    for capability in ROUTER_CAPABILITIES:
+        module_name = capability.module
+        if capability.kind != "http":
             continue
-        if module_name == "websockets":
+        if not capability.production:
+            report["disabled"].append(
+                {
+                    "router": module_name,
+                    "reason": "not_production",
+                    "safetyClass": capability.safety_class,
+                }
+            )
             continue
-        if safe_mode and module_name in DANGEROUS_ROUTERS:
-            logger.warning("SAFE_MODE: skipping dangerous router '%s'", module_name)
+        if safe_mode and capability.safety_class == "unsafe_action":
+            logger.warning("SAFE_MODE: deny-loading unsafe action router '%s'", module_name)
             report["safeModeSkipped"].append(module_name)
+            report["disabled"].append(
+                {
+                    "router": module_name,
+                    "reason": "safe_mode",
+                    "safetyClass": capability.safety_class,
+                }
+            )
             continue
         try:
             module = importlib.import_module(f"cortex_server.routers.{module_name}")
@@ -1323,13 +1435,22 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
             continue
         router = getattr(module, "router", None)
         if router is not None:
-            app.include_router(router, prefix=f"/{module_name}", tags=[module_name.title()])
+            first_new_route = len(app.routes)
+            app.include_router(
+                router,
+                prefix=capability.prefix,
+                tags=[capability.tag],
+            )
+            for route in _effective_routes(app.routes[first_new_route:]):
+                if hasattr(route, "tags"):
+                    route.tags = [capability.tag]
             report["loaded"].append(module_name)
         else:
             report["missingRouter"].append(module_name)
     for key in ("loaded", "safeModeSkipped", "missingRouter"):
         report[key].sort()
     report["failed"].sort(key=lambda row: row["router"])
+    report["disabled"].sort(key=lambda row: row["router"])
     app.state.router_load_report = report
     return report
 
@@ -1442,18 +1563,17 @@ def create_app() -> FastAPI:
         from cortex_server.runtime.production_build_loop import validate_production_delivery_credentials
 
         validate_production_delivery_credentials()
-    baseline_required_paths = (
-        PRODUCTION_REQUIRED_PATHS if production_environment else DEFAULT_REQUIRED_PATHS
+    baseline_required_routes = (
+        PRODUCTION_REQUIRED_ROUTES if production_environment else DEFAULT_REQUIRED_ROUTES
     )
     baseline_required_routers = (
         PRODUCTION_REQUIRED_ROUTERS if production_environment else DEFAULT_REQUIRED_ROUTERS
     )
     readiness_config = ReadinessConfig(
-        required_paths=baseline_required_paths
-        | frozenset(
-            value.strip()
-            for value in os.getenv("CORTEX_REQUIRED_PATHS", "").split(",")
-            if value.strip()
+        required_routes=baseline_required_routes
+        | _parse_required_routes(
+            os.getenv("CORTEX_REQUIRED_ROUTES", ""),
+            os.getenv("CORTEX_REQUIRED_PATHS", ""),
         ),
         required_routers=baseline_required_routers
         | frozenset(
@@ -1522,12 +1642,18 @@ def create_app() -> FastAPI:
         app.state.background_tasks = set()
         try:
             if fail_closed_memory:
-                route_paths = _route_paths(app.routes)
-                required_paths = {"/l22/store", "/knowledge/search"}
-                missing_paths = sorted(required_paths - route_paths)
-                if missing_paths:
+                route_inventory = _route_inventory(app.routes)
+                required_memory_routes = {
+                    ("POST", "/l22/store"),
+                    ("POST", "/knowledge/search"),
+                }
+                missing_routes = sorted(
+                    route for route in required_memory_routes if route_inventory[route] != 1
+                )
+                if missing_routes:
                     raise RuntimeError(
-                        f"Fail-closed startup: missing required memory endpoints: {', '.join(missing_paths)}"
+                        "Fail-closed startup: missing or colliding required memory endpoints: "
+                        + ", ".join(f"{method} {path}" for method, path in missing_routes)
                     )
 
             def start_and_check_redis() -> None:
@@ -1636,6 +1762,23 @@ def create_app() -> FastAPI:
             redis_monitor = asyncio.create_task(
                 monitor_redis(), name="cortex-redis-monitor"
             )
+
+            def observe_redis_monitor(done: asyncio.Task) -> None:
+                if done.cancelled():
+                    return
+                try:
+                    error = done.exception()
+                except BaseException as exc:
+                    error = exc
+                if error is None:
+                    error = RuntimeError("Redis connectivity monitor stopped unexpectedly")
+                app.state.lifecycle_checks["redis"] = {
+                    "ok": False,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+                logger.error("Redis connectivity monitor stopped: %s", error)
+
+            redis_monitor.add_done_callback(observe_redis_monitor)
 
             async def stop_service(name):
                 if name == "awareness":
@@ -1783,7 +1926,10 @@ def create_app() -> FastAPI:
     async def admin_guard(request, call_next):
         if safe_mode and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             p = request.url.path
-            if any(p.startswith(f"/{r}/") or p == f"/{r}" for r in DANGEROUS_ROUTERS):
+            if any(
+                p.startswith(f"/{module}/") or p == f"/{module}"
+                for module in UNSAFE_ACTION_MODULES
+            ):
                 if not admin_token or request.headers.get("x-cortex-admin-token", "") != admin_token:
                     from fastapi.responses import JSONResponse
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
@@ -1959,7 +2105,14 @@ def create_app() -> FastAPI:
     # Custom middleware
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(ObservabilityMiddleware)
-    app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger", "/augmenter/chat", "/bard/speak", "/homeassistant/voice/assist_tts"])
+    # Home Assistant TTS retains its established provider deadline until that
+    # explicitly unsafe, safe-mode-disabled router has a fully async client.
+    # All core provider/queue paths remain under the aggregate deadline.
+    app.add_middleware(
+        RequestTimeoutMiddleware,
+        timeout_seconds=30,
+        exclude_paths=["/homeassistant/voice/assist_tts"],
+    )
     app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)
     # This must remain the last added user middleware: Starlette places the
@@ -1983,14 +2136,31 @@ def create_app() -> FastAPI:
 
     # API Routers
     router_load_report = load_dynamic_routers(app, safe_mode=safe_mode)
-    app.include_router(websockets.router, tags=["WebSockets"])
+    websocket_capability = CAPABILITY_BY_MODULE["websockets"]
+    first_websocket_route = len(app.routes)
+    app.include_router(
+        websockets.router,
+        prefix=websocket_capability.prefix,
+        tags=[websocket_capability.tag],
+    )
+    for route in _effective_routes(app.routes[first_websocket_route:]):
+        if hasattr(route, "tags"):
+            route.tags = [websocket_capability.tag]
 
     def readiness_payload(*, self_reachability: dict | None = None) -> dict:
-        route_paths = _route_paths(app.routes)
-        required_paths = readiness_config.required_paths
+        route_inventory = _route_inventory(app.routes)
+        required_routes = readiness_config.required_routes
         required_routers = readiness_config.required_routers
         loaded_routers = set(router_load_report["loaded"])
-        missing_paths = sorted(required_paths - route_paths)
+        missing_routes = sorted(
+            route for route in required_routes if route_inventory[route] != 1
+        )
+        missing_paths = sorted({path for _method, path in missing_routes})
+        collisions = sorted(
+            (method, path, count)
+            for (method, path), count in route_inventory.items()
+            if count > 1
+        )
         missing_routers = sorted(required_routers - loaded_routers)
         knowledge_identity = _knowledge_volume_identity_check(
             production=production_environment
@@ -2038,10 +2208,30 @@ def create_app() -> FastAPI:
         execution_policy = execution_capability_status()
         checks = {
             "requiredPaths": {"ok": not missing_paths, "missing": missing_paths},
+            "requiredRoutes": {
+                "ok": not missing_routes,
+                "required": [
+                    {"method": method, "path": path}
+                    for method, path in sorted(required_routes)
+                ],
+                "missing": [
+                    {"method": method, "path": path}
+                    for method, path in missing_routes
+                ],
+            },
+            "routeCollisions": {
+                "ok": not collisions,
+                "collisions": [
+                    {"method": method, "path": path, "count": count}
+                    for method, path, count in collisions
+                ],
+            },
             "requiredRouters": {"ok": not missing_routers, "missing": missing_routers},
             "structuralGraph": {
                 "ok": graph_error is None,
-                "required": production_environment,
+                # The graph database backs required memory routes in every
+                # mode; development is not allowed to turn corruption green.
+                "required": True,
                 "degraded": graph_error is not None,
                 "path": str(graph_path),
                 "quickCheck": graph_quick_check,
@@ -2070,8 +2260,9 @@ def create_app() -> FastAPI:
                 "error": read_authorization.configuration_error,
             },
             "routerImports": {
-                "ok": not any(row["router"] in required_routers for row in router_load_report["failed"]),
-                "failed": [row for row in router_load_report["failed"] if row["router"] in required_routers],
+                "ok": not router_load_report["failed"] and not router_load_report["missingRouter"],
+                "failed": list(router_load_report["failed"]),
+                "missingRouter": list(router_load_report["missingRouter"]),
             },
             "eventLedgerDurability": event_ledger_check,
             "memoryBackendDurability": memory_backend_check,
@@ -2106,6 +2297,7 @@ def create_app() -> FastAPI:
             "routerLoad": {
                 "loadedCount": len(router_load_report["loaded"]),
                 "safeModeSkipped": router_load_report["safeModeSkipped"],
+                "disabled": router_load_report.get("disabled", []),
                 "failed": router_load_report["failed"],
                 "missingRouter": router_load_report["missingRouter"],
             },
@@ -2246,21 +2438,33 @@ def create_app() -> FastAPI:
     async def internal_reachability_check():
         return internal_reachability_response()
 
-    @app.get("/ready")
+    @app.get(
+        "/ready",
+        tags=["Core"],
+        response_model=ReadinessResponse,
+        responses={503: {"model": ReadinessResponse, "description": "Not ready"}},
+    )
     async def readiness_check():
         from fastapi.responses import JSONResponse
         payload = await async_readiness_payload()
         return JSONResponse(status_code=200 if payload["ready"] else 503, content=payload)
 
-    @app.get("/capabilities")
+    @app.get(
+        "/capabilities",
+        tags=["Core"],
+        response_model=CapabilityInventoryResponse,
+    )
     async def capability_inventory():
         execution_policy = execution_capability_status()
         capabilities = []
         for route in _effective_routes(app.routes):
+            if not isinstance(route, APIRoute) or not route.include_in_schema:
+                continue
             methods = sorted(method for method in (getattr(route, "methods", None) or []) if method not in {"HEAD", "OPTIONS"})
             if not methods:
                 continue
             capabilities.append({
+                "kind": "http",
                 "path": getattr(route, "path", ""),
                 "methods": methods,
                 "write": any(method in MUTATING_METHODS for method in methods),
@@ -2270,7 +2474,18 @@ def create_app() -> FastAPI:
                     else None
                 ),
                 "name": getattr(route, "name", None),
+                "tag": (getattr(route, "tags", None) or [None])[0],
             })
+        websocket_capabilities = [
+            {
+                "kind": "websocket",
+                "path": getattr(route, "path", ""),
+                "name": getattr(route, "name", None),
+                "tag": (getattr(route, "tags", None) or [None])[0],
+            }
+            for route in _effective_routes(app.routes)
+            if isinstance(route, WebSocketRoute)
+        ]
         return {
             "schemaVersion": "cortex.capability_inventory.v1",
             "security": {
@@ -2281,19 +2496,43 @@ def create_app() -> FastAPI:
                 "sensitiveReadAuthorizationConfigured": read_authorization.configured and not read_authorization.configuration_error,
             },
             "executionCapabilityPolicy": execution_policy,
-            "capabilityCount": len(capabilities),
+            "capabilityCount": len(capabilities) + len(websocket_capabilities),
+            "httpCapabilityCount": len(capabilities),
+            "websocketCapabilityCount": len(websocket_capabilities),
             "writeCapabilityCount": sum(1 for row in capabilities if row["write"]),
             "capabilities": sorted(capabilities, key=lambda row: (row["path"], row["methods"])),
+            "websockets": sorted(websocket_capabilities, key=lambda row: row["path"]),
         }
 
-    @app.get("/health")
+    @app.get(
+        "/health",
+        tags=["Core"],
+        response_model=HealthResponse,
+        responses={503: {"model": HealthResponse, "description": "Core dependency degraded"}},
+    )
     async def health_check():
         from fastapi.responses import JSONResponse
 
         readiness = await async_readiness_payload()
+        safe_mode_restricted = bool(readiness.get("routerLoad", {}).get("safeModeSkipped"))
+        readiness_checks = dict(readiness.get("checks") or {})
+        event_ledger_ok = bool(
+            (readiness_checks.get("eventLedgerDurability") or {}).get("ok")
+        )
+        memory_backend_ok = bool(
+            (readiness_checks.get("memoryBackendDurability") or {}).get("ok")
+        )
         payload = {
-            "status": "healthy" if readiness["ready"] else "degraded",
+            "status": (
+                "degraded"
+                if not readiness["ready"]
+                else "restricted"
+                if safe_mode_restricted
+                else "healthy"
+            ),
             "service": "cortex",
+            "checks": readiness_checks,
+            "routerLoad": readiness.get("routerLoad", {}),
             "contract": {
                 "identity_phrase": "Cortex-first orchestration active",
                 "activation_metadata_available": True,
@@ -2301,8 +2540,8 @@ def create_app() -> FastAPI:
             },
             "one_brain": {
                 "autonomy_control_plane": True,
-                "event_ledger": bool(readiness["checks"]["eventLedgerDurability"]["ok"]),
-                "memory_backend": bool(readiness["checks"]["memoryBackendDurability"]["ok"]),
+                "event_ledger": event_ledger_ok,
+                "memory_backend": memory_backend_ok,
             },
             "security": {
                 "writeAuthorizationMode": write_auth_mode,
@@ -2319,7 +2558,7 @@ def create_app() -> FastAPI:
     release_observation_replays: OrderedDict[str, float] = OrderedDict()
     release_observation_replay_lock = threading.Lock()
 
-    @app.get("/release-observation")
+    @app.get("/release-observation", tags=["Core"])
     async def release_observation(
         request: Request = None,
         process_id: Optional[str] = None,
@@ -2532,7 +2771,7 @@ def create_app() -> FastAPI:
             },
         )
 
-    @app.get("/")
+    @app.get("/", tags=["Core"], response_model=RootResponse)
     async def root():
         return {
             "name": "The Cortex",
@@ -2541,10 +2780,8 @@ def create_app() -> FastAPI:
             "endpoints": {
                 "docs": "/docs",
                 "health": "/health",
-                "graph": "/graph",
-                "parse": "/parse",
-                "tools": "/tools",
-                "websockets": "/ws",
+                "readiness": "/ready",
+                "capabilities": "/capabilities",
             },
         }
 
@@ -2562,6 +2799,15 @@ def create_app() -> FastAPI:
             routes=app.routes,
         )
         components = schema.setdefault("components", {})
+        component_schemas = components.setdefault("schemas", {})
+        component_schemas.setdefault(
+            "ErrorResponse",
+            ErrorResponse.schema(ref_template="#/components/schemas/{model}"),
+        )
+        component_schemas.setdefault(
+            "LevelStatusResponse",
+            LevelStatusResponse.schema(ref_template="#/components/schemas/{model}"),
+        )
         security_schemes = components.setdefault("securitySchemes", {})
         security_schemes["CortexWriteToken"] = {
             "type": "apiKey",
@@ -2587,28 +2833,81 @@ def create_app() -> FastAPI:
             "name": "x-cortex-scope-signature",
             "description": "HMAC signature over the complete Cortex tenant/workspace/agent/user/channel/session principal scope.",
         }
+        # Compatibility aliases can expose aggregate/detail payloads rather
+        # than a level status object. Only canonical status routes receive the
+        # shared status schema.
+        level_status_paths = {
+            str(row["canonical_status"]) for row in get_level_registry()
+        }
+        used_tags: set[str] = set()
         for path, path_item in schema.get("paths", {}).items():
-            for method in ("post", "put", "patch", "delete"):
+            for method in ("get", "post", "put", "patch", "delete"):
                 operation = path_item.get(method)
-                if operation:
+                if not operation:
+                    continue
+                tags = operation.get("tags") or []
+                if len(tags) != 1:
+                    operation["tags"] = [str(tags[0]) if tags else "Core"]
+                    tags = operation["tags"]
+                used_tags.add(tags[0])
+                responses = operation.setdefault("responses", {})
+                responses.setdefault(
+                    "504",
+                    {
+                        "description": "Request deadline exceeded",
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                            }
+                        },
+                    },
+                )
+                if path in level_status_paths and method == "get":
+                    success = responses.setdefault("200", {"description": "Level status"})
+                    success.setdefault("content", {}).setdefault("application/json", {})[
+                        "schema"
+                    ] = {"$ref": "#/components/schemas/LevelStatusResponse"}
+
+                if method in {"post", "put", "patch", "delete"}:
                     operation["security"] = [{"CortexWriteToken": []}]
                     operation["x-cortex-write-authorization-mode"] = write_auth_mode
-            operation = path_item.get("get")
-            read_policy = (
-                operation.get(_READ_POLICY_METADATA_KEY, "admin_redacted")
-                if operation
-                else None
-            )
-            if operation and read_policy not in {"public", "public_redacted"}:
-                admin_security = [{"CortexAdminToken": []}]
-                if path in _CODEC_ADMIN_READ_ROUTE_PATHS:
-                    admin_security.append({"CortexCodecAdminToken": []})
-                operation["security"] = admin_security
-                if not read_policy.startswith("admin_"):
-                    operation["security"].append({"CortexPrincipalSignature": []})
-                operation["x-cortex-read-authorization-mode"] = "signed_principal_or_admin"
-                if read_policy.startswith("admin_"):
-                    operation["x-cortex-read-admin-required"] = True
+                elif method == "get":
+                    read_policy = operation.get(
+                        _READ_POLICY_METADATA_KEY, "admin_redacted"
+                    )
+                    if read_policy not in {"public", "public_redacted"}:
+                        admin_security = [{"CortexAdminToken": []}]
+                        if path in _CODEC_ADMIN_READ_ROUTE_PATHS:
+                            admin_security.append({"CortexCodecAdminToken": []})
+                        operation["security"] = admin_security
+                        if not read_policy.startswith("admin_"):
+                            operation["security"].append(
+                                {"CortexPrincipalSignature": []}
+                            )
+                        operation[
+                            "x-cortex-read-authorization-mode"
+                        ] = "signed_principal_or_admin"
+                        if read_policy.startswith("admin_"):
+                            operation["x-cortex-read-admin-required"] = True
+
+                if operation.get("security"):
+                    responses.setdefault(
+                        "403",
+                        {
+                            "description": "Authorization denied",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/ErrorResponse"
+                                    }
+                                }
+                            },
+                        },
+                    )
+        schema["tags"] = [
+            {"name": tag, "description": f"Cortex {tag} capabilities."}
+            for tag in sorted(used_tags)
+        ]
         app.openapi_schema = schema
         return schema
 

@@ -13,12 +13,15 @@ globalThis.fetch = async () => ({
   body: new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(JSON.stringify({
+        success: true,
         recommended_levels: [
           { level: 24, name: 'Nexus', reason: 'test routing' },
           { level: 5, name: 'Oracle', reason: 'test routing' },
         ],
         routing_method: 'test',
         reasoning: ['test'],
+        routing_markers: {},
+        contract: {},
       })));
       controller.close();
     },
@@ -46,7 +49,7 @@ function harness() {
       scopeHmacSecret: 'test-scope-hmac-secret-32-bytes-minimum',
       sessionIdentityHmacSecret: 'test-session-identity-secret-32-bytes-minimum',
       routeCacheHmacSecret: 'test-route-cache-secret-32-bytes-minimum',
-      allowUnsignedLocalDevelopment: true,
+      writeToken: 'test-route-gate-write-token-32-bytes-minimum',
     },
     logger: { info() {}, warn() {} },
     on(name, fn) { handlers.set(name, fn); },

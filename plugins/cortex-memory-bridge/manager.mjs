@@ -37,6 +37,59 @@ function resolveConfig(cfg) {
   };
 }
 
+function isLoopbackBaseUrl(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+    return ['http:', 'https:'].includes(url.protocol) && loopback && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function explicitUnsignedDevelopmentMode() {
+  const configuredModes = [
+    ['OPENCLAW_ENV', process.env.OPENCLAW_ENV],
+    ['CORTEX_ENV', process.env.CORTEX_ENV],
+    ['NODE_ENV', process.env.NODE_ENV],
+  ]
+    .map(([name, value]) => [name, String(value ?? '').trim().toLowerCase()])
+    .filter(([, value]) => value.length > 0);
+  if (configuredModes.length === 0) {
+    throw new Error('Cortex memory manager unsigned local development requires an explicit non-production runtime mode');
+  }
+
+  const canonicalMode = (value) => ({ dev: 'development', prod: 'production' }[value] || value);
+  const modes = new Set(configuredModes.map(([, value]) => canonicalMode(value)));
+  if (modes.size !== 1) {
+    throw new Error(`Cortex memory manager unsigned local development rejects conflicting runtime modes: ${configuredModes.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  const mode = [...modes][0];
+  if (['production', 'staging'].includes(mode)) {
+    throw new Error('Cortex memory manager unsigned local development is forbidden in production or staging mode');
+  }
+  if (!['development', 'test', 'local'].includes(mode)) {
+    throw new Error(`Cortex memory manager unsigned local development requires dev, development, test, or local mode; received ${mode}`);
+  }
+  return mode;
+}
+
+function validateUnsignedLocalDevelopment(rcfg, warn) {
+  if (rcfg.allowUnsignedLocalDevelopment !== true) return;
+  if (String(rcfg.scopeCredentialId || '').trim() || String(rcfg.scopeHmacSecret || '').trim() || String(rcfg.writeToken || '').trim()) {
+    throw new Error('Cortex memory manager unsigned local development cannot be combined with production credentials');
+  }
+  if (rcfg.tenantId !== 'cortex-local' || rcfg.workspaceId !== 'default') {
+    throw new Error('Cortex memory manager unsigned local development is restricted to cortex-local/default');
+  }
+  if (!isLoopbackBaseUrl(rcfg.baseUrl)) {
+    throw new Error('Cortex memory manager unsigned local development requires a loopback Cortex baseUrl');
+  }
+  const mode = explicitUnsignedDevelopmentMode();
+  warn?.(`SECURITY WARNING: Cortex memory manager is using unsigned loopback-only local development mode (${mode})`);
+}
+
 function normalizeQuery(text) { return String(text || '').trim().toLowerCase(); }
 function looksHistoricalQuery(query) { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
 function isShortVagueQuery(query) { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
@@ -518,6 +571,10 @@ export class CortexMemorySearchManager {
     this.invocationContext = requireTrustedPrincipalContext(params.invocationContext || params, params.agentId);
     this.agentId = this.invocationContext.agentId;
     this.rcfg = resolveConfig(params.cfg);
+    validateUnsignedLocalDevelopment(
+      this.rcfg,
+      params.logger?.warn ? params.logger.warn.bind(params.logger) : console.warn,
+    );
   }
   static async create(params) { return new CortexMemorySearchManager(params); }
   async search(query, opts = {}) {

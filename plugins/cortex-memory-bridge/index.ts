@@ -985,6 +985,45 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
   };
 }
 
+function isLoopbackBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+    return ['http:', 'https:'].includes(url.protocol) && loopback && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function explicitUnsignedDevelopmentMode(): string {
+  const configuredModes = [
+    ['OPENCLAW_ENV', process.env.OPENCLAW_ENV],
+    ['CORTEX_ENV', process.env.CORTEX_ENV],
+    ['NODE_ENV', process.env.NODE_ENV],
+  ]
+    .map(([name, value]) => [name, String(value ?? '').trim().toLowerCase()] as const)
+    .filter(([, value]) => value.length > 0);
+  if (configuredModes.length === 0) {
+    throw new Error('cortex-memory-bridge unsigned local development requires an explicit non-production runtime mode');
+  }
+
+  const aliases: Record<string, string> = { dev: 'development', prod: 'production' };
+  const canonicalMode = (value: string): string => aliases[value] || value;
+  const modes = new Set(configuredModes.map(([, value]) => canonicalMode(value)));
+  if (modes.size !== 1) {
+    throw new Error(`cortex-memory-bridge unsigned local development rejects conflicting runtime modes: ${configuredModes.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  const mode = [...modes][0];
+  if (['production', 'staging'].includes(mode)) {
+    throw new Error('cortex-memory-bridge unsigned local development is forbidden in production or staging mode');
+  }
+  if (!['development', 'test', 'local'].includes(mode)) {
+    throw new Error(`cortex-memory-bridge unsigned local development requires dev, development, test, or local mode; received ${mode}`);
+  }
+  return mode;
+}
+
 function normalizeQuery(text: string): string { return text.trim().toLowerCase(); }
 function looksHistoricalQuery(query: string): boolean { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
 function isShortVagueQuery(query: string): boolean { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
@@ -1892,12 +1931,24 @@ const plugin = {
     if (hasScopeCredentialId && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/.test(scopeCredentialId)) {
       throw new Error('cortex-memory-bridge scopeCredentialId must be a bounded opaque identifier');
     }
-    if (!hasScopeCredentialId) {
-      if (initialConfig.allowUnsignedLocalDevelopment !== true) {
-        throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+    if (initialConfig.allowUnsignedLocalDevelopment === true) {
+      if (hasScopeCredentialId || String(initialConfig.writeToken || '').trim()) {
+        throw new Error('cortex-memory-bridge unsigned local development cannot be combined with production credentials');
       }
       if (initialConfig.tenantId !== 'cortex-local' || initialConfig.workspaceId !== 'default') {
         throw new Error('cortex-memory-bridge allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+      }
+      if (!isLoopbackBaseUrl(initialConfig.baseUrl)) {
+        throw new Error('cortex-memory-bridge unsigned local development requires a loopback Cortex baseUrl');
+      }
+      const runtimeMode = explicitUnsignedDevelopmentMode();
+      const warning = `SECURITY WARNING: cortex-memory-bridge is using unsigned loopback-only local development mode (${runtimeMode})`;
+      if (typeof api.logger?.warn === 'function') api.logger.warn(warning);
+      else console.warn(warning);
+    }
+    if (!hasScopeCredentialId) {
+      if (initialConfig.allowUnsignedLocalDevelopment !== true) {
+        throw new Error('cortex-memory-bridge requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
       }
     }
     if (!String(initialConfig.writeToken || '').trim() && initialConfig.allowUnsignedLocalDevelopment !== true) {

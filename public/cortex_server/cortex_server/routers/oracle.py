@@ -3,6 +3,7 @@ from cortex_server.middleware.hud_middleware import track_level
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, Tuple, Any, Dict, List
+import asyncio
 import requests, httpx, os, re, json, subprocess, threading, hashlib, hmac, random, time, concurrent.futures, ast, operator
 from collections import deque
 from datetime import datetime, timezone
@@ -11,6 +12,11 @@ from cortex_server.modules.alive_cortex import get_alive_mode
 from cortex_server.modules.codec_policy import get_codec_backend_policy, get_codec_policy_for_query, get_codec_routing_priors, infer_served_variant, observe_codec_outcome, observe_passive_codec_feedback, register_codec_session_turn
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.modules.async_offload import (
+    BlockingCallCapacityExceeded,
+    BlockingCallDeadlineExceeded,
+    run_blocking,
+)
 from cortex_server.internal_addressing import internal_url
 from cortex_server.routers.openclaw import load_config
 
@@ -3825,40 +3831,89 @@ async def oracle_forecast_resolve(payload: ForecastResolveRequest):
     }
 
 
-@router.get('/status')
-async def oracle_status():
-    # OpenClaw local path is the primary lane (no network to Ollama/bridge required).
-    openclaw_ok = True
-    openclaw_err = None
+def _probe_openclaw_status() -> Dict[str, Any]:
     try:
         subprocess.run(["openclaw", "--help"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
     except Exception as e:
-        openclaw_ok = False
-        openclaw_err = str(e)
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "error": None}
 
-    # Only probe Ollama when enabled; otherwise avoid noisy localhost errors.
-    local_online = None
-    local_err = None
-    models = []
-    if OLLAMA_ENABLED:
-        local_online = True
-        try:
-            r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
-            r.raise_for_status()
-            models = [m.get('name') for m in r.json().get('models', [])]
-        except Exception as e:
-            local_online = False
-            local_err = str(e)
 
-    bridge_ok = False
-    bridge_err = None
+def _probe_ollama_status() -> Dict[str, Any]:
     try:
-        h = requests.get(BRIDGE_URL.replace('/invoke', '/health'), timeout=3)
-        bridge_ok = h.status_code == 200
-        if not bridge_ok:
-            bridge_err = h.text[:120]
+        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
+        response.raise_for_status()
+        models = [model.get("name") for model in response.json().get("models", [])]
     except Exception as e:
-        bridge_err = str(e)
+        return {"online": False, "error": str(e), "models": []}
+    return {"online": True, "error": None, "models": models}
+
+
+def _probe_bridge_status() -> Dict[str, Any]:
+    try:
+        response = requests.get(BRIDGE_URL.replace("/invoke", "/health"), timeout=3)
+        ok = response.status_code == 200
+        return {
+            "ok": ok,
+            "error": None if ok else response.text[:120],
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def _bounded_status_probe(
+    operation: str,
+    probe,
+    *,
+    timeout_seconds: float,
+    failure: Dict[str, Any],
+) -> Dict[str, Any]:
+    try:
+        return await run_blocking(
+            operation,
+            probe,
+            timeout_seconds=timeout_seconds,
+        )
+    except (BlockingCallCapacityExceeded, BlockingCallDeadlineExceeded) as exc:
+        return {**failure, "error": str(exc)}
+
+
+@router.get('/status')
+async def oracle_status():
+    # Probes have their own client/subprocess deadlines and are independently
+    # offloaded so a slow backend cannot stall unrelated event-loop work.
+    local_probe = (
+        _bounded_status_probe(
+            "oracle.status.ollama",
+            _probe_ollama_status,
+            timeout_seconds=2.5,
+            failure={"online": False, "models": []},
+        )
+        if OLLAMA_ENABLED
+        else asyncio.sleep(0, result={"online": None, "error": None, "models": []})
+    )
+    openclaw, local, bridge = await asyncio.gather(
+        _bounded_status_probe(
+            "oracle.status.openclaw",
+            _probe_openclaw_status,
+            timeout_seconds=2.5,
+            failure={"ok": False},
+        ),
+        local_probe,
+        _bounded_status_probe(
+            "oracle.status.bridge",
+            _probe_bridge_status,
+            timeout_seconds=3.5,
+            failure={"ok": False},
+        ),
+    )
+    openclaw_ok = bool(openclaw.get("ok"))
+    openclaw_err = openclaw.get("error")
+    local_online = local.get("online")
+    local_err = local.get("error")
+    models = local.get("models") or []
+    bridge_ok = bool(bridge.get("ok"))
+    bridge_err = bridge.get("error")
 
     total = ROUTE_STATS['total'] or 1
     bridge_pct = round((ROUTE_STATS['bridge'] / total) * 100, 1)

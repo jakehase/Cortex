@@ -7,9 +7,19 @@
     "type": "object",
     "additionalProperties": false,
     "anyOf": [
-      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
+      {
+        "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"],
+        "properties": { "allowUnsignedLocalDevelopment": { "const": false } }
+      },
       {
         "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
+        "not": {
+          "anyOf": [
+            { "required": ["scopeCredentialId"] },
+            { "required": ["scopeHmacSecret"] },
+            { "required": ["writeToken"] }
+          ]
+        },
         "properties": {
           "allowUnsignedLocalDevelopment": { "const": true },
           "tenantId": { "const": "cortex-local" },

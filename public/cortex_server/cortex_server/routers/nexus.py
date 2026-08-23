@@ -6,7 +6,7 @@ Replaces keyword matching with true semantic understanding.
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Mapping, Optional
+from typing import Dict, List, Any, Mapping, Optional, Union
 import base64
 from contextlib import asynccontextmanager, contextmanager
 import fcntl
@@ -53,6 +53,19 @@ from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_c
 from cortex_server.modules import cortex_codec as _cortex_codec_module
 from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.modules.async_offload import (
+    BlockingCallDeadlineExceeded,
+    remaining_seconds,
+    run_blocking,
+)
+from cortex_server.modules.level_registry import (
+    LEVEL_REGISTRY_VERSION,
+    get_level_registry,
+)
+from cortex_server.models.api_contracts import (
+    NexusCodecProbeResponse,
+    NexusOrchestrationResponse,
+)
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
 from cortex_server.modules.memory_scope import (
@@ -119,49 +132,18 @@ CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED
 CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
 _CODEC_WRITE_ACK_VERSION = "cortex.codec.write-ack.v1"
 
-# Level definitions
+# Canonical level definitions; display identity and always-on policy are never
+# maintained separately from the registry.
 LEVEL_MAP = {
-    1: {"name": "kernel", "layer": "Foundation", "purpose": "System core"},
-    2: {"name": "ghost", "layer": "Foundation", "purpose": "External intelligence - web search, browsing"},
-    3: {"name": "hive", "layer": "Foundation", "purpose": "Distributed processing - parallel execution"},
-    4: {"name": "lab", "layer": "Foundation", "purpose": "Code execution - Python, calculations"},
-    5: {"name": "oracle", "layer": "Foundation", "purpose": "Analysis - reasoning, predictions"},
-    6: {"name": "bard", "layer": "Foundation", "purpose": "Content creation - TTS, writing"},
-    7: {"name": "librarian", "layer": "Foundation", "purpose": "Memory - recall, knowledge retrieval"},
-    8: {"name": "sentinel", "layer": "Foundation", "purpose": "Security - scanning, threat detection"},
-    9: {"name": "architect", "layer": "Foundation", "purpose": "System design - blueprints, infrastructure"},
-    10: {"name": "listener", "layer": "Foundation", "purpose": "Input processing - intent recognition"},
-    11: {"name": "catalyst", "layer": "Intelligence", "purpose": "Optimization - speed, efficiency"},
-    12: {"name": "darwin", "layer": "Intelligence", "purpose": "Evolution - adaptation, learning"},
-    13: {"name": "dreamer", "layer": "Intelligence", "purpose": "Creativity - scenarios, imagination"},
-    14: {"name": "chronos", "layer": "Intelligence", "purpose": "Scheduling - time, cron jobs"},
-    15: {"name": "council", "layer": "Intelligence", "purpose": "Multi-perspective - critique, debate"},
-    16: {"name": "academy", "layer": "Intelligence", "purpose": "Training - education, patterns"},
-    17: {"name": "exoskeleton", "layer": "Intelligence", "purpose": "Tool integration - external APIs"},
-    18: {"name": "diplomat", "layer": "Intelligence", "purpose": "Communication - messaging, negotiation"},
-    19: {"name": "geneticist", "layer": "Intelligence", "purpose": "Optimization - breeding solutions"},
-    20: {"name": "simulator", "layer": "Intelligence", "purpose": "Scenario testing - what-if analysis"},
-    21: {"name": "ouroboros", "layer": "Meta", "purpose": "Self-monitoring - health checks"},
-    22: {"name": "mnemosyne", "layer": "Meta", "purpose": "Long-term memory - deep storage"},
-    23: {"name": "cartographer", "layer": "Meta", "purpose": "Self-mapping - capability discovery"},
-    24: {"name": "nexus", "layer": "Meta", "purpose": "Orchestration - level coordination"},
-    25: {"name": "bridge", "layer": "Meta", "purpose": "External AI - federation"},
-    26: {"name": "conductor", "layer": "Meta", "purpose": "Workflow orchestration"},
-    27: {"name": "forge", "layer": "Meta", "purpose": "Creation - module generation"},
-    28: {"name": "polyglot", "layer": "Meta", "purpose": "Translation - languages"},
-    29: {"name": "muse", "layer": "Meta", "purpose": "Artistic guidance - inspiration"},
-    30: {"name": "seer", "layer": "Meta", "purpose": "Prediction - forecasting"},
-    31: {"name": "mediator", "layer": "Apex", "purpose": "Conflict resolution - arbitration"},
-    32: {"name": "synthesist", "layer": "Apex", "purpose": "Cross-level synthesis"},
-    33: {"name": "ethicist", "layer": "Apex", "purpose": "Ethical governance"},
-    34: {"name": "validator", "layer": "Apex", "purpose": "Testing - verification"},
-    35: {"name": "singularity", "layer": "Apex", "purpose": "Self-improvement"},
-    36: {"name": "conductor", "layer": "Apex", "purpose": "Meta-orchestration"},
-    37: {"name": "awareness", "layer": "Apex", "purpose": "Self-awareness and internal state"},
-    38: {"name": "augmenter", "layer": "Apex", "purpose": "Intent augmentation and control surface"},
+    int(row["level"]): {
+        **row,
+        "name": str(row["slug"]),
+    }
+    for row in get_level_registry()
 }
-
-ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
+ALWAYS_ON_LEVELS = [
+    level for level, row in LEVEL_MAP.items() if bool(row["always_on"])
+]
 
 _CODEC_REPLAY_SCHEDULER_LOCK = threading.Lock()
 _CODEC_REPLAY_SCHEDULER_THREAD: Optional[threading.Thread] = None
@@ -5147,7 +5129,11 @@ class AssuranceReceiptRequest(BaseModel):
 
 
 class OrchestrateRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=1_048_576)
+    query: Optional[str] = Field(None, min_length=1, max_length=1_048_576)
+    private_retrieval_shadow_query: Optional[str] = Field(None, max_length=16_384)
+
+    class Config:
+        extra = "forbid"
 
 
 class PolicyReplayRequest(BaseModel):
@@ -5262,7 +5248,12 @@ def _codec_events_replay_result(
     return dict(response)
 
 
-def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
+def analyze_intent_with_oracle(
+    query: str,
+    *,
+    route_health: Optional[RouteHealthMonitor] = None,
+    timeout_seconds: float = 10.0,
+) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
     if not OPENROUTER_API_KEY:
         return {"intents": [], "confidence": 0, "method": "fallback"}
@@ -5321,7 +5312,12 @@ Intents to detect:
 
     started = datetime.utcnow()
     try:
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            OPENROUTER_URL,
+            headers=headers,
+            json=payload,
+            timeout=max(0.1, min(float(timeout_seconds), 10.0)),
+        )
         response.raise_for_status()
         data = response.json()
         content = data["choices"][0]["message"]["content"]
@@ -5425,7 +5421,7 @@ async def get_nexus_context():
             "level": 24,
             "name": "The Nexus",
             "role": "Consciousness Bridge",
-            "total_levels": 38,
+            "total_levels": len(LEVEL_MAP),
             "always_on": [LEVEL_MAP[l] for l in ALWAYS_ON_LEVELS],
             "orchestration_method": "semantic_via_oracle",
             "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
@@ -5449,6 +5445,9 @@ async def get_nexus_status():
     return {
         "success": True,
         "status": "operational",
+        "level": 24,
+        "name": LEVEL_MAP[24]["name"],
+        "registry_version": LEVEL_REGISTRY_VERSION,
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
         "codec": {
             "enabled": bool(NEXUS_CODEC_ENABLED),
@@ -6547,7 +6546,7 @@ async def get_nexus_full():
                 "role": "Consciousness Bridge & Orchestrator"
             },
             "orchestration": {
-                "total_levels": 38,
+                "total_levels": len(LEVEL_MAP),
                 "always_on": ALWAYS_ON_LEVELS,
                 "level_map": LEVEL_MAP,
                 "method": "semantic_analysis_via_l5_oracle"
@@ -6687,15 +6686,26 @@ async def orchestrate_query_read_only_guard():
     )
 
 
-@router.post("/orchestrate", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post(
+    "/orchestrate",
+    dependencies=[Depends(require_authenticated_memory_principal)],
+    response_model=Union[NexusOrchestrationResponse, NexusCodecProbeResponse],
+)
 async def orchestrate_query(
     query: Optional[str] = None,
     request: Request = None,
     codec_probe: bool = False,
-    payload: Optional[Dict[str, Any]] = Body(default=None),
+    payload: Optional[OrchestrateRequest] = Body(default=None),
 ):
     """Semantic query orchestration with Q&A fastlane option."""
-    body_query = payload.get("query") if payload is not None else None
+    payload_data = (
+        payload.model_dump(exclude_none=True)
+        if payload is not None and hasattr(payload, "model_dump")
+        else payload.dict(exclude_none=True)
+        if payload is not None and hasattr(payload, "dict")
+        else dict(payload or {})
+    )
+    body_query = payload_data.get("query")
     if body_query is not None and not isinstance(body_query, str):
         raise HTTPException(status_code=422, detail="JSON body query must be a string")
     if query is not None and body_query is not None and query != body_query:
@@ -6705,7 +6715,7 @@ async def orchestrate_query(
         raise HTTPException(status_code=422, detail="query is required")
     if len(query) > 1_048_576:
         raise HTTPException(status_code=422, detail="query exceeds maximum length")
-    shadow_query_value = payload.get("private_retrieval_shadow_query") if payload is not None else None
+    shadow_query_value = payload_data.get("private_retrieval_shadow_query")
     if shadow_query_value is not None and not isinstance(shadow_query_value, str):
         raise HTTPException(status_code=422, detail="private_retrieval_shadow_query must be a string")
     private_retrieval_shadow_query = (
@@ -6728,6 +6738,7 @@ async def orchestrate_query(
     adaptive_policies = None
     outcome_tuner = None
     started = datetime.utcnow()
+    request_deadline_monotonic = time.monotonic() + 25.0
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
     tx: Optional[ExecutionTransaction] = None
@@ -6884,12 +6895,42 @@ async def orchestrate_query(
                 })
             except Exception as exc:
                 adaptive_route.update({"reason": f"adaptive_router_error:{type(exc).__name__}", "error": str(exc)[:160]})
-        world_grounding = gather_live_evidence(
-            query,
-            max_sources=3,
-            notary_packets=1,
-            enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
-        )
+        try:
+            world_grounding = await run_blocking(
+                "nexus.world_grounding",
+                gather_live_evidence,
+                query,
+                max_sources=3,
+                notary_packets=1,
+                enabled=bool(
+                    os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower()
+                    in {"1", "true", "yes", "on"}
+                ),
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=8.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded as exc:
+            world_grounding = {
+                "required": True,
+                "engaged": True,
+                "mode": "live_grounding_timed_out",
+                "evidence": [],
+                "evidence_count": 0,
+                "degraded": True,
+                "error": str(exc),
+            }
+        try:
+            architect_is_healthy = await run_blocking(
+                "nexus.architect_health",
+                _architect_healthy,
+                route_health=adaptive_policies.health,
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=4.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded:
+            architect_is_healthy = False
         latency_plan = adaptive_policies.latency.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
@@ -6975,7 +7016,7 @@ async def orchestrate_query(
                 if lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "kernel_v2"})
             if kernel_intent in {"planning", "coding", "ops"}:
-                if _architect_healthy(route_health=adaptive_policies.health):
+                if architect_is_healthy:
                     if 9 not in [r.get("level") for r in recommended]:
                         recommended.append({"level": 9, "name": "architect", "method": "kernel_v2"})
                 else:
@@ -7028,7 +7069,7 @@ async def orchestrate_query(
             routing_markers["l9_chain"] = ["architect", "council", "synthesist", "validator"]
             reasoning.append("Architecture trigger detected; forcing L9 Architect chain for design reasoning.")
             for lvl in [9, 15, 32, 34]:
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for architecture-chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -7043,7 +7084,7 @@ async def orchestrate_query(
             routing_markers["l9_chain"] = ["architect"]
             reasoning.append("Coding trigger detected; forcing Lab+Architect+Validator+Forge+Council chain.")
             for lvl in [4, 9, 34, 27, 15]:
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for coding chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -7219,7 +7260,7 @@ async def orchestrate_query(
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "complexity_gate"})
         if complexity_gate.get("l9_triggered"):
             routing_markers["l9_triggered"] = True
-            if _architect_healthy(route_health=adaptive_policies.health):
+            if architect_is_healthy:
                 routing_markers["l9_chain"] = ["architect"]
                 if 9 not in [r.get("level") for r in recommended]:
                     recommended.append({"level": 9, "name": "architect", "method": "autotune_l9"})
@@ -7361,11 +7402,26 @@ async def orchestrate_query(
                 reasoning.append("Anytime early-exit confidence gate bypassed semantic oracle call.")
 
         if not semantic_result:
+            provider_timeout = remaining_seconds(
+                request_deadline_monotonic, ceiling=10.0
+            )
+            try:
+                provider_result = await run_blocking(
+                    "nexus.semantic_analysis",
+                    lambda: analyze_intent_with_oracle(
+                        query,
+                        route_health=adaptive_policies.health,
+                        timeout_seconds=provider_timeout,
+                    ),
+                    timeout_seconds=provider_timeout,
+                )
+            except BlockingCallDeadlineExceeded as exc:
+                raise HTTPException(status_code=504, detail=str(exc)) from exc
             semantic_result = tx.run_step(
                 "semantic_analysis",
-                lambda: analyze_intent_with_oracle(query, route_health=adaptive_policies.health),
-                retry_policy=RetryPolicy.for_kind("transient_io"),
-                verify=lambda x: isinstance(x, dict),
+                lambda: provider_result,
+                retry_policy=RetryPolicy.for_kind("no_retry"),
+                verify=lambda value: isinstance(value, dict),
             )
         semantic_low_signal = not semantic_result.get("intents") or float(semantic_result.get("confidence", 0) or 0) <= 0.05
         if semantic_low_signal:
@@ -7376,7 +7432,7 @@ async def orchestrate_query(
 
         if semantic_result.get("confidence", 0) > 0.3:
             for lvl in semantic_result.get("levels", []):
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for resilient planning.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -7421,7 +7477,16 @@ async def orchestrate_query(
             if lvl not in [r["level"] for r in recommended]:
                 recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "always_on": True})
 
-        kernel_online = _fetch_kernel_online_levels()
+        try:
+            kernel_online = await run_blocking(
+                "nexus.kernel_levels",
+                _fetch_kernel_online_levels,
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=2.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded:
+            kernel_online = None
         offline_filtered: List[int] = []
         if kernel_online is not None:
             filtered = []
@@ -7759,6 +7824,10 @@ async def orchestrate_query(
             "hud": hud_line,
             "autonomous": True
         }
+    except HTTPException:
+        if tx is not None:
+            tx.rollback()
+        raise
     except ReferentStateQuotaError as e:
         if tx is not None:
             tx.rollback()

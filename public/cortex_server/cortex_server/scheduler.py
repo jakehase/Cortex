@@ -17,7 +17,6 @@ import hashlib
 import json
 import os
 import tempfile
-import threading
 import uuid
 
 # Initialize scheduler
@@ -26,6 +25,13 @@ _scheduler_was_shutdown = False
 _scheduler_loop = None
 _scheduler_shutdown_pending = False
 _scheduler_lock = threading.Lock()
+_scheduler_rehydration_report: Dict[str, Any] = {
+    "status": "not_started",
+    "rehydrated": [],
+    "error": None,
+}
+_JOB_SPEC_VERSION = 1
+_MAX_JOB_POLICY_BYTES = 4 * 1024 * 1024
 
 _configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
 _STATE_DIR = Path(_configured_state_dir or "/app/config/state")
@@ -91,8 +97,19 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_json(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(_safe_json_dumps(payload), encoding="utf-8")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(_safe_json_dumps(payload))
+        handle.flush()
+        os.fsync(handle.fileno())
     tmp.replace(path)
+    directory_fd = os.open(
+        path.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _append_jsonl(path: Path, lock: threading.Lock, event: Dict[str, Any]) -> None:
@@ -123,6 +140,26 @@ def _build_cron_trigger(cron_expr: str) -> CronTrigger:
         day_of_week=day_of_week,
         timezone=timezone.utc,
     )
+
+
+def _validated_job_args(args: Any, *, context: str) -> List[Any]:
+    if not isinstance(args, list) or len(args) > 1024:
+        raise ValueError(f"{context} has invalid args")
+    try:
+        encoded = json.dumps(
+            args,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} args must be strict JSON values") from exc
+    if len(encoded) > 1_048_576:
+        raise ValueError(f"{context} args are too large")
+    # Persist and schedule the same canonical JSON value, so a restart cannot
+    # silently change task inputs (for example, datetime -> string).
+    return json.loads(encoded.decode("utf-8"))
 
 
 def _estimate_runs_for_hours(cron_expr: str, window_hours: int = 24, cap: int = 50000) -> int:
@@ -248,8 +285,19 @@ def simulate_cadence_twin(
 
 
 def _load_job_policies() -> Dict[str, Any]:
-    data = _read_json(_JOB_POLICY_PATH, default={})
-    return data if isinstance(data, dict) else {}
+    if not _JOB_POLICY_PATH.exists():
+        return {}
+    try:
+        if _JOB_POLICY_PATH.stat().st_size > _MAX_JOB_POLICY_BYTES:
+            raise RuntimeError("persisted scheduler policy store exceeds size limit")
+        data = json.loads(_JOB_POLICY_PATH.read_text(encoding="utf-8"))
+    except RuntimeError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid persisted scheduler policy store: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("persisted scheduler policies must be a JSON object")
+    return data
 
 
 def _save_job_policies(data: Dict[str, Any]) -> None:
@@ -597,6 +645,7 @@ def trigger_celery_task(
     job_id: Optional[str] = None,
     job_name: Optional[str] = None,
     policy_override: Optional[Dict[str, Any]] = None,
+    submission_id: Optional[str] = None,
 ):
     """Send task to Celery and return async_result id.
 
@@ -699,7 +748,12 @@ def trigger_celery_task(
     }
 
     try:
-        async_result = celery_app.send_task(task_name, args=args, kwargs=kwargs)
+        async_result = celery_app.send_task(
+            task_name,
+            args=args,
+            kwargs=kwargs,
+            **({"task_id": submission_id} if submission_id else {}),
+        )
         task_id = async_result.id
         latency_ms = int((_utc_now() - started).total_seconds() * 1000)
 
@@ -775,36 +829,169 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
     """
     if args is None:
         args = []
+    if not isinstance(job_name, str) or not job_name or len(job_name) > 128:
+        raise ValueError("job_name must contain 1 to 128 characters")
+    if task not in celery_app.tasks:
+        raise ValueError(f"Unknown task: {task}")
+    args = _validated_job_args(args, context=f"cron job {job_name!r}")
 
     minute, hour, day, month, day_of_week = _cron_parts(cron)
 
     policy_row = dict(policy or {})
-    policy_row.setdefault("job_name", job_name)
-    policy_row.setdefault("task", task)
-    policy_row.setdefault("cron", cron)
+    policy_row["job_name"] = job_name
+    policy_row["task"] = task
+    policy_row["cron"] = cron
+    policy_row["spec_version"] = _JOB_SPEC_VERSION
+    policy_row["args"] = list(args)
 
-    job = scheduler.add_job(
-        trigger_celery_task,
-        trigger="cron",
-        id=job_name,
-        name=job_name,
-        args=[task, args, {}],
-        kwargs={"source": "scheduled", "job_id": job_name, "job_name": job_name},
-        minute=minute,
-        hour=hour,
-        day=day,
-        month=month,
-        day_of_week=day_of_week,
-        replace_existing=True,
-    )
+    # Persist before touching the live scheduler. A failed durable write must
+    # never leave a volatile job (or replacement) that restart recovery cannot
+    # reproduce. If the scheduler rejects the already-persisted row, restore
+    # the previous durable policy before surfacing the failure.
+    with _POLICY_LOCK:
+        all_policies = _load_job_policies()
+        previous_policy = all_policies.get(job_name)
+        all_policies[job_name] = {
+            **policy_row,
+            "updated_at": _utc_now_iso(),
+        }
+        _save_job_policies(all_policies)
+        try:
+            job = scheduler.add_job(
+                trigger_celery_task,
+                trigger="cron",
+                id=job_name,
+                name=job_name,
+                args=[task, args, {}],
+                kwargs={
+                    "source": "scheduled",
+                    "job_id": job_name,
+                    "job_name": job_name,
+                },
+                minute=minute,
+                hour=hour,
+                day=day,
+                month=month,
+                day_of_week=day_of_week,
+                replace_existing=True,
+            )
+        except BaseException:
+            if previous_policy is None:
+                all_policies.pop(job_name, None)
+            else:
+                all_policies[job_name] = previous_policy
+            _save_job_policies(all_policies)
+            raise
 
-    register_job_policy(job.id, policy_row)
     return job.id
+
+
+def _validated_rehydration_rows() -> List[Dict[str, Any]]:
+    """Load and validate every persisted job before mutating the scheduler."""
+    if not _JOB_POLICY_PATH.exists():
+        return []
+    try:
+        if _JOB_POLICY_PATH.stat().st_size > _MAX_JOB_POLICY_BYTES:
+            raise RuntimeError("persisted scheduler policy store exceeds size limit")
+        raw = json.loads(_JOB_POLICY_PATH.read_text(encoding="utf-8"))
+    except RuntimeError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid persisted scheduler policy store: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise RuntimeError("persisted scheduler policies must be a JSON object")
+
+    validated: List[Dict[str, Any]] = []
+    for job_id, policy in sorted(raw.items()):
+        if not isinstance(job_id, str) or not job_id or len(job_id) > 128:
+            raise RuntimeError("persisted scheduler job id is invalid")
+        if not isinstance(policy, dict):
+            raise RuntimeError(f"persisted scheduler policy {job_id!r} must be an object")
+        job_name = policy.get("job_name")
+        task = policy.get("task")
+        cron = policy.get("cron")
+        if "spec_version" not in policy:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} is a legacy row missing spec_version"
+            )
+        if policy.get("spec_version") != _JOB_SPEC_VERSION:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} has unsupported spec_version"
+            )
+        if "args" not in policy:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} is missing explicit args"
+            )
+        args = policy["args"]
+        if job_name != job_id:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} has mismatched job_name"
+            )
+        if not isinstance(task, str) or task not in celery_app.tasks:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} references an unknown task"
+            )
+        if not isinstance(cron, str):
+            raise RuntimeError(f"persisted scheduler policy {job_id!r} has invalid cron")
+        minute, hour, day, month, day_of_week = _cron_parts(cron)
+        # CronTrigger performs semantic range/expression validation.
+        _build_cron_trigger(cron)
+        try:
+            args = _validated_job_args(
+                args,
+                context=f"persisted scheduler policy {job_id!r}",
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                str(exc)
+            ) from exc
+        validated.append(
+            {
+                "job_id": job_id,
+                "job_name": job_name,
+                "task": task,
+                "args": args,
+                "minute": minute,
+                "hour": hour,
+                "day": day,
+                "month": month,
+                "day_of_week": day_of_week,
+            }
+        )
+    return validated
+
+
+def _rehydrate_scheduler_jobs() -> Dict[str, Any]:
+    rows = _validated_rehydration_rows()
+    for row in rows:
+        scheduler.add_job(
+            trigger_celery_task,
+            trigger="cron",
+            id=row["job_id"],
+            name=row["job_name"],
+            args=[row["task"], row["args"], {}],
+            kwargs={
+                "source": "scheduled",
+                "job_id": row["job_id"],
+                "job_name": row["job_name"],
+            },
+            minute=row["minute"],
+            hour=row["hour"],
+            day=row["day"],
+            month=row["month"],
+            day_of_week=row["day_of_week"],
+            replace_existing=True,
+        )
+    return {
+        "status": "ready",
+        "rehydrated": [row["job_id"] for row in rows],
+        "error": None,
+    }
 
 
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
-    global scheduler, _scheduler_was_shutdown, _scheduler_loop
+    global scheduler, _scheduler_was_shutdown, _scheduler_loop, _scheduler_rehydration_report
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -818,8 +1005,29 @@ def start_scheduler():
             scheduler = AsyncIOScheduler(**({"event_loop": loop} if loop is not None else {}))
             _scheduler_was_shutdown = False
         if not scheduler.running:
-            scheduler.start()
+            try:
+                _scheduler_rehydration_report = _rehydrate_scheduler_jobs()
+                scheduler.start()
+            except Exception as exc:
+                _scheduler_rehydration_report = {
+                    "status": "failed",
+                    "rehydrated": [],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                raise
         _scheduler_loop = loop
+
+
+def get_scheduler_rehydration_status() -> Dict[str, Any]:
+    """Expose restart recovery truth without leaking mutable internal state."""
+    with _scheduler_lock:
+        return {
+            "status": _scheduler_rehydration_report.get("status", "not_started"),
+            "rehydrated": list(_scheduler_rehydration_report.get("rehydrated") or []),
+            "error": _scheduler_rehydration_report.get("error"),
+            "scheduler_running": bool(scheduler.running),
+            "job_spec_version": _JOB_SPEC_VERSION,
+        }
 
 
 async def stop_scheduler() -> None:
@@ -881,12 +1089,26 @@ def get_scheduled_jobs():
 
 def remove_job(job_id: str) -> bool:
     """Remove a scheduled job by id. Returns False if missing."""
-    try:
-        scheduler.remove_job(job_id)
-        remove_job_policy(job_id)
-        return True
-    except JobLookupError:
-        return False
+    # Delete the restart authority first. A failed durable write must leave the
+    # live job untouched; otherwise it would silently reappear after restart.
+    with _POLICY_LOCK:
+        all_policies = _load_job_policies()
+        previous_policy = all_policies.pop(job_id, None)
+        if previous_policy is not None:
+            _save_job_policies(all_policies)
+        try:
+            scheduler.remove_job(job_id)
+            return True
+        except JobLookupError:
+            # A persisted-only row is still a real scheduled policy. Removing
+            # it is a successful delete even if this process had not rehydrated
+            # the corresponding live job.
+            return previous_policy is not None
+        except BaseException:
+            if previous_policy is not None:
+                all_policies[job_id] = previous_policy
+                _save_job_policies(all_policies)
+            raise
 
 
 def get_trigger_events(hours: Optional[int] = 24, limit: int = 500) -> List[Dict[str, Any]]:

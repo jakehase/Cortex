@@ -15,6 +15,7 @@ from typing import Callable, List, Optional, TypeVar
 from datetime import datetime, timezone
 import fcntl
 import json
+import logging
 import os
 from hashlib import sha256
 from pathlib import Path
@@ -52,6 +53,7 @@ from cortex_server.modules.memory_scope import (
 )
 
 router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
+logger = logging.getLogger(__name__)
 _STRUCTURED_MEMORY_LOCK = threading.RLock()
 _L22_MAX_CONTENT_BYTES = 1_000_000
 _L22_QUOTA_FIXED_RECORD_BYTES = 4096
@@ -1567,6 +1569,7 @@ def _route_memory_principal(request, http_request: Optional[Request]):
 @router.get("/status")
 async def l22_status(http_request: Request):
     principal = memory_principal_for_request(http_request)
+    semantic_error = None
     try:
         scoped = collection.get(
             where=principal_memory_where(principal),
@@ -1578,26 +1581,54 @@ async def l22_status(http_request: Request):
             if isinstance(metadata, dict)
             and str(metadata.get("memory_principal_key") or "") == principal.memory_principal_key
         )
-    except Exception:
+    except Exception as exc:
         memory_count = None
+        semantic_error = "semantic_memory_backend_unavailable"
+        logger.warning("L22 semantic status probe failed: %s", type(exc).__name__)
+    structured_error = None
     try:
-        structured_memory_count = len(list_structured_memory_records(
-            memory_type="codec_state",
-            lookup_key=principal.codec_session_key,
-            limit=_CODEC_MAX_SNAPSHOTS_PER_SESSION,
+        structured_memory_count = count_structured_memory_records(
             tenant_id=principal.tenant_id,
             workspace_id=principal.storage_workspace_id,
-        ))
-    except Exception:
+        )
+    except Exception as exc:
         structured_memory_count = None
+        structured_error = "structured_memory_backend_unavailable"
+        logger.warning("L22 structured status probe failed: %s", type(exc).__name__)
 
     scope_auth_ready = _memory_scope_auth_ready()
-    available = (memory_count is not None or structured_memory_count is not None) and scope_auth_ready
+    semantic_ready = memory_count is not None
+    structured_ready = structured_memory_count is not None
+    active = scope_auth_ready and semantic_ready and structured_ready
+    any_backend_ready = semantic_ready or structured_ready
+    status = (
+        "active"
+        if active
+        else "degraded"
+        if scope_auth_ready and any_backend_ready
+        else "unavailable"
+    )
     return {
-        "success": available,
+        "success": active,
         "level": 22,
         "name": "Mnemosyne",
-        "status": "active" if available else "unavailable",
+        "status": status,
+        "checks": {
+            "semantic_memory": {
+                "ok": semantic_ready,
+                "count": memory_count,
+                "error": semantic_error,
+            },
+            "structured_memory": {
+                "ok": structured_ready,
+                "count": structured_memory_count,
+                "error": structured_error,
+            },
+            "scope_authorization": {
+                "ok": scope_auth_ready,
+                "error": None if scope_auth_ready else "memory scope authorization is not configured",
+            },
+        },
         "capabilities": [
             "store",
             "search",

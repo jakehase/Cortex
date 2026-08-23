@@ -7,9 +7,19 @@
     "type": "object",
     "additionalProperties": false,
     "anyOf": [
-      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
+      {
+        "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"],
+        "properties": { "allowUnsignedLocalDevelopment": { "const": false } }
+      },
       {
         "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
+        "not": {
+          "anyOf": [
+            { "required": ["scopeCredentialId"] },
+            { "required": ["scopeHmacSecret"] },
+            { "required": ["writeToken"] }
+          ]
+        },
         "properties": {
           "allowUnsignedLocalDevelopment": { "const": true },
           "tenantId": { "const": "cortex-local" },
@@ -43,6 +53,8 @@
       "creativityGovernorEnabled": { "type": "boolean" },
       "creativityHistorySize": { "type": "number", "minimum": 4, "maximum": 100 },
       "creativityQuarantineTerms": { "type": "number", "minimum": 2, "maximum": 20 },
+      "creativityAuditEnabled": { "type": "boolean", "default": true },
+      "creativityAuditOverlapThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.34 },
       "privateRetrievalShadowTelemetryEnabled": { "type": "boolean" },
       "privateRetrievalShadowTelemetryMaxRecords": { "type": "number", "minimum": 10, "maximum": 10000 },
       "oracleSessionQuarantineEnabled": { "type": "boolean" },

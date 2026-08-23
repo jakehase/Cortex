@@ -8,14 +8,19 @@ from cortex_server.internal_addressing import internal_host_port
 from cortex_server.modules.level_registry import get_level_registry
 
 # Canonical LEVEL_MAP - derived from the shared registry to avoid count drift.
-LEVEL_MAP = {int(row['level']): str(row['name']).split()[0].lower().replace('(browser)', '').strip() for row in get_level_registry()}
-LEVEL_MAP[2] = 'ghost'
-LEVEL_MAP[12] = 'hive'
-LEVEL_MAP[36] = 'conductor'
+_REGISTRY = get_level_registry()
+LEVEL_MAP = {int(row['level']): str(row['slug']) for row in _REGISTRY}
 
 # Reverse mapping for name lookups
 NAME_TO_LEVEL = {v: k for k, v in LEVEL_MAP.items()}
-NAME_TO_LEVEL.update({'browser':2,'parsers':3,'synthesist_api':32,'orchestrator':26,'conductor':36})
+for _row in _REGISTRY:
+    _root = str(_row['route_prefix']).strip('/').split('/')[0]
+    if _root:
+        NAME_TO_LEVEL[_root] = int(_row['level'])
+    for _alias in _row.get('aliases', []):
+        _alias_root = str(_alias).strip('/').split('/')[0]
+        if _alias_root:
+            NAME_TO_LEVEL[_alias_root] = int(_row['level'])
 
 class Cartographer:
     '''Level 23: The Cartographer - Self-Discovery Module'''

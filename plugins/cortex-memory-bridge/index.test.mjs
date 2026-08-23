@@ -8,6 +8,21 @@ import { spawn } from 'node:child_process';
 
 import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
+const RUNTIME_ENVIRONMENT_KEYS = ['OPENCLAW_ENV', 'CORTEX_ENV', 'NODE_ENV'];
+const withRuntimeEnvironment = async (values, callback) => {
+  const original = Object.fromEntries(RUNTIME_ENVIRONMENT_KEYS.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of RUNTIME_ENVIRONMENT_KEYS) delete process.env[key];
+    for (const [key, value] of Object.entries(values)) process.env[key] = value;
+    return await callback();
+  } finally {
+    for (const key of RUNTIME_ENVIRONMENT_KEYS) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  }
+};
+
 const lifecycleConfig = (overrides = {}) => ({
   stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-test-')),
   tenantId: 'tenant-test',
@@ -180,34 +195,72 @@ test('registration rejects missing, partial, and invalid production scope creden
   }
 });
 
-test('unsigned local development requires an explicit opt-in and the default local scope', () => {
+test('unsigned local development requires explicit local runtime boundaries and emits a warning', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-unsigned-local-'));
+  const unsignedConfig = (overrides = {}) => ({
+    stateDir,
+    sessionIdentityHmacSecret: 'session-test-secret',
+    allowUnsignedLocalDevelopment: true,
+    enabledCodecContinuity: false,
+    enabledWriteThrough: false,
+    ...overrides,
+  });
+  const register = (pluginConfig, warnings = []) => plugin.register({
+    pluginConfig,
+    logger: { info() {}, warn(message) { warnings.push(String(message)); } },
+    on() {},
+    registerMemoryRuntime() {},
+    registerTool() {},
+  });
   try {
-    assert.doesNotThrow(() => plugin.register({
-      pluginConfig: {
-        stateDir,
-        sessionIdentityHmacSecret: 'session-test-secret',
-        allowUnsignedLocalDevelopment: true,
-        enabledCodecContinuity: false,
-        enabledWriteThrough: false,
-      },
-      logger: { info() {}, warn() {} },
-      on() {},
-      registerMemoryRuntime() {},
-      registerTool() {},
-    }));
-    assert.throws(() => plugin.register({
-      pluginConfig: {
-        stateDir,
-        sessionIdentityHmacSecret: 'session-test-secret',
-        allowUnsignedLocalDevelopment: true,
-        tenantId: 'production',
-      },
-      logger: { info() {}, warn() {} },
-      on() {},
-      registerMemoryRuntime() {},
-      registerTool() {},
-    }), /restricted to the cortex-local\/default scope/);
+    for (const mode of ['dev', 'development', 'test', 'local']) {
+      const warnings = [];
+      await withRuntimeEnvironment({ NODE_ENV: mode }, async () => {
+        assert.doesNotThrow(() => register(unsignedConfig(), warnings));
+      });
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], /SECURITY WARNING.*unsigned loopback-only local development mode/);
+    }
+
+    await withRuntimeEnvironment({ NODE_ENV: 'test' }, async () => {
+      assert.throws(
+        () => register(unsignedConfig({ tenantId: 'production' })),
+        /restricted to the cortex-local\/default scope/,
+      );
+      assert.throws(
+        () => register(unsignedConfig({ baseUrl: 'http://192.0.2.10:18888' })),
+        /requires a loopback Cortex baseUrl/,
+      );
+    });
+
+    const rejectedModes = [
+      [{}, /requires an explicit non-production runtime mode/],
+      [{ NODE_ENV: 'production' }, /forbidden in production or staging mode/],
+      [{ NODE_ENV: 'preview' }, /requires dev, development, test, or local mode/],
+      [{ OPENCLAW_ENV: 'development', NODE_ENV: 'test' }, /rejects conflicting runtime modes/],
+    ];
+    for (const [environment, expected] of rejectedModes) {
+      await withRuntimeEnvironment(environment, async () => {
+        assert.throws(() => register(unsignedConfig()), expected);
+      });
+    }
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('signed production registration does not depend on unsigned-development environment gates', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-signed-production-'));
+  try {
+    await withRuntimeEnvironment({ CORTEX_ENV: 'production' }, async () => {
+      assert.doesNotThrow(() => plugin.register({
+        pluginConfig: lifecycleConfig({ stateDir }),
+        logger: { info() {}, warn() {} },
+        on() {},
+        registerMemoryRuntime() {},
+        registerTool() {},
+      }));
+    });
   } finally {
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
