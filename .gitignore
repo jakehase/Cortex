@@ -13,6 +13,7 @@
 /public/.env
 /artifacts/openclaw-upgrade-guard/
 /artifacts/benchmarks/
+/artifacts/cortex-codebase-memory/
 /AGENTS.md
 /MEMORY.md
 /SOUL.md

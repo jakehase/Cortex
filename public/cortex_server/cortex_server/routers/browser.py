@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import asyncio
+import os
 import time
 
 # Consciousness integration
@@ -63,9 +64,13 @@ async def _store_in_cache(key: str, data: Any):
 
 def _state_path(name: str) -> Path:
     root = Path("/app/config/state")
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-    except Exception:
+    # Route discovery and OpenAPI generation import this module. Choose a path
+    # without creating it; write helpers create the parent at runtime.
+    existing_parent = next(
+        (candidate for candidate in (root, *root.parents) if candidate.exists()),
+        None,
+    )
+    if existing_parent is None or not os.access(existing_parent, os.W_OK):
         root = Path("/tmp")
     return root / name
 

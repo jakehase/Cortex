@@ -5,7 +5,32 @@
   "source": {
     "curriculumId": "math-phd-trajectory-v1",
     "curriculumVersion": "1.0.0",
-    "sha256": "7ad786eb5a5a4a3b0dc209c8fdc2b2e0b1f5593e3b470f691f88e2717a5bbc5c"
+    "sha256": "7ad786eb5a5a4a3b0dc209c8fdc2b2e0b1f5593e3b470f691f88e2717a5bbc5c",
+    "routingMetadataSource": {
+      "rubricId": "math-phd-competency-v1",
+      "rubricVersion": "1.1.0",
+      "sha256": "50c89de2154ac682bb33329ded6302eb4bf64c1f20cca80e6858de4d2f61c886"
+    },
+    "derivation": {
+      "generatorId": "cortex.learning_os.transfer_catalog_generator",
+      "generatorVersion": "1.0.0",
+      "policyId": "rubric-concept-mapping-routing-v1",
+      "routingFields": [
+        "stage",
+        "tracks",
+        "requiredForQualification"
+      ],
+      "joinKey": "conceptId",
+      "coreFields": [
+        "conceptId",
+        "title",
+        "category",
+        "prerequisites",
+        "outcomes"
+      ],
+      "ordering": "source-curriculum-order",
+      "policySha256": "42bbde7e14f17b7a5c1db4f79e04b48a8546f4da197da0fc8ed460913fb2b9a6"
+    }
   },
   "conceptCount": 264,
   "concepts": [

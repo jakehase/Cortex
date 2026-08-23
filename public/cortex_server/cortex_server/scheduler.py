@@ -7,7 +7,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
-from cortex_server.worker import app as celery_app
+from cortex_server.construction import (
+    construction_config,
+    read_only_construction,
+    runtime_construction_active,
+)
+
+with read_only_construction(not runtime_construction_active()):
+    from cortex_server.worker import app as celery_app
 
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -33,25 +40,104 @@ _scheduler_rehydration_report: Dict[str, Any] = {
 _JOB_SPEC_VERSION = 1
 _MAX_JOB_POLICY_BYTES = 4 * 1024 * 1024
 
-_configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+_configured_state_dir = construction_config("CORTEX_SCHEDULER_STATE_DIR")
 _STATE_DIR = Path(_configured_state_dir or "/app/config/state")
-try:
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    if _configured_state_dir:
-        raise
-    _STATE_DIR = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-
-_TRIGGER_LEDGER_PATH = _STATE_DIR / "l8_cron_trigger_events.jsonl"
-_NOTARY_LEDGER_PATH = _STATE_DIR / "l8_cron_notary_packets.jsonl"
-_JOB_POLICY_PATH = _STATE_DIR / "l8_cron_job_policies.json"
-_NOVELTY_STATS_PATH = _STATE_DIR / "l8_cron_novelty_stats.json"
+_TRIGGER_LEDGER_FILENAME = "l8_cron_trigger_events.jsonl"
+_NOTARY_LEDGER_FILENAME = "l8_cron_notary_packets.jsonl"
+_JOB_POLICY_FILENAME = "l8_cron_job_policies.json"
+_NOVELTY_STATS_FILENAME = "l8_cron_novelty_stats.json"
+_TRIGGER_LEDGER_PATH = _STATE_DIR / _TRIGGER_LEDGER_FILENAME
+_NOTARY_LEDGER_PATH = _STATE_DIR / _NOTARY_LEDGER_FILENAME
+_JOB_POLICY_PATH = _STATE_DIR / _JOB_POLICY_FILENAME
+_NOVELTY_STATS_PATH = _STATE_DIR / _NOVELTY_STATS_FILENAME
+_MANAGED_STATE_DIRS = {_STATE_DIR}
+_STATE_DIR_READY = False
+_STATE_DIR_LOCK = threading.Lock()
 
 _TRIGGER_LEDGER_LOCK = threading.Lock()
 _NOTARY_LEDGER_LOCK = threading.Lock()
 _POLICY_LOCK = threading.Lock()
 _NOVELTY_LOCK = threading.Lock()
+
+
+def _set_state_dir(path: Path) -> None:
+    global _STATE_DIR, _TRIGGER_LEDGER_PATH, _NOTARY_LEDGER_PATH
+    global _JOB_POLICY_PATH, _NOVELTY_STATS_PATH
+
+    managed_dirs = set(_MANAGED_STATE_DIRS)
+    rebind_trigger = (
+        _TRIGGER_LEDGER_PATH.name == _TRIGGER_LEDGER_FILENAME
+        and _TRIGGER_LEDGER_PATH.parent in managed_dirs
+    )
+    rebind_notary = (
+        _NOTARY_LEDGER_PATH.name == _NOTARY_LEDGER_FILENAME
+        and _NOTARY_LEDGER_PATH.parent in managed_dirs
+    )
+    rebind_policy = (
+        _JOB_POLICY_PATH.name == _JOB_POLICY_FILENAME
+        and _JOB_POLICY_PATH.parent in managed_dirs
+    )
+    rebind_novelty = (
+        _NOVELTY_STATS_PATH.name == _NOVELTY_STATS_FILENAME
+        and _NOVELTY_STATS_PATH.parent in managed_dirs
+    )
+    _STATE_DIR = path
+    _MANAGED_STATE_DIRS.add(path)
+    if rebind_trigger:
+        _TRIGGER_LEDGER_PATH = path / _TRIGGER_LEDGER_FILENAME
+    if rebind_notary:
+        _NOTARY_LEDGER_PATH = path / _NOTARY_LEDGER_FILENAME
+    if rebind_policy:
+        _JOB_POLICY_PATH = path / _JOB_POLICY_FILENAME
+    if rebind_novelty:
+        _NOVELTY_STATS_PATH = path / _NOVELTY_STATS_FILENAME
+
+
+def _activate_runtime_configuration() -> None:
+    """Capture runtime configuration without creating persistent state."""
+
+    global _configured_state_dir
+    if _STATE_DIR_READY:
+        return
+    _configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+    _set_state_dir(Path(_configured_state_dir or "/app/config/state"))
+
+
+def _ensure_state_dir() -> Path:
+    """Resolve and create scheduler state only at an explicit runtime boundary."""
+
+    global _STATE_DIR_READY
+    if _STATE_DIR_READY:
+        return _STATE_DIR
+    with _STATE_DIR_LOCK:
+        if _STATE_DIR_READY:
+            return _STATE_DIR
+        _activate_runtime_configuration()
+        target = _STATE_DIR
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            if _configured_state_dir:
+                raise
+            target = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
+            target.mkdir(parents=True, exist_ok=True)
+            _set_state_dir(target)
+        _STATE_DIR_READY = True
+        return _STATE_DIR
+
+
+def _resolve_state_path(path: Path) -> Path:
+    """Rebase module-managed paths while preserving explicit path overrides."""
+
+    managed_filenames = {
+        _TRIGGER_LEDGER_FILENAME,
+        _NOTARY_LEDGER_FILENAME,
+        _JOB_POLICY_FILENAME,
+        _NOVELTY_STATS_FILENAME,
+    }
+    if path.name not in managed_filenames or path.parent not in _MANAGED_STATE_DIRS:
+        return path
+    return _ensure_state_dir() / path.name
 
 
 def _utc_now() -> datetime:
@@ -87,6 +173,7 @@ def _parse_iso_ts(value: Any) -> Optional[datetime]:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    path = _resolve_state_path(path)
     if not path.exists():
         return default
     try:
@@ -96,6 +183,7 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    path = _resolve_state_path(path)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as handle:
         handle.write(_safe_json_dumps(payload))
@@ -113,6 +201,7 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _append_jsonl(path: Path, lock: threading.Lock, event: Dict[str, Any]) -> None:
+    path = _resolve_state_path(path)
     try:
         line = _safe_json_dumps(event)
     except Exception:
@@ -285,12 +374,13 @@ def simulate_cadence_twin(
 
 
 def _load_job_policies() -> Dict[str, Any]:
-    if not _JOB_POLICY_PATH.exists():
+    policy_path = _resolve_state_path(_JOB_POLICY_PATH)
+    if not policy_path.exists():
         return {}
     try:
-        if _JOB_POLICY_PATH.stat().st_size > _MAX_JOB_POLICY_BYTES:
+        if policy_path.stat().st_size > _MAX_JOB_POLICY_BYTES:
             raise RuntimeError("persisted scheduler policy store exceeds size limit")
-        data = json.loads(_JOB_POLICY_PATH.read_text(encoding="utf-8"))
+        data = json.loads(policy_path.read_text(encoding="utf-8"))
     except RuntimeError:
         raise
     except (OSError, json.JSONDecodeError) as exc:
@@ -612,7 +702,8 @@ def _build_notary_packet(
 
 
 def get_notary_packets(hours: int = 24, limit: int = 100) -> List[Dict[str, Any]]:
-    if not _NOTARY_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_NOTARY_LEDGER_PATH)
+    if not ledger_path.exists():
         return []
 
     h = max(1, min(int(hours), 24 * 30))
@@ -620,7 +711,7 @@ def get_notary_packets(hours: int = 24, limit: int = 100) -> List[Dict[str, Any]
     cutoff = _utc_now() - timedelta(hours=h)
 
     out: deque = deque(maxlen=cap)
-    with _NOTARY_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -888,12 +979,13 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
 
 def _validated_rehydration_rows() -> List[Dict[str, Any]]:
     """Load and validate every persisted job before mutating the scheduler."""
-    if not _JOB_POLICY_PATH.exists():
+    policy_path = _resolve_state_path(_JOB_POLICY_PATH)
+    if not policy_path.exists():
         return []
     try:
-        if _JOB_POLICY_PATH.stat().st_size > _MAX_JOB_POLICY_BYTES:
+        if policy_path.stat().st_size > _MAX_JOB_POLICY_BYTES:
             raise RuntimeError("persisted scheduler policy store exceeds size limit")
-        raw = json.loads(_JOB_POLICY_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(policy_path.read_text(encoding="utf-8"))
     except RuntimeError:
         raise
     except (OSError, json.JSONDecodeError) as exc:
@@ -992,6 +1084,7 @@ def _rehydrate_scheduler_jobs() -> Dict[str, Any]:
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
     global scheduler, _scheduler_was_shutdown, _scheduler_loop, _scheduler_rehydration_report
+    _ensure_state_dir()
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -1112,7 +1205,8 @@ def remove_job(job_id: str) -> bool:
 
 
 def get_trigger_events(hours: Optional[int] = 24, limit: int = 500) -> List[Dict[str, Any]]:
-    if not _TRIGGER_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_TRIGGER_LEDGER_PATH)
+    if not ledger_path.exists():
         return []
 
     cap = max(1, min(int(limit), 5000))
@@ -1121,7 +1215,7 @@ def get_trigger_events(hours: Optional[int] = 24, limit: int = 500) -> List[Dict
     if hours is not None:
         cutoff = _utc_now() - timedelta(hours=max(1, int(hours)))
 
-    with _TRIGGER_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -1170,7 +1264,8 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
 
 
 def get_trigger_totals() -> Dict[str, Any]:
-    if not _TRIGGER_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_TRIGGER_LEDGER_PATH)
+    if not ledger_path.exists():
         return {
             "total_events": 0,
             "total_triggered": 0,
@@ -1187,7 +1282,7 @@ def get_trigger_totals() -> Dict[str, Any]:
     total_held_escrow = 0
     last_trigger_at = None
 
-    with _TRIGGER_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:

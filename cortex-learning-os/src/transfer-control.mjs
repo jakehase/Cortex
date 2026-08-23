@@ -72,6 +72,10 @@ function profileFor(valueId, common) {
   return profile;
 }
 
+function sameProfileMatcherContract(entry, profile) {
+  return entry.profileId === profile.profileId && entry.matcherId === profile.semanticMatcherId;
+}
+
 function contentFreeTransferStatus() {
   try {
     const telemetry = JSON.parse(fs.readFileSync(transferTelemetryPath, 'utf8'));
@@ -102,16 +106,21 @@ function registryStatus() {
   const secret = readTransferRegistrySecret(transferRegistrySecretPath);
   const registry = loadSignedTransferRegistry(transferRegistryPath, secret, { allowExpiredEntries: true });
   const now = Date.now();
+  const qualified = registry.entries.filter((entry) => entry.qualificationState === 'qualified');
   return {
     initialized: true,
     signatureValid: true,
     revision: registry.revision,
     enabled: registry.enabled,
-    qualifiedEntries: registry.entries.length,
-    activeEntries: registry.enabled ? registry.entries.filter((entry) => entry.enabled && Date.parse(entry.expiresAt) > now).length : 0,
+    qualifiedEntries: qualified.length,
+    proposalEntries: registry.entries.length - qualified.length,
+    activeEntries: registry.enabled ? qualified.filter((entry) => entry.enabled && Date.parse(entry.expiresAt) > now).length : 0,
     entries: registry.entries.map((entry) => ({
       entryId: entry.entryId,
       profileId: entry.profileId,
+      matcherId: entry.matcherId,
+      qualificationState: entry.qualificationState,
+      activationBasis: entry.activationBasis || (entry.qualificationState === 'qualified' ? 'independent_qualification' : null),
       enabled: entry.enabled,
       expiresAt: entry.expiresAt,
       evidenceDigest: entry.evidenceDigest,
@@ -217,7 +226,8 @@ try {
       declaredUnassessed: Object.values(transfer.state.concepts).filter((row) => row.state === 'unassessed').length,
       explicitNoQualifiedTransfer: Object.values(transfer.state.concepts).filter((row) => row.state === 'no_qualified_transfer').length,
       registryRevision: registry.registry.revision,
-      qualifiedEntries: registry.registry.entries.length,
+      qualifiedEntries: registry.registry.entries.filter((entry) => entry.qualificationState === 'qualified').length,
+      proposalEntries: registry.registry.entries.filter((entry) => entry.qualificationState !== 'qualified').length,
     }, null, 2));
   } else if (command === 'status') {
     console.log(JSON.stringify(status(common), null, 2));
@@ -282,7 +292,10 @@ try {
     const { state } = existingTransferStore(common);
     const entry = entryFromQualifiedState(profile, state);
     const { registry, secret } = initializeTransferRegistry({ registryPath: transferRegistryPath, secretPath: transferRegistrySecretPath });
-    const entries = [...registry.entries.filter((row) => row.profileId !== profile.profileId), entry].sort((a, b) => a.profileId.localeCompare(b.profileId));
+    const entries = [
+      ...registry.entries.filter((row) => !sameProfileMatcherContract(row, profile)),
+      entry,
+    ].sort((a, b) => a.profileId.localeCompare(b.profileId) || a.matcherId.localeCompare(b.matcherId));
     const signed = atomicWriteSignedTransferRegistry(transferRegistryPath, {
       ...registry,
       revision: registry.revision + 1,
@@ -291,11 +304,12 @@ try {
     }, secret);
     console.log(JSON.stringify({ ok: true, command, profileId: profile.profileId, entryId: entry.entryId, registryRevision: signed.revision }, null, 2));
   } else if (['enable', 'disable'].includes(command)) {
-    const profileId = value('--profile');
+    const profile = profileFor(value('--profile'), common);
+    const profileId = profile.profileId;
     const secret = readTransferRegistrySecret(transferRegistrySecretPath);
     const registry = loadSignedTransferRegistry(transferRegistryPath, secret, { allowExpiredEntries: true });
-    if (!registry.entries.some((entry) => entry.profileId === profileId)) throw new Error('transfer registry profile not found');
-    const entries = registry.entries.map((entry) => entry.profileId === profileId ? { ...entry, enabled: command === 'enable' } : entry);
+    if (!registry.entries.some((entry) => sameProfileMatcherContract(entry, profile))) throw new Error('transfer registry profile/matcher contract not found');
+    const entries = registry.entries.map((entry) => sameProfileMatcherContract(entry, profile) ? { ...entry, enabled: command === 'enable' } : entry);
     const signed = atomicWriteSignedTransferRegistry(transferRegistryPath, { ...registry, revision: registry.revision + 1, updatedAt: new Date().toISOString(), entries }, secret);
     console.log(JSON.stringify({ ok: true, command, profileId, registryRevision: signed.revision }, null, 2));
   } else if (['registry-enable', 'registry-disable'].includes(command)) {
@@ -318,7 +332,7 @@ try {
     if (fs.existsSync(transferRegistryPath)) {
       const registrySecret = readTransferRegistrySecret(transferRegistrySecretPath);
       const registry = loadSignedTransferRegistry(transferRegistryPath, registrySecret, { allowExpiredEntries: true });
-      const entries = registry.entries.map((entry) => entry.profileId === profile.profileId ? { ...entry, enabled: false } : entry);
+      const entries = registry.entries.map((entry) => sameProfileMatcherContract(entry, profile) ? { ...entry, enabled: false } : entry);
       atomicWriteSignedTransferRegistry(transferRegistryPath, { ...registry, revision: registry.revision + 1, updatedAt: new Date().toISOString(), entries }, registrySecret);
     }
     const nextState = command === 'expire' ? 'expired' : 'revoked';

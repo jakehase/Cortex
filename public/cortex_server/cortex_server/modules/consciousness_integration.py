@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar, Token
@@ -236,11 +237,11 @@ _CHAIN_LEVEL_ALIASES = {
 }
 # A deployment-provisioned value keeps signatures valid across worker
 # processes. The random fallback remains safe and compatible for a single
-# process; cross-worker chain calls then fail closed until configured.
-_CHAIN_HMAC_SECRET = (
-    os.getenv("CORTEX_CHAIN_HMAC_SECRET", "").encode("utf-8")
-    or secrets.token_bytes(32)
-)
+# process; cross-worker chain calls then fail closed until configured. Resolve
+# it only when chain signing is actually used so router discovery remains a
+# read-only, configuration-neutral operation.
+_CHAIN_HMAC_SECRET: Optional[bytes] = None
+_CHAIN_HMAC_SECRET_LOCK = threading.Lock()
 _ACTIVE_CHAIN_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "cortex_active_chain_context",
     default=None,
@@ -252,11 +253,27 @@ def _chain_level_key(value: Any) -> str:
     return _CHAIN_LEVEL_ALIASES.get(key, key)
 
 
+def _chain_hmac_secret() -> bytes:
+    global _CHAIN_HMAC_SECRET
+
+    if _CHAIN_HMAC_SECRET is not None:
+        return _CHAIN_HMAC_SECRET
+    with _CHAIN_HMAC_SECRET_LOCK:
+        if _CHAIN_HMAC_SECRET is None:
+            _CHAIN_HMAC_SECRET = (
+                os.getenv("CORTEX_CHAIN_HMAC_SECRET", "").encode("utf-8")
+                or secrets.token_bytes(32)
+            )
+        return _CHAIN_HMAC_SECRET
+
+
 def _chain_context_signature(headers: Mapping[str, Any]) -> str:
     canonical = "\n".join(
         f"{name}:{str(headers.get(name) or '')}" for name in _CHAIN_CONTEXT_HEADER_NAMES
     )
-    return hmac.new(_CHAIN_HMAC_SECRET, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(
+        _chain_hmac_secret(), canonical.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def chain_context_from_headers(headers: Mapping[str, Any]) -> Dict[str, Any]:

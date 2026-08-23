@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, List, Optional, Dict, Any
 import asyncio
-import chromadb
+import importlib
 import uuid
 import os as _stdlib_os
 import stat
@@ -25,7 +25,6 @@ from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cortex_server.modules.librarian_embedding import build_embedding_function
 from cortex_server.modules import runtime_pressure
 from cortex_server.modules.memory_scope import (
     AuthenticatedMemoryPrincipal,
@@ -36,6 +35,10 @@ from cortex_server.modules.memory_scope import (
     principal_memory_where,
     require_authenticated_memory_principal,
     scoped_memory_metadata,
+)
+from cortex_server.construction import (
+    construction_config,
+    runtime_construction_active,
 )
 
 
@@ -59,6 +62,24 @@ os = _OSFacade()
 router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 logger = logging.getLogger(__name__)
 
+
+class _LazyChromaModule:
+    """Import Chroma only when the runtime backend is explicitly resolved."""
+
+    def __getattr__(self, name: str):
+        return getattr(importlib.import_module("chromadb"), name)
+
+
+chromadb = _LazyChromaModule()
+
+
+def build_embedding_function():
+    from cortex_server.modules.librarian_embedding import (
+        build_embedding_function as build_runtime_embedding_function,
+    )
+
+    return build_runtime_embedding_function()
+
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
 LEGACY_CHROMA_DIR = "/root/cortex_server/chroma_db"
@@ -70,13 +91,22 @@ READINESS_COLLECTION_NAME = "cortex-durability-readiness"
 
 
 def _production_memory_mode() -> bool:
-    environment = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
-    strict = os.getenv("CORTEX_REQUIRE_DURABLE_MEMORY", "").strip().lower()
+    environment = str(
+        construction_config(
+            "CORTEX_ENV",
+            construction_config("CORTEX_ENVIRONMENT", "development"),
+        )
+    ).strip().lower()
+    strict = str(
+        construction_config("CORTEX_REQUIRE_DURABLE_MEMORY", "")
+    ).strip().lower()
     return environment in {"production", "prod", "staging"} or strict in {"1", "true", "yes", "on"}
 
 
 def _default_chroma_dir() -> str:
-    configured = os.getenv("CORTEX_CHROMA_DIR")
+    if not runtime_construction_active():
+        return "/tmp/cortex-schema-inventory/chroma_db"
+    configured = construction_config("CORTEX_CHROMA_DIR")
     if configured:
         path = Path(configured).expanduser()
         if not path.is_absolute():
@@ -84,18 +114,22 @@ def _default_chroma_dir() -> str:
         return str(path)
     if _production_memory_mode():
         raise RuntimeError("CORTEX_CHROMA_DIR is required for durable production memory")
-    isolated_graph_path = os.getenv("CORTEX_DB_PATH", "").strip()
+    isolated_graph_path = str(construction_config("CORTEX_DB_PATH", "")).strip()
     if isolated_graph_path:
         graph_path = Path(isolated_graph_path).expanduser()
         if graph_path.is_absolute():
             return str(graph_path.parent / "chroma_db")
     preferred = Path("/app/cortex_server/chroma_db")
-    try:
-        preferred.parent.mkdir(parents=True, exist_ok=True)
-        if os.access(str(preferred.parent), os.W_OK):
-            return str(preferred)
-    except Exception:
-        pass
+    existing_parent = next(
+        (
+            candidate
+            for candidate in (preferred.parent, *preferred.parents)
+            if candidate.exists()
+        ),
+        None,
+    )
+    if existing_parent is not None and os.access(str(existing_parent), os.W_OK):
+        return str(preferred)
     return str(Path.home() / ".cache" / "cortex_server" / "chroma_db")
 
 
@@ -103,11 +137,6 @@ def _chroma_authority_binding(mount_id: str) -> str:
     return f"{CHROMA_AUTHORITY_SCHEMA}:{mount_id}:{COLLECTION_NAME}"
 
 CHROMA_DIR = _default_chroma_dir()
-if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
-    try:
-        shutil.copytree(LEGACY_CHROMA_DIR, CHROMA_DIR)
-    except Exception:
-        pass
 
 
 def _validate_chroma_storage(path_value: str) -> None:
@@ -168,14 +197,6 @@ def _validate_chroma_storage(path_value: str) -> None:
         raise RuntimeError(f"configured Cortex memory path is not durably writable: {path}") from exc
 
 
-_validate_chroma_storage(CHROMA_DIR)
-client = chromadb.PersistentClient(path=CHROMA_DIR)
-
-# Use a persistent embedding function by default so ONNX sessions are not recreated
-# for every semantic lookup. The legacy Chroma default can still be forced via
-# CORTEX_LIBRARIAN_EMBEDDING_MODE=default for reproduction experiments.
-embed_fn = build_embedding_function()
-
 def _load_memory_collection(chroma_client, embedding_function):
     if _production_memory_mode():
         return chroma_client.get_collection(
@@ -188,13 +209,102 @@ def _load_memory_collection(chroma_client, embedding_function):
     )
 
 
-collection = _load_memory_collection(client, embed_fn)
+class _MemoryBackend:
+    def __init__(self, chroma_client, embedding_function, memory_collection):
+        self.client = chroma_client
+        self.embed_fn = embedding_function
+        self.collection = memory_collection
 
-_FALLBACK_LOG_PATH = Path(os.getenv("LIBRARIAN_FALLBACK_LOG_PATH", f"{CHROMA_DIR}/librarian_fallback.jsonl"))
-_FALLBACK_MAX_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_MAX_BYTES", str(16 * 1024 * 1024)))
-_FALLBACK_MAX_ROWS = int(os.getenv("LIBRARIAN_FALLBACK_MAX_ROWS", "5000"))
-_FALLBACK_MAX_ROW_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_MAX_ROW_BYTES", str(1100 * 1024)))
-_FALLBACK_READ_MAX_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_READ_MAX_BYTES", str(4 * 1024 * 1024)))
+
+_MEMORY_BACKEND: Optional[_MemoryBackend] = None
+_MEMORY_BACKEND_LOCK = threading.Lock()
+
+
+def get_memory_backend() -> _MemoryBackend:
+    """Construct the persistent Chroma dependencies at a runtime boundary."""
+
+    global _MEMORY_BACKEND
+    if _MEMORY_BACKEND is not None:
+        return _MEMORY_BACKEND
+    with _MEMORY_BACKEND_LOCK:
+        if _MEMORY_BACKEND is None:
+            if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
+                try:
+                    shutil.copytree(LEGACY_CHROMA_DIR, CHROMA_DIR)
+                except Exception:
+                    pass
+            _validate_chroma_storage(CHROMA_DIR)
+            chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
+            # Keep one embedding function so ONNX sessions are not recreated
+            # for every semantic lookup.
+            embedding_function = build_embedding_function()
+            memory_collection = _load_memory_collection(
+                chroma_client, embedding_function
+            )
+            _MEMORY_BACKEND = _MemoryBackend(
+                chroma_client, embedding_function, memory_collection
+            )
+        return _MEMORY_BACKEND
+
+
+class _LazyMemoryResource:
+    """Compatibility facade for callers importing the historical globals."""
+
+    def __init__(self, attribute: str):
+        self._attribute = attribute
+
+    def resolve(self):
+        return getattr(get_memory_backend(), self._attribute)
+
+    def __getattr__(self, name: str):
+        return getattr(self.resolve(), name)
+
+    def __call__(self, *args, **kwargs):
+        return self.resolve()(*args, **kwargs)
+
+    def _dispatch(self, method: str, *args, **kwargs):
+        return getattr(self.resolve(), method)(*args, **kwargs)
+
+    # Declare the Chroma surface explicitly so monkeypatching a historical
+    # global method does not resolve persistence merely to inspect the old
+    # attribute. Instance-level test/operator overrides still take precedence.
+    def add(self, *args, **kwargs):
+        return self._dispatch("add", *args, **kwargs)
+
+    def count(self, *args, **kwargs):
+        return self._dispatch("count", *args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return self._dispatch("delete", *args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        return self._dispatch("get", *args, **kwargs)
+
+    def get_collection(self, *args, **kwargs):
+        return self._dispatch("get_collection", *args, **kwargs)
+
+    def get_or_create_collection(self, *args, **kwargs):
+        return self._dispatch("get_or_create_collection", *args, **kwargs)
+
+    def query(self, *args, **kwargs):
+        return self._dispatch("query", *args, **kwargs)
+
+    def update(self, *args, **kwargs):
+        return self._dispatch("update", *args, **kwargs)
+
+    def upsert(self, *args, **kwargs):
+        return self._dispatch("upsert", *args, **kwargs)
+
+
+client = _LazyMemoryResource("client")
+embed_fn = _LazyMemoryResource("embed_fn")
+collection = _LazyMemoryResource("collection")
+
+_FALLBACK_LOG_PATH = Path(construction_config("LIBRARIAN_FALLBACK_LOG_PATH", f"{CHROMA_DIR}/librarian_fallback.jsonl"))
+_FALLBACK_MAX_BYTES = int(construction_config("LIBRARIAN_FALLBACK_MAX_BYTES", str(16 * 1024 * 1024)))
+_FALLBACK_MAX_ROWS = int(construction_config("LIBRARIAN_FALLBACK_MAX_ROWS", "5000"))
+_FALLBACK_MAX_ROW_BYTES = int(construction_config("LIBRARIAN_FALLBACK_MAX_ROW_BYTES", str(1100 * 1024)))
+_FALLBACK_READ_MAX_BYTES = int(construction_config("LIBRARIAN_FALLBACK_READ_MAX_BYTES", str(4 * 1024 * 1024)))
 _LOCAL_FILE_MEMORY_ROOTS_ENV = "LIBRARIAN_LOCAL_FILE_MEMORY_ROOTS"
 _SCOPED_LOCAL_FILE_MEMORY_ROOTS_ENV = "LIBRARIAN_SCOPED_LOCAL_FILE_MEMORY_ROOTS"
 _DEFAULT_LOCAL_FILE_MEMORY_ROOTS = (
@@ -202,9 +312,9 @@ _DEFAULT_LOCAL_FILE_MEMORY_ROOTS = (
     "/root/clawd/clients",
 )
 _LOCAL_FILE_MEMORY_EXTENSIONS = {".md", ".txt"}
-_LOCAL_FILE_MEMORY_MAX_FILES = int(os.getenv("LIBRARIAN_LOCAL_FILE_MAX_FILES", "900"))
-_LOCAL_FILE_MEMORY_MAX_BYTES = int(os.getenv("LIBRARIAN_LOCAL_FILE_MAX_BYTES", str(768 * 1024)))
-_LOCAL_FILE_MEMORY_MIN_SCORE = float(os.getenv("LIBRARIAN_LOCAL_FILE_MIN_SCORE", "0.18"))
+_LOCAL_FILE_MEMORY_MAX_FILES = int(construction_config("LIBRARIAN_LOCAL_FILE_MAX_FILES", "900"))
+_LOCAL_FILE_MEMORY_MAX_BYTES = int(construction_config("LIBRARIAN_LOCAL_FILE_MAX_BYTES", str(768 * 1024)))
+_LOCAL_FILE_MEMORY_MIN_SCORE = float(construction_config("LIBRARIAN_LOCAL_FILE_MIN_SCORE", "0.18"))
 _LOW_SIGNAL_LOCAL_MEMORY_QUERY_TOKENS = {
     "what", "when", "where", "which", "who", "why", "how",
     "should", "could", "would", "about", "with", "from", "into", "under", "over",
@@ -227,8 +337,8 @@ _COLLECTION_HEALTH_TIMEOUT_SECONDS = 1.0
 
 MAX_MEMORY_SCOPE_ID_LENGTH = 128
 _MEMORY_SCOPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
-DEFAULT_TENANT_ID = os.getenv("CORTEX_DEFAULT_TENANT_ID", "cortex-local").strip() or "cortex-local"
-DEFAULT_WORKSPACE_ID = os.getenv("CORTEX_DEFAULT_WORKSPACE_ID", "default").strip() or "default"
+DEFAULT_TENANT_ID = str(construction_config("CORTEX_DEFAULT_TENANT_ID", "cortex-local")).strip() or "cortex-local"
+DEFAULT_WORKSPACE_ID = str(construction_config("CORTEX_DEFAULT_WORKSPACE_ID", "default")).strip() or "default"
 MemoryScopeId = Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_SCOPE_ID_LENGTH, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$")]
 
 
@@ -456,6 +566,31 @@ def _read_fact_supersession_journal(journal_path: Path) -> Dict[str, Any]:
     return entry
 
 
+def _supersession_recovery_metadata(
+    metadata: Dict[str, Any], *, stage: str
+) -> Dict[str, Any]:
+    """Return the metadata state used by durable supersession recovery.
+
+    Keeping this transition pure lets health checks replay the same fail-closed
+    state machine without writing a probe row into the authoritative store.
+    """
+
+    recovered = dict(metadata)
+    if stage == "pending":
+        recovered.update(
+            memory_status="tombstoned",
+            tombstoned=True,
+            supersession_pending=True,
+        )
+        return recovered
+    if stage == "active":
+        recovered.pop("tombstoned", None)
+        recovered.pop("supersession_pending", None)
+        recovered["memory_status"] = "active"
+        return recovered
+    raise ValueError("supersession recovery stage must be pending or active")
+
+
 def _recover_fact_supersessions_locked() -> None:
     """Roll forward every durable intent. Caller must hold the process lock."""
     journal_dir = _fact_supersession_journal_dir()
@@ -477,12 +612,9 @@ def _recover_fact_supersessions_locked() -> None:
             current = _collection_fact_rows(fact_key, tenant_id, workspace_id)
             current_ids = list(current.get("ids") or [])
             if memory_id not in current_ids:
-                pending_metadata = {
-                    **metadata,
-                    "memory_status": "tombstoned",
-                    "tombstoned": True,
-                    "supersession_pending": True,
-                }
+                pending_metadata = _supersession_recovery_metadata(
+                    metadata, stage="pending"
+                )
                 collection.add(ids=[memory_id], documents=[entry["text"]], metadatas=[pending_metadata])
                 current_ids.append(memory_id)
             prior_ids = [row_id for row_id in current_ids if row_id != memory_id]
@@ -494,10 +626,9 @@ def _recover_fact_supersessions_locked() -> None:
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
             )
-            active_metadata = dict(metadata)
-            active_metadata.pop("tombstoned", None)
-            active_metadata.pop("supersession_pending", None)
-            active_metadata["memory_status"] = "active"
+            active_metadata = _supersession_recovery_metadata(
+                metadata, stage="active"
+            )
             collection.update(ids=[memory_id], metadatas=[active_metadata])
             _append_fallback_fact_supersession(
                 fact_key,
@@ -728,7 +859,127 @@ class SupersedeRequest(BaseModel):
         return normalized
 
 
-_CANONICAL_PROJECT_INDEX = Path(os.getenv("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
+_CANONICAL_PROJECT_INDEX = Path(construction_config("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
+
+_IMPORT_CONFIGURATION = {
+    name: globals()[name]
+    for name in (
+        "CHROMA_DIR",
+        "_FALLBACK_LOG_PATH",
+        "_FALLBACK_MAX_BYTES",
+        "_FALLBACK_MAX_ROWS",
+        "_FALLBACK_MAX_ROW_BYTES",
+        "_FALLBACK_READ_MAX_BYTES",
+        "_LOCAL_FILE_MEMORY_MAX_FILES",
+        "_LOCAL_FILE_MEMORY_MAX_BYTES",
+        "_LOCAL_FILE_MEMORY_MIN_SCORE",
+        "DEFAULT_TENANT_ID",
+        "DEFAULT_WORKSPACE_ID",
+        "_CANONICAL_PROJECT_INDEX",
+    )
+}
+
+
+def _activate_runtime_configuration() -> None:
+    """Rebind neutral import defaults without replacing the router module.
+
+    Explicit caller overrides are retained. This lets documentation and test
+    discovery import the router without reading ambient state while a later
+    runtime factory can still capture its configured persistence boundaries.
+    """
+
+    global CHROMA_DIR, _FALLBACK_LOG_PATH, _FALLBACK_MAX_BYTES
+    global _FALLBACK_MAX_ROWS, _FALLBACK_MAX_ROW_BYTES, _FALLBACK_READ_MAX_BYTES
+    global _LOCAL_FILE_MEMORY_MAX_FILES, _LOCAL_FILE_MEMORY_MAX_BYTES
+    global _LOCAL_FILE_MEMORY_MIN_SCORE, DEFAULT_TENANT_ID, DEFAULT_WORKSPACE_ID
+    global _CANONICAL_PROJECT_INDEX
+
+    def configured(name: str, candidate: Any) -> Any:
+        current = globals()[name]
+        return candidate if current == _IMPORT_CONFIGURATION[name] else current
+
+    CHROMA_DIR = configured("CHROMA_DIR", _default_chroma_dir())
+    _FALLBACK_LOG_PATH = configured(
+        "_FALLBACK_LOG_PATH",
+        Path(
+            construction_config(
+                "LIBRARIAN_FALLBACK_LOG_PATH",
+                f"{CHROMA_DIR}/librarian_fallback.jsonl",
+            )
+        ),
+    )
+    _FALLBACK_MAX_BYTES = configured(
+        "_FALLBACK_MAX_BYTES",
+        int(construction_config("LIBRARIAN_FALLBACK_MAX_BYTES", str(16 * 1024 * 1024))),
+    )
+    _FALLBACK_MAX_ROWS = configured(
+        "_FALLBACK_MAX_ROWS",
+        int(construction_config("LIBRARIAN_FALLBACK_MAX_ROWS", "5000")),
+    )
+    _FALLBACK_MAX_ROW_BYTES = configured(
+        "_FALLBACK_MAX_ROW_BYTES",
+        int(construction_config("LIBRARIAN_FALLBACK_MAX_ROW_BYTES", str(1100 * 1024))),
+    )
+    _FALLBACK_READ_MAX_BYTES = configured(
+        "_FALLBACK_READ_MAX_BYTES",
+        int(construction_config("LIBRARIAN_FALLBACK_READ_MAX_BYTES", str(4 * 1024 * 1024))),
+    )
+    _LOCAL_FILE_MEMORY_MAX_FILES = configured(
+        "_LOCAL_FILE_MEMORY_MAX_FILES",
+        int(construction_config("LIBRARIAN_LOCAL_FILE_MAX_FILES", "900")),
+    )
+    _LOCAL_FILE_MEMORY_MAX_BYTES = configured(
+        "_LOCAL_FILE_MEMORY_MAX_BYTES",
+        int(construction_config("LIBRARIAN_LOCAL_FILE_MAX_BYTES", str(768 * 1024))),
+    )
+    _LOCAL_FILE_MEMORY_MIN_SCORE = configured(
+        "_LOCAL_FILE_MEMORY_MIN_SCORE",
+        float(construction_config("LIBRARIAN_LOCAL_FILE_MIN_SCORE", "0.18")),
+    )
+    DEFAULT_TENANT_ID = configured(
+        "DEFAULT_TENANT_ID",
+        str(construction_config("CORTEX_DEFAULT_TENANT_ID", "cortex-local")).strip()
+        or "cortex-local",
+    )
+    DEFAULT_WORKSPACE_ID = configured(
+        "DEFAULT_WORKSPACE_ID",
+        str(construction_config("CORTEX_DEFAULT_WORKSPACE_ID", "default")).strip()
+        or "default",
+    )
+    _CANONICAL_PROJECT_INDEX = configured(
+        "_CANONICAL_PROJECT_INDEX",
+        Path(
+            construction_config(
+                "CORTEX_CANONICAL_PROJECT_INDEX",
+                "/root/clawd/memory/projects/INDEX.md",
+            )
+        ),
+    )
+
+    for model in (
+        EmbedRequest,
+        SearchRequest,
+        NovelEmbedRequest,
+        NovelSearchRequest,
+        RecallRequest,
+        SupersedeRequest,
+    ):
+        defaults_changed = False
+        for field_name, activated_default, import_default in (
+            ("tenant_id", DEFAULT_TENANT_ID, _IMPORT_CONFIGURATION["DEFAULT_TENANT_ID"]),
+            (
+                "workspace_id",
+                DEFAULT_WORKSPACE_ID,
+                _IMPORT_CONFIGURATION["DEFAULT_WORKSPACE_ID"],
+            ),
+        ):
+            field = model.model_fields[field_name]
+            if field.default == import_default:
+                field.default = activated_default
+                defaults_changed = True
+        if defaults_changed:
+            model.model_rebuild(force=True)
+
 _CURRENT_QUERY_PATTERNS = re.compile(
     r"\b(current|latest|now|next|recommend|roadmap|should we|what remains|remaining|status|state|done|completed|proven)\b",
     re.IGNORECASE,
@@ -775,26 +1026,84 @@ def _authority_rank(metadata: Optional[Dict[str, Any]]) -> int:
     return 30
 
 
-def _canonical_project_registry() -> List[Dict[str, Any]]:
-    """Parse the user-maintained canonical registry instead of duplicating it in code."""
+def _canonical_project_registry_with_diagnostics() -> tuple[List[Dict[str, Any]], List[str]]:
+    """Parse the canonical registry and report every mapping row we cannot prove."""
     try:
-        text = _CANONICAL_PROJECT_INDEX.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return []
+        text = _CANONICAL_PROJECT_INDEX.read_text(encoding="utf-8")
+    except Exception as exc:
+        return [], [f"canonical index: {type(exc).__name__}: {exc}"]
     rows: List[Dict[str, Any]] = []
-    for line in text.splitlines():
-        if not line.lstrip().startswith("|") or "`memory/projects/" not in line:
+    errors: List[str] = []
+    alias_bindings: Dict[str, tuple[str, int]] = {}
+    in_registry_table = False
+    workspace_root = (
+        _CANONICAL_PROJECT_INDEX.parents[2]
+        if len(_CANONICAL_PROJECT_INDEX.parents) >= 3
+        else Path("/root/clawd")
+    )
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.lstrip().startswith("|"):
+            in_registry_table = False
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not in_registry_table:
+            first_header = cells[0].lower() if cells else ""
+            second_header = cells[1].lower() if len(cells) > 1 else ""
+            in_registry_table = (
+                "project" in first_header
+                and "canonical" in second_header
+                and ("file" in second_header or "path" in second_header)
+            )
+            if in_registry_table:
+                continue
+            if "memory/projects/" not in line:
+                continue
+        if cells and all(re.fullmatch(r":?-{3,}:?", cell or "") for cell in cells):
+            continue
         if len(cells) < 2:
+            errors.append(
+                f"line {line_number}: canonical mapping row has fewer than two cells"
+            )
             continue
         aliases = [part.strip() for part in re.split(r",|/", cells[0]) if part.strip()]
         match = re.search(r"`([^`]+)`", cells[1])
-        if not match:
+        if not aliases:
+            errors.append(f"line {line_number}: canonical mapping has no project alias")
             continue
-        workspace_root = _CANONICAL_PROJECT_INDEX.parents[2] if len(_CANONICAL_PROJECT_INDEX.parents) >= 3 else Path("/root/clawd")
-        path = workspace_root / match.group(1)
-        rows.append({"aliases": aliases, "path": path, "rel_path": match.group(1)})
+        if not match:
+            errors.append(
+                f"line {line_number}: canonical mapping path must be backtick-delimited"
+            )
+            continue
+        rel_path = match.group(1).strip()
+        rel = Path(rel_path)
+        if (
+            not rel_path.startswith("memory/projects/")
+            or rel.is_absolute()
+            or ".." in rel.parts
+        ):
+            errors.append(
+                f"line {line_number}: canonical mapping path must stay under memory/projects"
+            )
+            continue
+        path = workspace_root / rel
+        for alias in aliases:
+            normalized_alias = " ".join(alias.casefold().split())
+            prior = alias_bindings.get(normalized_alias)
+            if prior is not None and prior[0] != rel_path:
+                errors.append(
+                    f"line {line_number}: canonical alias conflicts with line {prior[1]}"
+                )
+            else:
+                alias_bindings[normalized_alias] = (rel_path, line_number)
+        rows.append({"aliases": aliases, "path": path, "rel_path": rel_path})
+    return rows, errors
+
+
+def _canonical_project_registry() -> List[Dict[str, Any]]:
+    """Parse the user-maintained canonical registry instead of duplicating it in code."""
+
+    rows, _errors = _canonical_project_registry_with_diagnostics()
     return rows
 
 
@@ -1288,8 +1597,9 @@ def _add_memory_with_supersession(
             raise FactSupersessionError(
                 "fact supersession journal could not be persisted; existing fact was preserved"
             ) from exc
-        pending_metadata = {**metadata, "memory_status": "tombstoned", "tombstoned": True,
-                            "supersession_pending": True}
+        pending_metadata = _supersession_recovery_metadata(
+            metadata, stage="pending"
+        )
         chroma_committed = False
         try:
             collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
@@ -1302,10 +1612,9 @@ def _add_memory_with_supersession(
                 workspace_id=workspace,
                 memory_principal_key=memory_principal_key,
             )
-            active_metadata = dict(metadata)
-            active_metadata.pop("tombstoned", None)
-            active_metadata.pop("supersession_pending", None)
-            active_metadata["memory_status"] = "active"
+            active_metadata = _supersession_recovery_metadata(
+                metadata, stage="active"
+            )
             collection.update(ids=[memory_id], metadatas=[active_metadata])
             _append_fallback_fact_supersession(
                 fact_key,
@@ -1787,21 +2096,29 @@ def probe_memory_backend_readiness() -> Dict[str, Any]:
     probe_collection = None
     try:
         _validate_chroma_storage(CHROMA_DIR)
+        backend = (
+            get_memory_backend()
+            if isinstance(client, _LazyMemoryResource)
+            else None
+        )
+        chroma_client = backend.client if backend is not None else client
+        embedding_function = backend.embed_fn if backend is not None else embed_fn
+        memory_collection = backend.collection if backend is not None else collection
         authoritative_collection = (
-            _load_memory_collection(client, embed_fn)
+            _load_memory_collection(chroma_client, embedding_function)
             if _production_memory_mode()
-            else collection
+            else memory_collection
         )
         count = int(authoritative_collection.count())
         if count < 0:
             raise RuntimeError("memory collection returned an invalid count")
         if _production_memory_mode():
-            probe_collection = client.get_collection(
+            probe_collection = chroma_client.get_collection(
                 name=READINESS_COLLECTION_NAME,
                 embedding_function=None,
             )
         else:
-            probe_collection = client.get_or_create_collection(
+            probe_collection = chroma_client.get_or_create_collection(
                 name=READINESS_COLLECTION_NAME,
                 embedding_function=None,
             )

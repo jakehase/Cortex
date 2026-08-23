@@ -19,6 +19,9 @@ import httpx
 
 DEFAULT_CORTEX_HOST = "127.0.0.1"
 DEFAULT_CORTEX_PORT = 8000
+DEFAULT_CORTEX_INTERNAL_BASE_URL = (
+    f"http://{DEFAULT_CORTEX_HOST}:{DEFAULT_CORTEX_PORT}"
+)
 INTERNAL_REACHABILITY_PATH = "/_internal/reachability"
 INTERNAL_REACHABILITY_SCHEMA = "cortex.internal_reachability.v1"
 
@@ -70,38 +73,53 @@ def resolve_internal_base_url(environ: Optional[Mapping[str, str]] = None) -> st
     return f"http://{host_for_url}:{port}"
 
 
-CORTEX_INTERNAL_BASE_URL = resolve_internal_base_url()
+CORTEX_INTERNAL_BASE_URL = DEFAULT_CORTEX_INTERNAL_BASE_URL
 
 
-def internal_url(path: str, *, base_url: str = CORTEX_INTERNAL_BASE_URL) -> str:
+def configure_internal_base_url(
+    environ: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Activate ambient addressing only from the explicit runtime factory."""
+
+    global CORTEX_INTERNAL_BASE_URL
+    CORTEX_INTERNAL_BASE_URL = resolve_internal_base_url(environ)
+    return CORTEX_INTERNAL_BASE_URL
+
+
+def _effective_base_url(base_url: Optional[str]) -> str:
+    return CORTEX_INTERNAL_BASE_URL if base_url is None else base_url
+
+
+def internal_url(path: str, *, base_url: Optional[str] = None) -> str:
     """Join an absolute API path to the canonical internal Cortex origin."""
     normalized = str(path or "").strip()
     if not normalized.startswith("/") or normalized.startswith("//"):
         raise ValueError("internal Cortex paths must start with one slash")
-    return f"{base_url.rstrip('/')}{normalized}"
+    return f"{_effective_base_url(base_url).rstrip('/')}{normalized}"
 
 
-def internal_host_port(*, base_url: str = CORTEX_INTERNAL_BASE_URL) -> tuple[str, int]:
+def internal_host_port(*, base_url: Optional[str] = None) -> tuple[str, int]:
     """Return the connectable host/port represented by the internal origin."""
-    parsed = urlsplit(base_url)
+    parsed = urlsplit(_effective_base_url(base_url))
     if not parsed.hostname:
         raise ValueError("internal Cortex base URL has no host")
     return parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
 
 
-def internal_reachability_response(*, base_url: str = CORTEX_INTERNAL_BASE_URL) -> Dict[str, Any]:
+def internal_reachability_response(*, base_url: Optional[str] = None) -> Dict[str, Any]:
     """Return the identity document an active self-reachability probe expects."""
+    effective_base_url = _effective_base_url(base_url)
     return {
         "schemaVersion": INTERNAL_REACHABILITY_SCHEMA,
         "service": "cortex",
         "status": "reachable",
-        "internalBaseUrl": base_url,
+        "internalBaseUrl": effective_base_url,
     }
 
 
 async def probe_internal_reachability(
     *,
-    base_url: str = CORTEX_INTERNAL_BASE_URL,
+    base_url: Optional[str] = None,
     timeout_seconds: float = 1.5,
 ) -> Dict[str, Any]:
     """Actively verify that the configured self-call origin reaches this Cortex.
@@ -110,7 +128,8 @@ async def probe_internal_reachability(
     requests.  It is deliberately not a lifespan/startup gate, since a server
     cannot reach its own listener before uvicorn starts listening.
     """
-    target = internal_url(INTERNAL_REACHABILITY_PATH, base_url=base_url)
+    effective_base_url = _effective_base_url(base_url)
+    target = internal_url(INTERNAL_REACHABILITY_PATH, base_url=effective_base_url)
     try:
         requested_timeout = float(timeout_seconds)
         if not math.isfinite(requested_timeout):
@@ -139,7 +158,7 @@ async def probe_internal_reachability(
         and payload.get("schemaVersion") == INTERNAL_REACHABILITY_SCHEMA
         and payload.get("service") == "cortex"
         and payload.get("status") == "reachable"
-        and payload.get("internalBaseUrl") == base_url
+        and payload.get("internalBaseUrl") == effective_base_url
     )
     if not valid:
         return {
@@ -152,10 +171,12 @@ async def probe_internal_reachability(
 
 __all__ = [
     "CORTEX_INTERNAL_BASE_URL",
+    "DEFAULT_CORTEX_INTERNAL_BASE_URL",
     "DEFAULT_CORTEX_HOST",
     "DEFAULT_CORTEX_PORT",
     "INTERNAL_REACHABILITY_PATH",
     "INTERNAL_REACHABILITY_SCHEMA",
+    "configure_internal_base_url",
     "internal_reachability_response",
     "internal_host_port",
     "internal_url",

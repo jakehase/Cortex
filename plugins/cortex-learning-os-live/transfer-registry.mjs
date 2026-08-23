@@ -66,10 +66,15 @@ export function validateTransferEntry(entry, { now = Date.now(), allowExpired = 
   if (!['qualified', 'operator_enabled'].includes(entry.qualificationState)) errors.push('entry is not active');
   if (entry.qualificationState === 'qualified' && activationBasis !== 'independent_qualification') errors.push('qualified entry requires independent_qualification activationBasis');
   if (entry.qualificationState === 'operator_enabled' && activationBasis !== 'operator_direct') errors.push('operator entry requires operator_direct activationBasis');
+  if (entry.qualificationState === 'operator_enabled' && entry.enabled !== false) errors.push('operator entry must remain disabled outside independent qualification');
   if (entry.activationBasis !== undefined && !['independent_qualification', 'operator_direct'].includes(entry.activationBasis)) errors.push('invalid activationBasis');
   if (!text(entry.qualificationRunId, 160, ID)) errors.push('invalid qualificationRunId');
   for (const field of ['artifactManifestDigest', 'evidenceDigest', 'profileDigest']) {
-    if (!text(entry[field], 64, DIGEST)) errors.push(`invalid ${field}`);
+    if (entry.qualificationState === 'qualified') {
+      if (!text(entry[field], 64, DIGEST)) errors.push(`invalid ${field}`);
+    } else if (entry[field] !== null) {
+      errors.push(`operator proposal ${field} must be null`);
+    }
   }
   const qualifiedAt = Date.parse(String(entry.qualifiedAt || ''));
   const expiresAt = Date.parse(String(entry.expiresAt || ''));
@@ -114,14 +119,15 @@ export function verifyTransferRegistry(registry, secret, { now = Date.now(), all
   if (!Array.isArray(registry.entries) || registry.entries.length > 320) errors.push('invalid transfer entries');
   else {
     const ids = new Set();
-    const profiles = new Set();
+    const contracts = new Set();
     for (const entry of registry.entries) {
       const result = validateTransferEntry(entry, { now, allowExpired: allowExpiredEntries });
       errors.push(...result.errors.map((error) => `${String(entry?.entryId || 'unknown')}: ${error}`));
       if (ids.has(entry?.entryId)) errors.push(`duplicate entryId: ${entry.entryId}`);
-      if (profiles.has(entry?.profileId)) errors.push(`duplicate profileId: ${entry.profileId}`);
+      const contractKey = `${String(entry?.profileId || '')}\u0000${String(entry?.matcherId || '')}`;
+      if (contracts.has(contractKey)) errors.push(`duplicate profile/matcher contract: ${entry.profileId}:${entry.matcherId}`);
       ids.add(entry?.entryId);
-      profiles.add(entry?.profileId);
+      contracts.add(contractKey);
     }
   }
   if (!only(registry.signature, new Set(['algorithm', 'keyId', 'digest']))) errors.push('invalid transfer registry signature');
@@ -202,28 +208,31 @@ export function initializeTransferRegistry({ registryPath, secretPath, now = new
 }
 
 export function selectQualifiedTransferEntries(registry, route, { agentId, now = Date.now() } = {}) {
-  if (!registry?.enabled || !route?.applicable) return [];
-  const applicable = new Set(route.selections.map((row) => row.profileId));
+  if (!registry?.enabled || !route?.applicable || route.codingContext !== true) return [];
+  const applicable = new Set(route.selections
+    .filter((row) => row.applicable === true && row.negativeGateCodes.length === 0)
+    .map((row) => `${row.profileId}:${row.matcherId}`));
   return registry.entries
-    .filter((entry) => entry.enabled && ['qualified', 'operator_enabled'].includes(entry.qualificationState))
+    .filter((entry) => entry.enabled && entry.qualificationState === 'qualified'
+      && (entry.activationBasis === undefined || entry.activationBasis === 'independent_qualification'))
     .filter((entry) => Date.parse(entry.expiresAt) > now)
     .filter((entry) => entry.allowedAgentIds.includes(agentId))
-    .filter((entry) => applicable.has(entry.profileId))
+    .filter((entry) => applicable.has(`${entry.profileId}:${entry.matcherId}`))
     .sort((left, right) => left.profileId.localeCompare(right.profileId))
     .slice(0, 3);
 }
 
 export function renderTransferContext(entries, route, { maxChars = 6000 } = {}) {
   if (!entries.length) return '';
-  const hasOperatorEntry = entries.some((entry) => entry.qualificationState === 'operator_enabled');
+  const legacyOnly = entries.every((entry) => entry.matcherId.startsWith('code-'));
   const lines = [
-    'CORTEX_LEARNING_OS_PHD_MATH_TRANSFER',
-    `mode: ${hasOperatorEntry ? 'active_operator_configured_transfer' : 'active_independently_qualified_transfer'}`,
+    legacyOnly ? 'CORTEX_LEARNING_OS_CODING_TRANSFER' : 'CORTEX_LEARNING_OS_PHD_MATH_TRANSFER',
+    'mode: active_independently_qualified_transfer',
     'Use only the selected concepts whose observed assumptions hold; keep definitions, prerequisites, and boundaries explicit.',
     'Verify the result; full catalog coverage does not establish retained mastery, empirical benefit, or PhD equivalence.',
   ];
   for (const entry of entries) {
-    const decision = route.selections.find((row) => row.profileId === entry.profileId);
+    const decision = route.selections.find((row) => row.profileId === entry.profileId && row.matcherId === entry.matcherId);
     lines.push(`profile_id: ${entry.profileId}`);
     lines.push(`concept_ids: ${entry.conceptIds.join(', ')}`);
     lines.push(`matcher_id: ${entry.matcherId}`);

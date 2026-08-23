@@ -12,7 +12,7 @@ Plus novelty-aware extensions:
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Callable, List, Optional, TypeVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 import logging
@@ -61,6 +61,10 @@ _L22_QUOTA_RESERVATION_TIMEOUT_SECONDS = 10 * 60
 _L22_RECOVERY_RESERVE_BYTES = 256 * 1024 * 1024
 _L22_PHYSICAL_RESERVE_FILE = ".l22-physical-recovery-reserve"
 _L22_QUOTA_BACKFILL_VERSION = "v2-complete"
+_L22_IDEMPOTENCY_TTL_SECONDS = 30 * 24 * 60 * 60
+_L22_IDEMPOTENCY_MAX_RECORDS = 100_000
+_L22_IDEMPOTENCY_MAX_BYTES = 64 * 1024 * 1024
+_L22_IDEMPOTENCY_FIXED_RECORD_BYTES = 256
 _L22_QUOTA_LIMIT_DEFAULTS = {
     "workspace_records": 100_000,
     "workspace_bytes": 512 * 1024 * 1024,
@@ -84,6 +88,7 @@ async def initialize_l22_quota_recovery_reserve() -> None:
     if _production_memory_mode():
         _backfill_l22_quota_ledger()
     _reconcile_l22_quota_reservations()
+    _prune_memory_idempotency_ledger()
 
 
 def _structured_memory_db_path() -> Path:
@@ -147,6 +152,10 @@ def _structured_memory_connection() -> sqlite3.Connection:
         "PRIMARY KEY (tenant_id, workspace_id, idempotency_key))"
     )
     connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_idempotency_scope_created "
+        "ON memory_idempotency(tenant_id, workspace_id, created_at DESC)"
+    )
+    connection.execute(
         "CREATE TABLE IF NOT EXISTS l22_quota_records ("
         "memory_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, workspace_id TEXT NOT NULL, "
         "credential_id TEXT NOT NULL, charge_bytes INTEGER NOT NULL, payload_hash TEXT NOT NULL, "
@@ -199,6 +208,286 @@ def _bounded_quota_setting(name: str, default: int) -> int:
     # Quotas may be reduced for a deployment, but cannot be configured into an
     # unbounded durable-amplification surface.
     return min(int(raw), int(default))
+
+
+def _l22_idempotency_limits() -> dict[str, int]:
+    return {
+        "ttl_seconds": _bounded_quota_setting(
+            "CORTEX_L22_IDEMPOTENCY_TTL_SECONDS",
+            _L22_IDEMPOTENCY_TTL_SECONDS,
+        ),
+        "max_records": _bounded_quota_setting(
+            "CORTEX_L22_IDEMPOTENCY_MAX_RECORDS",
+            _L22_IDEMPOTENCY_MAX_RECORDS,
+        ),
+        "max_bytes": _bounded_quota_setting(
+            "CORTEX_L22_IDEMPOTENCY_MAX_BYTES",
+            _L22_IDEMPOTENCY_MAX_BYTES,
+        ),
+    }
+
+
+def _idempotency_row_bytes(row: sqlite3.Row) -> int:
+    return (
+        len(str(row["idempotency_key"] or "").encode("utf-8"))
+        + len(str(row["request_hash"] or "").encode("utf-8"))
+        + len(str(row["record_json"] or "").encode("utf-8"))
+        + len(str(row["created_at"] or "").encode("utf-8"))
+        + _L22_IDEMPOTENCY_FIXED_RECORD_BYTES
+    )
+
+
+def _idempotency_row_replay_identity(
+    row: sqlite3.Row,
+    *,
+    tenant: str,
+    workspace: str,
+) -> tuple[str, str]:
+    """Validate the ledger claim and return its deterministic durable identity."""
+
+    key = str(row["idempotency_key"] or "")
+    request_hash = str(row["request_hash"] or "")
+    expected_id = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"cortex:l22:{tenant}:{workspace}:{key}")
+    )
+    try:
+        record = json.loads(str(row["record_json"] or ""))
+        metadata = record.get("metadata") if isinstance(record, dict) else None
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "historical L22 idempotency rows require migration before retention pruning"
+        ) from exc
+    if (
+        not isinstance(record, dict)
+        or str(record.get("id") or "") != expected_id
+        or not isinstance(metadata, dict)
+        or str(metadata.get("idempotency_hash") or "") != request_hash
+    ):
+        raise RuntimeError(
+            "historical L22 idempotency rows require migration before retention pruning"
+        )
+    return expected_id, request_hash
+
+
+def _assert_idempotency_rows_replay_safe(
+    connection: sqlite3.Connection,
+    rows: List[sqlite3.Row],
+    *,
+    tenant: str,
+    workspace: str,
+) -> None:
+    """Prove the exact durable fallback before any ledger row is evicted.
+
+    The ledger's own JSON is not evidence that Chroma still has the record.
+    Require the deterministic ID, matching request hash and scope in Chroma,
+    plus a committed quota row whose payload hash can admit the replay.  A
+    legacy quota hash is migrated only after the Chroma proof succeeds.
+    """
+
+    identities = {
+        str(row["idempotency_key"]): _idempotency_row_replay_identity(
+            row,
+            tenant=tenant,
+            workspace=workspace,
+        )
+        for row in rows
+    }
+    for offset in range(0, len(rows), 256):
+        chunk = rows[offset : offset + 256]
+        ids = [identities[str(row["idempotency_key"])][0] for row in chunk]
+        try:
+            durable = collection.get(ids=ids, include=["metadatas"])
+        except Exception as exc:
+            raise RuntimeError(
+                "L22 idempotency retention could not verify the durable replay fallback"
+            ) from exc
+        durable_ids = [str(value) for value in (durable.get("ids") or [])]
+        durable_metadata = list(durable.get("metadatas") or [])
+        metadata_by_id = {
+            memory_id: (
+                dict(durable_metadata[index] or {})
+                if index < len(durable_metadata)
+                else {}
+            )
+            for index, memory_id in enumerate(durable_ids)
+        }
+        placeholders = ",".join("?" for _value in ids)
+        quota_rows = {
+            str(quota["memory_id"]): quota
+            for quota in connection.execute(
+                "SELECT memory_id, tenant_id, workspace_id, payload_hash, status "
+                f"FROM l22_quota_records WHERE memory_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        }
+        for row in chunk:
+            key = str(row["idempotency_key"])
+            memory_id, request_hash = identities[key]
+            metadata = metadata_by_id.get(memory_id)
+            quota = quota_rows.get(memory_id)
+            stored_tenant = str((metadata or {}).get("tenant_id") or "")
+            stored_workspace = str(
+                (metadata or {}).get("storage_workspace_id")
+                or (metadata or {}).get("workspace_id")
+                or ""
+            )
+            default_scope = tenant == DEFAULT_TENANT_ID and workspace == DEFAULT_WORKSPACE_ID
+            scope_matches = (
+                (stored_tenant == tenant and stored_workspace == workspace)
+                or (default_scope and not stored_tenant and not stored_workspace)
+            )
+            if (
+                metadata is None
+                or str(metadata.get("idempotency_hash") or "") != request_hash
+                or not scope_matches
+                or quota is None
+                or str(quota["tenant_id"]) != tenant
+                or str(quota["workspace_id"]) != workspace
+                or str(quota["status"]) != "committed"
+            ):
+                raise RuntimeError(
+                    "L22 idempotency rows require a verified durable replay fallback before retention pruning"
+                )
+            quota_hash = str(quota["payload_hash"] or "")
+            if quota_hash != request_hash:
+                if not quota_hash.startswith("legacy:"):
+                    raise RuntimeError(
+                        "L22 idempotency quota identity conflicts with the durable replay fallback"
+                    )
+                connection.execute(
+                    "UPDATE l22_quota_records SET payload_hash = ? "
+                    "WHERE memory_id = ? AND payload_hash = ? AND status = 'committed'",
+                    (request_hash, memory_id, quota_hash),
+                )
+
+
+def _prune_memory_idempotency_scope(
+    connection: sqlite3.Connection,
+    *,
+    tenant: str,
+    workspace: str,
+    protected_key: str = "",
+    now: Optional[datetime] = None,
+) -> int:
+    """Apply the finite replay-ledger policy inside the caller's transaction.
+
+    Semantic writes use a deterministic scoped UUID and persist their request
+    hash in Chroma metadata. Consequently, an evicted ledger row still has an
+    exact durable replay/conflict fallback and can be removed without weakening
+    the idempotency boundary.
+    """
+
+    limits = _l22_idempotency_limits()
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
+        seconds=limits["ttl_seconds"]
+    )
+    params: List[object] = [tenant, workspace, cutoff.isoformat()]
+    protected_clause = ""
+    if protected_key:
+        protected_clause = " AND idempotency_key != ?"
+        params.append(protected_key)
+    expired_rows = connection.execute(
+        "SELECT idempotency_key, request_hash, record_json, created_at "
+        "FROM memory_idempotency "
+        "WHERE tenant_id = ? AND workspace_id = ? "
+        "AND julianday(created_at) < julianday(?)" + protected_clause,
+        params,
+    ).fetchall()
+    _assert_idempotency_rows_replay_safe(
+        connection,
+        expired_rows,
+        tenant=tenant,
+        workspace=workspace,
+    )
+    if expired_rows:
+        connection.executemany(
+            "DELETE FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
+            [
+                (tenant, workspace, str(row["idempotency_key"]))
+                for row in expired_rows
+            ],
+        )
+    deleted = len(expired_rows)
+
+    rows = connection.execute(
+        "SELECT idempotency_key, request_hash, record_json, created_at "
+        "FROM memory_idempotency WHERE tenant_id = ? AND workspace_id = ? "
+        "ORDER BY CASE WHEN idempotency_key = ? THEN 1 ELSE 0 END DESC, "
+        "created_at DESC, idempotency_key DESC",
+        (tenant, workspace, protected_key),
+    ).fetchall()
+    if protected_key:
+        protected_row = next(
+            (
+                row
+                for row in rows
+                if str(row["idempotency_key"]) == protected_key
+            ),
+            None,
+        )
+        if (
+            protected_row is not None
+            and _idempotency_row_bytes(protected_row) > limits["max_bytes"]
+        ):
+            raise RuntimeError(
+                "configured L22 idempotency byte limit cannot retain the active replay row"
+            )
+    kept_records = 0
+    kept_bytes = 0
+    evicted: List[str] = []
+    for row in rows:
+        row_bytes = _idempotency_row_bytes(row)
+        if (
+            kept_records >= limits["max_records"]
+            or kept_bytes + row_bytes > limits["max_bytes"]
+        ):
+            evicted.append(str(row["idempotency_key"]))
+            continue
+        kept_records += 1
+        kept_bytes += row_bytes
+    if evicted:
+        rows_by_key = {str(row["idempotency_key"]): row for row in rows}
+        _assert_idempotency_rows_replay_safe(
+            connection,
+            [rows_by_key[key] for key in evicted],
+            tenant=tenant,
+            workspace=workspace,
+        )
+        connection.executemany(
+            "DELETE FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
+            [(tenant, workspace, key) for key in evicted],
+        )
+        deleted += len(evicted)
+    return deleted
+
+
+def _prune_memory_idempotency_ledger() -> int:
+    """Converge every legacy scope to the finite policy during startup."""
+
+    with _STRUCTURED_MEMORY_LOCK:
+        connection = _structured_memory_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            scopes = connection.execute(
+                "SELECT DISTINCT tenant_id, workspace_id FROM memory_idempotency"
+            ).fetchall()
+            deleted = sum(
+                _prune_memory_idempotency_scope(
+                    connection,
+                    tenant=str(row["tenant_id"]),
+                    workspace=str(row["workspace_id"]),
+                )
+                for row in scopes
+            )
+            connection.commit()
+            return deleted
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
 
 def _l22_quota_limits() -> dict[str, int]:
@@ -1241,19 +1530,44 @@ def store_memory_record(
     if not (content or "").strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty")
 
+    content_bytes = len(content.encode("utf-8"))
+    if content_bytes > _bounded_quota_setting(
+        "CORTEX_L22_MAX_CONTENT_BYTES", _L22_MAX_CONTENT_BYTES
+    ):
+        raise HTTPException(status_code=413, detail="memory content exceeds byte limit")
+
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     normalized_idempotency_key = str(idempotency_key or "").strip()
     if idempotency_key is not None and not normalized_idempotency_key:
         raise HTTPException(status_code=422, detail="idempotency_key cannot be blank")
-    if len(normalized_idempotency_key) > 256:
+    if len(normalized_idempotency_key.encode("utf-8")) > 256:
         raise HTTPException(status_code=422, detail="idempotency_key exceeds byte limit")
 
+    resolved_memory_type = str(memory_type or "memory")
+    normalized_tags = list(tags or [])
     raw_metadata = dict(metadata or {})
+    try:
+        if len(resolved_memory_type.encode("utf-8")) > 128:
+            raise ValueError("memory_type exceeds byte limit")
+        _validate_memory_metadata({"tags": normalized_tags})
+        _validate_memory_metadata(raw_metadata)
+        record_metadata = _normalize_memory_metadata(
+            raw_metadata, tenant_id=tenant, workspace_id=workspace
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record_metadata.setdefault("type", resolved_memory_type)
+    if tags:
+        record_metadata.setdefault("tags", normalized_tags)
+    try:
+        _validate_memory_metadata(record_metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     request_hash = sha256(json.dumps(
         {
             "content": content,
-            "memory_type": memory_type or "memory",
-            "tags": list(tags or []),
+            "memory_type": resolved_memory_type,
+            "tags": normalized_tags,
             "metadata": raw_metadata,
         },
         ensure_ascii=False,
@@ -1261,15 +1575,13 @@ def store_memory_record(
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")).hexdigest()
-    try:
-        record_metadata = _normalize_memory_metadata(
-            raw_metadata, tenant_id=tenant, workspace_id=workspace
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    record_metadata.setdefault("type", memory_type or "memory")
-    if tags:
-        record_metadata.setdefault("tags", tags)
+    if normalized_idempotency_key:
+        record_metadata["idempotency_key"] = normalized_idempotency_key
+        record_metadata["idempotency_hash"] = request_hash
+        try:
+            _validate_memory_metadata(record_metadata)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     charge_bytes = _memory_charge_bytes(
         content,
         record_metadata,
@@ -1281,11 +1593,15 @@ def store_memory_record(
             uuid.NAMESPACE_URL,
             f"cortex:l22:{tenant}:{workspace}:{normalized_idempotency_key}",
         ))
-        record_metadata["idempotency_key"] = normalized_idempotency_key
-        record_metadata["idempotency_hash"] = request_hash
         with _STRUCTURED_MEMORY_LOCK:
             connection = _structured_memory_connection()
             try:
+                connection.execute("BEGIN IMMEDIATE")
+                _prune_memory_idempotency_scope(
+                    connection,
+                    tenant=tenant,
+                    workspace=workspace,
+                )
                 prior = connection.execute(
                     "SELECT request_hash, record_json FROM memory_idempotency "
                     "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
@@ -1299,7 +1615,12 @@ def store_memory_record(
                         )
                     replay = json.loads(prior["record_json"])
                     replay["idempotent_replay"] = True
+                    connection.commit()
                     return replay
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
             finally:
                 connection.close()
 
@@ -1383,6 +1704,12 @@ def store_memory_record(
                             datetime.now(timezone.utc).isoformat(),
                         ),
                     )
+                    _prune_memory_idempotency_scope(
+                        connection,
+                        tenant=tenant,
+                        workspace=workspace,
+                        protected_key=normalized_idempotency_key,
+                    )
                     connection.commit()
                 except Exception:
                     connection.rollback()
@@ -1440,14 +1767,28 @@ def lookup_idempotent_memory_record(
 
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     normalized_key = str(idempotency_key or "").strip()
-    if not normalized_key or len(normalized_key) > 256:
+    if not normalized_key or len(normalized_key.encode("utf-8")) > 256:
         return None
     raw_metadata = dict(metadata or {})
+    content_bytes = len(content.encode("utf-8"))
+    if content_bytes > _bounded_quota_setting(
+        "CORTEX_L22_MAX_CONTENT_BYTES", _L22_MAX_CONTENT_BYTES
+    ):
+        raise HTTPException(status_code=413, detail="memory content exceeds byte limit")
+    try:
+        resolved_memory_type = str(memory_type or "memory")
+        normalized_tags = list(tags or [])
+        if len(resolved_memory_type.encode("utf-8")) > 128:
+            raise ValueError("memory_type exceeds byte limit")
+        _validate_memory_metadata({"tags": normalized_tags})
+        _validate_memory_metadata(raw_metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     request_hash = sha256(json.dumps(
         {
             "content": content,
-            "memory_type": memory_type or "memory",
-            "tags": list(tags or []),
+            "memory_type": resolved_memory_type,
+            "tags": normalized_tags,
             "metadata": raw_metadata,
         },
         ensure_ascii=False,
@@ -1462,6 +1803,12 @@ def lookup_idempotent_memory_record(
     with _STRUCTURED_MEMORY_LOCK:
         connection = _structured_memory_connection()
         try:
+            connection.execute("BEGIN IMMEDIATE")
+            _prune_memory_idempotency_scope(
+                connection,
+                tenant=tenant,
+                workspace=workspace,
+            )
             prior = connection.execute(
                 "SELECT request_hash, record_json FROM memory_idempotency "
                 "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
@@ -1475,7 +1822,9 @@ def lookup_idempotent_memory_record(
                     )
                 replay = json.loads(prior["record_json"])
                 replay["idempotent_replay"] = True
+                connection.commit()
                 return replay
+            connection.commit()
             existing = collection.get(ids=[memory_id], include=["metadatas"])
             existing_ids = existing.get("ids") or []
             existing_metas = existing.get("metadatas") or []
@@ -1488,12 +1837,16 @@ def lookup_idempotent_memory_record(
                     status_code=409,
                     detail="deterministic memory id conflicts with another write",
                 )
-            return {
+            result = {
                 "id": memory_id,
                 "status": "stored",
                 "metadata": existing_metadata or {},
                 "idempotent_replay": True,
             }
+            return result
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
@@ -1552,6 +1905,42 @@ class L22NovelSearchRequest(BaseModel):
     scope: Optional[MemoryPrincipalScope] = None
     scope_credential_id: Optional[MemoryScopeId] = None
     scope_signature: Optional[str] = Field(None, max_length=256)
+
+
+_IMPORT_CHROMA_DIR = CHROMA_DIR
+_IMPORT_DEFAULT_TENANT_ID = DEFAULT_TENANT_ID
+_IMPORT_DEFAULT_WORKSPACE_ID = DEFAULT_WORKSPACE_ID
+
+
+def _activate_runtime_configuration() -> None:
+    """Refresh copied Librarian persistence/scope defaults in place."""
+
+    global CHROMA_DIR, DEFAULT_TENANT_ID, DEFAULT_WORKSPACE_ID
+    from cortex_server.routers import librarian
+
+    if CHROMA_DIR == _IMPORT_CHROMA_DIR:
+        CHROMA_DIR = librarian.CHROMA_DIR
+    if DEFAULT_TENANT_ID == _IMPORT_DEFAULT_TENANT_ID:
+        DEFAULT_TENANT_ID = librarian.DEFAULT_TENANT_ID
+    if DEFAULT_WORKSPACE_ID == _IMPORT_DEFAULT_WORKSPACE_ID:
+        DEFAULT_WORKSPACE_ID = librarian.DEFAULT_WORKSPACE_ID
+    for model in (
+        L22StoreRequest,
+        L22SearchRequest,
+        L22NovelStoreRequest,
+        L22NovelSearchRequest,
+    ):
+        defaults_changed = False
+        for field_name, activated_default, import_default in (
+            ("tenant_id", DEFAULT_TENANT_ID, _IMPORT_DEFAULT_TENANT_ID),
+            ("workspace_id", DEFAULT_WORKSPACE_ID, _IMPORT_DEFAULT_WORKSPACE_ID),
+        ):
+            field = model.model_fields[field_name]
+            if field.default == import_default:
+                field.default = activated_default
+                defaults_changed = True
+        if defaults_changed:
+            model.model_rebuild(force=True)
 
 
 def _route_memory_principal(request, http_request: Optional[Request]):
