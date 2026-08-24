@@ -24,12 +24,14 @@ def test_release_envelope_binds_exact_files_modes_and_absence_of_extras(tmp_path
     subprocess.run(["git", "config", "user.name", "q9-test"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.email", "q9-test@example.invalid"], cwd=repo, check=True)
     (repo / "app.txt").write_text("q9\n", encoding="utf-8")
+    os.chmod(repo / "app.txt", 0o644)
     script = repo / "run.sh"
     script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     os.chmod(script, 0o755)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
     (repo / "second.txt").write_text("second\n", encoding="utf-8")
+    os.chmod(repo / "second.txt", 0o644)
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "release"], cwd=repo, check=True)
 
