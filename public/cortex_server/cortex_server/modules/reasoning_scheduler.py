@@ -57,6 +57,14 @@ def _to_iso(value: Optional[datetime]) -> Optional[str]:
 
 
 
+def _next_recurrence_at(*, cadence_seconds: int, from_time: Optional[datetime] = None) -> Optional[str]:
+    cadence = max(0, int(cadence_seconds or 0))
+    if cadence == 0:
+        return None
+    return _to_iso((from_time or _now()) + timedelta(seconds=cadence))
+
+
+
 def _state_path() -> Path:
     return Path(str(DEFAULT_STATE_PATH))
 
@@ -416,11 +424,12 @@ def _refresh_process(process: Dict[str, Any], *, now: Optional[datetime] = None)
         return process
 
     recurrence = process.get("recurrence") if isinstance(process.get("recurrence"), dict) else {}
+    cadence_seconds = max(0, int(recurrence.get("cadence_seconds", 0) or 0))
     next_run_at = _parse_dt(recurrence.get("next_run_at"))
-    if recurrence.get("cadence_seconds") and str(process.get("status") or "") in {"completed", "failed"} and next_run_at and next_run_at <= now_dt:
+    if cadence_seconds > 0 and str(process.get("status") or "") in {"completed", "failed"} and next_run_at and next_run_at <= now_dt:
         _reset_process_run(process, start_at=None)
-        recurrence["next_run_at"] = None
-        recurrence["last_reset_at"] = _now_iso()
+        recurrence["next_run_at"] = _next_recurrence_at(cadence_seconds=cadence_seconds, from_time=now_dt)
+        recurrence["last_reset_at"] = _to_iso(now_dt)
 
     nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
     results_by_node = process.setdefault("results_by_node", {})
@@ -470,12 +479,17 @@ def _refresh_process(process: Dict[str, Any], *, now: Optional[datetime] = None)
 
     process["status"] = _process_status(process)
     process["updated_at"] = _now_iso()
-    if process["status"] in {"completed", "failed"} and not process.get("completed_at"):
-        process["completed_at"] = _now_iso()
+    if process["status"] in {"completed", "failed"}:
+        first_terminal_refresh = not bool(process.get("completed_at"))
+        if first_terminal_refresh:
+            process["completed_at"] = _now_iso()
         recurrence = process.get("recurrence") if isinstance(process.get("recurrence"), dict) else {}
-        cadence_seconds = int(recurrence.get("cadence_seconds", 0) or 0)
-        if cadence_seconds > 0 and bool(process.get("enabled", True)):
-            recurrence["next_run_at"] = _to_iso(now_dt + timedelta(seconds=cadence_seconds))
+        cadence_seconds = max(0, int(recurrence.get("cadence_seconds", 0) or 0))
+        if cadence_seconds > 0 and bool(process.get("enabled", True)) and (
+            first_terminal_refresh or _parse_dt(recurrence.get("next_run_at")) is None
+        ):
+            recurrence["next_run_at"] = _next_recurrence_at(cadence_seconds=cadence_seconds, from_time=now_dt)
+        if first_terminal_refresh and cadence_seconds > 0 and bool(process.get("enabled", True)):
             history = process.setdefault("run_history", [])
             history.append({
                 "completed_at": process.get("completed_at"),
@@ -983,7 +997,12 @@ def resume_process(process_id: str) -> Dict[str, Any]:
         if not isinstance(process, dict):
             raise ReasoningSchedulerError(f"unknown process: {process_id}")
         process["enabled"] = True
-        _refresh_process(process)
+        now_dt = _now()
+        recurrence = process.get("recurrence") if isinstance(process.get("recurrence"), dict) else {}
+        cadence_seconds = max(0, int(recurrence.get("cadence_seconds", 0) or 0))
+        if cadence_seconds > 0 and _parse_dt(recurrence.get("next_run_at")) is None:
+            recurrence["next_run_at"] = _next_recurrence_at(cadence_seconds=cadence_seconds, from_time=now_dt)
+        _refresh_process(process, now=now_dt)
         _append_event(state, process_id, "process_resumed", {})
         _append_event(state, process_id, "session.started", _session_event_payload(process, summary="runtime process resumed"))
         save_state(state)

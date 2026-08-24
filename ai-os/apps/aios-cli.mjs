@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { compileCanonicalAiosSource } from '../packages/aios-language/canonical.mjs';
@@ -179,14 +179,43 @@ const stableJson = (value) => {
 
 const sha256 = (value) => createHash('sha256').update(typeof value === 'string' ? value : stableJson(value)).digest('hex');
 
+const isPathInside = (parent, candidate) => {
+  const child = relative(parent, candidate);
+  return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+};
+
+const nearestExistingAncestor = (candidate) => {
+  let current = candidate;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return current;
+};
+
 const resolveInsideWorkspace = (input, label) => {
   if (!input || typeof input !== 'string') {
     fail(2, 'aios_cli_missing_required_flag', { flag: label });
   }
   const resolved = resolve(process.cwd(), input);
-  const relative = resolved.startsWith(repoRoot + '/') || resolved === repoRoot;
-  const absoluteAllowed = isAbsolute(input) && (resolved.startsWith(repoRoot + '/') || resolved.startsWith('/tmp/'));
-  if (!relative && !absoluteAllowed) {
+  const temporaryRoot = resolve('/tmp');
+  const lexicalRoot = isPathInside(repoRoot, resolved)
+    ? repoRoot
+    : isAbsolute(input) && isPathInside(temporaryRoot, resolved)
+      ? temporaryRoot
+      : null;
+  let canonicalInside = false;
+  if (lexicalRoot) {
+    try {
+      const canonicalRoot = realpathSync(lexicalRoot);
+      const canonicalAncestor = realpathSync(nearestExistingAncestor(resolved));
+      canonicalInside = isPathInside(canonicalRoot, canonicalAncestor);
+    } catch {
+      canonicalInside = false;
+    }
+  }
+  if (!lexicalRoot || !canonicalInside) {
     fail(2, 'aios_cli_path_outside_workspace', { flag: label, value: input });
   }
   return resolved;

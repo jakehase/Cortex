@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
-import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, lifecyclePersistenceKey, reconcileResults } from './index.ts';
+import plugin, { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, canonicalChannelIdentity, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, extractLatestAssistantVisibleText, extractLlmOutputText, lifecyclePersistenceKey, reconcileResults } from './index.ts';
 
 const RUNTIME_ENVIRONMENT_KEYS = ['OPENCLAW_ENV', 'CORTEX_ENV', 'NODE_ENV'];
 const withRuntimeEnvironment = async (values, callback) => {
@@ -41,12 +41,50 @@ const lifecycleContext = (sessionKey, overrides = {}) => ({
   agentId: 'main',
   ...overrides,
 });
+const liveMetadataConfig = {
+  writeTags: ['durable-memory', 'auto-curated'],
+  tenantId: 'tenant-test',
+  workspaceId: 'workspace-test',
+  agentId: 'main',
+  userId: 'local-user',
+  channelId: 'whatsapp',
+  sessionIdentityHmacSecret: 'metadata-session-secret',
+};
+const profitTournamentCorrection = `[Cortex] On July 21, you authorized the separate Profit Tournament Market Stripe account. We later verified that charges and payouts were enabled. I confused missing Hetzner credentials with a missing account and was wrong. The durable project record is corrected. Install the restricted API key and webhook secret through the secure deployment path; creating another account is not required.`;
+const websiteDesignCompletion = `Good progress—the mechanical foundation is complete and saved. Commit: 5a6a85817. 37 files changed; remote worktree is clean. Focused tests: 32/32 passed. Validation, replay, freeze, report, schema parsing, and safety scans passed. Not pushed or deployed; no PMHNP production changes. Honest capability status remains implemented, unqualified: there are still no live verified exemplars, promoted real-world lessons, or held-out assessments. Next phase: build the verified design corpus, promote evidence-backed lessons, then run blinded baseline-versus-treatment assessments.`;
+const TEST_MEMORY_ID = 'test-memory-id';
+const TEST_RECEIPT_ID = 'test-receipt-id';
 const successfulCommitResponse = () => new Response(JSON.stringify({
   success: true,
   receipt: 'test-assurance-receipt',
   committed: true,
-  durable_write: { status: 'stored' },
-  assurance: { memory_commit: { eligible: true } },
+  durable_write: { status: 'stored', id: TEST_MEMORY_ID },
+  assurance: {
+    memory_commit: { eligible: true },
+    receipt: { id: TEST_RECEIPT_ID },
+  },
+  acknowledgement: {
+    version: 'nexus.memory-commit-ack.v1',
+    status: 'committed',
+    receipt_id: TEST_RECEIPT_ID,
+    memory_id: TEST_MEMORY_ID,
+    retrieval: { path: '/knowledge/search', identifier_field: 'id' },
+  },
+  results: [{ id: TEST_MEMORY_ID, text: 'retrieved exact committed record' }],
+}));
+const successfulRetrievalResponse = () => new Response(JSON.stringify({
+  success: true,
+  results: [{ id: TEST_MEMORY_ID, text: 'retrieved exact committed record' }],
+}));
+const successfulCodecResponse = (body = {}) => new Response(JSON.stringify({
+  success: true,
+  acknowledgement: {
+    version: 'nexus.codec-write-ack.v1',
+    status: 'accepted',
+    session_key: body.session_key,
+    event_count: Array.isArray(body.events) ? body.events.length : 0,
+    state_fingerprint: 'test-codec-state-fingerprint',
+  },
 }));
 const lifecycleSpoolFiles = (stateDir) => {
   const root = path.join(stateDir, 'lifecycle-principals-v2');
@@ -278,9 +316,10 @@ test('minimal production configuration signs memory_search and default-on agent_
       headers: new Headers(options?.headers),
       body: JSON.parse(String(options?.body || '{}')),
     });
-    return String(url).endsWith('/knowledge/search')
-      ? new Response('{"results":[],"search_mode":"semantic"}')
-      : new Response('{"success":true}');
+    if (String(url).endsWith('/knowledge/search')) {
+      return new Response('{"results":[],"search_mode":"semantic"}');
+    }
+    return successfulCodecResponse(JSON.parse(String(options?.body || '{}')));
   };
   try {
     plugin.register({
@@ -332,7 +371,7 @@ test('lifecycle writes and memory_search recall remain isolated across trusted i
     if (String(url).endsWith('/nexus/codec/events')) {
       codecScopes.push(body.scope);
       recordsByScope.set(scopeKey, body.events[0].text);
-      return new Response('{"success":true}');
+      return successfulCodecResponse(body);
     }
     if (String(url).endsWith('/knowledge/search')) {
       searchScopes.push(body.scope);
@@ -445,7 +484,7 @@ test('lifecycle hooks require a trusted session and use only configured fixed-pr
       messages: [{ role: 'user', content: 'Remember the supported lifecycle callback contract.' }],
     }, context);
 
-    assert.deepEqual(requests.map(({ path: requestPath }) => requestPath), ['/nexus/assurance/receipt', '/nexus/commit']);
+    assert.deepEqual(requests.map(({ path: requestPath }) => requestPath), ['/nexus/assurance/receipt', '/nexus/commit', '/knowledge/search']);
     const commit = requests[1];
     assert.equal(commit.body.metadata.scope.agent_id, 'configured-agent');
     assert.equal(commit.body.metadata.scope.user_id, 'configured-user');
@@ -579,11 +618,12 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
   globalThis.fetch = async (url, options) => {
     const request = { url: String(url), headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) };
     requests.push(request);
-    return request.url.endsWith('/nexus/assurance/receipt')
-      ? new Response('{"success":true,"receipt":"test-assurance-receipt"}')
-      : request.url.endsWith('/nexus/commit')
-        ? successfulCommitResponse()
-        : new Response('{"success":true}');
+    if (request.url.endsWith('/nexus/assurance/receipt')) {
+      return new Response('{"success":true,"receipt":"test-assurance-receipt"}');
+    }
+    if (request.url.endsWith('/nexus/commit')) return successfulCommitResponse();
+    if (request.url.endsWith('/knowledge/search')) return successfulRetrievalResponse();
+    return successfulCodecResponse(request.body);
   };
   try {
     plugin.register({
@@ -611,7 +651,7 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
       messages: [{ role: 'user', content: 'Remember the verified deployment decision.' }],
     }, context);
 
-    assert.deepEqual(requests.map(({ url }) => new URL(url).pathname), ['/nexus/assurance/receipt', '/nexus/commit', '/nexus/codec/events']);
+    assert.deepEqual(requests.map(({ url }) => new URL(url).pathname), ['/nexus/assurance/receipt', '/nexus/commit', '/knowledge/search', '/nexus/codec/events']);
     const commit = requests[1];
     assert.equal(commit.body.query, 'Remember the verified deployment decision.');
     assert.match(commit.body.response, /default mode durable lifecycle output/);
@@ -628,11 +668,123 @@ test('opted-in lifecycle mode uses Nexus assurance receipt, commit, and Codec co
     });
     assert.equal(commit.body.assurance_receipt, 'test-assurance-receipt');
     assert.match(commit.headers.get('x-cortex-scope-signature'), /^[0-9a-f]{64}$/);
-    assert.equal(requests[2].body.tenant_id, 'tenant-default');
-    assert.equal(requests[2].body.workspace_id, 'workspace-default');
-    assert.equal(requests[2].body.scope_credential_id, 'bridge-default');
-    assert.equal(requests[2].body.session_key, commit.body.metadata.scope.session_id);
-    assert.match(requests[2].body.scope_signature, /^[0-9a-f]{64}$/);
+    assert.equal(requests[3].body.tenant_id, 'tenant-default');
+    assert.equal(requests[3].body.workspace_id, 'workspace-default');
+    assert.equal(requests[3].body.scope_credential_id, 'bridge-default');
+    assert.equal(requests[3].body.session_key, commit.body.metadata.scope.session_id);
+    assert.equal(requests[3].body.acknowledgement_only, true);
+    assert.match(requests[3].body.scope_signature, /^[0-9a-f]{64}$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('canonical HTTP 422 assurance ineligibility is a terminal skip with no retained spool', async () => {
+  const handlers = new Map();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-ineligible-'));
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return new Response(
+      JSON.stringify({ detail: { error: 'interaction_not_eligible_for_commit' } }),
+      { status: 422 },
+    );
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: true, enabledCodecContinuity: false, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    const context = lifecycleContext('ineligible-session');
+    handlers.get('llm_output')({ content: 'candidate correctly rejected by canonical assurance policy' }, context);
+    await handlers.get('agent_end')({}, context);
+
+    assert.equal(requests, 1);
+    assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('bare Codec success without a session-bound acknowledgement retains output for retry', async () => {
+  const handlers = new Map();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-codec-ack-'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"success":true}');
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: false, enabledCodecContinuity: true, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    const context = lifecycleContext('codec-ack-session');
+    handlers.get('llm_output')({ content: 'durable Codec continuity output requiring a bound acknowledgement' }, context);
+
+    await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
+    assert.equal(lifecycleSpoolFiles(stateDir).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Codec continuity never sends short concrete credential values', async () => {
+  const handlers = new Map();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-codec-secret-'));
+  const originalFetch = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = async () => {
+    fetched = true;
+    return new Response('{"success":true}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: false, enabledCodecContinuity: true, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    const context = lifecycleContext('codec-secret-session');
+    handlers.get('llm_output')({ content: 'Production password is abc123 and must be rotated immediately.' }, context);
+    await handlers.get('agent_end')({}, context);
+
+    assert.equal(fetched, false);
+    assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('memory commit acknowledgement requires exact read-after-write retrieval', async () => {
+  const handlers = new Map();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-retrieval-ack-'));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/nexus/assurance/receipt')) {
+      return new Response('{"success":true,"receipt":"test-assurance-receipt"}');
+    }
+    if (String(url).endsWith('/nexus/commit')) return successfulCommitResponse();
+    return new Response('{"success":true,"results":[]}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, enabledWriteThrough: true, enabledCodecContinuity: false, minDurabilityScore: 0, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on(name, handler) { handlers.set(name, handler); },
+      registerMemoryRuntime() {},
+      registerTool() {},
+    });
+    const context = lifecycleContext('retrieval-ack-session');
+    handlers.get('llm_output')({ content: 'durable memory output requiring exact retrieval confirmation' }, context);
+
+    await assert.rejects(() => handlers.get('agent_end')({}, context), /output retained for retry/);
+    assert.equal(lifecycleSpoolFiles(stateDir).length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -681,6 +833,7 @@ test('write-through requests a new receipt only after Nexus proves expiry withou
       receiptRequests += 1;
       return new Response(JSON.stringify({ success: true, receipt: `server-receipt-${receiptRequests}` }));
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     const body = JSON.parse(String(options?.body || '{}'));
     commits.push(body);
     if (body.assurance_receipt === 'server-receipt-1') {
@@ -762,6 +915,7 @@ test('failed lifecycle writes retain metadata only and retry after a trusted cal
       receiptRequests += 1;
       return successfulCommitResponse();
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push({ headers: new Headers(options?.headers), body: JSON.parse(String(options?.body || '{}')) });
     return acceptCommit
       ? successfulCommitResponse()
@@ -885,12 +1039,19 @@ test('separate processes reuse the retained receipt after a durable commit respo
     const handlers = new Map();
     globalThis.fetch = async (url, options) => {
       if (String(url).endsWith('/nexus/assurance/receipt')) throw new Error('restart minted a second receipt');
+      if (String(url).endsWith('/knowledge/search')) {
+        return new Response(JSON.stringify({ success: true, results: [{ id: 'response-loss-memory' }] }));
+      }
       const request = JSON.parse(String(options?.body || '{}'));
       const committed = JSON.parse(fs.readFileSync(${JSON.stringify(durableServerState)}, 'utf8'));
       if (request.assurance_receipt !== committed.assurance_receipt) throw new Error('restart changed the durable receipt identity');
       return new Response(JSON.stringify({
-        success: true, committed: true, durable_write: { status: 'stored' },
-        assurance: { memory_commit: { eligible: true } },
+        success: true, committed: true, durable_write: { status: 'stored', id: 'response-loss-memory' },
+        assurance: { memory_commit: { eligible: true }, receipt: { id: 'response-loss-receipt-id' } },
+        acknowledgement: {
+          version: 'nexus.memory-commit-ack.v1', status: 'committed',
+          receipt_id: 'response-loss-receipt-id', memory_id: 'response-loss-memory',
+        },
       }));
     };
     plugin.register({
@@ -1138,6 +1299,7 @@ test('recent output, dedupe, and server receipts isolate colliding raw sessions 
     if (String(url).endsWith('/nexus/assurance/receipt')) {
       return new Response(JSON.stringify({ success: true, receipt: `scope-receipt-${requests.length}` }));
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -1178,6 +1340,7 @@ test('principal namespaces preserve the global durable spool bound', async () =>
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     return new Response(JSON.stringify({ success: false, committed: false, durable_write: { status: 'write_failed' } }));
   };
@@ -1359,6 +1522,7 @@ test('agent_end eagerly deletes recent output lifecycle state', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -1393,6 +1557,7 @@ test('failed subagent persistence is retried by agent_end with the same server r
       receiptRequests += 1;
       return successfulCommitResponse();
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(body);
     if (requests.length === 1) throw new Error('transient write failure');
     return successfulCommitResponse();
@@ -1430,6 +1595,7 @@ test('lifecycle writes distinguish bounded outputs that share a long suffix', as
       receiptNumber += 1;
       return new Response(JSON.stringify({ success: true, receipt: `bounded-receipt-${receiptNumber}` }));
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -1463,6 +1629,7 @@ test('concurrent lifecycle hooks coalesce into one persistence write', async () 
   const blocked = new Promise((resolve) => { release = resolve; });
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
     return successfulCommitResponse();
@@ -1499,6 +1666,7 @@ test('distinct lifecycle runs persist identical output in the same session', asy
       receiptNumber += 1;
       return new Response(JSON.stringify({ success: true, receipt: `run-receipt-${receiptNumber}` }));
     }
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     return successfulCommitResponse();
   };
@@ -1532,6 +1700,7 @@ test('concurrent hooks with the same lifecycle run coalesce despite differing ou
   const blocked = new Promise((resolve) => { release = resolve; });
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
     return successfulCommitResponse();
@@ -1572,6 +1741,7 @@ test('recent outputs are truncated before caching, keying, and concurrent persis
   const blocked = new Promise((resolve) => { release = resolve; });
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await blocked;
     return successfulCommitResponse();
@@ -1616,6 +1786,7 @@ test('lifecycle persistence applies bounded backpressure and drains queued outpu
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     if (String(url).endsWith('/nexus/assurance/receipt')) return successfulCommitResponse();
+    if (String(url).endsWith('/knowledge/search')) return successfulRetrievalResponse();
     requests.push(JSON.parse(String(options?.body || '{}')));
     await new Promise((resolve) => { releases.push(resolve); });
     return successfulCommitResponse();
@@ -2021,4 +2192,157 @@ test('explicit supersession is hidden for current queries and retained for histo
   assert.deepEqual(current.results.map((row) => row.citation), ['cortex:new']);
   const history = reconcileResults('Show historical superseded Agent Work dogfood memory', rows, cfg);
   assert.ok(history.results.some((row) => row.citation === 'cortex:old'));
+});
+
+test('canonical Cortex channel scope uses the logical transport instead of a raw WhatsApp address', () => {
+  const cfg = { channelId: 'whatsapp' };
+  assert.equal(
+    canonicalChannelIdentity(cfg, { messageChannel: 'whatsapp', channelId: '+15551234567' }),
+    'whatsapp',
+  );
+  assert.equal(canonicalChannelIdentity(cfg, { channelId: '+15551234567' }), 'whatsapp');
+});
+
+test('current OpenClaw assistant content shape extracts visible text and skips thinking', () => {
+  const messages = [
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: 'older answer' }] },
+    { role: 'user', content: [{ type: 'text', text: 'follow-up' }] },
+    { role: 'assistant', content: [{ type: 'thinking', thinking: 'internal', thinkingSignature: 'sig' }, { type: 'text', text: profitTournamentCorrection }] },
+  ];
+  assert.equal(extractLatestAssistantVisibleText(messages), profitTournamentCorrection);
+});
+
+test('llm_output falls back to lastAssistant when assistantTexts is empty', () => {
+  const event = {
+    assistantTexts: [],
+    lastAssistant: { role: 'assistant', content: [{ type: 'text', text: profitTournamentCorrection }] },
+  };
+  assert.equal(extractLlmOutputText(event), profitTournamentCorrection);
+});
+
+test('safe discussion of credential installation is durable but concrete secret values are blocked', () => {
+  const safe = durabilityScore(profitTournamentCorrection);
+  assert.ok(safe.score >= 0.64, `expected safe correction >= 0.64, got ${safe.score}`);
+  assert.ok(!safe.reasons.includes('secret_like'));
+
+  const unsafe = durabilityScore('Profit Tournament API key=sk_live_ABC123456789 was configured and verified.');
+  assert.equal(unsafe.score, 0);
+  assert.ok(unsafe.reasons.includes('secret_like'));
+
+  for (const text of [
+    'Production token abcdefghijklmnop was configured and verified.',
+    'The api key abcdefghijklmnop was installed for deployment.',
+    'The api key is abcdefghijklmnop and must be rotated.',
+    'The password hunterhunter was accepted by the service.',
+    'The password is hunter2abc and must be changed.',
+    'The password is hunter2 and must be changed.',
+    'The password is abc123 and must be changed.',
+    'The token is abcdefg and must be revoked.',
+    'The API key is abcdefg and must be revoked.',
+    'OPENAI_API_KEY=sk-proj-abcdefghijklmnop is active.',
+    'Bearer abcdefghijklmnop was sent to the provider.',
+    'JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signature1234 was observed.',
+  ]) {
+    const result = durabilityScore(text);
+    assert.equal(result.score, 0, `expected credential-like text to be blocked: ${text}`);
+    assert.ok(result.reasons.includes('secret_like'));
+  }
+});
+
+test('zero, partial, and clause-locally negated completion evidence never becomes durable success', () => {
+  for (const text of [
+    'The work is complete and committed. Focused tests: 0/32 passed. The worktree is clean.',
+    'The work is complete and committed. Focused tests: 1/32 passed. The worktree is clean.',
+    'The work is not yet complete. Focused tests: 32/32 passed. The worktree is clean.',
+    'The work was committed but not successfully tested. The worktree is clean. Remaining work is deployment.',
+  ]) {
+    const result = durabilityScore(text);
+    assert.notEqual(result.kind, 'completion_state', text);
+    assert.ok(!result.reasons.includes('durable_completion_checkpoint'), text);
+  }
+});
+
+test('generic committed, tested, clean checkpoints with remaining-work boundaries are durable', () => {
+  const text = 'Changes were committed and tested successfully. The remote worktree is clean. Remaining work: deploy after review.';
+  const dur = durabilityScore(text);
+  const metadata = buildWriteThroughMetadata(
+    liveMetadataConfig,
+    { channelId: 'whatsapp', sessionKey: 'generic-completion', agentId: 'main', userId: 'local-user' },
+    text,
+    dur,
+  );
+
+  assert.equal(dur.kind, 'completion_state');
+  assert.ok(dur.score >= 0.64, `expected generic checkpoint >= 0.64, got ${dur.score}`);
+  assert.ok(dur.reasons.includes('durable_completion_checkpoint'));
+  assert.ok(dur.reasons.includes('remaining_work_boundary'));
+  assert.equal(metadata.source, 'openclaw-completion-candidate');
+  assert.equal(metadata.project, undefined);
+  assert.equal(metadata.fact_key, undefined);
+
+  const negated = durabilityScore('No changes were committed. Focused tests passed, and the worktree is clean. Remaining work: implement the checkpoint.');
+  assert.ok(negated.score < 0.64, `expected negated commit boundary below threshold, got ${negated.score}`);
+  assert.ok(!negated.reasons.includes('durable_completion_checkpoint'));
+});
+
+test('sanitized website completion is durable and a negated PMHNP boundary is not a project assignment', () => {
+  const dur = durabilityScore(websiteDesignCompletion);
+  const metadata = buildWriteThroughMetadata(
+    liveMetadataConfig,
+    { channelId: 'whatsapp', sessionKey: 'website-completion', agentId: 'main', userId: 'local-user' },
+    websiteDesignCompletion,
+    dur,
+  );
+
+  assert.equal(dur.kind, 'completion_state');
+  assert.ok(dur.score >= 0.72, `expected sanitized completion >= 0.72, got ${dur.score}`);
+  assert.ok(dur.reasons.includes('deployment_boundary'));
+  assert.equal(metadata.project, undefined);
+  assert.ok(!metadata.tags.includes('pmhnp-claim-guard'));
+
+  for (const negativeBoundary of [
+    'No PMHNP production changes were made during this run.',
+    'No production changes were made to PMHNP during this run.',
+    'This work does not affect PMHNP production.',
+    'PMHNP was not changed by this checkpoint.',
+    'PMHNP had no changes during this checkpoint.',
+  ]) {
+    const negativeMetadata = buildWriteThroughMetadata(
+      liveMetadataConfig,
+      { channelId: 'whatsapp', sessionKey: 'pmhnp-negative', agentId: 'main', userId: 'local-user' },
+      negativeBoundary,
+      durabilityScore(negativeBoundary),
+    );
+    assert.equal(negativeMetadata.project, undefined, negativeBoundary);
+  }
+
+  const affirmedText = 'The PMHNP claim guard project setup is the active architecture for this checkpoint.';
+  const affirmedMetadata = buildWriteThroughMetadata(
+    liveMetadataConfig,
+    { channelId: 'whatsapp', sessionKey: 'pmhnp-positive', agentId: 'main', userId: 'local-user' },
+    affirmedText,
+    durabilityScore(affirmedText),
+  );
+  assert.equal(affirmedMetadata.project, 'pmhnp-claim-guard');
+});
+
+test('Learning OS and website-design aliases produce useful project metadata', () => {
+  const websiteText = 'The professional website-design learning checkpoint is complete. Changes were committed, focused tests passed, and the worktree is clean.';
+  const websiteMetadata = buildWriteThroughMetadata(
+    liveMetadataConfig,
+    { channelId: 'whatsapp', sessionKey: 'website-learning', agentId: 'main', userId: 'local-user' },
+    websiteText,
+    durabilityScore(websiteText),
+  );
+  assert.equal(websiteMetadata.project, 'learning-os-website-design');
+  assert.ok(websiteMetadata.tags.includes('learning-os-website-design'));
+
+  const learningOsText = 'The Cortex Learning OS architecture is the durable project setup for lesson promotion.';
+  const learningOsMetadata = buildWriteThroughMetadata(
+    liveMetadataConfig,
+    { channelId: 'whatsapp', sessionKey: 'learning-os', agentId: 'main', userId: 'local-user' },
+    learningOsText,
+    durabilityScore(learningOsText),
+  );
+  assert.equal(learningOsMetadata.project, 'cortex-learning-os');
 });

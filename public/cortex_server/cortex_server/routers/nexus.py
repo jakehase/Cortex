@@ -291,7 +291,8 @@ CODEC_EVAL_MIN_VARIANTS = int(construction_config("CODEC_EVAL_MIN_VARIANTS", "3"
 CODEC_EVAL_MIN_ORACLE_COVERAGE = float(construction_config("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
 CODEC_REPLAY_SCHEDULER_ENABLED = str(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0")).lower() not in {"0", "false", "no", "off"}
 CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
-_CODEC_WRITE_ACK_VERSION = "cortex.codec.write-ack.v1"
+_MEMORY_COMMIT_ACK_VERSION = "nexus.memory-commit-ack.v1"
+_CODEC_WRITE_ACK_VERSION = "nexus.codec-write-ack.v1"
 
 # Canonical level definitions; display identity and always-on policy are never
 # maintained separately from the registry.
@@ -8804,6 +8805,17 @@ async def commit_memory(interaction: InteractionData, request: Request):
     commit_result = {
         "success": bool(memory_decision.get("eligible")) and durable_write and durable_write.get("status") == "stored",
         "committed": bool(durable_write and durable_write.get("status") == "stored"),
+        "acknowledgement": {
+            "version": _MEMORY_COMMIT_ACK_VERSION,
+            "status": "committed" if durable_status == "stored" else "not_committed",
+            "receipt_id": signed_receipt_jti,
+            "memory_id": (durable_write or {}).get("id"),
+            "idempotent_replay": bool((durable_write or {}).get("idempotent_replay")),
+            "retrieval": {
+                "path": "/knowledge/search",
+                "identifier_field": "id",
+            },
+        },
         "levels": [7, 22],
         "query_preview": interaction.query[:50] if interaction.query else "",
         "durable_write": durable_write,

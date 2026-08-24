@@ -104,6 +104,14 @@ def _app(monkeypatch, recorder, *, committed_records=None):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
+
+    @app.post("/knowledge/search")
+    async def search_committed_test_records():
+        return {
+            "success": True,
+            "results": [dict(result) for _request, result in committed.values()],
+        }
+
     return app
 
 
@@ -340,6 +348,15 @@ async def test_commit_writes_to_l22_when_assurance_allows(
     assert body["committed"] is True
     assert body["durable_write"]["status"] == "stored"
     assert body["assurance"]["memory_commit"]["eligible"] is True
+    acknowledgement = body["acknowledgement"]
+    assert acknowledgement["version"] == "nexus.memory-commit-ack.v1"
+    assert acknowledgement["status"] == "committed"
+    assert acknowledgement["memory_id"] == body["durable_write"]["id"] == "mem-123"
+    assert acknowledgement["receipt_id"] == body["assurance"]["receipt"]["id"]
+    assert acknowledgement["retrieval"] == {
+        "path": "/knowledge/search",
+        "identifier_field": "id",
+    }
     assert replay.status_code == 200
     assert replay.json() == body
     assert len(recorder.calls) == 1
@@ -1217,6 +1234,7 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
     assert wrapped.dropped is True
     assert wrapped.request_paths.count("/nexus/assurance/receipt") == 1
     assert wrapped.request_paths.count("/nexus/commit") == 2
+    assert wrapped.request_paths.count("/knowledge/search") == 1
     assert len(recorder.calls) == 1
 
 

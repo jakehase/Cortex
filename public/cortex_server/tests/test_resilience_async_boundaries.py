@@ -1,6 +1,5 @@
 import asyncio
 import json
-import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -266,13 +265,13 @@ async def test_queue_dependency_failure_is_never_reported_online(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_oracle_status_offloads_subprocess_and_http_probes(monkeypatch):
+async def test_oracle_status_offloads_http_probes_without_starting_provider_cli(
+    monkeypatch,
+):
     calls = []
 
-    def slow_run(*args, **kwargs):
-        calls.append("openclaw")
-        time.sleep(0.06)
-        return subprocess.CompletedProcess(args[0], 0)
+    def forbidden_run(*_args, **_kwargs):
+        raise AssertionError("readiness must not start OpenClaw")
 
     class Response:
         status_code = 200
@@ -289,8 +288,10 @@ async def test_oracle_status_offloads_subprocess_and_http_probes(monkeypatch):
         time.sleep(0.06)
         return Response()
 
-    monkeypatch.setattr(oracle.subprocess, "run", slow_run)
+    monkeypatch.setattr(oracle.subprocess, "run", forbidden_run)
     monkeypatch.setattr(oracle.requests, "get", slow_get)
+    monkeypatch.setattr(oracle.shutil, "which", lambda _value: "/opt/bin/openclaw")
+    monkeypatch.setattr(oracle.os, "access", lambda *_args: True)
     monkeypatch.setattr(oracle, "OLLAMA_ENABLED", True)
     monkeypatch.setattr(
         oracle,
@@ -308,10 +309,43 @@ async def test_oracle_status_offloads_subprocess_and_http_probes(monkeypatch):
     assert not probe.done()
     result = await probe
 
-    assert result["openclaw_ok"] is True
+    assert result["openclaw_ok"] is False
+    assert result["openclaw_ready"] is True
+    assert result["openclaw_provider_verified"] is False
     assert result["bridge_ok"] is True
     assert result["models"] == ["bounded-model"]
-    assert len(calls) == 3
+    assert len(calls) == 2
+    assert result["openclaw_executable"]["check"] == "path_lookup_only"
+    assert result["openclaw_executable"]["providerCallMade"] is False
+
+
+@pytest.mark.asyncio
+async def test_oracle_path_only_readiness_never_claims_backend_health(monkeypatch):
+    monkeypatch.setattr(oracle.shutil, "which", lambda _value: "/opt/bin/openclaw")
+    monkeypatch.setattr(oracle.os, "access", lambda *_args: True)
+    monkeypatch.setattr(oracle, "OLLAMA_ENABLED", False)
+    monkeypatch.setattr(
+        oracle,
+        "load_config",
+        lambda: {"runtime": {"base_model": "configured-model"}},
+    )
+    monkeypatch.setattr(
+        oracle,
+        "_probe_bridge_status",
+        lambda: {"ok": False, "error": "bridge unavailable"},
+    )
+    monkeypatch.setattr(
+        oracle.cortex_kernel_v2,
+        "performance_snapshot",
+        lambda **kwargs: {},
+    )
+
+    result = await oracle.oracle_status()
+
+    assert result["status"] == "degraded"
+    assert result["openclaw_ready"] is True
+    assert result["openclaw_ok"] is False
+    assert result["openclaw_provider_verified"] is False
 
 
 class _FakeScheduler:

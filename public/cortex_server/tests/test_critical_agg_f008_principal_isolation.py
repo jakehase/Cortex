@@ -180,6 +180,12 @@ def test_codec_read_and_write_keys_are_server_derived_and_distinct(monkeypatch):
         },
     )
     assert write_a.status_code == 200
+    write_ack = write_a.json()["acknowledgement"]
+    assert write_ack["version"] == "nexus.codec-write-ack.v1"
+    assert write_ack["status"] == "accepted"
+    assert write_ack["session_key"] == reads[0][0]
+    assert write_ack["event_count"] == 1
+    assert write_ack["state_fingerprint"]
     assert writes[0][0] == reads[0][0]
     assert writes[0][1][0]["metadata"]["memory_principal_key"].startswith("principal:")
     assert writes[0][2]["tenant_id"] == _SCOPE_A["tenant_id"]

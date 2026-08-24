@@ -4,9 +4,10 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, Tuple, Any, Dict, List
 import asyncio
-import requests, httpx, os, re, json, subprocess, threading, hashlib, hmac, random, time, concurrent.futures, ast, operator
+import requests, httpx, os, re, json, subprocess, threading, hashlib, hmac, random, time, concurrent.futures, ast, operator, shutil, stat
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 from cortex_server.modules.alive_cortex import get_alive_mode
 from cortex_server.modules.codec_policy import get_codec_backend_policy, get_codec_policy_for_query, get_codec_routing_priors, infer_served_variant, observe_codec_outcome, observe_passive_codec_feedback, register_codec_session_turn
@@ -39,6 +40,11 @@ BRIDGE_MODEL_LABEL = "gpt-5.3-codex-via-openclaw-bridge"
 OPENCLAW_MODEL_LABEL = "(dynamic)"
 OPENCLAW_BIN = os.getenv("OPENCLAW_BIN", "openclaw").strip() or "openclaw"
 ORACLE_OPENCLAW_AGENT = os.getenv("ORACLE_OPENCLAW_AGENT", "oracle").strip() or "oracle"
+OPENCLAW_CONFIG_PATH = Path(
+    os.getenv("ORACLE_OPENCLAW_CONFIG_PATH", "~/.openclaw/openclaw.json")
+).expanduser()
+_OPENCLAW_CONFIG_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
+_OPENCLAW_CONFIG_HARD_MAX_BYTES = 8 * 1024 * 1024
 
 # OpenClaw local invoke thinking level (keep low-latency by default).
 ORACLE_OPENCLAW_THINKING = os.getenv("ORACLE_OPENCLAW_THINKING", "off").strip().lower() or "off"
@@ -80,15 +86,167 @@ ORACLE_HEDGE_DELAY_ULTRA_S = float(os.getenv("ORACLE_HEDGE_DELAY_ULTRA_S", "1.2"
 # Bridge request timeout budget (keep bounded for failover responsiveness).
 ORACLE_BRIDGE_TIMEOUT_S = float(os.getenv("ORACLE_BRIDGE_TIMEOUT_S", "12"))
 
-def _get_base_model() -> str:
+def _openclaw_config_max_bytes() -> int:
+    raw = os.getenv(
+        "ORACLE_OPENCLAW_CONFIG_MAX_BYTES",
+        str(_OPENCLAW_CONFIG_DEFAULT_MAX_BYTES),
+    ).strip()
+    if not raw.isdecimal():
+        return _OPENCLAW_CONFIG_DEFAULT_MAX_BYTES
+    return max(4096, min(int(raw), _OPENCLAW_CONFIG_HARD_MAX_BYTES))
+
+
+def _model_name(value: Any) -> str:
+    """Return only a configured model identifier, never a config blob."""
+
+    candidates = [value] if isinstance(value, str) else []
+    if isinstance(value, dict):
+        candidates.extend(value.get(key) for key in ("primary", "model", "id", "name"))
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        normalized = candidate.strip()
+        if normalized and "\x00" not in normalized and len(normalized.encode("utf-8")) <= 512:
+            return normalized
+    return ""
+
+
+def _read_openclaw_config(path: Path) -> Dict[str, Any]:
+    """Read one bounded, stable, regular config snapshot without following links."""
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("config_not_regular_file")
+        limit = _openclaw_config_max_bytes()
+        if before.st_size > limit:
+            raise ValueError("config_too_large")
+        chunks = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, min(64 * 1024, limit + 1 - total))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > limit:
+                raise ValueError("config_too_large")
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+        if (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        ) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ):
+            raise ValueError("config_changed_during_read")
+        decoded = json.loads(b"".join(chunks).decode("utf-8"))
+        if not isinstance(decoded, dict):
+            raise ValueError("config_invalid")
+        return decoded
+    finally:
+        os.close(descriptor)
+
+
+def _resolve_openclaw_model_identity(
+    config_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Resolve the configured Oracle model without invoking a provider."""
+
+    explicit = _model_name(os.getenv("ORACLE_OPENCLAW_MODEL", ""))
+    if explicit:
+        return {
+            "configured": True,
+            "model": explicit,
+            "source": "env:ORACLE_OPENCLAW_MODEL",
+            "error": None,
+        }
+
+    path = Path(config_path or OPENCLAW_CONFIG_PATH).expanduser()
+    config_error = None
+    try:
+        cfg = _read_openclaw_config(path)
+        agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+        entries = agents.get("list") if isinstance(agents.get("list"), list) else []
+        for entry in entries[:1024]:
+            if not isinstance(entry, dict) or str(entry.get("id") or "").strip() != "oracle":
+                continue
+            model = _model_name(entry.get("model"))
+            if model:
+                return {
+                    "configured": True,
+                    "model": model,
+                    "source": "openclaw_config:agents.list[oracle].model",
+                    "error": None,
+                }
+        defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
+        model = _model_name(defaults.get("model"))
+        if model:
+            return {
+                "configured": True,
+                "model": model,
+                "source": "openclaw_config:agents.defaults.model",
+                "error": None,
+            }
+    except FileNotFoundError:
+        config_error = "config_not_found"
+    except PermissionError:
+        config_error = "config_not_readable"
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        code = str(exc)
+        config_error = code if code.startswith("config_") else "config_invalid"
+
     try:
         cfg = load_config() or {}
-        return (cfg.get('runtime') or {}).get('base_model') or 'unknown'
+        runtime = cfg.get("runtime") if isinstance(cfg, dict) else {}
+        model = _model_name(
+            runtime.get("base_model") if isinstance(runtime, dict) else None
+        )
+        if model:
+            return {
+                "configured": True,
+                "model": model,
+                "source": "cortex_config:runtime.base_model",
+                "error": config_error,
+            }
     except Exception:
-        return 'unknown'
+        pass
+    return {
+        "configured": False,
+        "model": None,
+        "source": "unconfigured",
+        "error": config_error or "model_not_configured",
+    }
+
+
+def _openclaw_executable_readiness() -> Dict[str, Any]:
+    """Check executable presence without starting the historically hanging CLI."""
+
+    resolved = shutil.which(OPENCLAW_BIN)
+    executable = bool(resolved and os.access(resolved, os.X_OK))
+    return {
+        "configuredBin": OPENCLAW_BIN,
+        "resolvedPath": resolved,
+        "available": executable,
+        "check": "path_lookup_only",
+        "providerCallMade": False,
+    }
+
+
+def _get_base_model() -> str:
+    identity = _resolve_openclaw_model_identity()
+    return str(identity.get("model") or "unconfigured")
+
 
 def _openclaw_model_label() -> str:
-    return f"{_get_base_model()} (base_model via Cortex config)"
+    identity = _resolve_openclaw_model_identity()
+    return f"{identity.get('model') or 'unconfigured'} ({identity.get('source')})"
 
 
 def _oracle_emergency_bypass_enabled() -> bool:
@@ -4065,12 +4223,23 @@ async def oracle_forecast_resolve(payload: ForecastResolveRequest):
 
 
 def _probe_openclaw_status() -> Dict[str, Any]:
-    try:
-        executable, _agent = _openclaw_command_contract()
-        subprocess.run([executable, "--help"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-    return {"ok": True, "error": None}
+    model_identity = _resolve_openclaw_model_identity()
+    executable_identity = _openclaw_executable_readiness()
+    error = None
+    if not executable_identity.get("available"):
+        error = "openclaw_executable_not_found"
+    elif not model_identity.get("configured"):
+        error = str(model_identity.get("error") or "openclaw_model_not_configured")
+    return {
+        # Path/configuration inspection proves only that a provider invocation
+        # could be attempted.  It never proves that the provider is healthy.
+        "ok": False,
+        "ready": error is None,
+        "providerVerified": False,
+        "error": error,
+        "modelIdentity": model_identity,
+        "executableIdentity": executable_identity,
+    }
 
 
 def _probe_ollama_status() -> Dict[str, Any]:
@@ -4142,7 +4311,18 @@ async def oracle_status():
         ),
     )
     openclaw_ok = bool(openclaw.get("ok"))
+    openclaw_ready = bool(openclaw.get("ready"))
     openclaw_err = openclaw.get("error")
+    model_identity = openclaw.get("modelIdentity") or {
+        "configured": False,
+        "model": None,
+        "source": "unavailable",
+    }
+    executable_identity = openclaw.get("executableIdentity") or {
+        "available": False,
+        "check": "path_lookup_only",
+        "providerCallMade": False,
+    }
     local_online = local.get("online")
     local_err = local.get("error")
     models = local.get("models") or []
@@ -4161,10 +4341,15 @@ async def oracle_status():
             'core_chain': alive_cfg.get('core_chain', [37, 5, 21, 22, 26]),
             'hud_signature_enabled': bool(alive_cfg.get('hud_signature_enabled', True)),
         },
-        # Canonical base model (follows /openclaw/config).
-        'base_model': _get_base_model(),
-        'default_model': _get_base_model(),
-        'openclaw_model_label': _openclaw_model_label(),
+        # Read-only configured identity; this is not a provider-completion claim.
+        'base_model': model_identity.get("model") or "unconfigured",
+        'default_model': model_identity.get("model") or "unconfigured",
+        'openclaw_model_label': (
+            f"{model_identity.get('model') or 'unconfigured'} "
+            f"({model_identity.get('source') or 'unavailable'})"
+        ),
+        'openclaw_model_identity': model_identity,
+        'openclaw_executable': executable_identity,
 
         # Backend routing (implementation detail)
         'fallback_local_model': LOCAL_MODEL,
@@ -4198,6 +4383,8 @@ async def oracle_status():
         'bridge_cb': {'fails': _BRIDGE_CB_FAILS, 'open_until': _BRIDGE_CB_OPEN_UNTIL, 'allows': _bridge_cb_allows(), 'threshold': _BRIDGE_CB_THRESHOLD, 'cooldown_s': _BRIDGE_CB_COOLDOWN_S},
         'openclaw_rate_limit': _openclaw_rate_limit_status(),
         'openclaw_ok': openclaw_ok,
+        'openclaw_ready': openclaw_ready,
+        'openclaw_provider_verified': bool(openclaw.get("providerVerified")),
         'openclaw_error': openclaw_err,
         'ollama_enabled': bool(OLLAMA_ENABLED),
         'is_busy': IS_BUSY,

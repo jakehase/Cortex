@@ -414,11 +414,19 @@ def _effective_routes(routes):
         effective_candidates = getattr(route, "effective_candidates", None)
         if callable(effective_candidates):
             yield from _effective_routes(effective_candidates())
-        else:
-            # Newer FastAPI releases expose lazy include candidates as
-            # context objects. HTTP metadata lives on the context, while
-            # WebSocket identity lives on its concrete Starlette route.
-            yield getattr(route, "starlette_route", None) or route
+            continue
+        effective_contexts = getattr(route, "effective_route_contexts", None)
+        if callable(effective_contexts):
+            # The live runtime's lazy router container exposes contexts rather
+            # than candidates. Feed them through the same normalizer so HTTP
+            # metadata remains on the context and WebSocket identity remains
+            # on its concrete Starlette route.
+            yield from _effective_routes(effective_contexts())
+            continue
+        # Newer FastAPI releases expose lazy include candidates as context
+        # objects. HTTP metadata lives on the context, while WebSocket identity
+        # lives on its concrete Starlette route.
+        yield getattr(route, "starlette_route", None) or route
 
 
 def _route_paths(routes) -> set[str]:

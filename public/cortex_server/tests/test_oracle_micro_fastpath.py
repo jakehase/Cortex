@@ -24,6 +24,55 @@ def test_one_word_fastpath_planet():
     assert out == "earth"
 
 
+def test_openclaw_model_identity_prefers_oracle_agent_without_exposing_config(
+    tmp_path, monkeypatch
+):
+    config = tmp_path / "openclaw.json"
+    config.write_text(
+        json.dumps(
+            {
+                "agents": {
+                    "list": [
+                        {
+                            "id": "oracle",
+                            "model": {"primary": "provider/oracle-model"},
+                        }
+                    ]
+                },
+                "credentials": {"secret": "must-not-escape"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("ORACLE_OPENCLAW_MODEL", raising=False)
+
+    identity = oracle._resolve_openclaw_model_identity(config)
+
+    assert identity == {
+        "configured": True,
+        "model": "provider/oracle-model",
+        "source": "openclaw_config:agents.list[oracle].model",
+        "error": None,
+    }
+    assert "must-not-escape" not in repr(identity)
+
+
+def test_openclaw_executable_readiness_never_starts_the_cli(monkeypatch):
+    monkeypatch.setattr(oracle.shutil, "which", lambda _value: "/opt/bin/openclaw")
+    monkeypatch.setattr(oracle.os, "access", lambda *_args: True)
+
+    def forbidden_run(*_args, **_kwargs):
+        raise AssertionError("readiness must not start OpenClaw")
+
+    monkeypatch.setattr(oracle.subprocess, "run", forbidden_run)
+
+    readiness = oracle._openclaw_executable_readiness()
+
+    assert readiness["available"] is True
+    assert readiness["check"] == "path_lookup_only"
+    assert readiness["providerCallMade"] is False
+
+
 def test_assistant_rate_limit_text_is_content_and_openclaw_sessions_are_principal_scoped(monkeypatch):
     oracle._OPENCLAW_RATE_LIMITS.clear()
     oracle._OPENCLAW_INFLIGHT.clear()

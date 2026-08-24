@@ -306,6 +306,11 @@ def clear_graph(db_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
+        # A freshly provisioned rebuild target may be an existing empty SQLite
+        # file. Treat only that exact state as an idempotent clear; a partial or
+        # unrelated schema still fails closed instead of being silently reused.
+        if not tables:
+            return
         if not {"nodes", "edges"}.issubset(tables):
             raise RuntimeError("graph reset target does not contain the Cortex graph schema")
         conn.execute("DELETE FROM edges")

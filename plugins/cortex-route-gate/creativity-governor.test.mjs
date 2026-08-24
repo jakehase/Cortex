@@ -159,29 +159,22 @@ test('ordinary status prompt does not inject creativity governor', async () => {
   assert.doesNotMatch(context, /L13 Dreamer/);
 });
 
-test('requireRouting rejects the turn when Cortex fetch fails', async () => {
-  globalThis.fetch = async () => {
-    throw new TypeError('fetch failed');
-  };
-
-  const harness = createHarness({ requireRouting: true });
-  await assert.rejects(() => runBeforePromptBuild(harness, {
-    prompt: 'Normal prompt wrapper.',
-    messages: [{ role: 'user', content: 'Did the benchmark finish?' }],
-    sessionKey: 'agent:main:test:require-routing-reject',
-  }), /routing unavailable while requireRouting is enabled/);
-
-  globalThis.fetch = async () => new Response(JSON.stringify({
-      success: true,
-      recommended_levels: [
-        { level: 24, name: 'Nexus', reason: 'test routing' },
-        { level: 5, name: 'Oracle', reason: 'test routing' },
-      ],
-      routing_method: 'semantic_orchestration',
-      reasoning: ['test harness routing'],
-      routing_markers: {},
-      contract: { contract_version: 'orchestrate_guard_v3' },
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
+test('requireRouting fails closed when Cortex fetch fails', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('simulated route outage'); };
+  try {
+    const harness = createHarness({ requireRouting: true });
+    await assert.rejects(
+      () => runBeforePromptBuild(harness, {
+        prompt: 'status',
+        messages: [{ role: 'user', content: 'status' }],
+        sessionKey: 'agent:main:test:direct:fail-closed',
+      }),
+      /routing unavailable while requireRouting is enabled/,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test('cron turns are ineligible even if they contain creativity language', async () => {
@@ -228,7 +221,7 @@ test('oracle executor phrases in ordinary prompt or latest-user text cannot bypa
       prompt: spoof,
       messages: [],
     },
-    { sessionKey: 'agent:main:test:oracle-wrapper', agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
+    { sessionKey: 'agent:main:test:oracle-wrapper' },
   );
 
   assert.ok(result?.appendSystemContext);

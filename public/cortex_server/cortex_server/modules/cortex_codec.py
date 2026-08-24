@@ -146,9 +146,27 @@ CODEC_RETENTION_MAX_SNAPSHOTS = int(os.getenv("CODEC_RETENTION_MAX_SNAPSHOTS", "
 CODEC_RETENTION_MIN_PRIORITY = float(os.getenv("CODEC_RETENTION_MIN_PRIORITY", "2.4"))
 CODEC_RETENTION_MAX_PRIORITY_OVERFLOW = int(os.getenv("CODEC_RETENTION_MAX_PRIORITY_OVERFLOW", "2"))
 CODEC_SESSION_CACHE_MAX = max(1, int(os.getenv("CODEC_SESSION_CACHE_MAX", "512")))
+# Compatibility name used by the predeployment runtime.  Keep the stricter of
+# the old and new limits so either deployment knob can only tighten retention.
+CODEC_IN_MEMORY_MAX_SESSIONS = max(
+    1,
+    int(os.getenv("CODEC_IN_MEMORY_MAX_SESSIONS", str(CODEC_SESSION_CACHE_MAX))),
+)
 CODEC_SESSION_TTL_SECONDS = max(1, int(os.getenv("CODEC_SESSION_TTL_SECONDS", "3600")))
 CODEC_SESSION_KEY_MAX_CHARS = max(32, int(os.getenv("CODEC_SESSION_KEY_MAX_CHARS", "256")))
 CODEC_DURABLE_MAX_SESSIONS = max(1, int(os.getenv("CODEC_DURABLE_MAX_SESSIONS", "128")))
+CODEC_STATE_SUMMARY_MAX_CHARS = max(256, int(os.getenv("CODEC_STATE_SUMMARY_MAX_CHARS", "4096")))
+CODEC_STATE_ITEM_MAX_CHARS = max(128, int(os.getenv("CODEC_STATE_ITEM_MAX_CHARS", "4096")))
+CODEC_STATE_MAX_SERIALIZED_CHARS = max(16_384, int(os.getenv("CODEC_STATE_MAX_SERIALIZED_CHARS", "96000")))
+
+_CODEC_DERIVED_STATE_KEYS = frozenset({
+    "durable_write",
+    "memory_facts",
+    "migration",
+    "promotion_state",
+    "rollup_state",
+    "schema_state",
+})
 
 UTILITY_BUCKET_WEIGHTS = {
     "preferences": 1.0,
@@ -257,6 +275,13 @@ def _evict_codec_session_locked(session_key: str, reason: str) -> None:
     _SESSION_CODEC_EVICTIONS[reason] = int(_SESSION_CODEC_EVICTIONS.get(reason, 0) or 0) + 1
 
 
+def _codec_session_cache_capacity() -> int:
+    return max(
+        1,
+        min(int(CODEC_SESSION_CACHE_MAX), int(CODEC_IN_MEMORY_MAX_SESSIONS)),
+    )
+
+
 def _prune_codec_session_cache_locked(*, now: Optional[float] = None, protected: str = "") -> None:
     current = time.monotonic() if now is None else float(now)
     ttl = max(1, int(CODEC_SESSION_TTL_SECONDS))
@@ -264,7 +289,7 @@ def _prune_codec_session_cache_locked(*, now: Optional[float] = None, protected:
         if key != protected and current - float(accessed_at) >= ttl:
             _evict_codec_session_locked(key, "ttl")
 
-    capacity = max(1, int(CODEC_SESSION_CACHE_MAX))
+    capacity = _codec_session_cache_capacity()
     cached_keys = set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)
     while len(cached_keys) > capacity:
         candidates = [key for key in cached_keys if key != protected]
@@ -288,7 +313,7 @@ def _codec_cache_retention_snapshot() -> Dict[str, Any]:
         _prune_codec_session_cache_locked()
         return {
             "active_sessions": len(set(_SESSION_CODEC_STATE).union(_SESSION_CODEC_PERSIST)),
-            "capacity": max(1, int(CODEC_SESSION_CACHE_MAX)),
+            "capacity": _codec_session_cache_capacity(),
             "ttl_seconds": max(1, int(CODEC_SESSION_TTL_SECONDS)),
             "session_key_max_chars": max(32, int(CODEC_SESSION_KEY_MAX_CHARS)),
             "evictions": dict(_SESSION_CODEC_EVICTIONS),
@@ -615,6 +640,255 @@ def _normalize_revision_log(value: Any) -> List[Dict[str, Any]]:
     return normalized[-REVISION_LOG_LIMIT:]
 
 
+def _coerce_nonnegative_int(value: Any, default: int = 0, *, maximum: int = 2_147_483_647) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        parsed = int(default)
+    return max(0, min(parsed, max(0, int(maximum))))
+
+
+def _bounded_codec_text(value: Any, *, limit: int) -> str:
+    return _clean_text(value)[: max(1, int(limit))]
+
+
+def _compact_text_bucket(value: Any, *, text_limit: int, item_limit: int = 8) -> tuple[List[str], Dict[str, str]]:
+    raw_items = _normalize_text_list(value, limit=max(1, int(item_limit)))
+    compact: List[str] = []
+    original_keys: Dict[str, str] = {}
+    seen = set()
+    for raw in raw_items:
+        bounded = _bounded_codec_text(raw, limit=text_limit)
+        key = bounded.lower()
+        if not bounded or key in seen:
+            continue
+        seen.add(key)
+        compact.append(bounded)
+        original_keys[key] = raw.lower()
+    return compact, original_keys
+
+
+def _compact_revision_log(value: Any, *, text_limit: int) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in (value if isinstance(value, list) else [])[-REVISION_LOG_LIMIT:]:
+        if not isinstance(item, dict):
+            continue
+        rows.append({
+            "bucket": _bounded_codec_text(item.get("bucket"), limit=64),
+            "superseded_text": _bounded_codec_text(item.get("superseded_text"), limit=text_limit),
+            "replacement_text": _bounded_codec_text(item.get("replacement_text"), limit=text_limit),
+            "claim_key": _bounded_codec_text(item.get("claim_key"), limit=256),
+            "reason": _bounded_codec_text(item.get("reason") or "revision", limit=64),
+            "generated_at": _bounded_codec_text(item.get("generated_at"), limit=64),
+        })
+    return rows
+
+
+def _compact_utility_bucket(
+    bucket: str,
+    items: List[str],
+    original_keys: Dict[str, str],
+    raw_scores: Any,
+    *,
+    generated_at: str,
+) -> Dict[str, Dict[str, Any]]:
+    source_scores = raw_scores if isinstance(raw_scores, dict) else {}
+    fallback = _build_bucket_utility(bucket, items, items, {}, generated_at=generated_at)
+    compact: Dict[str, Dict[str, Any]] = {}
+    for item in items:
+        key = item.lower()
+        source_key = original_keys.get(key, key)
+        raw = source_scores.get(source_key) if isinstance(source_scores.get(source_key), dict) else {}
+        if not raw:
+            compact[key] = fallback.get(key, {
+                "text": item,
+                "bucket": bucket,
+                "score": round(_base_utility_score(item, bucket), 3),
+                "evidence_count": 1,
+                "observation_count": 1,
+                "last_seen_at": generated_at,
+            })
+            continue
+        score = _clamp(_coerce_float(raw.get("score"), _base_utility_score(item, bucket)), 0.0, UTILITY_MAX_SCORE)
+        evidence_count = _coerce_nonnegative_int(raw.get("evidence_count"), 1, maximum=1_000_000)
+        observation_count = _coerce_nonnegative_int(raw.get("observation_count"), 0, maximum=1_000_000)
+        age_hours = max(0.0, min(_coerce_float(raw.get("age_hours"), 0.0), 1_000_000.0))
+        confidence = _clamp(
+            _coerce_float(raw.get("confidence"), _confidence_score(score, evidence_count, age_hours)),
+            0.0,
+            1.0,
+        )
+        compact[key] = {
+            "text": item,
+            "bucket": bucket,
+            "score": round(score, 3),
+            "evidence_count": evidence_count,
+            "observation_count": observation_count,
+            "last_seen_at": _bounded_codec_text(raw.get("last_seen_at") or generated_at, limit=64),
+            "age_hours": round(age_hours, 3),
+            "freshness": _bounded_codec_text(raw.get("freshness") or _freshness_band(age_hours), limit=16),
+            "confidence": round(confidence, 3),
+        }
+    return compact
+
+
+def _compact_codec_state_with_text_limit(state: Dict[str, Any], *, text_limit: int) -> Dict[str, Any]:
+    payload = state if isinstance(state, dict) else {}
+    has_explicit_contract = bool(payload) and ("version" in payload or "schema_version" in payload)
+    source_version = _bounded_codec_text(payload.get("version") or CODEC_VERSION, limit=64) or CODEC_VERSION
+    source_schema_version = _bounded_codec_text(
+        payload.get("schema_version") or (CODEC_SCHEMA_VERSION if not has_explicit_contract else ""),
+        limit=64,
+    )
+    identity = payload.get("identity_state") if isinstance(payload.get("identity_state"), dict) else {}
+    projects = payload.get("project_state") if isinstance(payload.get("project_state"), dict) else {}
+    world = payload.get("world_state") if isinstance(payload.get("world_state"), dict) else {}
+    failure = payload.get("failure_state") if isinstance(payload.get("failure_state"), dict) else {}
+    outcomes = payload.get("outcome_state") if isinstance(payload.get("outcome_state"), dict) else {}
+
+    preferences, preference_keys = _compact_text_bucket(identity.get("preferences"), text_limit=text_limit)
+    active_projects, project_keys = _compact_text_bucket(projects.get("active_projects"), text_limit=text_limit)
+    active_goals, goal_keys = _compact_text_bucket(projects.get("active_goals"), text_limit=text_limit)
+    open_loops, loop_keys = _compact_text_bucket(projects.get("open_loops"), text_limit=text_limit)
+    durable_facts, fact_keys = _compact_text_bucket(world.get("durable_facts"), text_limit=text_limit)
+    patterns, pattern_keys = _compact_text_bucket(failure.get("patterns"), text_limit=text_limit)
+    lessons, lesson_keys = _compact_text_bucket(failure.get("lessons"), text_limit=text_limit)
+
+    preference_revisions = _compact_revision_log(identity.get("preference_revisions"), text_limit=text_limit)
+    fact_revisions = _compact_revision_log(world.get("fact_revisions"), text_limit=text_limit)
+    lesson_revisions = _compact_revision_log(failure.get("lesson_revisions"), text_limit=text_limit)
+    generated_at = _bounded_codec_text(payload.get("generated_at") or _now_iso(), limit=64)
+
+    raw_utility = payload.get("utility_state") if isinstance(payload.get("utility_state"), dict) else {}
+    raw_bucket_scores = raw_utility.get("bucket_scores") if isinstance(raw_utility.get("bucket_scores"), dict) else {}
+    bucket_inputs = {
+        "preferences": (preferences, preference_keys),
+        "active_projects": (active_projects, project_keys),
+        "active_goals": (active_goals, goal_keys),
+        "open_loops": (open_loops, loop_keys),
+        "durable_facts": (durable_facts, fact_keys),
+        "patterns": (patterns, pattern_keys),
+        "lessons": (lessons, lesson_keys),
+    }
+    compact_bucket_scores = {
+        bucket: _compact_utility_bucket(
+            bucket,
+            items,
+            original_keys,
+            raw_bucket_scores.get(bucket),
+            generated_at=generated_at,
+        )
+        for bucket, (items, original_keys) in bucket_inputs.items()
+    }
+
+    compression = payload.get("compression") if isinstance(payload.get("compression"), dict) else {}
+    source_refs: List[Dict[str, Any]] = []
+    for row in (payload.get("source_refs") if isinstance(payload.get("source_refs"), list) else [])[:16]:
+        if not isinstance(row, dict):
+            continue
+        source_refs.append({
+            "event_id": _bounded_codec_text(row.get("event_id"), limit=256) or None,
+            "session_key": _bounded_codec_text(row.get("session_key"), limit=256) or None,
+            "event_kind": _bounded_codec_text(row.get("event_kind") or "event", limit=64),
+            "ts": _bounded_codec_text(row.get("ts"), limit=64) or None,
+        })
+
+    return {
+        # Retain legacy contract markers in source state so the read projection
+        # can report an honest migration boundary on every hydration/cache hit.
+        "version": source_version,
+        "schema_version": source_schema_version,
+        "state_revision": _coerce_nonnegative_int(payload.get("state_revision")),
+        "generated_at": generated_at,
+        "source_event_count": _coerce_nonnegative_int(payload.get("source_event_count")),
+        "source_refs": source_refs,
+        "compression": {
+            "raw_characters": _coerce_nonnegative_int(compression.get("raw_characters")),
+            "state_fields": _coerce_nonnegative_int(compression.get("state_fields"), 7, maximum=128),
+            "compression_mode": _bounded_codec_text(
+                compression.get("compression_mode") or "state_not_transcript",
+                limit=64,
+            ),
+            "prompt_characters": _coerce_nonnegative_int(compression.get("prompt_characters")),
+            "ratio": round(max(0.0, min(_coerce_float(compression.get("ratio"), 0.0), 1_000_000.0)), 3),
+        },
+        "identity_state": {
+            "preferences": preferences,
+            "preference_revisions": preference_revisions,
+            "preference_revision_count": max(
+                _coerce_nonnegative_int(identity.get("preference_revision_count")),
+                len(preference_revisions),
+            ),
+        },
+        "project_state": {
+            "active_projects": active_projects,
+            "active_goals": active_goals,
+            "open_loops": open_loops,
+        },
+        "world_state": {
+            "durable_facts": durable_facts,
+            "fact_revisions": fact_revisions,
+            "fact_revision_count": max(
+                _coerce_nonnegative_int(world.get("fact_revision_count")),
+                len(fact_revisions),
+            ),
+        },
+        "failure_state": {
+            "patterns": patterns,
+            "lessons": lessons,
+            "lesson_revisions": lesson_revisions,
+            "lesson_revision_count": max(
+                _coerce_nonnegative_int(failure.get("lesson_revision_count")),
+                len(lesson_revisions),
+            ),
+        },
+        "outcome_state": {
+            "success_count": _coerce_nonnegative_int(outcomes.get("success_count")),
+            "failure_count": _coerce_nonnegative_int(outcomes.get("failure_count")),
+            "neutral_count": _coerce_nonnegative_int(outcomes.get("neutral_count")),
+        },
+        "utility_state": {
+            "version": "cortex.codec.utility.v1",
+            "bucket_scores": compact_bucket_scores,
+            "summary": _utility_summary(compact_bucket_scores),
+            "retention_policy": _codec_retention_policy(),
+        },
+        "summary": _bounded_codec_text(
+            payload.get("summary") or "No stable state extracted yet.",
+            limit=min(CODEC_STATE_SUMMARY_MAX_CHARS, max(256, int(text_limit) * 4)),
+        ),
+    }
+
+
+def _compact_codec_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a bounded source-state snapshot with all projections removed."""
+
+    limits: List[int] = []
+    for candidate in (CODEC_STATE_ITEM_MAX_CHARS, 2048, 1024, 512, 256, 128):
+        bounded = max(128, min(int(candidate), int(CODEC_STATE_ITEM_MAX_CHARS)))
+        if bounded not in limits:
+            limits.append(bounded)
+    compact: Dict[str, Any] = {}
+    for text_limit in limits:
+        compact = _compact_codec_state_with_text_limit(state, text_limit=text_limit)
+        if len(json.dumps(compact, ensure_ascii=False, sort_keys=True)) < CODEC_STATE_MAX_SERIALIZED_CHARS:
+            break
+    return compact
+
+
+def _cache_codec_state(session_key: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Cache only bounded source state; projections are reconstructed on read."""
+
+    session_key = _canonical_codec_session_key(session_key)
+    if not session_key or not isinstance(state, dict):
+        return {}
+    compact = _compact_codec_state(state)
+    with _SESSION_CODEC_LOCK:
+        _SESSION_CODEC_STATE[session_key] = compact
+        _touch_codec_session_locked(session_key)
+    return dict(compact)
+
+
 def _stable_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
     payload = state or {}
     return {
@@ -650,6 +924,110 @@ def _iter_text_candidates(event: Dict[str, Any]) -> Iterable[str]:
 def _contains_any(text: str, hints: Iterable[str]) -> bool:
     lowered = text.lower()
     return any(hint in lowered for hint in hints)
+
+
+def _match_is_negated(text: str, start: int, end: int, *, window_words: int = 6) -> bool:
+    """Return whether a status/project match is locally negated.
+
+    Status packets commonly mix a positive checkpoint with explicit negative
+    boundaries (for example, "not deployed").  Clause-local checks keep those
+    boundaries from negating unrelated evidence later in the packet.
+    """
+
+    lowered = str(text or "").lower()
+    clause_start = max(
+        lowered.rfind(".", 0, start),
+        lowered.rfind(";", 0, start),
+        lowered.rfind("\n", 0, start),
+        lowered.rfind("\u2014", 0, start),
+    ) + 1
+    following = [
+        boundary
+        for boundary in (
+            lowered.find(".", end),
+            lowered.find(";", end),
+            lowered.find("\n", end),
+            lowered.find("\u2014", end),
+        )
+        if boundary >= 0
+    ]
+    clause_end = min(following) if following else len(lowered)
+    before = lowered[clause_start:start]
+    after = lowered[end:clause_end]
+    filler = rf"(?:\s+[a-z0-9_-]+){{0,{max(0, int(window_words))}}}"
+    negated_before = bool(re.search(rf"\b(?:no|not|never|without|neither){filler}\s*$", before))
+    negated_after = bool(re.match(
+        rf"^\s*(?:[a-z0-9_-]+\s+){{0,{max(0, int(window_words) - 1)}}}"
+        r"(?:(?:was|were|is|are|has|have|had)\s+)?"
+        r"(?:not\b|no\b|unchanged\b|untouched\b|excluded\b|unrelated\b|outside\b)",
+        after,
+    ))
+    return negated_before or negated_after
+
+
+def _iter_phrase_matches(text: str, phrases: Iterable[str]) -> Iterable[re.Match[str]]:
+    for phrase in phrases:
+        expression = r"(?<!\w)" + re.escape(str(phrase)).replace(r"\ ", r"\s+") + r"(?!\w)"
+        yield from re.finditer(expression, str(text or ""), flags=re.IGNORECASE)
+
+
+def _contains_affirmed_hint(text: str, hints: Iterable[str]) -> bool:
+    return any(
+        not _match_is_negated(text, match.start(), match.end())
+        for match in _iter_phrase_matches(text, hints)
+    )
+
+
+def _has_affirmed_match(text: str, expression: str) -> bool:
+    return any(
+        not _match_is_negated(text, match.start(), match.end())
+        for match in re.finditer(expression, str(text or ""), flags=re.IGNORECASE)
+    )
+
+
+def _has_incomplete_test_pass_ratio(text: str) -> bool:
+    """Reject zero/partial test ratios even when the prose says ``passed``."""
+
+    for match in re.finditer(
+        r"\b(?:focused\s+)?tests?\s*:?\s*(\d+)\s*/\s*(\d+)\s+passed\b",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    ):
+        passed = int(match.group(1))
+        total = int(match.group(2))
+        if passed <= 0 or total <= 0 or passed != total:
+            return True
+    return False
+
+
+def _is_durable_completion_checkpoint(text: str) -> bool:
+    status_text = re.sub(r"[*_`]", "", _clean_text(text))
+    if _has_incomplete_test_pass_ratio(status_text):
+        return False
+    evidence = {
+        "completion": _has_affirmed_match(
+            status_text,
+            r"\b(?:complete|completed|finished|implemented|delivered|saved)\b",
+        ),
+        "commit": _has_affirmed_match(
+            status_text,
+            r"\bcommitted\b|\bcommit\s*:\s*[0-9a-f]{7,40}\b",
+        ),
+        "tests": _has_affirmed_match(
+            status_text,
+            r"\b(?:focused\s+)?tests?\s*:?\s*(?:\d+\s*/\s*\d+\s+)?passed\b"
+            r"|\b(?:validation|verification|replay|safety scans?)\b[^.;\n]{0,80}\bpassed\b"
+            r"|\btested(?:\s+(?:successfully|cleanly))?\b",
+        ),
+        "clean": _has_affirmed_match(
+            status_text,
+            r"\b(?:remote\s+)?worktree\s+(?:is\s+|was\s+)?clean\b"
+            r"|\bworking tree\s+(?:is\s+|was\s+)?clean\b",
+        ),
+    }
+    return sum(1 for present in evidence.values() if present) >= 3 and bool(
+        evidence["completion"] or evidence["commit"]
+    )
 
 
 def _looks_like_question(text: str) -> bool:
@@ -893,7 +1271,10 @@ def _promotion_bonus(bucket: str, text: str, state: Dict[str, Any]) -> float:
     bonus = 0.0
     lowered = _clean_text(text).lower()
     outcome_state = state.get("outcome_state", {}) if isinstance(state.get("outcome_state", {}), dict) else {}
-    if bucket == "durable_facts" and re.search(r"\b(decision|important|remember|fact|state)\b", lowered):
+    if bucket == "durable_facts" and (
+        re.search(r"\b(decision|important|remember|fact|state)\b", lowered)
+        or _is_durable_completion_checkpoint(text)
+    ):
         bonus += 0.12
     if bucket == "open_loops" and _contains_any(lowered, OPEN_LOOP_HINTS):
         bonus += 0.08
@@ -1191,16 +1572,62 @@ def _boost_utility_bucket(
     utility_state["summary"] = _utility_summary(bucket_scores)
 
 
-def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
+_KNOWN_CODEC_PROJECT_PATTERNS = (
+    ("Learning OS", r"\b(?:cortex[- ]?)?learning[- ]os\b"),
+    ("Website Design", r"\b(?:professional\s+)?(?:website|web)[- ]design(?:\s+learning)?\b"),
+)
+
+
+def _canonical_project_candidate(value: Any) -> str:
+    cleaned = _clean_text(value)
+    for canonical, expression in _KNOWN_CODEC_PROJECT_PATTERNS:
+        if re.search(expression, cleaned, flags=re.IGNORECASE):
+            return canonical
+    return cleaned
+
+
+def _project_value_is_negated(text: str, value: str) -> bool:
+    tokens = re.findall(r"[a-z0-9]+", str(value or "").lower())
+    if not tokens:
+        return False
+    expression = r"\b" + r"[\s_-]+".join(re.escape(token) for token in tokens) + r"\b"
+    matches = list(re.finditer(expression, str(text or ""), flags=re.IGNORECASE))
+    return bool(matches) and all(
+        _match_is_negated(text, match.start(), match.end())
+        for match in matches
+    )
+
+
+def _known_project_candidates(text: str) -> List[str]:
     candidates: List[str] = []
+    for canonical, expression in _KNOWN_CODEC_PROJECT_PATTERNS:
+        if _has_affirmed_match(text, expression):
+            candidates.append(canonical)
+    return candidates
+
+
+def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
+    candidates: List[str] = _known_project_candidates(text)
     preference_like = _contains_any(text, PREFERENCE_HINTS)
     feedback_like = _contains_any(text, FAILURE_HINTS) and not _contains_any(text, OPEN_LOOP_HINTS)
 
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+
+    # Completion reports contain many capitalized status headings and often
+    # name projects only to declare an explicit non-impact boundary.  Retain
+    # affirmed named projects and trustworthy metadata, but do not turn status
+    # prose or operational tags into active projects.
+    if _is_durable_completion_checkpoint(text):
+        for key in ("project", "topic", "domain"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip() and not _project_value_is_negated(text, value):
+                candidates.append(_canonical_project_candidate(value))
+        return _rank_unique(candidates, limit=8)
+
     for key in ("project", "topic", "domain"):
         value = metadata.get(key)
         if isinstance(value, str) and value.strip():
-            candidates.append(value.strip())
+            candidates.append(_canonical_project_candidate(value))
 
     tags = event.get("tags")
     if isinstance(tags, list):
@@ -1234,6 +1661,7 @@ def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
     deduped: List[str] = []
     seen = set()
     for item in candidates:
+        item = _canonical_project_candidate(item)
         key = item.lower()
         if key in seen:
             continue
@@ -1521,13 +1949,18 @@ def build_codec_state(
         project_candidates.extend(_extract_project_candidates(event, text))
 
         lowered = text.lower()
+        completion_checkpoint = _is_durable_completion_checkpoint(text)
+        affirmed_success = completion_checkpoint or (
+            not _has_incomplete_test_pass_ratio(text)
+            and _contains_affirmed_hint(text, OUTCOME_SUCCESS_HINTS)
+        )
         if _contains_any(text, PREFERENCE_HINTS):
             preferences.append(text)
         if _contains_any(text, OPEN_LOOP_HINTS) or _looks_like_question(text):
             open_loops.append(text)
         if _contains_any(text, FAILURE_HINTS):
             failure_patterns.append(text)
-        if _contains_any(text, OUTCOME_SUCCESS_HINTS):
+        if affirmed_success:
             outcome_counters["success"] += 1
             lessons.append(text)
         elif _contains_any(text, OUTCOME_FAILURE_HINTS):
@@ -1538,7 +1971,7 @@ def build_codec_state(
 
         if re.search(r"\b(goal|aim|want|build|ship|design|implement|create)\b", lowered):
             goals.append(text)
-        if re.search(r"\b(decision|important|note|fact|remember|state)\b", lowered):
+        if completion_checkpoint or re.search(r"\b(decision|important|note|fact|remember|state)\b", lowered):
             facts.append(text)
 
     projects = _rank_unique(project_candidates, limit=max_items_per_bucket)
@@ -2201,18 +2634,18 @@ def _load_codec_state_from_l22(
         return {}
     if not isinstance(state, dict):
         return {}
-    state = _migrate_codec_state(state)
+    source_state = _compact_codec_state(state)
 
     with _SESSION_CODEC_LOCK:
-        _SESSION_CODEC_STATE[session_key] = state
+        _SESSION_CODEC_STATE[session_key] = source_state
         _SESSION_CODEC_PERSIST[session_key] = {
-            "fingerprint": str(meta.get("codec_fingerprint") or _state_fingerprint(state)),
+            "fingerprint": str(meta.get("codec_fingerprint") or _state_fingerprint(source_state)),
             "stored_id": str(top.get("id") or meta.get("codec_store_id") or ""),
             "loaded_from_l22": True,
-            "generated_at": str(meta.get("codec_generated_at") or state.get("generated_at") or ""),
+            "generated_at": str(meta.get("codec_generated_at") or source_state.get("generated_at") or ""),
         }
         _touch_codec_session_locked(session_key)
-    return dict(state)
+    return _migrate_codec_state(source_state)
 
 
 def get_codec_state(
@@ -2233,7 +2666,9 @@ def get_codec_state(
             _prune_codec_session_cache_locked(protected=session_key)
             current = _SESSION_CODEC_STATE.get(session_key)
             if isinstance(current, dict):
-                migrated = _migrate_codec_state(current)
+                source_state = _compact_codec_state(current)
+                _SESSION_CODEC_STATE[session_key] = source_state
+                migrated = _migrate_codec_state(source_state)
                 _touch_codec_session_locked(session_key)
             else:
                 migrated = None
@@ -2244,8 +2679,11 @@ def get_codec_state(
                 **_codec_scope_kwargs(tenant_id, workspace_id),
             )
             with _SESSION_CODEC_LOCK:
-                _SESSION_CODEC_STATE[session_key] = enriched
                 _touch_codec_session_locked(session_key)
+            enriched["memory_facts"] = build_codec_memory_facts(
+                session_key=session_key,
+                codec_state=enriched,
+            )
             return dict(enriched)
         hydrated = _load_codec_state_from_l22(
             session_key,
@@ -2258,8 +2696,11 @@ def get_codec_state(
                 **_codec_scope_kwargs(tenant_id, workspace_id),
             )
             with _SESSION_CODEC_LOCK:
-                _SESSION_CODEC_STATE[session_key] = enriched
                 _touch_codec_session_locked(session_key)
+            enriched["memory_facts"] = build_codec_memory_facts(
+                session_key=session_key,
+                codec_state=enriched,
+            )
             return dict(enriched)
         return {}
 
@@ -2532,7 +2973,8 @@ def _persist_codec_state_to_l22_locked(
     if not session_key or not CODEC_DURABLE_ENABLED or not isinstance(state, dict) or not state:
         return {"status": "skipped"}
 
-    fingerprint = _state_fingerprint(state)
+    source_state = _compact_codec_state(state)
+    fingerprint = _state_fingerprint(source_state)
     with _SESSION_CODEC_LOCK:
         prior = _SESSION_CODEC_PERSIST.get(session_key) if isinstance(_SESSION_CODEC_PERSIST.get(session_key), dict) else {}
         if str(prior.get("fingerprint") or "") == fingerprint:
@@ -2547,18 +2989,18 @@ def _persist_codec_state_to_l22_locked(
         # supply an L22 module without depending on a stale package attribute.
         l22_router = importlib.import_module("cortex_server.routers.l22")
 
-        content = json.dumps(state, ensure_ascii=False, sort_keys=True)
-        utility_summary = state.get("utility_state", {}).get("summary", {}) if isinstance(state.get("utility_state", {}), dict) else {}
+        content = json.dumps(source_state, ensure_ascii=False, sort_keys=True)
+        utility_summary = source_state.get("utility_state", {}).get("summary", {}) if isinstance(source_state.get("utility_state", {}), dict) else {}
         top_items = utility_summary.get("top_items", []) if isinstance(utility_summary.get("top_items", []), list) else []
         metadata = {
             "type": "codec_state",
             "codec_session_key": session_key,
-            "codec_version": state.get("version", CODEC_VERSION),
-            "codec_state_revision": int(state.get("state_revision", 0) or 0),
-            "codec_generated_at": state.get("generated_at", _now_iso()),
-            "codec_summary": state.get("summary", ""),
+            "codec_version": source_state.get("version", CODEC_VERSION),
+            "codec_state_revision": int(source_state.get("state_revision", 0) or 0),
+            "codec_generated_at": source_state.get("generated_at", _now_iso()),
+            "codec_summary": source_state.get("summary", ""),
             "codec_fingerprint": fingerprint,
-            "codec_source_event_count": int(state.get("source_event_count", 0) or 0),
+            "codec_source_event_count": int(source_state.get("source_event_count", 0) or 0),
             "codec_retention_priority": round(_coerce_float(utility_summary.get("retention_priority"), 0.0), 3),
             "codec_utility_item_count": int(utility_summary.get("item_count", 0) or 0),
             "codec_top_utility_score": round(max([_coerce_float(item.get("score"), 0.0) for item in top_items] or [0.0]), 3),
@@ -2589,7 +3031,7 @@ def _persist_codec_state_to_l22_locked(
             "fingerprint": fingerprint,
             "stored_id": result.get("id"),
             "loaded_from_l22": False,
-            "generated_at": state.get("generated_at", ""),
+            "generated_at": source_state.get("generated_at", ""),
             "retention": prune,
             "session_retention": session_prune,
         }
@@ -2652,9 +3094,7 @@ def update_codec_state_for_session(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
         )
-        with _SESSION_CODEC_LOCK:
-            _SESSION_CODEC_STATE[session_key] = updated
-            _touch_codec_session_locked(session_key)
+        _cache_codec_state(session_key, updated)
         persist = _persist_codec_state_to_l22(
             session_key,
             updated,
@@ -2696,9 +3136,7 @@ def apply_codec_outcome_feedback_for_session(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
         )
-        with _SESSION_CODEC_LOCK:
-            _SESSION_CODEC_STATE[session_key] = updated
-            _touch_codec_session_locked(session_key)
+        _cache_codec_state(session_key, updated)
         persist = _persist_codec_state_to_l22(
             session_key,
             updated,

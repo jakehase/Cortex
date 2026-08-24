@@ -677,6 +677,164 @@ def _latest_index_artifact(root: Path = _DEFAULT_CODEBASE_INDEX_ROOT) -> Optiona
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _semantic_retention_canary_health() -> Dict[str, Any]:
+    """Verify retrieval of a pre-written completion-survival canary.
+
+    This probe is deliberately read-only. A canary writer must store a record
+    through the real capture/promotion path; the health probe never manufactures
+    evidence of its own health.
+    """
+
+    contract = {
+        "memory_health_canary": True,
+        "memory_health_canary_kind": "completion_survival",
+        "requiredMetadata": [
+            "memory_health_canary_query",
+            "memory_health_canary_token",
+        ],
+    }
+    try:
+        data = collection.get(
+            where={"memory_health_canary": True},
+            limit=8,
+            include=["documents", "metadatas"],
+        )
+    except Exception as exc:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "probe_error",
+            "contract": contract,
+            "error": str(exc),
+        }
+
+    ids = data.get("ids") or []
+    documents = data.get("documents") or []
+    metadatas = data.get("metadatas") or []
+    candidates = []
+    for index, record_id in enumerate(ids):
+        metadata = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        if str(metadata.get("memory_status") or "active").lower() != "active":
+            continue
+        if str(metadata.get("memory_health_canary_kind") or "") != "completion_survival":
+            continue
+        candidates.append(
+            {
+                "id": str(record_id),
+                "document": str(documents[index] if index < len(documents) else ""),
+                "metadata": metadata,
+            }
+        )
+    if not candidates:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "not_configured",
+            "contract": contract,
+            "reason": "no active completion-survival canary is present",
+        }
+
+    candidates.sort(
+        key=lambda row: str(row["metadata"].get("recorded_at") or ""),
+        reverse=True,
+    )
+    canary = candidates[0]
+    metadata = canary["metadata"]
+    query = str(metadata.get("memory_health_canary_query") or "").strip()
+    token = str(metadata.get("memory_health_canary_token") or "").strip()
+    canary_id = str(metadata.get("memory_health_canary_id") or canary["id"])
+    tenant_id = str(metadata.get("tenant_id") or DEFAULT_TENANT_ID)
+    workspace_id = str(
+        metadata.get("storage_workspace_id")
+        or metadata.get("workspace_id")
+        or DEFAULT_WORKSPACE_ID
+    )
+    principal_key = str(metadata.get("memory_principal_key") or "").strip() or None
+    contract_valid = (
+        bool(query)
+        and len(query.encode("utf-8")) <= 4096
+        and bool(token)
+        and len(token.encode("utf-8")) <= 1024
+        and token in canary["document"]
+        and len(canary_id.encode("utf-8")) <= 512
+        and len(tenant_id.encode("utf-8")) <= 256
+        and len(workspace_id.encode("utf-8")) <= 256
+        and (principal_key is None or len(principal_key.encode("utf-8")) <= 512)
+    )
+    if not contract_valid:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "invalid_contract",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "reason": (
+                "canary query/token/scope metadata is invalid, out of bounds, "
+                "or the token is absent from the stored document"
+            ),
+        }
+
+    try:
+        result = robust_search(
+            query,
+            n_results=5,
+            allow_fallback=False,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            memory_principal_key=principal_key,
+        )
+    except Exception as exc:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "search_error",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "error": str(exc),
+        }
+
+    search_mode = str(result.get("search_mode") or "unknown")
+    degraded = bool(result.get("degraded", False))
+    warning = result.get("warning")
+    semantic_path = (
+        search_mode in {"semantic", "semantic_hybrid"}
+        and not degraded
+        and not warning
+    )
+    matched_id = None
+    for row in result.get("results", []) or []:
+        row_metadata = (
+            row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        )
+        row_canary_id = str(
+            row_metadata.get("memory_health_canary_id") or row.get("id") or ""
+        )
+        if row_canary_id == canary_id and token in str(row.get("text") or ""):
+            matched_id = str(row.get("id") or row_canary_id)
+            break
+    verified = bool(semantic_path and matched_id)
+    return {
+        "configured": True,
+        "verified": verified,
+        "status": "passed" if verified else "failed",
+        "contract": contract,
+        "canaryId": canary_id,
+        "recordedAt": metadata.get("recorded_at"),
+        "searchMode": search_mode,
+        "semanticPath": semantic_path,
+        "degraded": degraded,
+        "warning": warning,
+        "matchedId": matched_id,
+        "resultCount": len(result.get("results", []) or []),
+    }
+
+
 def _semantic_memory_health() -> Dict[str, Any]:
     count = None
     search_mode = "unknown"
@@ -686,16 +844,34 @@ def _semantic_memory_health() -> Dict[str, Any]:
     try:
         count = int(collection.count())
     except Exception as exc:
-        return {"ok": False, "count": None, "error": str(exc)}
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": None,
+            "error": str(exc),
+        }
     try:
         result = robust_search("Cortex memory health", n_results=1, allow_fallback=True)
         search_mode = result.get("search_mode", "semantic")
         degraded = bool(result.get("degraded", False))
         warning = result.get("warning")
         result_count = len(result.get("results", []) or [])
-        search_ok = search_mode != "error"
+        # This generic query proves availability only. The pre-written canary
+        # below is the fail-closed semantic-quality and retention gate.
+        search_ok = search_mode != "error" and result_count > 0
     except Exception as exc:
-        return {"ok": False, "count": count, "searchMode": "error", "error": str(exc)}
+        return {
+            "ok": False,
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": count,
+            "searchMode": "error",
+            "error": str(exc),
+        }
     lifecycle = {"active": 0, "superseded": 0, "tombstoned": 0, "historical": 0}
     try:
         data = collection.get(include=["metadatas"])
@@ -705,8 +881,21 @@ def _semantic_memory_health() -> Dict[str, Any]:
             lifecycle[status] = lifecycle.get(status, 0) + 1
     except Exception:
         lifecycle = {}
+    retention_probe = _semantic_retention_canary_health()
+    availability_ok = bool(count > 0 and search_ok)
+    retention_verified = bool(retention_probe.get("verified"))
+    ok = availability_ok and retention_verified
     return {
-        "ok": count > 0 and search_ok,
+        "ok": ok,
+        "status": (
+            "healthy"
+            if ok
+            else ("retention_unverified" if availability_ok else "degraded")
+        ),
+        "availabilityOk": availability_ok,
+        "retentionVerified": retention_verified,
+        "retentionStatus": retention_probe.get("status"),
+        "retentionProbe": retention_probe,
         "count": count,
         "searchOk": search_ok,
         "searchMode": search_mode,

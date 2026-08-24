@@ -534,6 +534,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Require the same terminal state to persist this long before delivery",
     )
     parser.add_argument("--once", action="store_true", help="Check once; do not wait or retry")
+    parser.add_argument(
+        "--exit-after-delivery",
+        action="store_true",
+        help="Exit after delivering or deduplicating the first stable terminal state",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--routing-file", type=Path, default=DEFAULT_ROUTING_FILE)
     parser.add_argument("--dedupe-file", type=Path, default=DEFAULT_DEDUPE_FILE)
@@ -550,7 +555,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    terminals = set(args.terminal_statuses or DEFAULT_TERMINAL_STATUSES)
+    raw_terminals = args.terminal_statuses or DEFAULT_TERMINAL_STATUSES
+    terminals = {
+        status.strip()
+        for value in raw_terminals
+        for status in str(value).split(",")
+        if status.strip()
+    }
     delay = max(1.0, args.poll_seconds)
     grace = max(0.0, args.terminal_grace_seconds)
     max_state_age = _bounded_max_state_age(args.max_state_age_seconds)
@@ -603,7 +614,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
 
             process_terminal_state(args, state)
-            if args.once:
+            if args.once or args.exit_after_delivery:
                 return 0
             # Stay attached to the state artifact so later reruns can emit a
             # different blocker or final completion without launching a new

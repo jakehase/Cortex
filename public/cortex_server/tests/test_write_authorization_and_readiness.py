@@ -56,6 +56,7 @@ def test_public_readiness_view_is_metadata_only():
         "safeModeSkippedCount": 1,
     }
 
+
 def test_non_loopback_write_requires_configured_token(monkeypatch):
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", "test-write-token")
