@@ -100,10 +100,10 @@ def main() -> None:
     environment = load_env(Path(args.env_file))
     nonce = secrets.token_hex(8)
     scope = {
-        "tenant_id": "openclaw-local",
-        "workspace_id": "clawd",
+        "tenant_id": "cortex-local",
+        "workspace_id": "default",
         "agent_id": "main",
-        "user_id": "jake",
+        "user_id": "openclaw-owner",
         "channel_id": "whatsapp",
         # A fixed canary scope plus a fixed external graph id guarantees that
         # repeated canaries update one bounded row instead of leaking rows.
