@@ -394,7 +394,11 @@ def activate(contract: dict, artifact_root: Path) -> None:
         run(
             [sys.executable, str(release / "scripts/migrate-graph-quota.py"), "--database", environment["CORTEX_DB_PATH"], "--backup-receipt", contract["graphBackupReceipt"], "--output", str(artifact_root / "graph-migration.json")],
             cwd=release,
-            env={**os.environ, "PYTHONPATH": str(release / "public/cortex_server")},
+            env={
+                **os.environ,
+                "PYTHONPATH": str(release / "public/cortex_server"),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
             timeout=600,
             output=artifact_root / "graph-migration.log",
         )
