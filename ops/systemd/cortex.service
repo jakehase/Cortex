@@ -1,0 +1,60 @@
+[Unit]
+Description=Cortex q9 immutable FastAPI runtime
+After=network-online.target redis-server.service cortex-ollama-tunnel.service
+Wants=network-online.target cortex-ollama-tunnel.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/cortex/current/public/cortex_server
+EnvironmentFile=/etc/cortex/cortex.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=CORTEX_HOST=127.0.0.1
+Environment=CORTEX_PORT=8000
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
+Environment=MALLOC_TOP_PAD_=131072
+ExecStart=/opt/cortex/current/public/cortex_server/scripts/start_cortex_service.sh
+Restart=always
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=20s
+KillSignal=SIGINT
+SendSIGKILL=yes
+FinalKillSignal=SIGKILL
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/opt/cortex/releases /etc/cortex
+ReadWritePaths=/opt/clawdbot /var/lib/cortex /var/log/cortex /run/cortex
+RuntimeDirectory=cortex
+RuntimeDirectoryMode=0700
+StateDirectory=cortex
+StateDirectoryMode=0700
+LogsDirectory=cortex
+LogsDirectoryMode=0700
+CPUAccounting=yes
+TasksAccounting=yes
+CPUQuota=250%
+TasksMax=512
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=512M
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

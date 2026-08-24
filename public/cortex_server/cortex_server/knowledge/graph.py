@@ -28,6 +28,7 @@ MAX_GRAPH_ROWS = 2_000_000
 MAX_GRAPH_BYTES = 2 * 1024 * 1024 * 1024
 GRAPH_RECOVERY_RESERVE_ROWS = 100_000
 GRAPH_RECOVERY_RESERVE_BYTES = 128 * 1024 * 1024
+GRAPH_QUOTA_LEDGER_VERSION = "v2-unscoped-global-only"
 
 
 class GraphQuotaError(ValueError):
@@ -338,14 +339,19 @@ class SQLiteStorage:
         for _kind, _object_id, tenant_id, workspace_id, record_bytes in records:
             total_rows += 1
             total_bytes += int(record_bytes)
-            scope = (str(tenant_id), str(workspace_id))
-            scope_rows, scope_bytes = principal.get(scope, (0, 0))
-            principal[scope] = (scope_rows + 1, scope_bytes + int(record_bytes))
-            tenant_rows, tenant_bytes = tenants.get(str(tenant_id), (0, 0))
-            tenants[str(tenant_id)] = (
-                tenant_rows + 1,
-                tenant_bytes + int(record_bytes),
-            )
+            # Legacy structural-code rows predate principal scoping. They are
+            # durable global graph data, not one giant synthetic principal.
+            # Keep charging them to aggregate quotas while preserving scoped
+            # principal and tenant limits for every new authenticated write.
+            if tenant_id and workspace_id:
+                scope = (str(tenant_id), str(workspace_id))
+                scope_rows, scope_bytes = principal.get(scope, (0, 0))
+                principal[scope] = (scope_rows + 1, scope_bytes + int(record_bytes))
+                tenant_rows, tenant_bytes = tenants.get(str(tenant_id), (0, 0))
+                tenants[str(tenant_id)] = (
+                    tenant_rows + 1,
+                    tenant_bytes + int(record_bytes),
+                )
         cls._assert_quota_limits(
             global_rows=total_rows,
             global_bytes=total_bytes,
@@ -380,18 +386,26 @@ class SQLiteStorage:
             record_bytes = int(record[4])
             total_rows += 1
             total_bytes += record_bytes
-            scope = (str(record[2]), str(record[3]))
-            scope_usage = principal.setdefault(scope, [0, 0])
-            scope_usage[0] += 1
-            scope_usage[1] += record_bytes
-            tenant_usage = tenants.setdefault(str(record[2]), [0, 0])
-            tenant_usage[0] += 1
-            tenant_usage[1] += record_bytes
+            tenant_id = str(record[2])
+            workspace_id = str(record[3])
+            if tenant_id and workspace_id:
+                scope = (tenant_id, workspace_id)
+                scope_usage = principal.setdefault(scope, [0, 0])
+                scope_usage[0] += 1
+                scope_usage[1] += record_bytes
+                tenant_usage = tenants.setdefault(tenant_id, [0, 0])
+                tenant_usage[0] += 1
+                tenant_usage[1] += record_bytes
+                principal_snapshot = {scope: tuple(scope_usage)}
+                tenant_snapshot = {tenant_id: tuple(tenant_usage)}
+            else:
+                principal_snapshot = {}
+                tenant_snapshot = {}
             cls._assert_quota_limits(
                 global_rows=total_rows,
                 global_bytes=total_bytes,
-                principal_usage={scope: tuple(scope_usage)},
-                tenant_usage={str(record[2]): tuple(tenant_usage)},
+                principal_usage=principal_snapshot,
+                tenant_usage=tenant_snapshot,
             )
             pending.append(record)
             if len(pending) >= 1024:
@@ -410,6 +424,95 @@ class SQLiteStorage:
             for row in connection.execute(query):
                 backfill(cls._quota_record(kind, tuple(row)))
         flush()
+        connection.execute(
+            """
+            INSERT INTO graph_quota_metadata(key, value)
+            VALUES ('ledger_version', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (GRAPH_QUOTA_LEDGER_VERSION,),
+        )
+        connection.execute(
+            """
+            INSERT INTO graph_quota_metadata(key, value)
+            VALUES ('quota_policy', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (cls._quota_policy_identity(),),
+        )
+
+    @staticmethod
+    def _quota_policy_identity() -> str:
+        return json.dumps(
+            {
+                "principalRows": MAX_GRAPH_PRINCIPAL_ROWS,
+                "principalBytes": MAX_GRAPH_PRINCIPAL_BYTES,
+                "tenantRows": MAX_GRAPH_TENANT_ROWS,
+                "tenantBytes": MAX_GRAPH_TENANT_BYTES,
+                "globalRows": MAX_GRAPH_ROWS,
+                "globalBytes": MAX_GRAPH_BYTES,
+                "recoveryReserveRows": GRAPH_RECOVERY_RESERVE_ROWS,
+                "recoveryReserveBytes": GRAPH_RECOVERY_RESERVE_BYTES,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    @classmethod
+    def _quota_ledger_complete(cls, connection: sqlite3.Connection) -> bool:
+        version = connection.execute(
+            "SELECT value FROM graph_quota_metadata WHERE key = 'ledger_version'"
+        ).fetchone()
+        if version is None or str(version[0]) != GRAPH_QUOTA_LEDGER_VERSION:
+            return False
+        policy = connection.execute(
+            "SELECT value FROM graph_quota_metadata WHERE key = 'quota_policy'"
+        ).fetchone()
+        if policy is None or str(policy[0]) != cls._quota_policy_identity():
+            return False
+        source_rows = int(connection.execute(
+            "SELECT (SELECT COUNT(*) FROM nodes) + (SELECT COUNT(*) FROM edges)"
+        ).fetchone()[0])
+        ledger_rows = int(connection.execute(
+            "SELECT COUNT(*) FROM graph_quota_ledger"
+        ).fetchone()[0])
+        if source_rows != ledger_rows:
+            return False
+        missing = connection.execute(
+            """
+            SELECT 1
+            FROM (
+                SELECT n.id
+                FROM nodes AS n
+                LEFT JOIN graph_quota_ledger AS q
+                  ON q.object_kind = 'node' AND q.object_id = n.id
+                WHERE q.object_id IS NULL
+                UNION ALL
+                SELECT e.id
+                FROM edges AS e
+                LEFT JOIN graph_quota_ledger AS q
+                  ON q.object_kind = 'edge' AND q.object_id = e.id
+                WHERE q.object_id IS NULL
+            )
+            LIMIT 1
+            """
+        ).fetchone()
+        if missing is not None:
+            return False
+        orphan = connection.execute(
+            """
+            SELECT 1
+            FROM graph_quota_ledger AS q
+            LEFT JOIN nodes AS n
+              ON q.object_kind = 'node' AND n.id = q.object_id
+            LEFT JOIN edges AS e
+              ON q.object_kind = 'edge' AND e.id = q.object_id
+            WHERE (q.object_kind = 'node' AND n.id IS NULL)
+               OR (q.object_kind = 'edge' AND e.id IS NULL)
+            LIMIT 1
+            """
+        ).fetchone()
+        return orphan is None
 
     @classmethod
     def _admit_quota_records(cls, connection: sqlite3.Connection, records) -> None:
@@ -438,11 +541,15 @@ class SQLiteStorage:
         tenant_deltas: Dict[str, List[int]] = {}
 
         def apply_delta(record, row_delta: int, byte_delta: int) -> None:
-            scope = (str(record[2]), str(record[3]))
+            tenant_id = str(record[2])
+            workspace_id = str(record[3])
+            if not tenant_id and not workspace_id:
+                return
+            scope = (tenant_id, workspace_id)
             principal_delta = principal_deltas.setdefault(scope, [0, 0])
             principal_delta[0] += row_delta
             principal_delta[1] += byte_delta
-            tenant_delta = tenant_deltas.setdefault(str(record[2]), [0, 0])
+            tenant_delta = tenant_deltas.setdefault(tenant_id, [0, 0])
             tenant_delta[0] += row_delta
             tenant_delta[1] += byte_delta
 
@@ -698,15 +805,25 @@ class SQLiteStorage:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_graph_quota_tenant ON graph_quota_ledger(tenant_id)"
         )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS graph_quota_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
 
         conn.commit()
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            self._reconcile_quota_ledger(conn)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        if not self._quota_ledger_complete(conn):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                # Another process may have completed the one-time migration
+                # while this instance waited for the write lock.
+                if not self._quota_ledger_complete(conn):
+                    self._reconcile_quota_ledger(conn)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
     
     def insert_node(self, node: Node) -> None:
         """Insert or update a node."""
@@ -960,6 +1077,84 @@ class SQLiteStorage:
             "edgeCount": edge_count,
             "nodeTypes": node_types,
             "edgeTypes": edge_types,
+        }
+
+    def quota_status(self, *, top_scopes: int = 10) -> Dict[str, Any]:
+        """Return bounded quota usage without exposing principal identifiers."""
+        conn = self._get_conn()
+        global_rows, global_bytes = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(record_bytes), 0) FROM graph_quota_ledger"
+        ).fetchone()
+        source_rows = int(conn.execute(
+            "SELECT (SELECT COUNT(*) FROM nodes) + (SELECT COUNT(*) FROM edges)"
+        ).fetchone()[0])
+        unscoped_rows, unscoped_bytes = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(record_bytes), 0)
+            FROM graph_quota_ledger
+            WHERE tenant_id = '' AND storage_workspace_id = ''
+            """
+        ).fetchone()
+        principal_rows = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(record_bytes), 0)
+            FROM graph_quota_ledger
+            WHERE tenant_id <> '' AND storage_workspace_id <> ''
+            GROUP BY tenant_id, storage_workspace_id
+            ORDER BY COUNT(*) DESC, SUM(record_bytes) DESC
+            LIMIT ?
+            """,
+            (max(1, min(100, int(top_scopes))),),
+        ).fetchall()
+        tenant_rows = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(record_bytes), 0)
+            FROM graph_quota_ledger
+            WHERE tenant_id <> ''
+            GROUP BY tenant_id
+            ORDER BY COUNT(*) DESC, SUM(record_bytes) DESC
+            LIMIT ?
+            """,
+            (max(1, min(100, int(top_scopes))),),
+        ).fetchall()
+        operational_rows = MAX_GRAPH_ROWS - GRAPH_RECOVERY_RESERVE_ROWS
+        operational_bytes = MAX_GRAPH_BYTES - GRAPH_RECOVERY_RESERVE_BYTES
+
+        def usage(rows: int, size: int, row_limit: int, byte_limit: int) -> Dict[str, Any]:
+            return {
+                "rows": int(rows),
+                "bytes": int(size),
+                "rowLimit": int(row_limit),
+                "byteLimit": int(byte_limit),
+                "rowHeadroom": max(0, int(row_limit) - int(rows)),
+                "byteHeadroom": max(0, int(byte_limit) - int(size)),
+                "rowUsagePercent": round((int(rows) / row_limit) * 100, 3) if row_limit else 100.0,
+                "byteUsagePercent": round((int(size) / byte_limit) * 100, 3) if byte_limit else 100.0,
+            }
+
+        return {
+            "status": "green" if self._quota_ledger_complete(conn) else "degraded",
+            "ledgerVersion": GRAPH_QUOTA_LEDGER_VERSION,
+            "ledgerComplete": self._quota_ledger_complete(conn),
+            "sourceRows": source_rows,
+            "global": usage(global_rows, global_bytes, operational_rows, operational_bytes),
+            "legacyUnscoped": {
+                "rows": int(unscoped_rows),
+                "bytes": int(unscoped_bytes),
+                "classification": "global_only",
+            },
+            "topPrincipalScopes": [
+                usage(rows, size, MAX_GRAPH_PRINCIPAL_ROWS, MAX_GRAPH_PRINCIPAL_BYTES)
+                for rows, size in principal_rows
+            ],
+            "topTenants": [
+                usage(rows, size, MAX_GRAPH_TENANT_ROWS, MAX_GRAPH_TENANT_BYTES)
+                for rows, size in tenant_rows
+            ],
+            "recoveryReserve": {
+                "rows": GRAPH_RECOVERY_RESERVE_ROWS,
+                "bytes": GRAPH_RECOVERY_RESERVE_BYTES,
+            },
         }
     
     def query_edges(

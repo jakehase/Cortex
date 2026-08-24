@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "cortex.runtime-surface-contract.v1",
+  "release": {
+    "rootPattern": "/opt/cortex/releases/<release-id>",
+    "currentPointer": "/opt/cortex/current",
+    "readOnly": true,
+    "sourceTreeWritesAllowed": false
+  },
+  "units": [
+    {"name": "cortex.service", "template": "ops/systemd/cortex.service", "required": true},
+    {"name": "cortex-health-watchdog.service", "template": "ops/systemd/cortex-health-watchdog.service", "required": true},
+    {"name": "cortex-health-watchdog.timer", "template": "ops/systemd/cortex-health-watchdog.timer", "required": true},
+    {"name": "cortex-ollama-tunnel.service", "template": "ops/systemd/cortex-ollama-tunnel.service.template", "required": true, "containsDeploymentPlaceholder": true},
+    {"name": "openclaw-gateway.service", "ownership": "OpenClaw", "required": true, "managedByQ9": false}
+  ],
+  "configuration": [
+    {"path": "/etc/cortex/cortex.env", "schema": "ops/config/cortex-env.schema.json", "secretBearing": true, "mode": "0600"},
+    {"path": "/root/.openclaw/openclaw.json", "secretBearing": true, "mode": "0600", "managedByQ9": false},
+    {"path": "/root/clawd/config/ai-os-adapter/default.json", "secretBearing": false, "managedByQ9": false}
+  ],
+  "mutableRoots": [
+    {"path": "/opt/clawdbot", "purpose": "durable Cortex databases, state, provider artifacts and models"},
+    {"path": "/var/lib/cortex", "purpose": "attestations, release-controller state and Chroma"},
+    {"path": "/var/log/cortex", "purpose": "runtime logs"},
+    {"path": "/run/cortex", "purpose": "ephemeral runtime coordination"},
+    {"path": "/var/lib/cortex-health-watchdog", "purpose": "watchdog state"}
+  ],
+  "externalDependencies": [
+    {"name": "OpenClaw gateway", "endpoint": "ws://127.0.0.1:18789", "writeBoundary": "separately approved"},
+    {"name": "TinyLlama Ollama lane", "endpoint": "http://127.0.0.1:11434", "transport": "root-owned loopback SSH tunnel"},
+    {"name": "Redis", "endpoint": "redis://127.0.0.1:6379"},
+    {"name": "authoritative Git remote", "endpoint": "https://github.com/jakehase/Cortex.git", "writeBoundary": "release-only"}
+  ],
+  "operationalScripts": [
+    "scripts/codex-worker-launcher.mjs",
+    "scripts/remote-completion-handoff.mjs",
+    "scripts/artifact-retention.mjs",
+    "public/cortex_server/scripts/cortex_health_watchdog.sh",
+    "scripts/build-release-envelope.py",
+    "scripts/verify-release-envelope.py"
+  ],
+  "requiredAttestations": [
+    "/var/lib/cortex/attestations/aios-latest.json",
+    "/var/lib/cortex/attestations/canary-latest.json",
+    "/var/lib/cortex/attestations/rollback-latest.json",
+    "/var/lib/cortex/attestations/remote-persistence-latest.json"
+  ],
+  "truthBoundary": "Every deployed executable/config/unit/state root must appear here or the q9 release gate fails. Secret values are never embedded in this contract."
+}

@@ -123,6 +123,7 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("simulator"),
     _service("singularity"),
     _service("synthesist_api", "Synthesist"),
+    _service("system", "System Attestation"),
     _unsafe("tools"),
     _service("validator"),
     _service("websockets", "WebSockets", kind="websocket"),

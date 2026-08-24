@@ -535,6 +535,88 @@ def test_graph_quota_backfills_legacy_rows_and_fails_closed_when_over_limit(
         SQLiteStorage(str(database))
 
 
+def test_graph_quota_treats_legacy_unscoped_rows_as_global_not_one_principal(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "legacy-unscoped.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE nodes (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL,
+                uri TEXT, language TEXT, created_at TEXT, updated_at TEXT,
+                metadata TEXT, tenant_id TEXT, storage_workspace_id TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE edges (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL, weight REAL, context TEXT, metadata TEXT,
+                tenant_id TEXT, storage_workspace_id TEXT,
+                FOREIGN KEY(source_id) REFERENCES nodes(id),
+                FOREIGN KEY(target_id) REFERENCES nodes(id)
+            )
+            """
+        )
+        for node_id in ("legacy-a", "legacy-b", "legacy-c"):
+            connection.execute(
+                "INSERT INTO nodes VALUES (?, 'Function', ?, NULL, NULL, ?, ?, '{}', NULL, NULL)",
+                (node_id, node_id, "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_PRINCIPAL_ROWS", 1)
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_TENANT_ROWS", 2)
+    storage = SQLiteStorage(str(database))
+    assert storage._get_conn().execute(
+        "SELECT COUNT(*) FROM graph_quota_ledger"
+    ).fetchone()[0] == 3
+    status = storage.quota_status()
+    assert status["ledgerComplete"] is True
+    assert status["legacyUnscoped"]["rows"] == 3
+    assert status["topPrincipalScopes"] == []
+    assert status["topTenants"] == []
+
+    scoped = _node("scoped-a").model_copy(
+        update={"tenant_id": "tenant", "storage_workspace_id": "principal"}
+    )
+    storage.insert_node(scoped)
+    with pytest.raises(GraphQuotaError, match="principal workspace row quota"):
+        storage.insert_node(
+            _node("scoped-b").model_copy(
+                update={"tenant_id": "tenant", "storage_workspace_id": "principal"}
+            )
+        )
+
+
+def test_graph_quota_complete_ledger_skips_destructive_rebuild(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "idempotent-ledger.db"
+    first = SQLiteStorage(str(database))
+    first.insert_nodes([_node("a"), _node("b")])
+    assert first.quota_status()["ledgerComplete"] is True
+    first._get_conn().close()
+    first._local.conn = None
+
+    def unexpected_rebuild(cls, connection):  # pragma: no cover - called only on regression
+        raise AssertionError("complete quota ledger must not be rebuilt")
+
+    monkeypatch.setattr(
+        SQLiteStorage,
+        "_reconcile_quota_ledger",
+        classmethod(unexpected_rebuild),
+    )
+    restarted = SQLiteStorage(str(database))
+    status = restarted.quota_status()
+    assert status["status"] == "green"
+    assert status["sourceRows"] == 2
+    assert status["global"]["rows"] == 2
+
+
 def test_batch_edge_insert_is_atomic_and_preserves_unrelated_data(tmp_path):
     storage = SQLiteStorage(str(tmp_path / "graph.db"))
     storage.insert_nodes([_node("a"), _node("b")])
