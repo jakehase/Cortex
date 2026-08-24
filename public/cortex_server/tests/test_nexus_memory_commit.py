@@ -7,14 +7,13 @@ import os
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
-import socket
+import selectors
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
 import types
-import uvicorn
 
 import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
@@ -106,6 +105,124 @@ def _app(monkeypatch, recorder, *, committed_records=None):
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     return app
+
+
+_NODE_ASGI_REQUEST_PREFIX = "__CORTEX_ASGI_REQUEST__"
+_NODE_ASGI_RESPONSE_PREFIX = "__CORTEX_ASGI_RESPONSE__"
+_NODE_ASGI_FETCH_BRIDGE = f"""
+    import {{ createInterface }} from 'node:readline';
+    const responseLines = createInterface({{ input: process.stdin }});
+    const pendingResponses = new Map();
+    responseLines.on('line', (line) => {{
+      if (!line.startsWith({_NODE_ASGI_RESPONSE_PREFIX!r})) return;
+      const response = JSON.parse(line.slice({_NODE_ASGI_RESPONSE_PREFIX!r}.length));
+      const pending = pendingResponses.get(response.id);
+      if (!pending) return;
+      pendingResponses.delete(response.id);
+      pending(response);
+    }});
+    let bridgeRequestId = 0;
+    globalThis.fetch = async (url, options = {{}}) => {{
+      const id = String(++bridgeRequestId);
+      const headers = Object.fromEntries(new Headers(options.headers || {{}}).entries());
+      const request = {{
+        id,
+        url: String(url),
+        method: String(options.method || 'GET'),
+        headers,
+        body: options.body == null ? '' : String(options.body),
+      }};
+      process.stdout.write({_NODE_ASGI_REQUEST_PREFIX!r} + JSON.stringify(request) + '\\n');
+      const response = await new Promise((resolve) => pendingResponses.set(id, resolve));
+      if (response.networkError) throw new TypeError(response.error || 'ASGI transport failed');
+      return new Response(response.body, {{ status: response.status, headers: response.headers }});
+    }};
+    globalThis.__closeCortexAsgiBridge = () => responseLines.close();
+"""
+
+
+def _run_node_script_against_asgi(script, app, *, timeout=10):
+    command = [
+        "node",
+        "--input-type=module",
+        "--eval",
+        f"{_NODE_ASGI_FETCH_BRIDGE}\n{script}\n__closeCortexAsgiBridge();",
+    ]
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+    captured_stdout = []
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                raise subprocess.TimeoutExpired(command, timeout)
+            if not selector.select(remaining):
+                process.kill()
+                raise subprocess.TimeoutExpired(command, timeout)
+            line = process.stdout.readline()
+            if line == "":
+                break
+            if not line.startswith(_NODE_ASGI_REQUEST_PREFIX):
+                captured_stdout.append(line)
+                continue
+            request = json.loads(line[len(_NODE_ASGI_REQUEST_PREFIX) :])
+
+            async def dispatch():
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(
+                    transport=transport,
+                    base_url="http://cortex-asgi.test",
+                ) as client:
+                    return await client.request(
+                        request["method"],
+                        request["url"],
+                        headers=request["headers"],
+                        content=request["body"],
+                    )
+
+            try:
+                response = asyncio.run(dispatch())
+                reply = {
+                    "id": request["id"],
+                    "status": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text,
+                }
+            except Exception as exc:
+                reply = {
+                    "id": request["id"],
+                    "networkError": True,
+                    "error": type(exc).__name__,
+                }
+            process.stdin.write(
+                _NODE_ASGI_RESPONSE_PREFIX + json.dumps(reply, separators=(",", ":")) + "\n"
+            )
+            process.stdin.flush()
+        returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(
+            command,
+            returncode,
+            "".join(captured_stdout),
+            process.stderr.read(),
+        )
+    finally:
+        selector.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=1)
 
 
 def test_first_referent_reservation_fsyncs_every_new_directory_link(
@@ -1027,8 +1144,10 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
         def __init__(self, downstream):
             self.downstream = downstream
             self.dropped = False
+            self.request_paths = []
 
         async def __call__(self, scope, receive, send):
+            self.request_paths.append(scope.get("path"))
             if scope.get("path") == "/nexus/commit" and not self.dropped:
                 self.dropped = True
 
@@ -1040,28 +1159,9 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
             await self.downstream(scope, receive, send)
 
     wrapped = DropFirstCommitResponse(app)
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(128)
-    port = listener.getsockname()[1]
-    server = uvicorn.Server(
-        uvicorn.Config(wrapped, log_level="critical", lifespan="off")
-    )
-    thread = threading.Thread(
-        target=server.run,
-        kwargs={"sockets": [listener]},
-        daemon=True,
-    )
-    thread.start()
-    deadline = time.monotonic() + 5
-    while not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started
-
     plugin_url = (Path(__file__).resolve().parents[3] / "plugins" / "cortex-memory-bridge" / "index.ts").as_uri()
     config = {
-        "baseUrl": f"http://127.0.0.1:{port}",
+        "baseUrl": "http://cortex-asgi.test",
         "stateDir": str(state_dir),
         "tenantId": "tenant-integration",
         "workspaceId": "workspace-integration",
@@ -1094,39 +1194,30 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
     second_script = f"""
         import fs from 'node:fs'; import path from 'node:path';
         import plugin from {json.dumps(plugin_url)};
+        const handlers = new Map();
         plugin.register({{
           pluginConfig: {json.dumps(config)}, logger: {{ info() {{}}, warn() {{}} }},
-          on() {{}}, registerMemoryRuntime() {{}}, registerTool() {{}},
+          on(name, handler) {{ handlers.set(name, handler); }}, registerMemoryRuntime() {{}}, registerTool() {{}},
         }});
         const root = path.join({json.dumps(str(state_dir))}, 'lifecycle-principals-v2');
         const pending = () => fs.existsSync(root) && fs.readdirSync(root).some((entry) => fs.existsSync(path.join(root, entry, 'lifecycle-spool.json')));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (!pending()) process.exit(4);
+        const context = {{ sessionKey: 'integration-session' }};
+        handlers.get('llm_output')({{ content: 'We decided to use the safe rollback path and preserve the verified deployment.' }}, context);
+        await handlers.get('agent_end')({{ messages: [{{ role: 'user', content: 'Remember this verified deployment decision.' }}] }}, context);
         const deadline = Date.now() + 4000;
         while (pending() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-        if (pending()) process.exit(4);
+        if (pending()) process.exit(5);
     """
-    try:
-        first = subprocess.run(
-            ["node", "--input-type=module", "--eval", first_script],
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        assert first.returncode == 0, first.stderr
-        second = subprocess.run(
-            ["node", "--input-type=module", "--eval", second_script],
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        assert second.returncode == 0, second.stderr
-        assert wrapped.dropped is True
-        assert len(recorder.calls) == 1
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
-        listener.close()
+    first = _run_node_script_against_asgi(first_script, wrapped)
+    assert first.returncode == 0, first.stderr
+    second = _run_node_script_against_asgi(second_script, wrapped)
+    assert second.returncode == 0, second.stderr
+    assert wrapped.dropped is True
+    assert wrapped.request_paths.count("/nexus/assurance/receipt") == 1
+    assert wrapped.request_paths.count("/nexus/commit") == 2
+    assert len(recorder.calls) == 1
 
 
 @pytest.mark.asyncio

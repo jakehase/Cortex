@@ -89,6 +89,41 @@ _POLICY_PATCH_EVENT_ALLOWED_FIELDS = _HOMEOSTASIS_AUDIT_ALLOWED_FIELDS | frozens
     }
 )
 
+# Runtime evidence uses a closed metadata schema of its own.  The generic
+# retention allowlist intentionally knows nothing about agent/tool identity,
+# while these fields are required to classify an event and render its lineage.
+# Raw command/output fields remain outside this schema (and the redactor's raw
+# content denylist still takes precedence).
+_PROCESS_EVENT_ALLOWED_FIELDS = DEFAULT_RETENTION_FIELD_ALLOWLIST | frozenset(
+    {
+        "agent_id",
+        "command_kind",
+        "scope",
+        "source",
+        "tool",
+        "tool_name",
+    }
+)
+_PROCESS_PROGRESS_EVENT_ALLOWED_FIELDS = _PROCESS_EVENT_ALLOWED_FIELDS | frozenset(
+    {
+        "active_nodes",
+        "completed_nodes",
+        "enabled",
+        "failed_nodes",
+        "lifecycle_state",
+        "rollback_transaction_id",
+        "shared_state_revision_id",
+        "snapshot_id",
+        "waiting_nodes",
+    }
+)
+_PROCESS_PROGRESS_EVENT_KINDS = frozenset(
+    {
+        "process_progress_synced",
+        "runtime_delivery_rollback_applied.progress",
+    }
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -191,6 +226,10 @@ def normalize_runtime_event(
     elif kind_value == "homeostasis_control_audit":
         allowed_fields = _HOMEOSTASIS_AUDIT_ALLOWED_FIELDS
         allowed_sensitive_containers = {"authorization"}
+    elif kind_value in _PROCESS_PROGRESS_EVENT_KINDS:
+        allowed_fields = _PROCESS_PROGRESS_EVENT_ALLOWED_FIELDS
+    elif kind_value in PROCESS_EVENT_FAMILIES:
+        allowed_fields = _PROCESS_EVENT_ALLOWED_FIELDS
     redacted_payload, redaction_meta = redact_payload(
         payload_value,
         mode=requested_redaction,

@@ -759,6 +759,10 @@ def test_runtime_ownership_snapshot_reads_only_admitted_process_identity(monkeyp
 
 @pytest.mark.asyncio
 async def test_read_route_inventory_is_explicit_and_guards_aliases_and_state(monkeypatch):
+    # This inventory intentionally exercises read surfaces on action-capable
+    # routers. Safe mode correctly omits those routers by default, so opt into
+    # their registration without weakening the application's default.
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "false")
     app = _configured_app(monkeypatch)
     declared = {}
     for route in main._effective_routes(app.routes):

@@ -45,6 +45,58 @@ def test_normalize_runtime_event_accepts_legacy_aliases_and_redacts_sensitive_fi
     assert event["lineage"]["redaction"]["redacted_field_count"] >= 1
 
 
+def test_runtime_event_retains_closed_classification_and_progress_metadata():
+    tool_event = normalize_runtime_event(
+        process_id="proc_tool",
+        kind="tool_call_started",
+        payload={
+            "agent_id": "cortex",
+            "scope": "task:visible_work",
+            "source": "runtime",
+            "tool": "pytest",
+            "command_kind": "test",
+            "command_text": "pytest -q tests/test_runtime.py",
+            "unclassified_detail": "must not cross the evidence boundary",
+            "token": "sk-secret-token-1234567890",
+        },
+    )
+
+    assert tool_event["agent_id"] == "cortex"
+    assert tool_event["scope"] == "task:visible_work"
+    assert tool_event["payload"]["source"] == "runtime"
+    assert tool_event["payload"]["tool"] == "pytest"
+    assert tool_event["payload"]["command_kind"] == "test"
+    assert tool_event["payload"]["command_text"] == "[REDACTED]"
+    assert tool_event["payload"]["unclassified_detail"] == "[REDACTED]"
+    assert tool_event["payload"]["token"] == "[REDACTED]"
+
+    progress_event = normalize_runtime_event(
+        process_id="proc_rollback",
+        kind="runtime_delivery_rollback_applied.progress",
+        payload={
+            "rollback_transaction_id": "rollback_tx_123",
+            "snapshot_id": "snapshot_123",
+            "shared_state_revision_id": "revision_123",
+            "lifecycle_state": "running",
+            "active_nodes": ["build"],
+            "waiting_nodes": ["verify"],
+            "completed_nodes": [],
+            "failed_nodes": [],
+        },
+    )
+
+    assert progress_event["payload"] == {
+        "rollback_transaction_id": "rollback_tx_123",
+        "snapshot_id": "snapshot_123",
+        "shared_state_revision_id": "revision_123",
+        "lifecycle_state": "running",
+        "active_nodes": ["build"],
+        "waiting_nodes": ["verify"],
+        "completed_nodes": [],
+        "failed_nodes": [],
+    }
+
+
 def test_policy_patch_event_retains_closed_rollback_schema_without_session_secrets():
     event = normalize_runtime_event(
         process_id="proc_policy",

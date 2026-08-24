@@ -1726,6 +1726,12 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     assert reconciled["state"]["status"] == "active"
     sent_before_tick = len(sent)
     stores = orchestrator._runtime_delivery_stores()
+    follow_ups_before_tick = len(
+        stores["follow_up_store"].list(
+            process_id=process["process_id"],
+            runtime_kind="delivery",
+        )
+    )
     controller_lease = next(
         row
         for row in stores["supervisor"].list(process_id=process["process_id"], status="active")
@@ -1757,13 +1763,18 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     assert status["loop_state"]["conversation_ownership"]["channel"] == "whatsapp"
     assert status["loop_state"]["follow_through"]["resume_on_next_tick"] is True
     assert status["loop_state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
-    assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    outbound_update = status["loop_state"]["follow_through"]["outbound_update"]
+    assert outbound_update["delivery_status"] == "failed"
+    assert outbound_update["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
     assert status["process"]["workflow"]["metadata"]["runtime_delivery"]["conversation_ownership"]["conversation_id"] == "chat:delivery-watchdog"
     assert status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
-    assert len(sent) == sent_before_tick + 1
-    assert len(follow_ups) == sent_before_tick + 1
-    assert all(row.delivery_status == "sent" for row in follow_ups)
-    assert any("runtime_delivery_route" in row["message"] for row in sent)
+    # The legacy Diplomat transport is intentionally held until a durable,
+    # sink-bound delegated capability can be consumed at the final boundary.
+    assert len(sent) == sent_before_tick
+    assert len(follow_ups) == follow_ups_before_tick + 1
+    assert all(row.delivery_status == "failed" for row in follow_ups)
+    assert all(row.last_error == "diplomat_delivery_requires_delegated_action_capability" for row in follow_ups)
+    assert any("runtime_delivery_route" in row.message for row in follow_ups)
 
     second_tick = asyncio.run(
         orchestrator.tick_runtime(
@@ -1775,8 +1786,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
         )
     )
     assert second_tick["success"] is True
-    assert len(sent) == sent_before_tick + 1
-    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == sent_before_tick + 1
+    assert len(sent) == sent_before_tick
+    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == follow_ups_before_tick + 1
 
 
 
@@ -1844,9 +1855,13 @@ def test_runtime_delivery_reconcile_proactively_dispatches_true_human_blocker(tm
     follow_ups = stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")
 
     assert reconciled["state"]["status"] == "blocked"
-    assert reconciled["follow_up_dispatch"]["delivery_status"] == "sent"
-    assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
-    assert len(sent) == 1
+    assert reconciled["follow_up_dispatch"]["delivery_status"] == "failed"
+    assert reconciled["follow_up_dispatch"]["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
+    outbound_update = status["loop_state"]["follow_through"]["outbound_update"]
+    assert outbound_update["delivery_status"] == "failed"
+    assert outbound_update["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
+    assert len(sent) == 0
     assert len(follow_ups) == 1
-    assert follow_ups[0].delivery_status == "sent"
-    assert "Need from you" in sent[0]["message"]
+    assert follow_ups[0].delivery_status == "failed"
+    assert follow_ups[0].last_error == "diplomat_delivery_requires_delegated_action_capability"
+    assert "Need from you" in follow_ups[0].message

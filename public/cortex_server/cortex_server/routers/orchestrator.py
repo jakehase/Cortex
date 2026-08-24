@@ -4562,13 +4562,20 @@ def _runtime_follow_up_plan(
     update_kind = str(pending_intent.get("kind") or "status").strip() or "status"
     last_outbound = dict(follow_through.get("outbound_update") or {})
     last_sent_at = _parse_optional_dt(str(last_outbound.get("sent_at") or "").strip() or None)
+    last_attempt_at = _parse_optional_dt(str(last_outbound.get("last_attempt_at") or "").strip() or None)
     if last_sent_at is not None and due_at is not None and now < due_at and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
         return None
-    if last_sent_at is not None and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
+    # A held transport attempt is still an outbound attempt.  A watchdog can
+    # issue a fresh report id on every tick, so dedupe semantically identical
+    # updates by their durable attempt time as well as their successful send
+    # time; otherwise a fail-closed Diplomat boundary grows the queue on each
+    # tick while no delegated capability exists.
+    last_delivery_attempt_at = last_sent_at or last_attempt_at
+    if last_delivery_attempt_at is not None and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
         repeated_summary = str(last_outbound.get("summary") or "").strip() == summary
         repeated_status = str(last_outbound.get("status") or "").strip() == status
         repeated_kind = str(last_outbound.get("kind") or "status").strip() == update_kind
-        if repeated_summary and repeated_status and repeated_kind and (now - last_sent_at).total_seconds() < max(1, FOLLOW_UP_REPEAT_GRACE_SECONDS):
+        if repeated_summary and repeated_status and repeated_kind and (now - last_delivery_attempt_at).total_seconds() < max(1, FOLLOW_UP_REPEAT_GRACE_SECONDS):
             return None
     eligible = bool(report_due or follow_up_due or reasons.intersection(FOLLOW_UP_REASON_MARKERS) or report_kind in {"blocked", "completed"})
     if not eligible:
