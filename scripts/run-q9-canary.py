@@ -42,8 +42,13 @@ def load_env(path: Path) -> dict[str, str]:
 
 
 def signature(scope: dict[str, str], credential_id: str, secret: str) -> str:
-    canonical = "\0".join(
-        [credential_id, *(scope[key] for key in ("tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id"))]
+    # This is the exact server-side memory_scope_signature v2 contract.
+    canonical = "\n".join(
+        [
+            "cortex.memory.principal.v2",
+            credential_id,
+            *(scope[key] for key in ("tenant_id", "workspace_id", "agent_id", "user_id", "channel_id", "session_id")),
+        ]
     )
     return hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()
 
@@ -56,6 +61,7 @@ def principal_headers(environment: dict[str, str], *, credential_id: str, scope:
     headers = {
         "Content-Type": "application/json",
         "X-Cortex-Write-Token": environment["CORTEX_WRITE_TOKEN"],
+        "X-Cortex-Admin-Token": environment["CORTEX_ADMIN_TOKEN"],
         "X-Cortex-Scope-Credential-Id": credential_id,
         "X-Cortex-Scope-Signature": signature(scope, credential_id, str(credential["secret"])),
     }
