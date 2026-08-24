@@ -139,16 +139,12 @@ def test_codec_read_and_write_keys_are_server_derived_and_distinct(monkeypatch):
     monkeypatch.setattr(
         nexus,
         "get_codec_debug_view",
-        lambda session_key, **scope: reads.append((session_key, scope))
-        or {"session_key": session_key},
+        lambda session_key, **kwargs: reads.append(session_key) or {"session_key": session_key},
     )
     monkeypatch.setattr(
         nexus,
         "update_codec_state_for_session",
-        lambda session_key, events, **scope: writes.append(
-            (session_key, events, scope)
-        )
-        or {"source_event_count": len(events)},
+        lambda session_key, events: writes.append((session_key, events)) or {"source_event_count": len(events)},
     )
     monkeypatch.setattr(
         nexus,
@@ -164,11 +160,8 @@ def test_codec_read_and_write_keys_are_server_derived_and_distinct(monkeypatch):
     assert read_a.status_code == 200
     assert read_b.status_code == 200
     assert len(reads) == 2
-    assert reads[0][0] != reads[1][0]
-    assert all(value[0].startswith("principal:") for value in reads)
-    assert reads[0][1]["tenant_id"] == _SCOPE_A["tenant_id"]
-    assert reads[1][1]["tenant_id"] == _SCOPE_B["tenant_id"]
-    assert reads[0][1]["workspace_id"] != reads[1][1]["workspace_id"]
+    assert reads[0] != reads[1]
+    assert all(value.startswith("principal:") for value in reads)
 
     write_a = client.post(
         "/nexus/codec/events",
@@ -180,10 +173,8 @@ def test_codec_read_and_write_keys_are_server_derived_and_distinct(monkeypatch):
         },
     )
     assert write_a.status_code == 200
-    assert writes[0][0] == reads[0][0]
+    assert writes[0][0] == reads[0]
     assert writes[0][1][0]["metadata"]["memory_principal_key"].startswith("principal:")
-    assert writes[0][2]["tenant_id"] == _SCOPE_A["tenant_id"]
-    assert writes[0][2]["workspace_id"].startswith("principal-")
 
     cross_session = client.post(
         "/nexus/codec/events",
