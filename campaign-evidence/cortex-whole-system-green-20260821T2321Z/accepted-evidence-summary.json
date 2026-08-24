@@ -1,0 +1,61 @@
+{
+  "campaign": "cortex-whole-system-green-20260821T2321Z",
+  "generatedAt": "2026-08-24T16:28:56.916185Z",
+  "localEvidenceDigests": {
+    "audit-closure/audit-gates.json": "6b867f9515f0decdee94bfc525d0186d20fff9a446749491d8e67f40626dbf3d",
+    "audit-closure/critical-six-final-tests.log": "a0a27c2547b13e5b01b74b352369473b7d698a38e75ba40b601ece93689770bd",
+    "audit-closure/final-aios-refresh.json": "102e818bc5e77f6988088227dd5bb1c75d008b13dea1a9c99be1af8daa6504cd",
+    "audit-closure/final-live-audit.json": "58e48c596a2ee6227225c73b85cf0c1047886084d1bf82e93c6beeeb27022bc5",
+    "audit-closure/final-node-audit.log": "93edec20bd466f3e4586496a5ac1be64021da6d09121087b1e1c721339ac8568",
+    "audit-closure/finding-closure.json": "7435ca2ab64d36a8f50416fd17c87e5cec5882cf87aa4dee0541a75fbd62897f",
+    "audit-closure/retention-live-dry-run.json": "dc72e0628164bff17a6b763a64856ab725525441e3e8a99a906b6b2db2bb1cf2",
+    "audit-closure/watchdog-focused-tests.log": "818d9d08fa0fbc709ed98dacbc09c687013a123fee54cb44376833a097bda1e7",
+    "audit-closure/worker-launch-live-smoke.handoff.json": "04451c0e045efa5d37ffe1cad409c59e181405102502ffd5173ff60172621869",
+    "audit-closure/worker-launch-live-smoke.json": "8a0f94ffce49f6096ba4e0263a9c2e6b331c86c4a85503a6ca486047c93299ff",
+    "deployment/final-v5/rollback-drill-r5-verification.json": "5aa5bf6fd63c60900e5aca04e697c0a4d4f04ca05f0c04ab40c906a1d389751e",
+    "qualification/q8/state.json": "f47be4c853b9b52b94ed3676fbe91e15350260da5f0d81c857bd09b83e04099e"
+  },
+  "outcome": "green",
+  "privacyBoundary": "No credentials, live provider-response contents, private execution host, patient/client data, or deployment-specific configuration values are included in this public evidence summary. Full local evidence remains access-controlled.",
+  "qualifiedSource": {
+    "archiveSha256": "59d677bea267426e34d59451b737d8dd7ad6a8aa12f101bb1bfdbd667ec4b5bf",
+    "commit": "02491ba4370e28bd8bdd6520af6787e456da4c8a",
+    "fileCount": 2056,
+    "sourceMutationCount": 0,
+    "tree": "2acd8be14de43eb158c76b3e31aba613cdce9a91"
+  },
+  "schemaVersion": "cortex.whole-system-green.accepted-evidence-summary.v1",
+  "truthBoundary": "This summary preserves exact qualified-source identity and terminal gate counts. Hashes bind the local detailed artifacts without publishing private operational data.",
+  "verification": {
+    "aios": "green",
+    "broadPytest": {
+      "failed": 0,
+      "passed": 2019,
+      "skipped": 0
+    },
+    "closedFindings": 71,
+    "criticalFocused": {
+      "failed": 0,
+      "passed": 68
+    },
+    "finalNode": {
+      "failed": 0,
+      "passed": 328
+    },
+    "findingStatusCounts": {
+      "evidence_backed_not_applicable": 1,
+      "verified_fixed": 70
+    },
+    "liveExactSourceMatches": 2056,
+    "openapiOperations": 416,
+    "operationalOverlayFiles": 10,
+    "passedAuditGates": 9,
+    "qualifiedQ8ScopeMutationCount": 0,
+    "rollback": "green",
+    "tinyllamaExactProvider": "green",
+    "watchdogFocused": {
+      "failed": 0,
+      "passed": 7
+    }
+  }
+}

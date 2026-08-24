@@ -1,0 +1,66 @@
+{
+  "commitExact": true,
+  "integrationHistory": {
+    "broadQualificationRepair": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "bc0b554ce4e8ebdb5e762c5cd0e4c5dea7e24e31",
+      "subject": "repair(cortex): clear q4 broad qualification failures"
+    },
+    "domainImportCoreApi": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "b91b008728b59c335ae2de9a5538ab894a9fc11b",
+      "subject": "integrate: import core-api validated candidate"
+    },
+    "domainImportPersistenceTransfer": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "1a4d23aaf9e40b20dd7517bf0195a494680498e7",
+      "subject": "integrate: import persistence-transfer validated candidate"
+    },
+    "domainImportResilienceAios": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "bf207ca6191c0f28f17fe2c998bab3582c337ba5",
+      "subject": "integrate: import resilience-aios validated candidate"
+    },
+    "domainImportRoutingProvider": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "e6c2980f3d2d2b33c052ece1d9b57ea5807ed80c",
+      "subject": "integrate: import routing-provider validated candidate"
+    },
+    "domainImportSecurityActions": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "27b8f50ae60c1e0b7d0bdfbbd464b20b1da03d2a",
+      "subject": "integrate: import security-actions validated candidate"
+    },
+    "domainIntegrationMerge": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "962ee6de8e729616fab3f668f3a5977cd9da9836",
+      "subject": "Merge branch 'domain/security-actions' into integrated"
+    },
+    "integrationInteractionRepair": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "2e3b07d157c7254f8dc279baadc41378f2038cc3",
+      "subject": "repair(cortex): resolve whole-system integration interactions"
+    },
+    "lateLiveReconciliationMerge": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "87c0c7b78ba20f3aac31f655d430d935d39f1899",
+      "subject": "Merge branch 'late-live-overlay' into deploy-reconciled"
+    },
+    "liveReconciliationMerge": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "a45f993aa1a3ddc6d02aa742b96222ecc037178b",
+      "subject": "Merge branch 'live-overlay' into reconciled"
+    },
+    "principalCodecRepair": {
+      "ancestorOfQualifiedHead": true,
+      "commit": "02491ba4370e28bd8bdd6520af6787e456da4c8a",
+      "subject": "repair(cortex): restore principal-scoped codec continuity"
+    }
+  },
+  "outcome": "green",
+  "qualifiedCommit": "02491ba4370e28bd8bdd6520af6787e456da4c8a",
+  "qualifiedTree": "2acd8be14de43eb158c76b3e31aba613cdce9a91",
+  "schemaVersion": "cortex.whole-system-green.q8-history-verification.v1",
+  "treeExact": true,
+  "verifiedAt": "2026-08-24T16:17:30.509647Z"
+}

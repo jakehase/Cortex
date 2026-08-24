@@ -1,0 +1,106 @@
+{
+  "blockers": [],
+  "campaign": "cortex-whole-system-green-20260821T2321Z",
+  "declaredGateCount": 9,
+  "failedGateCount": 0,
+  "gates": [
+    {
+      "evidence": [
+        "qualification/q8/state.json",
+        "qualification/q8/remote-output/full-pytest.log"
+      ],
+      "id": "GATE-PYTEST-FULL",
+      "status": "pass",
+      "summary": "Exact q8 remote broad suite: 2,019 passed, 0 failed, 0 skipped; source mutations: 0."
+    },
+    {
+      "evidence": [
+        "audit-closure/finding-closure.json",
+        "integration-v1/remote-output/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "audit-closure/operational-overlay-manifest.json"
+      ],
+      "id": "GATE-AUDIT-71",
+      "status": "pass",
+      "summary": "All 71 unique findings are closed: 70 verified fixed and one evidence-backed N/A with no hard-budget feature present."
+    },
+    {
+      "evidence": [
+        "deployment/final-v5/live-verification.json",
+        "audit-closure/final-live-audit.json",
+        "audit-closure/final-node-audit.log"
+      ],
+      "id": "GATE-SECURITY",
+      "status": "pass",
+      "summary": "Safe mode, strict principal isolation, authenticated aggregate reads, plugin admission, and external-action boundaries are green."
+    },
+    {
+      "evidence": [
+        "audit-closure/final-aios-refresh.json",
+        "audit-closure/worker-launch-live-smoke.json",
+        "audit-closure/worker-launch-live-smoke.handoff.json",
+        "audit-closure/final-node-audit.log"
+      ],
+      "id": "GATE-PROVIDER",
+      "status": "pass",
+      "summary": "TinyLlama exact provider execution and the hardened remote worker/result contract are green without a false service-tier claim."
+    },
+    {
+      "evidence": [
+        "deployment/final-v5/live-verification.json",
+        "audit-closure/final-live-audit.json",
+        "qualification/q8/state.json"
+      ],
+      "id": "GATE-PERSISTENCE",
+      "status": "pass",
+      "summary": "L22, memory health, principal-local write/read isolation, Codec continuity, and persistence regressions are green."
+    },
+    {
+      "evidence": [
+        "deployment/final-v5/rollback-drill-r5-verification.json",
+        "audit-closure/watchdog-focused-tests.log",
+        "audit-closure/final-live-audit.json",
+        "audit-closure/retention-live-dry-run.json"
+      ],
+      "id": "GATE-RESILIENCE",
+      "status": "pass",
+      "summary": "Full rollback, watchdog recovery truth, fail-closed retention, live stability, and resilience tests are green."
+    },
+    {
+      "evidence": [
+        "qualification/q8/state.json",
+        "audit-closure/final-live-audit.json"
+      ],
+      "id": "GATE-OPENAPI",
+      "status": "pass",
+      "summary": "OpenAPI uniqueness, route safety inventory, health, readiness, and restricted safe-mode composition are green."
+    },
+    {
+      "evidence": [
+        "audit-closure/final-aios-refresh.json",
+        "audit-closure/final-live-audit.json",
+        "audit-closure/final-node-audit.log"
+      ],
+      "id": "GATE-AIOS",
+      "status": "pass",
+      "summary": "Fresh claim-bound AIOS promotion, explicit approval, provider workflows, status, recovery, and frozen-language tests are green."
+    },
+    {
+      "evidence": [
+        "deployment/final-v5/live-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "deployment/final-v5/rollback-drill-r5-verification.json",
+        "audit-closure/operational-overlay-manifest.json",
+        "audit-closure/final-live-audit.json"
+      ],
+      "id": "GATE-PRODUCTION",
+      "status": "pass",
+      "summary": "Exact q8 deployment, operational prerequisites, OpenClaw, watchdog, rollback, and post-overlay live runtime are green."
+    }
+  ],
+  "generatedAt": "2026-08-24T16:27:46.052395Z",
+  "outcome": "green",
+  "passedGateCount": 9,
+  "schemaVersion": "cortex.whole-system-green.audit-gates.v2",
+  "truthBoundary": "All declared finding/audit/runtime gates are green at this recorded checkpoint. Authoritative remote persistence and the final contradiction report remain separate terminal campaign gates."
+}

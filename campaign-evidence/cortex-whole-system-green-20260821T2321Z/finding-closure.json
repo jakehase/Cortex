@@ -1,0 +1,1260 @@
+{
+  "blockers": [],
+  "campaign": "cortex-whole-system-green-20260821T2321Z",
+  "closedFindingCount": 71,
+  "duplicateFindingIds": [],
+  "finalCriticalFocusedPytest": {
+    "failed": 0,
+    "passed": 68
+  },
+  "finalNodeAudit": {
+    "failed": 0,
+    "passed": 328
+  },
+  "findings": [
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F001",
+      "remainingRisk": "Dependency failures were injected locally; no live execution-plane outage was exercised.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Readiness and component status remain false-green under degradation"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F002",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Internal Cortex composition targets an unbound legacy port"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F003",
+      "remainingRisk": "Compatibility aliases remain intentionally supported; caches outside this workspace could retain older identity data.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Canonical level and topology identity is duplicated and stale"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F004",
+      "remainingRisk": "The inaccessible historical 14-file live capture was not reconstructed; this result supersedes it only with direct evidence for the current committed candidate and makes no deployment or current-live-state claim.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Audit evidence is byte-valid but not self-contained or directly replayable"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F005",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Oracle defaults to a synthetic done=true completion"
+    },
+    {
+      "closureLayer": "operational_overlay",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "audit-closure/final-node-audit.log",
+        "audit-closure/worker-launch-live-smoke.json",
+        "audit-closure/worker-launch-live-smoke.handoff.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F006",
+      "operationalRepair": "Ordered single-turn/final-result validation plus exact persisted-result digest and canonical handoff integrity binding.",
+      "remainingRisk": null,
+      "severity": "high",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Worker completion and handoff lack a required result and integrity binding"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F007",
+      "remainingRisk": "The repair is locally verified but not deployed; compatibility outside the bounded plugin and server matrices is not claimed.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "OpenClaw Cortex plugins lack one principal-derivation contract"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F008",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Memory principal enforcement is absent from compatibility and Codec routes"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F009",
+      "remainingRisk": "Deployment configuration must provide distinct strong credentials; no live credential or deployment check was authorized.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Loopback and a shared bearer token are treated as principal authority"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F010",
+      "remainingRisk": "Held legacy transports need a future worker-side capability protocol before they can be safely re-enabled.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Direct send and device sinks bypass policy and the claimed hard send gate"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F011",
+      "remainingRisk": "Executable hashes detect verifier drift but are not cryptographic principal authentication against an actor able to rewrite source and evidence.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "AI OS status and claim authority trust stale, self-attested, cross-job evidence"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F012",
+      "remainingRisk": "Legacy level status responses remain deliberately extensible for compatibility rather than fully discriminated.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Public response and provider contracts are weaker than their consumers"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F013",
+      "remainingRisk": "Safety classification is a reviewed manifest decision; future additions fail closed until explicitly declared.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "No explicit capability manifest governs discovery, loading, and safe mode"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F014",
+      "remainingRisk": "Recovery is locally filesystem-tested; behavior on the Hetzner volume and under real multi-process load remains undeployed evidence.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Mutable runtime state uses non-atomic overwrite without recoverable corruption handling"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F015",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Host and model-generated execution lack a constrained capability boundary"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F016",
+      "remainingRisk": "The bypass remains dependent on the host runtime preserving the integrity of internal Oracle session metadata.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Untrusted prompt text bypasses mandatory route gating"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F017",
+      "remainingRisk": "Total selected levels can intentionally exceed maxLevels when mandatory policy requires it; the configuration now documents that contract.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Route-gate cap silently removes five Nexus always-on levels"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F018",
+      "remainingRisk": "The prompt hook can report only selection and local policy; downstream execution requires a separate causal receipt.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Packed route provenance conflates provider, local mandatory, governor, and cache decisions"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F019",
+      "remainingRisk": "Useful adaptive training now depends on an execution layer emitting the explicit causal outcome receipt.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Adaptive routing learns success without output or causal level execution"
+    },
+    {
+      "closureLayer": "qualified_q8_not_applicable",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "evidence_backed_not_applicable",
+      "id": "AGG-F020",
+      "remainingRisk": "If a hard ceiling is introduced later, admission and release will need one correlated atomic reservation protocol.",
+      "severity": "medium",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Hard tool budget admits concurrent calls beyond its ceiling"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F021",
+      "remainingRisk": "The available OpenClaw CLI surface has no separate system flag, so Oracle transmits the system field inside a structured message envelope.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Reported Oracle model identity is not bound to the executed OpenClaw command"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F022",
+      "remainingRisk": "External provider availability and latency remain operational dependencies, but empty or unverifiable output no longer becomes a completed response.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Oracle provider followers and Ollama accept empty completion text"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F023",
+      "remainingRisk": "A future retrieval backend should strengthen grounded_retrieval into a cryptographically or transactionally bound backend receipt.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Synthetic Nexus retrieval and answer clear the 0.84 early-exit gate at 0.98 confidence"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F024",
+      "remainingRisk": "Semantic provider work remains unavailable when the standing provider/model policy is absent or incompatible, and now fails closed in that state.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Nexus accepts an empty provider object as semantic success and bypasses standing model policy"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F025",
+      "remainingRisk": "Schema completeness does not by itself establish the semantic quality of otherwise well-formed provider prose.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Deliberative routes present repaired or fallback text as unmarked model success"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F026",
+      "remainingRisk": "Authorization remains advisory Council output; callers must continue to enforce their own principal/action approval boundary.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Council interprets negated approval as APPROVE"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F027",
+      "remainingRisk": "The documented probability sum policy intentionally permits one percentage point of rounding tolerance.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Simulator's strict contract accepts duplicate labels and 999 percent probability"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F028",
+      "remainingRisk": "Existing caller-configured depth and branching limits remain the resource bound for large valid plans.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Fractal node ID collisions inflate merge coverage"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F029",
+      "remainingRisk": "Configuration presence remains distinct from live provider readiness until an explicit probe completes.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Oracle sandbox reports unverified health and wraps upstream failures"
+    },
+    {
+      "closureLayer": "operational_overlay",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "audit-closure/final-node-audit.log",
+        "audit-closure/worker-launch-live-smoke.json",
+        "audit-closure/operational-overlay-manifest.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F030",
+      "operationalRepair": "Removed the configured/hardcoded service-tier claim; the default contract sends no override and reports no provider confirmation.",
+      "remainingRisk": null,
+      "severity": "medium",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Configured service tier is neither transmitted nor provider-confirmed"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F031",
+      "remainingRisk": "A newly supported real provider lane or origin must be deliberately added to the explicit allowlist with matching receipt coverage.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "AI OS accepts empty or emergency Oracle JSON as provider.compute success"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "routing-provider",
+      "evidence": [
+        "workers/routing-provider/campaign-output/routing-provider/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F032",
+      "remainingRisk": "Multi-worker deployments must provision one shared CORTEX_CHAIN_HMAC_SECRET; the random fallback is intentionally single-process and fails cross-worker context closed.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Chain selection, termination, and activation evidence disagree"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F033",
+      "remainingRisk": "HEAD and automatically generated OPTIONS behavior are intentionally outside explicit collision accounting.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Readiness validates required paths without methods or collision safety"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F034",
+      "remainingRisk": "No live lifespan or deployment was exercised; compatibility is bounded to isolated construction and focused application tests.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Import and schema-load paths mutate persistence and read ambient configuration"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F035",
+      "remainingRisk": "Verification covers schema and media declarations, not live asset delivery through a deployed proxy.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Nine binary/static endpoints advertise JSON success media"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F036",
+      "remainingRisk": "Future discovery additions still require an explicit registered-path regression.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Root discovery advertises four nonexistent exact endpoints"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F037",
+      "remainingRisk": "Single-tag normalization intentionally removes secondary documentation groupings.",
+      "severity": "low",
+      "sourceStatus": "repaired_and_verified",
+      "title": "OpenAPI tags contain duplicates and naming aliases"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F038",
+      "remainingRisk": "A deployment containing inconsistent historical ledger rows will fail closed and require an explicit migration; no live ledger was inspected or mutated.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Semantic L22 accepts unbounded content and retains an unbounded idempotency ledger"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F039",
+      "remainingRisk": "Verification is against the synthetic baseline and focused retention tests; no live Codec corpus was pruned.",
+      "severity": "high",
+      "sourceStatus": "verified_fixed",
+      "title": "L22 recency pruning overrides Codec's utility-aware retention contract"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F040",
+      "remainingRisk": "No live runtime-delivery tree was pruned; unrecognized legacy paths intentionally degrade health and require operator classification rather than automatic deletion.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Runtime offload notes are append-only and health has no retention contract"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F041",
+      "remainingRisk": "The bounded snapshot intentionally degrades repositories above parser limits; no live graph publication was performed.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Structural index health ignores age and source provenance"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F042",
+      "remainingRisk": "The canary proves the implemented precedence/recovery mechanics, not semantic currency of every canonical fact; the response intentionally states that boundary.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "File/governance health overstates independently verified authority"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F043",
+      "remainingRisk": "The proof binds supplied verifier records but does not independently establish the external truth of an authorized verifier's evidence.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Lesson promotion accepts duplicate evidence and emits a content-unbound proof digest"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F044",
+      "remainingRisk": "Token estimation remains the declared deterministic four-characters heuristic rather than a model-specific tokenizer; the returned bound is internally enforced against that contract.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Retrieval-pack builder can return data above its declared token bound"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F045",
+      "remainingRisk": "No live signed registry was migrated; deployment must use the explicit migration path and retain its existing kill-switch state.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Transfer matcher/profile drift disables legacy qualification and rejects its registry entries"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F046",
+      "remainingRisk": "A privileged operator may still install proposals, but they remain cryptographically distinct, disabled, and production-ineligible until an independent qualification replaces them.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Operator-direct transfer bypasses qualification and injects outside software context"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F047",
+      "remainingRisk": "The declared policy is reviewable and digest-bound, but this pass did not regenerate the catalog from an external release pipeline.",
+      "severity": "low",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Transfer catalog omits provenance for derived routing metadata"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F048",
+      "remainingRisk": "Remote endpoint side effects remain not observable even though the POST transport is correctly classified as external.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "AI OS labels arbitrary provider POSTs as no external writes"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F049",
+      "remainingRisk": "Ignored ancillary pointer/state metadata is not transactional with the authoritative active config; no repository consumer treats the pointer as activation authority.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "AI OS default promotion enables a candidate before recovery succeeds"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F050",
+      "remainingRisk": "Frozen proof booleans and historical paths are qualification history, not current runtime readiness.",
+      "severity": "medium",
+      "sourceStatus": "verified_fixed",
+      "title": "Frozen evidence omits replay prerequisites for AI OS, Learning OS, and service guards"
+    },
+    {
+      "closureLayer": "operational_overlay",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "audit-closure/final-node-audit.log",
+        "audit-closure/operational-overlay-manifest.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F051",
+      "operationalRepair": "Strict model, sandbox, reasoning, host, and remote-path admission allowlists protect the fixed bash-stdin SSH transport.",
+      "remainingRisk": null,
+      "severity": "medium",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Remote model and sandbox arguments lack a strict remote-shell transport contract"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F052",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Required Sentinel preflight fails open on dependency failure"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F053",
+      "remainingRisk": "Python worker threads cannot be force-killed; late side effects may finish, but admission is bounded and their completion remains tracked.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Synchronous provider and queue work defeats async timeouts"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F054",
+      "remainingRisk": "A dependency may finish its own uncancellable work after caller timeout, but Cortex performs no further call, sleep, or retry beyond its budget.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Workflow retry attempts and backoff are unbounded"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F055",
+      "remainingRisk": "A dispatch_unknown reservation intentionally consumes capacity pending reconciliation; multi-host filesystem durability was not live-tested.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Queue outage looks online and scheduling has no admission/idempotency/cancellation contract"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F056",
+      "remainingRisk": "Recovery authority is a durable local file rather than distributed multi-node consensus.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Background tasks and cron schedules lack coordinated shutdown and restart recovery"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F057",
+      "remainingRisk": "This verifies in-process semantics; no deployed supervisor or watcher endpoint was queried.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Sentinel reports healthy while monitoring is stopped"
+    },
+    {
+      "closureLayer": "operational_overlay",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "audit-closure/watchdog-focused-tests.log",
+        "audit-closure/final-live-audit.json",
+        "audit-closure/operational-overlay-manifest.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F058",
+      "operationalRepair": "Watchdog restart completion is recorded only after bounded /health, /ready, and signed-admin /l22/status recovery probes.",
+      "remainingRisk": null,
+      "severity": "medium",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Watchdog records restart completion without verifying recovery"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F059",
+      "remainingRisk": "Installed systemd properties and live backend pressure were not observed; the repaired snapshot makes that later check explicit.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Resource enforcement and expensive health-probe safety are not established"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F060",
+      "remainingRisk": "No authoritative OpenClaw acknowledgement-schema contract exists in this source, so real provider compatibility is not claimed.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Detached notifier can claim terminal success without valid state or delivery acknowledgement"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "resilience-aios",
+      "evidence": [
+        "workers/resilience-aios/campaign-output/resilience-aios/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F061",
+      "remainingRisk": "Ambiguous post-send outcomes require reconciliation; provider idempotency transport is used only with an explicitly configured documented flag.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Notifier dedupe suppresses revisions and duplicates crash-window sends"
+    },
+    {
+      "closureLayer": "operational_overlay",
+      "domain": "persistence-transfer",
+      "evidence": [
+        "workers/persistence-transfer/campaign-output/persistence-transfer/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json",
+        "audit-closure/final-node-audit.log",
+        "audit-closure/retention-live-dry-run.json",
+        "audit-closure/operational-overlay-manifest.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F062",
+      "operationalRepair": "Retention resolves promoted pointers, requires positive finite age and candidate-specific hash-bound backup authority, and revalidates immediately before deletion.",
+      "remainingRisk": null,
+      "severity": "high",
+      "sourceStatus": "evidence_backed_not_applicable",
+      "title": "Retention can select a promoted pointer target without checking required backup"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F063",
+      "remainingRisk": "Tests use controlled doubles rather than a live Redis daemon.",
+      "severity": "medium",
+      "sourceStatus": "verified_fixed",
+      "title": "Redis startup success is overstated and omitted from readiness"
+    },
+    {
+      "closureLayer": "qualified_q8_critical_revalidation",
+      "domain": "critical-preworker",
+      "evidence": [
+        "critical-revalidation/result.json",
+        "audit-closure/critical-six-final-tests.log",
+        "qualification/q8/state.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F064",
+      "remainingRisk": null,
+      "severity": "critical",
+      "sourceStatus": "verified_fixed",
+      "title": "Workflow approvals accept caller-forged grants and fail open on unknown actions"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F065",
+      "remainingRisk": "No live network calls were made; verification uses deterministic mocked DNS and transport boundaries.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Outbound URL boundaries admit loopback, link-local, and caller-controlled targets"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F066",
+      "remainingRisk": "Deferred worker execution is intentionally unavailable until downstream sinks implement proof transport and consumption.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Schedulers and autonomy paths can defer or amplify unapproved writes"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F067",
+      "remainingRisk": "The inventory is locally enumerated against current routes; newly added future routes must declare a policy or fail startup tests.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Sensitive GET and WebSocket surfaces bypass the write-only authorization middleware"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F068",
+      "remainingRisk": "Raw application data is still returned where it is the authenticated endpoint's intended payload; this result covers diagnostic, trace, persistence, and error emissions, not application-data minimization redesign.",
+      "severity": "high",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Queries, headers, errors, tool output, and external responses can retain secrets or PHI"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "security-actions",
+      "evidence": [
+        "workers/security-actions/campaign-output/security-actions/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F069",
+      "remainingRisk": "Production must provision and rotate the dedicated notary secret; no live secret or deployed signature was inspected.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Browser notary falls back to provider/public key and exposes a signing oracle"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F070",
+      "remainingRisk": "An operator can still explicitly choose authenticated non-loopback deployment; network perimeter and read-surface controls remain deployment responsibilities.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Alternate launcher binds all interfaces despite loopback-bound frozen service"
+    },
+    {
+      "closureLayer": "qualified_q8_domain_repair",
+      "domain": "core-api",
+      "evidence": [
+        "workers/core-api/campaign-output/core-api/result.json",
+        "integration-v1/remote-output/result.json",
+        "qualification/q8/state.json",
+        "audit-closure/q8-history-verification.json",
+        "deployment/final-v5/source-identity.json"
+      ],
+      "finalStatus": "verified_fixed",
+      "id": "AGG-F071",
+      "remainingRisk": "Registration-time validation was tested in harnesses, not inside a live OpenClaw host.",
+      "severity": "medium",
+      "sourceStatus": "repaired_and_verified",
+      "title": "Runtime validators can admit nonlocal unsigned development configuration"
+    }
+  ],
+  "generatedAt": "2026-08-24T16:27:46.052395Z",
+  "missingFindingIds": [],
+  "operationalOverlayFocusedPytest": {
+    "failed": 0,
+    "passed": 7
+  },
+  "outcome": "green",
+  "qualifiedArchiveSha256": "59d677bea267426e34d59451b737d8dd7ad6a8aa12f101bb1bfdbd667ec4b5bf",
+  "qualifiedBroadPytest": {
+    "failed": 0,
+    "passed": 2019,
+    "skipped": 0
+  },
+  "qualifiedCommit": "02491ba4370e28bd8bdd6520af6787e456da4c8a",
+  "qualifiedFileCount": 2056,
+  "qualifiedTree": "2acd8be14de43eb158c76b3e31aba613cdce9a91",
+  "requiredFindingCount": 71,
+  "schemaVersion": "cortex.whole-system-green.finding-closure.v2",
+  "statusCounts": {
+    "evidence_backed_not_applicable": 1,
+    "verified_fixed": 70
+  },
+  "truthBoundary": "This artifact closes the exact 71-finding audit set against the exact q8 qualification, final operational overlay, live deployment, rollback, provider, and freshness evidence. It does not itself prove authoritative remote persistence.",
+  "unexpectedFindingIds": []
+}

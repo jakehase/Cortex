@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "clawd.artifact_retention_policy.v2",
+  "roots": [
+    "/absolute/path/to/artifacts"
+  ],
+  "defaultRetentionDays": 45,
+  "protectedBasenames": [
+    "latest",
+    "latest.json",
+    "STATUS.md",
+    "manifest.json",
+    "artifact_manifest.json",
+    "completion_summary.json",
+    "claim_packet.json",
+    "blocker_report.json"
+  ],
+  "protectedPointerNamePattern": "(?:^latest(?:[-_.].*)?\\.json$|.*_latest\\.json$|^latest$)",
+  "pointerScanMaxDepth": 6,
+  "pointerScanMaxEntries": 500000,
+  "maximumPointerBytes": 1048576,
+  "pointerFiles": [],
+  "applyRequires": [
+    "--apply",
+    "--confirm-retention-delete"
+  ],
+  "backupReceiptPath": "/absolute/path/to/current-backup-receipt.json",
+  "backupRequirement": "Every deletion candidate must have a current source-tree digest and a verified backup artifact digest in a non-expired hash-bound receipt. Pointer and backup state are revalidated immediately before deletion.",
+  "truthBoundary": "Dry-run candidates are not deleted. Destructive retention fails closed unless every confirmation, pointer, source-tree, and candidate-specific backup gate passes. This public template intentionally omits deployment-specific paths."
+}

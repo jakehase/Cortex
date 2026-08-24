@@ -1,0 +1,99 @@
+{
+  "campaign": "cortex-whole-system-green-20260821T2321Z",
+  "changedOverlayFileCount": 10,
+  "files": [
+    {
+      "acceptedSha256": "d3bfa6441f239fa89a26a3bcd414156a12898856453e745d369e0ee840252874",
+      "changed": true,
+      "mode": "0o644",
+      "path": "scripts/codex-worker-launcher.mjs",
+      "preimageSha256": "0980fce8138ef26f0cc7bba57776fd49f3ccdc51bd1b65f31442483dd2493073",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "8ae9e61c2807f08003089c1abc831de752b7e83bc61231ce43a44cbc4c84eecc",
+      "changed": true,
+      "mode": "0o644",
+      "path": "scripts/codex-worker-launcher.test.mjs",
+      "preimageSha256": null,
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "a4e9f6e18e4b22604e1bfd7e60e38f1e24e24fada5bac4270ff96c7195b2abe9",
+      "changed": true,
+      "mode": "0o644",
+      "path": "scripts/remote-completion-handoff.mjs",
+      "preimageSha256": "f8d092c03edafab2a9ff987d553b184e2ce6b036ae484db062d62380723d8e82",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "df82aa91925ae78190969928bdc0ab07d85423eb33cc6d5ee798367073a1d920",
+      "changed": true,
+      "mode": "0o644",
+      "path": "scripts/remote-completion-handoff.test.mjs",
+      "preimageSha256": "2b179b959ed65fa926de8839a0f076eb5392b36eb5289a7203cb656f6bd856e6",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "772039895cc7e3fe0eea2f2ab6130e8e2e89bc16140142bb7c2ae9f57da1abc3",
+      "changed": true,
+      "mode": "0o600",
+      "path": "scripts/artifact-retention.mjs",
+      "preimageSha256": "a7e92857750a93d83fd83e8bce0173b36c1bb0a568b4085484f3838c4639f1a9",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "265f60e5e376189abf75f4b988dc980aa0afbd45024b3ef2d271e4103de75a2c",
+      "changed": true,
+      "mode": "0o644",
+      "path": "scripts/artifact-retention.test.mjs",
+      "preimageSha256": null,
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "ee21e7e93171f9fffe44443f9c44f53c4a0fa018011e2dc36731b1ef554e9c4f",
+      "changed": true,
+      "mode": "0o600",
+      "path": "config/worker-launch/default.json",
+      "preimageSha256": "57a6c0b591f9ee2e8e6bdab30dfd6c8a38db9d37d13b04f556081a39b1a28e72",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "3aa4b1e3e3d87716015192c9f186f82a81698f6cd940111e070c3d7f42786c00",
+      "changed": true,
+      "mode": "0o600",
+      "path": "config/artifact-retention/default.json",
+      "preimageSha256": "c866f6f6bf5da70556f0df0b4ffb066ca01f3f1a4190e27a590ab5ae96158e22",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "ec11b42bfd18ac4bb6477345acc2764dcd91612366af8e1161cee8ba2b30263e",
+      "changed": true,
+      "mode": "0o755",
+      "path": "public/cortex_server/scripts/cortex_health_watchdog.sh",
+      "preimageSha256": "1760dfd1e0803912584c02033768276501bad872c1a4e36bfb3a2ff6bae92db8",
+      "qualifiedQ8Scope": false
+    },
+    {
+      "acceptedSha256": "dab14da19366e9a85bfde1cc97e8e5c28ce9f837f503326f74bebf1a6cd26f0d",
+      "changed": true,
+      "mode": "0o644",
+      "path": "public/cortex_server/tests/test_cortex_health_watchdog.py",
+      "preimageSha256": "21e12e96c0b4cfe423192d85779dd5b3d83e5bd16712c107a0d2182a90f03236",
+      "qualifiedQ8Scope": false
+    }
+  ],
+  "findingClosures": [
+    "AGG-F006",
+    "AGG-F030",
+    "AGG-F051",
+    "AGG-F058",
+    "AGG-F062"
+  ],
+  "outcome": "green",
+  "overlayFileCount": 10,
+  "qualifiedQ8ScopeMutationCount": 0,
+  "schemaVersion": "cortex.whole-system-green.operational-overlay.v1",
+  "truthBoundary": "These production prerequisites and focused tests are outside the immutable 2,056-file q8 qualified scope. Their hashes are recorded separately; the q8 source commit/tree remains exact.",
+  "verifiedAt": "2026-08-24T16:17:29.886454Z"
+}
