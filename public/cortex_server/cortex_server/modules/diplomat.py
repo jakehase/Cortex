@@ -12,41 +12,6 @@ from typing import Optional, Dict
 import requests
 
 
-def _absolute_path(value: str | Path, *, source: str) -> Path:
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        raise ValueError(f"{source} must be an absolute path")
-    return path
-
-
-def _diplomat_state_root(explicit: str | Path | None = None) -> Path:
-    """Resolve mutable Diplomat state outside the packaged source tree."""
-    if explicit is not None:
-        return _absolute_path(explicit, source="Diplomat state directory")
-
-    configured = os.getenv("CORTEX_DIPLOMAT_STATE_DIR", "").strip()
-    if configured:
-        return _absolute_path(configured, source="CORTEX_DIPLOMAT_STATE_DIR")
-
-    runtime_root = os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "").strip()
-    if runtime_root:
-        return _absolute_path(
-            runtime_root,
-            source="ORCHESTRATOR_RUNTIME_DELIVERY_ROOT",
-        ) / "diplomat"
-
-    artifact_root = os.getenv("CORTEX_ARTIFACT_ROOT", "").strip()
-    if artifact_root:
-        return _absolute_path(artifact_root, source="CORTEX_ARTIFACT_ROOT") / "diplomat"
-
-    state_home = os.getenv("XDG_STATE_HOME", "").strip()
-    if state_home:
-        root = _absolute_path(state_home, source="XDG_STATE_HOME")
-    else:
-        root = Path.home() / ".local" / "state"
-    return root / "cortex" / "diplomat"
-
-
 class TheDiplomat:
     """Diplomatic envoy for external communication.
     
@@ -59,14 +24,12 @@ class TheDiplomat:
     
     def __init__(self, 
                  gateway_url: str = "http://localhost:8080",
-                 owner_number: str = "+17855410986",
-                 state_dir: str | Path | None = None):
+                 owner_number: str = "+17855410986"):
         self.gateway_url = gateway_url
         self.owner_number = owner_number
         self.pending_requests: Dict[str, Dict] = {}
-        state_root = _diplomat_state_root(state_dir)
-        self.message_log = state_root / "diplomat_log.txt"
-        self.pending_requests_file = state_root / "pending_requests.json"
+        self.message_log = Path("cortex_server/knowledge/evolution/diplomat_log.txt")
+        self.pending_requests_file = Path("cortex_server/knowledge/evolution/pending_requests.json")
         
     def send_briefing(self, message: str, title: str = "🧠 Cortex Update") -> bool:
         """Send a formatted briefing message to WhatsApp.

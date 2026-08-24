@@ -7,20 +7,15 @@ Adds resilient fallback recall paths when embedding providers fail.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, field_validator
-from typing import Annotated, List, Optional, Dict, Any
-import asyncio
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 import chromadb
 import uuid
-import os as _stdlib_os
-import stat
+import os
 import shutil
 import re
 import json
-import logging
 import threading
-import fcntl
-from contextlib import contextmanager
 from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,66 +24,21 @@ from cortex_server.modules.librarian_embedding import build_embedding_function
 from cortex_server.modules import runtime_pressure
 from cortex_server.modules.memory_scope import (
     AuthenticatedMemoryPrincipal,
-    MemoryScopeAuthError,
-    PRINCIPAL_FIELDS,
-    authenticate_memory_principal,
     memory_principal_for_request,
     principal_memory_where,
     require_authenticated_memory_principal,
     scoped_memory_metadata,
 )
 
-
-class _OSFacade:
-    """Keep fault-injection of Librarian filesystem calls module-local.
-
-    Tests and health probes replace ``librarian.os.open`` to model permission
-    failures. Mutating the process-global ``os.open`` can also break asyncio's
-    wakeup pipe while a status request is running, so expose a narrow facade
-    whose attributes can be replaced without altering the interpreter module.
-    """
-
-    open = staticmethod(_stdlib_os.open)
-
-    def __getattr__(self, name: str):
-        return getattr(_stdlib_os, name)
-
-
-os = _OSFacade()
-
 router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
-logger = logging.getLogger(__name__)
 
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
 LEGACY_CHROMA_DIR = "/root/cortex_server/chroma_db"
-CHROMA_DATABASE_NAME = "chroma.sqlite3"
-CHROMA_AUTHORITY_SENTINEL = ".cortex-memory-authority"
-CHROMA_AUTHORITY_SCHEMA = "cortex.memory-authority.v1"
-COLLECTION_NAME = "cortex_memory"
-READINESS_COLLECTION_NAME = "cortex-durability-readiness"
-
-
-def _production_memory_mode() -> bool:
-    environment = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
-    strict = os.getenv("CORTEX_REQUIRE_DURABLE_MEMORY", "").strip().lower()
-    return environment in {"production", "prod", "staging"} or strict in {"1", "true", "yes", "on"}
-
-
 def _default_chroma_dir() -> str:
     configured = os.getenv("CORTEX_CHROMA_DIR")
     if configured:
-        path = Path(configured).expanduser()
-        if not path.is_absolute():
-            raise RuntimeError("CORTEX_CHROMA_DIR must be an absolute durable path")
-        return str(path)
-    if _production_memory_mode():
-        raise RuntimeError("CORTEX_CHROMA_DIR is required for durable production memory")
-    isolated_graph_path = os.getenv("CORTEX_DB_PATH", "").strip()
-    if isolated_graph_path:
-        graph_path = Path(isolated_graph_path).expanduser()
-        if graph_path.is_absolute():
-            return str(graph_path.parent / "chroma_db")
+        return configured
     preferred = Path("/app/cortex_server/chroma_db")
     try:
         preferred.parent.mkdir(parents=True, exist_ok=True)
@@ -98,77 +48,13 @@ def _default_chroma_dir() -> str:
         pass
     return str(Path.home() / ".cache" / "cortex_server" / "chroma_db")
 
-
-def _chroma_authority_binding(mount_id: str) -> str:
-    return f"{CHROMA_AUTHORITY_SCHEMA}:{mount_id}:{COLLECTION_NAME}"
-
 CHROMA_DIR = _default_chroma_dir()
 if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
     try:
         shutil.copytree(LEGACY_CHROMA_DIR, CHROMA_DIR)
     except Exception:
         pass
-
-
-def _validate_chroma_storage(path_value: str) -> None:
-    path = Path(path_value)
-    try:
-        if _production_memory_mode():
-            if path.is_symlink() or not path.is_dir():
-                raise RuntimeError("configured Cortex memory volume is missing or invalid")
-            expected_mount_id = os.getenv("CORTEX_CHROMA_MOUNT_ID", "").strip()
-            marker_name = os.getenv(
-                "CORTEX_CHROMA_MOUNT_MARKER", ".cortex-durable-memory"
-            ).strip()
-            if (
-                not expected_mount_id
-                or not marker_name
-                or Path(marker_name).name != marker_name
-            ):
-                raise RuntimeError(
-                    "CORTEX_CHROMA_MOUNT_ID and a safe mount marker are required in production"
-                )
-            marker_path = path / marker_name
-            if (
-                marker_path.is_symlink()
-                or not marker_path.is_file()
-                or marker_path.read_text(encoding="utf-8").strip() != expected_mount_id
-            ):
-                raise RuntimeError("configured Cortex memory mount identity does not match")
-            authority_path = path / CHROMA_AUTHORITY_SENTINEL
-            if (
-                authority_path.is_symlink()
-                or not authority_path.is_file()
-                or authority_path.read_text(encoding="utf-8").strip()
-                != _chroma_authority_binding(expected_mount_id)
-            ):
-                raise RuntimeError("configured Cortex memory authority is missing or mismatched")
-            database_path = path / CHROMA_DATABASE_NAME
-            if database_path.is_symlink() or not database_path.is_file():
-                raise RuntimeError("configured Cortex memory authority database is missing or invalid")
-        else:
-            path.mkdir(parents=True, exist_ok=True)
-        probe = path / f".cortex-durability-probe-{uuid.uuid4().hex}"
-        descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            os.write(descriptor, b"durable-memory-probe\n")
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        probe.unlink()
-        if _production_memory_mode():
-            directory_descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"configured Cortex memory path is not durably writable: {path}") from exc
-
-
-_validate_chroma_storage(CHROMA_DIR)
+os.makedirs(CHROMA_DIR, exist_ok=True)
 client = chromadb.PersistentClient(path=CHROMA_DIR)
 
 # Use a persistent embedding function by default so ONNX sessions are not recreated
@@ -176,27 +62,15 @@ client = chromadb.PersistentClient(path=CHROMA_DIR)
 # CORTEX_LIBRARIAN_EMBEDDING_MODE=default for reproduction experiments.
 embed_fn = build_embedding_function()
 
-def _load_memory_collection(chroma_client, embedding_function):
-    if _production_memory_mode():
-        return chroma_client.get_collection(
-            name=COLLECTION_NAME,
-            embedding_function=embedding_function,
-        )
-    return chroma_client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        embedding_function=embedding_function,
-    )
-
-
-collection = _load_memory_collection(client, embed_fn)
+# Get or create collection
+COLLECTION_NAME = "cortex_memory"
+collection = client.get_or_create_collection(
+    name=COLLECTION_NAME,
+    embedding_function=embed_fn,
+)
 
 _FALLBACK_LOG_PATH = Path(os.getenv("LIBRARIAN_FALLBACK_LOG_PATH", f"{CHROMA_DIR}/librarian_fallback.jsonl"))
-_FALLBACK_MAX_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_MAX_BYTES", str(16 * 1024 * 1024)))
-_FALLBACK_MAX_ROWS = int(os.getenv("LIBRARIAN_FALLBACK_MAX_ROWS", "5000"))
-_FALLBACK_MAX_ROW_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_MAX_ROW_BYTES", str(1100 * 1024)))
-_FALLBACK_READ_MAX_BYTES = int(os.getenv("LIBRARIAN_FALLBACK_READ_MAX_BYTES", str(4 * 1024 * 1024)))
 _LOCAL_FILE_MEMORY_ROOTS_ENV = "LIBRARIAN_LOCAL_FILE_MEMORY_ROOTS"
-_SCOPED_LOCAL_FILE_MEMORY_ROOTS_ENV = "LIBRARIAN_SCOPED_LOCAL_FILE_MEMORY_ROOTS"
 _DEFAULT_LOCAL_FILE_MEMORY_ROOTS = (
     "/root/clawd/memory",
     "/root/clawd/clients",
@@ -214,8 +88,6 @@ _LOW_SIGNAL_LOCAL_MEMORY_QUERY_TOKENS = {
     "jake", "cortex", "assistant",
 }
 _EMBEDDING_HEALTH_LOCK = threading.Lock()
-_FACT_SUPERSESSION_LOCK = threading.RLock()
-_FALLBACK_STORE_LOCK = threading.RLock()
 _EMBEDDING_HEALTH: Dict[str, Any] = {
     "status": "ok",
     "last_error": "",
@@ -223,358 +95,11 @@ _EMBEDDING_HEALTH: Dict[str, Any] = {
     "fallback_writes": 0,
     "fallback_searches": 0,
 }
-_COLLECTION_HEALTH_TIMEOUT_SECONDS = 1.0
-
-MAX_MEMORY_SCOPE_ID_LENGTH = 128
-_MEMORY_SCOPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$")
-DEFAULT_TENANT_ID = os.getenv("CORTEX_DEFAULT_TENANT_ID", "cortex-local").strip() or "cortex-local"
-DEFAULT_WORKSPACE_ID = os.getenv("CORTEX_DEFAULT_WORKSPACE_ID", "default").strip() or "default"
-MemoryScopeId = Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_SCOPE_ID_LENGTH, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@/-]*$")]
-
-
-class FactSupersessionError(RuntimeError):
-    """A new fact was removed because prior versions could not be superseded."""
-
-
-class FallbackPersistenceError(RuntimeError):
-    """The bounded fallback store could not durably commit a memory row."""
-
-
-def _normalize_scope_id(value: Optional[str], *, field: str, default: str) -> str:
-    normalized = str(value if value is not None else default).strip()
-    if not _MEMORY_SCOPE_RE.fullmatch(normalized):
-        raise ValueError(f"{field} must be a bounded opaque identifier")
-    return normalized
-
-
-def _memory_scope(tenant_id: Optional[str] = None, workspace_id: Optional[str] = None) -> tuple[str, str]:
-    return (
-        _normalize_scope_id(tenant_id, field="tenant_id", default=DEFAULT_TENANT_ID),
-        _normalize_scope_id(workspace_id, field="workspace_id", default=DEFAULT_WORKSPACE_ID),
-    )
-
-
-def _scope_key(tenant_id: str, workspace_id: str) -> str:
-    return sha256(f"{tenant_id}\0{workspace_id}".encode("utf-8")).hexdigest()
-
-
-def _is_default_scope(tenant_id: str, workspace_id: str) -> bool:
-    return tenant_id == DEFAULT_TENANT_ID and workspace_id == DEFAULT_WORKSPACE_ID
-
-
-def _metadata_matches_scope(metadata: Optional[Dict[str, Any]], tenant_id: str, workspace_id: str) -> bool:
-    metadata = metadata or {}
-    stored_tenant = metadata.get("tenant_id")
-    stored_workspace = metadata.get("storage_workspace_id", metadata.get("workspace_id"))
-    if stored_tenant is None and stored_workspace is None:
-        return _is_default_scope(tenant_id, workspace_id)
-    return str(stored_tenant) == tenant_id and str(stored_workspace) == workspace_id
-
-
-def _scope_where(tenant_id: str, workspace_id: str) -> Optional[Dict[str, str]]:
-    # Legacy records are explicitly assigned to the reserved local scope during
-    # reads. A Chroma filter would hide them before that migration boundary can
-    # be applied, so only non-default scopes use the indexed filter.
-    if _is_default_scope(tenant_id, workspace_id):
-        return None
-    return {"memory_scope_key": _scope_key(tenant_id, workspace_id)}
-
-
-def _scoped_call_kwargs(tenant_id: str, workspace_id: str) -> Dict[str, str]:
-    if _is_default_scope(tenant_id, workspace_id):
-        return {}
-    return {"tenant_id": tenant_id, "workspace_id": workspace_id}
-
-
-def _memory_scope_auth_ready() -> bool:
-    return bool(os.getenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", "").strip()) or not _production_memory_mode()
-
-
-class MemoryPrincipalScope(BaseModel):
-    model_config = {"extra": "forbid"}
-
-    tenant_id: MemoryScopeId
-    workspace_id: MemoryScopeId
-    agent_id: MemoryScopeId
-    user_id: MemoryScopeId
-    channel_id: MemoryScopeId
-    session_id: MemoryScopeId
-
-
-def _authenticated_memory_principal_scope(
-    tenant_id: Optional[str],
-    workspace_id: Optional[str],
-    scope_signature: Optional[str],
-    *,
-    scope: Optional[MemoryPrincipalScope | Dict[str, Any]] = None,
-    scope_credential_id: Optional[str] = None,
-) -> AuthenticatedMemoryPrincipal:
-    raw_scope: Optional[Dict[str, Any]]
-    if scope is None:
-        raw_scope = None
-    elif hasattr(scope, "model_dump"):
-        raw_scope = scope.model_dump()
-    elif hasattr(scope, "dict"):
-        raw_scope = scope.dict()
-    else:
-        raw_scope = dict(scope)
-    try:
-        return authenticate_memory_principal(
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            scope=raw_scope,
-            credential_id=scope_credential_id,
-            signature=scope_signature,
-            production=_production_memory_mode(),
-            allow_local_development=True,
-        )
-    except MemoryScopeAuthError as exc:
-        status_code = 503 if "not configured" in str(exc) else 403
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-
-
-def _route_memory_principal(
-    request: Any,
-    http_request: Optional[Request],
-) -> AuthenticatedMemoryPrincipal:
-    """Prefer the shared HTTP dependency while preserving direct-call fixtures."""
-
-    if http_request is not None:
-        return memory_principal_for_request(http_request)
-    return _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
-
-
-def _authenticated_memory_scope(
-    tenant_id: Optional[str],
-    workspace_id: Optional[str],
-    scope_signature: Optional[str],
-) -> tuple[str, str]:
-    principal = _authenticated_memory_principal_scope(
-        tenant_id,
-        workspace_id,
-        scope_signature,
-    )
-    return principal.tenant_id, principal.storage_workspace_id
-
-
-def _fact_supersession_lock_path() -> Path:
-    configured = os.getenv("CORTEX_FACT_SUPERSESSION_LOCK_PATH")
-    return Path(configured) if configured else Path(CHROMA_DIR) / ".fact-supersession.lock"
-
-
-def _fact_supersession_journal_dir() -> Path:
-    configured = os.getenv("CORTEX_FACT_SUPERSESSION_JOURNAL_DIR")
-    return Path(configured) if configured else Path(CHROMA_DIR) / ".fact-supersession-journal"
-
-
-@contextmanager
-def _fact_supersession_transaction():
-    """Serialize a complete fact revision across threads and processes.
-
-    The in-process lock is always acquired first. ``flock`` ownership belongs to
-    the open file description and is released by the kernel when a process dies,
-    so a crashed writer cannot leave a stale durable lock behind.
-    """
-    with _FACT_SUPERSESSION_LOCK:
-        lock_path = _fact_supersession_lock_path()
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+b") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _write_fact_supersession_journal(entry: Dict[str, Any]) -> Path:
-    """Durably publish a transaction intent before changing Chroma state."""
-    journal_dir = _fact_supersession_journal_dir()
-    journal_dir_existed = journal_dir.exists()
-    journal_dir.mkdir(parents=True, exist_ok=True)
-    if not journal_dir_existed:
-        _sync_directory(journal_dir.parent)
-    transaction_id = str(entry["transaction_id"])
-    journal_path = journal_dir / f"{transaction_id}.json"
-    temporary_path = journal_dir / f".{transaction_id}.{uuid.uuid4().hex}.tmp"
-    try:
-        encoded = json.dumps(entry, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        descriptor = os.open(temporary_path, flags, 0o600)
-        try:
-            with os.fdopen(descriptor, "wb") as journal_file:
-                journal_file.write(encoded)
-                journal_file.flush()
-                os.fsync(journal_file.fileno())
-        except Exception:
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
-            raise
-        os.replace(temporary_path, journal_path)
-        _sync_directory(journal_dir)
-        return journal_path
-    except Exception:
-        try:
-            temporary_path.unlink()
-        except OSError:
-            pass
-        raise
-
-
-def _remove_fact_supersession_journal(journal_path: Path) -> None:
-    journal_path.unlink()
-    _sync_directory(journal_path.parent)
-
-
-def _read_fact_supersession_journal(journal_path: Path) -> Dict[str, Any]:
-    try:
-        entry = json.loads(journal_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}") from exc
-    if not isinstance(entry, dict) or entry.get("version") != 1:
-        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
-    required_strings = ("transaction_id", "fact_key", "memory_id", "text")
-    if any(not isinstance(entry.get(key), str) or not entry[key] for key in required_strings):
-        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
-    if not isinstance(entry.get("metadata"), dict):
-        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
-    return entry
-
-
-def _recover_fact_supersessions_locked() -> None:
-    """Roll forward every durable intent. Caller must hold the process lock."""
-    journal_dir = _fact_supersession_journal_dir()
-    if not journal_dir.exists():
-        return
-    try:
-        journal_paths = sorted(journal_dir.glob("*.json"))
-    except OSError as exc:
-        raise FactSupersessionError("fact supersession journal is unavailable") from exc
-    for journal_path in journal_paths:
-        entry = _read_fact_supersession_journal(journal_path)
-        fact_key = entry["fact_key"]
-        memory_id = entry["memory_id"]
-        tenant_id, workspace_id = _memory_scope(entry.get("tenant_id"), entry.get("workspace_id"))
-        metadata = _normalize_memory_metadata(
-            entry["metadata"], tenant_id=tenant_id, workspace_id=workspace_id
-        )
-        try:
-            current = _collection_fact_rows(fact_key, tenant_id, workspace_id)
-            current_ids = list(current.get("ids") or [])
-            if memory_id not in current_ids:
-                pending_metadata = {
-                    **metadata,
-                    "memory_status": "tombstoned",
-                    "tombstoned": True,
-                    "supersession_pending": True,
-                }
-                collection.add(ids=[memory_id], documents=[entry["text"]], metadatas=[pending_metadata])
-                current_ids.append(memory_id)
-            prior_ids = [row_id for row_id in current_ids if row_id != memory_id]
-            supersede_memory_records(
-                prior_ids,
-                superseded_by=memory_id,
-                reason="newer_fact_key_revision",
-                _skip_recovery=True,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
-            active_metadata = dict(metadata)
-            active_metadata.pop("tombstoned", None)
-            active_metadata.pop("supersession_pending", None)
-            active_metadata["memory_status"] = "active"
-            collection.update(ids=[memory_id], metadatas=[active_metadata])
-            _append_fallback_fact_supersession(
-                fact_key,
-                superseded_by=memory_id,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
-            _remove_fact_supersession_journal(journal_path)
-        except FactSupersessionError:
-            raise
-        except Exception as exc:
-            raise FactSupersessionError(
-                f"could not recover fact supersession transaction {entry['transaction_id']}"
-            ) from exc
-
-
-def _recover_fact_supersessions() -> None:
-    with _fact_supersession_transaction():
-        _recover_fact_supersessions_locked()
-
-
-MAX_MEMORY_METADATA_BYTES = 65_536
-MAX_MEMORY_METADATA_DEPTH = 8
-MAX_MEMORY_METADATA_NODES = 1_000
-MAX_MEMORY_METADATA_STRING = 16_384
-MAX_SUPERSESSION_RECORDS = 500
-MAX_SUPERSESSION_ID_BYTES = 256
-MemoryTag = Annotated[str, Field(max_length=256)]
-MemoryRecordId = Annotated[str, Field(min_length=1, max_length=MAX_SUPERSESSION_ID_BYTES)]
-
-
-def _validate_memory_metadata(value: Optional[dict]) -> Optional[dict]:
-    if value is None:
-        return value
-    nodes = 0
-
-    def visit(item: Any, depth: int) -> None:
-        nonlocal nodes
-        nodes += 1
-        if nodes > MAX_MEMORY_METADATA_NODES:
-            raise ValueError("metadata has too many values")
-        if depth > MAX_MEMORY_METADATA_DEPTH:
-            raise ValueError("metadata is too deeply nested")
-        if isinstance(item, dict):
-            for key, child in item.items():
-                if not isinstance(key, str) or len(key) > 256:
-                    raise ValueError("metadata keys must be bounded strings")
-                visit(child, depth + 1)
-        elif isinstance(item, list):
-            for child in item:
-                visit(child, depth + 1)
-        elif isinstance(item, str):
-            if len(item) > MAX_MEMORY_METADATA_STRING:
-                raise ValueError("metadata string is too long")
-        elif item is not None and not isinstance(item, (bool, int, float)):
-            raise ValueError("metadata contains an unsupported value")
-
-    visit(value, 0)
-    try:
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise ValueError("metadata must be finite JSON") from exc
-    if len(encoded) > MAX_MEMORY_METADATA_BYTES:
-        raise ValueError("metadata exceeds byte limit")
-    return value
 
 
 class EmbedRequest(BaseModel):
-    text: str = Field(..., max_length=1_000_000)
+    text: str
     metadata: Optional[dict] = None
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class EmbedResponse(BaseModel):
@@ -583,14 +108,9 @@ class EmbedResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str = Field(..., max_length=16_384)
-    n_results: int = Field(3, ge=1, le=100)
+    query: str
+    n_results: int = 3
     allow_fallback: bool = True
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class MemoryResult(BaseModel):
@@ -609,18 +129,11 @@ class SearchResponse(BaseModel):
 
 
 class NovelEmbedRequest(BaseModel):
-    text: str = Field(..., max_length=1_000_000)
+    text: str
     metadata: Optional[dict] = None
-    novelty_tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
-    compare_window: int = Field(40, ge=1, le=500)
+    novelty_tags: Optional[List[str]] = None
+    compare_window: int = 40
     min_novelty: float = 0.0
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-    _bounded_metadata = field_validator("metadata")(_validate_memory_metadata)
 
 
 class NovelEmbedResponse(BaseModel):
@@ -632,17 +145,12 @@ class NovelEmbedResponse(BaseModel):
 
 
 class NovelSearchRequest(BaseModel):
-    query: str = Field(..., max_length=16_384)
-    n_results: int = Field(5, ge=1, le=100)
+    query: str
+    n_results: int = 5
     novelty_weight: float = 0.28
     semantic_weight: float = 0.72
     min_novelty: float = 0.0
     allow_fallback: bool = True
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class NovelSearchResult(BaseModel):
@@ -666,13 +174,8 @@ class NovelSearchResponse(BaseModel):
 
 
 class RecallRequest(BaseModel):
-    query: str = Field(..., max_length=16_384)
-    n_results: int = Field(5, ge=1, le=100)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
+    query: str
+    n_results: int = 5
 
 
 class RecallResponse(BaseModel):
@@ -684,48 +187,9 @@ class RecallResponse(BaseModel):
 
 
 class SupersedeRequest(BaseModel):
-    memory_ids: List[MemoryRecordId] = Field(
-        ..., min_length=1, max_length=MAX_SUPERSESSION_RECORDS
-    )
-    superseded_by: Optional[MemoryRecordId] = None
-    reason: str = Field("explicit_correction", max_length=240)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-    @field_validator("memory_ids")
-    @classmethod
-    def _bounded_memory_ids(cls, values: List[str]) -> List[str]:
-        normalized = [str(value).strip() for value in values]
-        if any(
-            not value or len(value.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
-            for value in normalized
-        ):
-            raise ValueError("memory IDs must be bounded non-empty UTF-8 values")
-        return normalized
-
-    @field_validator("superseded_by")
-    @classmethod
-    def _bounded_superseded_by(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        normalized = str(value).strip()
-        if (
-            not normalized
-            or len(normalized.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
-        ):
-            raise ValueError("superseded_by must be a bounded non-empty UTF-8 value")
-        return normalized
-
-    @field_validator("reason")
-    @classmethod
-    def _bounded_reason(cls, value: str) -> str:
-        normalized = str(value or "").strip() or "explicit_correction"
-        if len(normalized.encode("utf-8")) > 240:
-            raise ValueError("supersession reason exceeds its immutable byte bound")
-        return normalized
+    memory_ids: List[str]
+    superseded_by: Optional[str] = None
+    reason: str = "explicit_correction"
 
 
 _CANONICAL_PROJECT_INDEX = Path(os.getenv("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
@@ -855,16 +319,7 @@ def _canonical_section_chunks(path: Path, query: str, max_chunks: int = 6) -> Li
     return ranked[: max(1, int(max_chunks))]
 
 
-def _canonical_project_search_rows(
-    query: str,
-    n_results: int = 8,
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    if not _is_default_scope(tenant, workspace):
-        return []
+def _canonical_project_search_rows(query: str, n_results: int = 8) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for project in _matching_canonical_projects(query):
         path = project["path"]
@@ -894,35 +349,8 @@ def _canonical_project_search_rows(
     return rows[: max(1, int(n_results))]
 
 
-def _normalize_memory_metadata(
-    metadata: Optional[Dict[str, Any]],
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+def _normalize_memory_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     normalized = dict(metadata or {})
-    supplied_tenant = normalized.get("tenant_id")
-    if supplied_tenant is not None and str(supplied_tenant) != tenant:
-        raise ValueError("metadata tenant_id does not match the authenticated memory scope")
-    supplied_storage_workspace = normalized.get("storage_workspace_id")
-    if supplied_storage_workspace is not None and str(supplied_storage_workspace) != workspace:
-        raise ValueError("metadata storage scope does not match the authenticated memory principal")
-    principal_identity_present = any(
-        field in normalized for field in ("agent_id", "user_id", "channel_id", "session_id")
-    )
-    principal_fields_present = [field for field in PRINCIPAL_FIELDS if field in normalized]
-    if principal_identity_present and len(principal_fields_present) != len(PRINCIPAL_FIELDS):
-        raise ValueError("memory principal metadata must contain every principal dimension")
-    normalized["tenant_id"] = tenant
-    normalized.setdefault("workspace_id", workspace)
-    normalized["storage_workspace_id"] = workspace
-    normalized["memory_scope_key"] = _scope_key(tenant, workspace)
-    fact_key = str(normalized.get("fact_key") or "").strip()
-    if fact_key:
-        normalized["scoped_fact_key"] = sha256(
-            f"{tenant}\0{workspace}\0{fact_key}".encode("utf-8")
-        ).hexdigest()
     normalized.setdefault("memory_status", "active")
     normalized.setdefault("authority_rank", _authority_rank(normalized))
     normalized.setdefault("memory_schema_version", "cortex.memory.governance.v1")
@@ -930,99 +358,23 @@ def _normalize_memory_metadata(
     return normalized
 
 
-def _memory_namespace_where(
-    memory_principal_key: Optional[str],
-) -> Optional[Dict[str, Any]]:
+def _memory_namespace_where(memory_principal_key: Optional[str]) -> Optional[Dict[str, Any]]:
     key = str(memory_principal_key or "").strip()
     return {"memory_principal_key": key} if key else None
 
 
-def _combine_memory_where(
-    base: Dict[str, Any],
-    memory_principal_key: Optional[str],
-) -> Dict[str, Any]:
+def _combine_memory_where(base: Dict[str, Any], memory_principal_key: Optional[str]) -> Dict[str, Any]:
     scoped = _memory_namespace_where(memory_principal_key)
     if not scoped:
         return base
-    if not base:
-        return scoped
-    if set(base) == {"$and"} and isinstance(base.get("$and"), list):
-        return {"$and": [*base["$and"], scoped]}
     return {"$and": [base, scoped]}
 
 
-def _metadata_in_memory_namespace(
-    metadata: object,
-    memory_principal_key: Optional[str],
-) -> bool:
+def _metadata_in_memory_namespace(metadata: object, memory_principal_key: Optional[str]) -> bool:
     key = str(memory_principal_key or "").strip()
     if not key:
         return True
-    return (
-        isinstance(metadata, dict)
-        and str(metadata.get("memory_principal_key") or "") == key
-    )
-
-
-def _memory_query_where(
-    tenant_id: str,
-    workspace_id: str,
-    memory_principal_key: Optional[str],
-) -> Optional[Dict[str, Any]]:
-    return _memory_namespace_where(memory_principal_key) or _scope_where(
-        tenant_id,
-        workspace_id,
-    )
-
-
-def _metadata_in_requested_scope(
-    metadata: object,
-    tenant_id: str,
-    workspace_id: str,
-    memory_principal_key: Optional[str],
-) -> bool:
-    if memory_principal_key:
-        return _metadata_in_memory_namespace(metadata, memory_principal_key)
-    return _metadata_matches_scope(metadata, tenant_id, workspace_id)
-
-
-def _collection_fact_rows(
-    fact_key: str,
-    tenant_id: str,
-    workspace_id: str,
-    memory_principal_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    where = (
-        {"fact_key": str(fact_key)}
-        if _is_default_scope(tenant_id, workspace_id)
-        else {
-            "scoped_fact_key": sha256(
-                f"{tenant_id}\0{workspace_id}\0{fact_key}".encode("utf-8")
-            ).hexdigest()
-        }
-    )
-    data = collection.get(
-        where=where,
-        include=["documents", "metadatas"],
-    )
-    ids = data.get("ids") or []
-    documents = data.get("documents") or []
-    metadatas = data.get("metadatas") or []
-    selected = [
-        index
-        for index, metadata in enumerate(metadatas)
-        if _metadata_in_requested_scope(
-            metadata,
-            tenant_id,
-            workspace_id,
-            memory_principal_key,
-        )
-    ]
-    return {
-        "ids": [ids[index] for index in selected if index < len(ids)],
-        "documents": [documents[index] for index in selected if index < len(documents)],
-        "metadatas": [metadatas[index] for index in selected],
-    }
+    return isinstance(metadata, dict) and str(metadata.get("memory_principal_key") or "") == key
 
 
 def supersede_memory_records(
@@ -1030,317 +382,68 @@ def supersede_memory_records(
     *,
     superseded_by: Optional[str] = None,
     reason: str = "explicit_correction",
-    _skip_recovery: bool = False,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-    quota_credential_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    if not _skip_recovery:
-        _recover_fact_supersessions()
-    if len(memory_ids) > MAX_SUPERSESSION_RECORDS:
-        raise ValueError("supersession record count exceeds its immutable bound")
-    ids: List[str] = []
-    seen_ids = set()
-    for raw_value in memory_ids:
-        value = str(raw_value or "").strip()
-        if not value:
-            continue
-        if len(value.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES:
-            raise ValueError("memory ID exceeds its immutable byte bound")
-        if value not in seen_ids:
-            seen_ids.add(value)
-            ids.append(value)
-    normalized_superseded_by = (
-        str(superseded_by).strip() if superseded_by is not None else None
-    )
-    if normalized_superseded_by is not None and (
-        not normalized_superseded_by
-        or len(normalized_superseded_by.encode("utf-8"))
-        > MAX_SUPERSESSION_ID_BYTES
-    ):
-        raise ValueError("superseded_by exceeds its immutable byte bound")
-    normalized_reason = str(reason or "explicit_correction").strip() or "explicit_correction"
-    if len(normalized_reason.encode("utf-8")) > 240:
-        raise ValueError("supersession reason exceeds its immutable byte bound")
+    ids = [str(value).strip() for value in memory_ids if str(value or "").strip()]
     if not ids:
         return {"updated": 0, "missing": []}
-    try:
-        get_kwargs: Dict[str, Any] = {"ids": ids, "include": ["metadatas"]}
-        namespace_where = _memory_namespace_where(memory_principal_key)
-        if namespace_where:
-            get_kwargs["where"] = namespace_where
-        data = collection.get(**get_kwargs)
-    except Exception:
-        if _skip_recovery:
-            raise
-        data = {"ids": [], "metadatas": []}
-    found_ids = data.get("ids") or []
-    metas = data.get("metadatas") or []
-    updated = []
-    scoped_ids = []
-    for index, memory_id in enumerate(found_ids):
-        prior_metadata = metas[index] if index < len(metas) else {}
-        if not _metadata_in_requested_scope(
-            prior_metadata,
-            tenant,
-            workspace,
+    get_kwargs: Dict[str, Any] = {"ids": ids, "include": ["metadatas"]}
+    scoped_where = _memory_namespace_where(memory_principal_key)
+    if scoped_where:
+        get_kwargs["where"] = scoped_where
+    data = collection.get(**get_kwargs)
+    raw_found_ids = data.get("ids") or []
+    raw_metas = data.get("metadatas") or []
+    scoped_pairs = [
+        (memory_id, raw_metas[index] if index < len(raw_metas) else {})
+        for index, memory_id in enumerate(raw_found_ids)
+        if _metadata_in_memory_namespace(
+            raw_metas[index] if index < len(raw_metas) else {},
             memory_principal_key,
-        ):
-            continue
-        metadata = _normalize_memory_metadata(
-            prior_metadata, tenant_id=tenant, workspace_id=workspace
         )
+    ]
+    found_ids = [memory_id for memory_id, _ in scoped_pairs]
+    metas = [metadata for _, metadata in scoped_pairs]
+    updated = []
+    for index, memory_id in enumerate(found_ids):
+        metadata = _normalize_memory_metadata(metas[index] if index < len(metas) else {})
         metadata.update({
             "memory_status": "superseded",
             "superseded": True,
             "superseded_at": _utc_iso(),
-            "supersession_reason": normalized_reason,
+            "supersession_reason": str(reason or "explicit_correction")[:240],
         })
-        if normalized_superseded_by:
-            metadata["superseded_by"] = normalized_superseded_by
-        _validate_memory_metadata(metadata)
+        if superseded_by:
+            metadata["superseded_by"] = str(superseded_by)
         updated.append(metadata)
-        scoped_ids.append(memory_id)
-    fallback_matched: List[str] = []
-    if not _skip_recovery:
-        requested = set(ids)
-        fallback_matched = sorted(
-            requested
-            & {
-                str(row.get("id") or "")
-                for row in _read_fallback_rows(
-                    limit=_FALLBACK_MAX_ROWS,
-                    tenant_id=tenant,
-                    workspace_id=workspace,
-                    _strict=True,
-                )
-                if _metadata_in_requested_scope(
-                    row.get("metadata"),
-                    tenant,
-                    workspace,
-                    memory_principal_key,
-                )
-            }
-        )
-    if scoped_ids or fallback_matched:
-        fallback_marker = {
-            "kind": "id_supersession",
-            "memory_ids": fallback_matched,
-            "superseded_by": normalized_superseded_by,
-            "reason": normalized_reason,
-            "tenant_id": tenant,
-            "workspace_id": workspace,
-            "stored_at": "9999-12-31T23:59:59.999999+00:00",
-        }
-        update_bytes = sum(
-            len(memory_id.encode("utf-8"))
-            + len(
-                json.dumps(
-                    metadata,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-            )
-            for memory_id, metadata in zip(scoped_ids, updated)
-        )
-        fallback_bytes = (
-            len(
-                json.dumps(
-                    fallback_marker,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-            )
-            if fallback_matched
-            else 0
-        )
-        charge_bytes = 4096 + update_bytes + fallback_bytes
-        payload_hash = sha256(
-            json.dumps(
-                {
-                    "version": "cortex.memory-supersession.v1",
-                    "ids": scoped_ids,
-                    "metadatas": updated,
-                    "fallback": fallback_marker if fallback_matched else None,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-
-        def publish_supersession() -> None:
-            if scoped_ids:
-                collection.update(ids=scoped_ids, metadatas=updated)
-            if not _skip_recovery and fallback_matched:
-                _append_fallback_id_supersession(
-                    ids,
-                    superseded_by=normalized_superseded_by,
-                    reason=normalized_reason,
-                    tenant_id=tenant,
-                    workspace_id=workspace,
-                )
-
-        from cortex_server.routers.l22 import run_l22_quota_controlled_side_effect
-
-        run_l22_quota_controlled_side_effect(
-            transaction_id=f"supersession-{uuid.uuid4().hex}",
-            charge_bytes=charge_bytes,
-            payload_hash=payload_hash,
-            tenant_id=tenant,
-            workspace_id=workspace,
-            credential_id=(
-                str(quota_credential_id or "").strip()
-                or next(
-                    (
-                        str(metadata.get("scope_credential_id") or "").strip()
-                        for metadata in updated
-                        if str(metadata.get("scope_credential_id") or "").strip()
-                    ),
-                    "uncredentialed",
-                )
-            ),
-            publish=publish_supersession,
-        )
-    missing = [memory_id for memory_id in ids if memory_id not in set(scoped_ids)]
-    return {"updated": len(scoped_ids), "ids": scoped_ids, "missing": missing, "superseded_by": normalized_superseded_by}
+    if found_ids:
+        collection.update(ids=found_ids, metadatas=updated)
+    missing = [memory_id for memory_id in ids if memory_id not in set(found_ids)]
+    return {"updated": len(found_ids), "ids": found_ids, "missing": missing, "superseded_by": superseded_by}
 
 
 def _supersede_prior_fact_versions(
     fact_key: str,
     *,
     superseded_by: str,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> int:
     if not str(fact_key or "").strip():
         return 0
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    with _fact_supersession_transaction():
-        _recover_fact_supersessions_locked()
-        data = _collection_fact_rows(
-            str(fact_key),
-            tenant,
-            workspace,
-            memory_principal_key,
+    try:
+        data = collection.get(
+            where=_combine_memory_where({"fact_key": str(fact_key)}, memory_principal_key),
+            include=["metadatas"],
         )
         ids = [value for value in (data.get("ids") or []) if value != superseded_by]
         return int(supersede_memory_records(
             ids,
             superseded_by=superseded_by,
             reason="newer_fact_key_revision",
-            _skip_recovery=True,
-            tenant_id=tenant,
-            workspace_id=workspace,
             memory_principal_key=memory_principal_key,
         ).get("updated", 0))
-
-
-def _add_memory_with_supersession(
-    memory_id: str,
-    text: str,
-    metadata: Dict[str, Any],
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> None:
-    """Serialize same-fact writes and journal them for crash-safe recovery."""
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    metadata = _normalize_memory_metadata(
-        metadata, tenant_id=tenant, workspace_id=workspace
-    )
-    fact_key = str(metadata.get("fact_key") or "").strip()
-    memory_principal_key = str(metadata.get("memory_principal_key") or "").strip() or None
-    with _fact_supersession_transaction():
-        _recover_fact_supersessions_locked()
-        if not fact_key:
-            collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
-            return
-        prior = _collection_fact_rows(
-            fact_key,
-            tenant,
-            workspace,
-            memory_principal_key,
-        )
-        prior_ids = [value for value in (prior.get("ids") or []) if value != memory_id]
-        prior_metas = list(prior.get("metadatas") or [])
-        try:
-            journal_path = _write_fact_supersession_journal({
-                "version": 1,
-                "transaction_id": uuid.uuid4().hex,
-                "fact_key": fact_key,
-                "memory_id": memory_id,
-                "text": text,
-                "metadata": metadata,
-                "created_at": _utc_iso(),
-                "tenant_id": tenant,
-                "workspace_id": workspace,
-            })
-        except Exception as exc:
-            raise FactSupersessionError(
-                "fact supersession journal could not be persisted; existing fact was preserved"
-            ) from exc
-        pending_metadata = {**metadata, "memory_status": "tombstoned", "tombstoned": True,
-                            "supersession_pending": True}
-        chroma_committed = False
-        try:
-            collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
-            supersede_memory_records(
-                prior_ids,
-                superseded_by=memory_id,
-                reason="newer_fact_key_revision",
-                _skip_recovery=True,
-                tenant_id=tenant,
-                workspace_id=workspace,
-                memory_principal_key=memory_principal_key,
-            )
-            active_metadata = dict(metadata)
-            active_metadata.pop("tombstoned", None)
-            active_metadata.pop("supersession_pending", None)
-            active_metadata["memory_status"] = "active"
-            collection.update(ids=[memory_id], metadatas=[active_metadata])
-            _append_fallback_fact_supersession(
-                fact_key,
-                superseded_by=memory_id,
-                tenant_id=tenant,
-                workspace_id=workspace,
-            )
-            chroma_committed = True
-        except Exception as exc:
-            compensation_errors = []
-            try:
-                collection.delete(ids=[memory_id])
-            except Exception as compensation_exc:
-                compensation_errors.append(str(compensation_exc))
-            try:
-                if prior_ids:
-                    collection.update(ids=prior_ids, metadatas=prior_metas)
-            except Exception as compensation_exc:
-                compensation_errors.append(str(compensation_exc))
-            if compensation_errors:
-                raise FactSupersessionError("fact supersession and compensation failed: " + "; ".join(compensation_errors)) from exc
-            try:
-                _remove_fact_supersession_journal(journal_path)
-            except Exception as compensation_exc:
-                raise FactSupersessionError("fact supersession compensation could not clear its journal") from compensation_exc
-            raise FactSupersessionError("fact supersession failed; new version was removed") from exc
-        if chroma_committed:
-            try:
-                _remove_fact_supersession_journal(journal_path)
-            except Exception as exc:
-                logger.warning(
-                    "fact supersession committed; recovery journal cleanup remains pending for %s: %s",
-                    journal_path.name,
-                    exc,
-                )
+    except Exception:
+        return 0
 
 
 def _utc_iso() -> str:
@@ -1390,460 +493,39 @@ def _embedding_health_snapshot() -> Dict[str, Any]:
         return dict(_EMBEDDING_HEALTH)
 
 
-def _fallback_store_lock_path() -> Path:
-    return _FALLBACK_LOG_PATH.with_name(f".{_FALLBACK_LOG_PATH.name}.lock")
-
-
-@contextmanager
-def _fallback_store_transaction():
-    with _FALLBACK_STORE_LOCK:
-        parent_existed = _FALLBACK_LOG_PATH.parent.exists()
-        _FALLBACK_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if not parent_existed:
-            _sync_directory(_FALLBACK_LOG_PATH.parent.parent)
-        lock_path = _fallback_store_lock_path()
-        flags = os.O_WRONLY | os.O_CREAT
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        descriptor = os.open(lock_path, flags, 0o600)
-        try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                raise FallbackPersistenceError("fallback lock must be a regular file")
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-            yield
-        finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
-
-
-def _fallback_tail_bytes(path: Path, max_bytes: int) -> bytes:
-    if not path.exists() or max_bytes <= 0:
-        return b""
-    with path.open("rb") as handle:
-        handle.seek(0, os.SEEK_END)
-        size = handle.tell()
-        start = max(0, size - max_bytes)
-        handle.seek(start)
-        payload = handle.read(max_bytes)
-    if start > 0:
-        _, separator, payload = payload.partition(b"\n")
-        if not separator:
-            return b""
-    return payload
-
-
-def _bounded_fallback_payload(new_row: bytes) -> bytes:
-    retain_bytes = max(0, _FALLBACK_MAX_BYTES - len(new_row))
-    retained = _fallback_tail_bytes(_FALLBACK_LOG_PATH, retain_bytes)
-    retained_lines = retained.splitlines(keepends=True)
-    if len(retained_lines) >= _FALLBACK_MAX_ROWS:
-        retained_lines = retained_lines[-max(0, _FALLBACK_MAX_ROWS - 1):]
-    return b"".join(retained_lines) + new_row
-
-
-def _atomic_replace_fallback(payload: bytes) -> None:
-    temporary_path = _FALLBACK_LOG_PATH.with_name(
-        f".{_FALLBACK_LOG_PATH.name}.{uuid.uuid4().hex}.tmp"
-    )
-    descriptor = -1
-    try:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        descriptor = os.open(temporary_path, flags, 0o600)
-        view = memoryview(payload)
-        while view:
-            written = os.write(descriptor, view)
-            if written <= 0:
-                raise OSError("fallback rewrite made no progress")
-            view = view[written:]
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = -1
-        os.replace(temporary_path, _FALLBACK_LOG_PATH)
-        _sync_directory(_FALLBACK_LOG_PATH.parent)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        try:
-            temporary_path.unlink()
-        except FileNotFoundError:
-            pass
-
-
 def _append_fallback_row(row: Dict[str, Any]) -> None:
     try:
-        encoded = (
-            json.dumps(row, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-            + "\n"
-        ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise FallbackPersistenceError("fallback row is not finite JSON") from exc
-    if len(encoded) > _FALLBACK_MAX_ROW_BYTES or len(encoded) > _FALLBACK_MAX_BYTES:
-        raise FallbackPersistenceError("fallback row exceeds the configured byte quota")
-    if _FALLBACK_MAX_ROWS <= 0 or _FALLBACK_MAX_BYTES <= 0:
-        raise FallbackPersistenceError("fallback retention limits must be positive")
-
-    try:
-        with _fallback_store_transaction():
-            if _FALLBACK_LOG_PATH.exists():
-                info = _FALLBACK_LOG_PATH.lstat()
-                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                    raise FallbackPersistenceError("fallback store must be a regular file")
-            file_existed = _FALLBACK_LOG_PATH.exists()
-            current_size = _FALLBACK_LOG_PATH.stat().st_size if file_existed else 0
-            should_rewrite = current_size + len(encoded) > _FALLBACK_MAX_BYTES
-            if not should_rewrite and _FALLBACK_LOG_PATH.exists():
-                recent = _fallback_tail_bytes(
-                    _FALLBACK_LOG_PATH,
-                    min(current_size, _FALLBACK_READ_MAX_BYTES),
-                )
-                should_rewrite = recent.count(b"\n") >= _FALLBACK_MAX_ROWS
-            if should_rewrite:
-                _atomic_replace_fallback(_bounded_fallback_payload(encoded))
-                return
-
-            flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT
-            if hasattr(os, "O_CLOEXEC"):
-                flags |= os.O_CLOEXEC
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            descriptor = os.open(_FALLBACK_LOG_PATH, flags, 0o600)
-            try:
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                    raise FallbackPersistenceError("fallback store must be a regular file")
-                view = memoryview(encoded)
-                while view:
-                    written = os.write(descriptor, view)
-                    if written <= 0:
-                        raise OSError("fallback append made no progress")
-                    view = view[written:]
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-            if not file_existed:
-                _sync_directory(_FALLBACK_LOG_PATH.parent)
-    except FallbackPersistenceError:
-        raise
-    except Exception as exc:
-        raise FallbackPersistenceError("fallback store could not durably commit the row") from exc
-
-
-def _raw_fallback_rows(limit: int, *, strict: bool = False) -> List[Dict[str, Any]]:
-    if not _FALLBACK_LOG_PATH.exists():
-        return []
-    max_lines = max(32, min(_FALLBACK_MAX_ROWS, max(1, int(limit)) * 4))
-    try:
-        payload = _fallback_tail_bytes(
-            _FALLBACK_LOG_PATH,
-            min(_FALLBACK_MAX_BYTES, _FALLBACK_READ_MAX_BYTES),
-        )
-    except OSError as exc:
-        if strict:
-            raise FallbackPersistenceError("fallback lifecycle store is unreadable") from exc
-        return []
-    rows: List[Dict[str, Any]] = []
-    for line in payload.splitlines()[-max_lines:]:
-        try:
-            obj = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(obj, dict):
-            rows.append(obj)
-    return rows
-
-
-def _quota_fallback_rows() -> List[Dict[str, Any]]:
-    """Return the complete bounded fallback lifecycle for quota reconciliation."""
-
-    if not _FALLBACK_LOG_PATH.exists():
-        return []
-    try:
-        with _fallback_store_transaction():
-            if not _FALLBACK_LOG_PATH.exists():
-                return []
-            info = _FALLBACK_LOG_PATH.lstat()
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                raise FallbackPersistenceError("fallback store must be a regular file")
-            if int(info.st_size) > _FALLBACK_MAX_BYTES:
-                raise FallbackPersistenceError("fallback store exceeds its configured byte quota")
-            with _FALLBACK_LOG_PATH.open("rb") as handle:
-                payload = handle.read(_FALLBACK_MAX_BYTES + 1)
-            if len(payload) > _FALLBACK_MAX_BYTES:
-                raise FallbackPersistenceError("fallback store exceeds its configured byte quota")
-    except FallbackPersistenceError:
-        raise
-    except OSError as exc:
-        raise FallbackPersistenceError("fallback lifecycle store is unreadable") from exc
-
-    rows: List[Dict[str, Any]] = []
-    for line in payload.splitlines():
-        try:
-            row = json.loads(line)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise FallbackPersistenceError("fallback lifecycle store contains an invalid row") from exc
-        if not isinstance(row, dict):
-            raise FallbackPersistenceError("fallback lifecycle store contains an invalid row")
-        rows.append(row)
-    if len(rows) > _FALLBACK_MAX_ROWS:
-        raise FallbackPersistenceError("fallback lifecycle store exceeds its configured row quota")
-    return rows
-
-
-def _read_fallback_rows(
-    limit: int = 200,
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-    _strict: bool = False,
-) -> List[Dict[str, Any]]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    rows = [
-        row
-        for row in _raw_fallback_rows(limit, strict=_strict)
-        if _metadata_matches_scope(row.get("metadata") or row, tenant, workspace)
-    ]
-    tombstoned_ids: set[str] = set()
-    latest_fact_event: Dict[str, tuple[str, str]] = {}
-    for row in rows:
-        kind = str(row.get("kind") or "memory")
-        if kind == "id_supersession":
-            tombstoned_ids.update(str(value) for value in row.get("memory_ids", []) or [])
-            continue
-        fact_key = str(row.get("fact_key") or (row.get("metadata") or {}).get("fact_key") or "").strip()
-        if not fact_key:
-            continue
-        if kind == "fact_supersession":
-            latest_fact_event[fact_key] = ("marker", str(row.get("superseded_by") or ""))
-        else:
-            latest_fact_event[fact_key] = ("memory", str(row.get("id") or ""))
-
-    active: List[Dict[str, Any]] = []
-    for row in rows:
-        if str(row.get("kind") or "memory") != "memory":
-            continue
-        memory_id = str(row.get("id") or "")
-        if memory_id in tombstoned_ids:
-            continue
-        fact_key = str((row.get("metadata") or {}).get("fact_key") or "").strip()
-        if fact_key and latest_fact_event.get(fact_key) != ("memory", memory_id):
-            continue
-        active.append(row)
-    return active[-max(1, int(limit)):]
-
-
-def _append_fallback_fact_supersession(
-    fact_key: str,
-    *,
-    superseded_by: str,
-    tenant_id: str,
-    workspace_id: str,
-) -> None:
-    active = _read_fallback_rows(
-        limit=_FALLBACK_MAX_ROWS,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        _strict=True,
-    )
-    if not any(str((row.get("metadata") or {}).get("fact_key") or "") == fact_key for row in active):
-        return
-    _append_fallback_row({
-        "kind": "fact_supersession",
-        "fact_key": fact_key,
-        "superseded_by": superseded_by,
-        "tenant_id": tenant_id,
-        "workspace_id": workspace_id,
-        "stored_at": _utc_iso(),
-    })
-
-
-def _append_fallback_id_supersession(
-    memory_ids: List[str],
-    *,
-    superseded_by: Optional[str],
-    reason: str,
-    tenant_id: str,
-    workspace_id: str,
-) -> None:
-    requested = {str(value) for value in memory_ids}
-    active_ids = {
-        str(row.get("id") or "")
-        for row in _read_fallback_rows(
-            limit=_FALLBACK_MAX_ROWS,
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            _strict=True,
-        )
-    }
-    matched = sorted(requested & active_ids)
-    if not matched:
-        return
-    _append_fallback_row({
-        "kind": "id_supersession",
-        "memory_ids": matched,
-        "superseded_by": superseded_by,
-        "reason": str(reason or "explicit_correction")[:240],
-        "tenant_id": tenant_id,
-        "workspace_id": workspace_id,
-        "stored_at": _utc_iso(),
-    })
-
-
-def _fallback_store_appendable() -> bool:
-    """Probe fallback appendability without creating or changing the store."""
-    path = _FALLBACK_LOG_PATH
-    try:
-        path_info = path.lstat()
-    except FileNotFoundError:
-        # A missing file can be created only in an existing writable/searchable
-        # directory. The writer creates missing parents, so walk to the nearest
-        # existing ancestor and ensure every missing component is creatable.
-        parent = path.parent
-        while True:
-            try:
-                parent_info = parent.stat()
-                break
-            except FileNotFoundError:
-                next_parent = parent.parent
-                if next_parent == parent:
-                    return False
-                parent = next_parent
-            except OSError:
-                return False
-        return (
-            stat.S_ISDIR(parent_info.st_mode)
-            and os.access(parent, os.W_OK | os.X_OK)
-        )
-    except OSError:
-        return False
-
-    # Fallback logs are ordinary files. Refuse symlinks and special files even
-    # when opening them for append would technically succeed.
-    if stat.S_ISLNK(path_info.st_mode) or not stat.S_ISREG(path_info.st_mode):
-        return False
-
-    flags = os.O_WRONLY | os.O_APPEND
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= os.O_CLOEXEC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-    except OSError:
-        return False
-    try:
-        return stat.S_ISREG(os.fstat(descriptor).st_mode)
-    finally:
-        os.close(descriptor)
-
-
-async def _collection_available() -> bool:
-    """Probe persistent semantic storage without blocking the event loop."""
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    count_probe = collection.count
-
-    def complete(value: Optional[int], error: Optional[BaseException]) -> None:
-        if future.done():
-            return
-        if error is not None:
-            future.set_exception(error)
-        else:
-            future.set_result(value)
-
-    def run_probe() -> None:
-        try:
-            value = count_probe()
-            outcome = (value, None)
-        except BaseException as exc:
-            outcome = (None, exc)
-        try:
-            loop.call_soon_threadsafe(complete, *outcome)
-        except RuntimeError:
-            # The request timed out and its event loop has already closed.
-            pass
-
-    threading.Thread(
-        target=run_probe,
-        name="librarian-health",
-        daemon=True,
-    ).start()
-    try:
-        count = await asyncio.wait_for(
-            future,
-            timeout=_COLLECTION_HEALTH_TIMEOUT_SECONDS,
-        )
-        return int(count) >= 0
+        _FALLBACK_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _FALLBACK_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
-        return False
+        pass
 
 
-def probe_memory_backend_readiness() -> Dict[str, Any]:
-    """Actively verify the durable path and authoritative Chroma collection."""
-
-    probe_id = f"readiness-{uuid.uuid4().hex}"
-    probe_collection = None
+def _read_fallback_rows(limit: int = 200) -> List[Dict[str, Any]]:
+    if not _FALLBACK_LOG_PATH.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
     try:
-        _validate_chroma_storage(CHROMA_DIR)
-        authoritative_collection = (
-            _load_memory_collection(client, embed_fn)
-            if _production_memory_mode()
-            else collection
-        )
-        count = int(authoritative_collection.count())
-        if count < 0:
-            raise RuntimeError("memory collection returned an invalid count")
-        if _production_memory_mode():
-            probe_collection = client.get_collection(
-                name=READINESS_COLLECTION_NAME,
-                embedding_function=None,
-            )
-        else:
-            probe_collection = client.get_or_create_collection(
-                name=READINESS_COLLECTION_NAME,
-                embedding_function=None,
-            )
-        probe_collection.upsert(
-            ids=[probe_id],
-            embeddings=[[0.0]],
-            documents=["Cortex memory durability readiness probe"],
-            metadatas=[{"probe": True}],
-        )
-        written = probe_collection.get(ids=[probe_id])
-        if probe_id not in list(written.get("ids") or []):
-            raise RuntimeError("memory readiness probe was not readable after write")
-        probe_collection.delete(ids=[probe_id])
-        probe_collection = None
-        return {
-            "ok": True,
-            "status": "healthy",
-            "backend": "chroma_persistent",
-            "count": count,
-            "path": CHROMA_DIR,
-        }
-    except Exception as exc:
-        return {
-            "ok": False,
-            "status": "degraded",
-            "backend": "chroma_persistent",
-            "error": f"{type(exc).__name__}: {exc}",
-            "path": CHROMA_DIR,
-        }
-    finally:
-        if probe_collection is not None:
-            try:
-                probe_collection.delete(ids=[probe_id])
-            except Exception:
-                pass
+        with _FALLBACK_LOG_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        rows.append(obj)
+                except Exception:
+                    continue
+    except Exception:
+        return []
+    if len(rows) > limit:
+        rows = rows[-limit:]
+    return rows
 
 
-def _configured_local_file_memory_roots(
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> List[Path]:
+def _configured_local_file_memory_roots() -> List[Path]:
     """Return durable local memory roots for lexical recall fallback.
 
     Chroma is the primary recall path, but operational hard memory in this
@@ -1852,19 +534,8 @@ def _configured_local_file_memory_roots(
     by default because it is main-session personal context and can be more
     sensitive than project/client ledgers.
     """
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    if _is_default_scope(tenant, workspace):
-        raw = os.getenv(_LOCAL_FILE_MEMORY_ROOTS_ENV, "")
-        values = [part.strip() for part in raw.split(os.pathsep) if part.strip()] if raw else list(_DEFAULT_LOCAL_FILE_MEMORY_ROOTS)
-    else:
-        raw_mapping = os.getenv(_SCOPED_LOCAL_FILE_MEMORY_ROOTS_ENV, "").strip()
-        try:
-            mapping = json.loads(raw_mapping) if raw_mapping else {}
-        except json.JSONDecodeError:
-            logger.warning("ignoring invalid %s JSON", _SCOPED_LOCAL_FILE_MEMORY_ROOTS_ENV)
-            mapping = {}
-        configured = mapping.get(_scope_key(tenant, workspace), []) if isinstance(mapping, dict) else []
-        values = configured if isinstance(configured, list) else []
+    raw = os.getenv(_LOCAL_FILE_MEMORY_ROOTS_ENV, "")
+    values = [part.strip() for part in raw.split(os.pathsep) if part.strip()] if raw else list(_DEFAULT_LOCAL_FILE_MEMORY_ROOTS)
     roots: List[Path] = []
     for value in values:
         try:
@@ -1876,17 +547,9 @@ def _configured_local_file_memory_roots(
     return roots
 
 
-def _iter_local_file_memory_paths(
-    scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES,
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> List[Path]:
+def _iter_local_file_memory_paths(scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES) -> List[Path]:
     files: List[Path] = []
-    for root in _configured_local_file_memory_roots(
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-    ):
+    for root in _configured_local_file_memory_roots():
         try:
             if root.is_file():
                 candidates = [root]
@@ -2002,21 +665,9 @@ def _best_local_file_memory_chunks(query: str, path: Path, max_chunks: int = 2) 
     return sorted(dedup.values(), key=lambda item: float(item["score"]), reverse=True)[: max(1, int(max_chunks))]
 
 
-def _local_file_memory_search_rows(
-    query: str,
-    n_results: int = 5,
-    scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES,
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+def _local_file_memory_search_rows(query: str, n_results: int = 5, scan_limit: int = _LOCAL_FILE_MEMORY_MAX_FILES) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
-    for path in _iter_local_file_memory_paths(
-        scan_limit=scan_limit,
-        tenant_id=tenant,
-        workspace_id=workspace,
-    ):
+    for path in _iter_local_file_memory_paths(scan_limit=scan_limit):
         for chunk in _best_local_file_memory_chunks(query, path, max_chunks=2):
             score = float(chunk["score"])
             rel_path = _display_local_file_path(path)
@@ -2034,9 +685,6 @@ def _local_file_memory_search_rows(
                         "line": int(chunk["line"]),
                         "lexical_score": round(score, 4),
                         "tags": ["local_file_memory", "durable_memory"],
-                        "tenant_id": tenant,
-                        "workspace_id": workspace,
-                        "memory_scope_key": _scope_key(tenant, workspace),
                     },
                     "_score": score,
                 }
@@ -2056,17 +704,14 @@ def _local_file_memory_search_rows(
 def _safe_recent_docs(
     limit: int = 25,
     *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     cap = max(1, min(int(limit), 200))
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
     try:
         kwargs: Dict[str, Any] = {"limit": cap, "include": ["documents", "metadatas"]}
-        where = _memory_query_where(tenant, workspace, memory_principal_key)
-        if where:
-            kwargs["where"] = where
+        scoped_where = _memory_namespace_where(memory_principal_key)
+        if scoped_where:
+            kwargs["where"] = scoped_where
         data = collection.get(**kwargs)
     except Exception:
         return []
@@ -2078,12 +723,7 @@ def _safe_recent_docs(
     out: List[Dict[str, Any]] = []
     for i, _id in enumerate(ids):
         metadata = metas[i] if i < len(metas) else {}
-        if not _metadata_in_requested_scope(
-            metadata,
-            tenant,
-            workspace,
-            memory_principal_key,
-        ):
+        if not _metadata_in_memory_namespace(metadata, memory_principal_key):
             continue
         out.append(
             {
@@ -2095,37 +735,23 @@ def _safe_recent_docs(
     return out
 
 
-def _fingerprint_exists(
-    fp: str,
-    *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-    memory_principal_key: Optional[str] = None,
-) -> bool:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+def _fingerprint_exists(fp: str, *, memory_principal_key: Optional[str] = None) -> bool:
     try:
-        scoped_fp = sha256(f"{tenant}\0{workspace}\0{fp}".encode("utf-8")).hexdigest()
-        where = (
-            {"novelty_fingerprint": fp}
-            if _is_default_scope(tenant, workspace)
-            else {"scoped_novelty_fingerprint": scoped_fp}
-        )
         probe = collection.get(
-            where=_combine_memory_where(where, memory_principal_key),
-            limit=10,
+            where=_combine_memory_where({"novelty_fingerprint": fp}, memory_principal_key),
+            limit=1,
             include=["metadatas"],
         )
     except Exception:
         return False
-    metas = probe.get("metadatas") or []
+    ids = probe.get("ids") or []
+    metadatas = probe.get("metadatas") or []
     return any(
-        _metadata_in_requested_scope(
-            meta,
-            tenant,
-            workspace,
+        _metadata_in_memory_namespace(
+            metadatas[index] if index < len(metadatas) else {},
             memory_principal_key,
         )
-        for meta in metas
+        for index, _ in enumerate(ids)
     )
 
 
@@ -2142,8 +768,6 @@ def _estimate_novelty(
     text: str,
     recent_rows: List[Dict[str, Any]],
     *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> float:
     text_tokens = set(_tokenize(text))
@@ -2151,12 +775,7 @@ def _estimate_novelty(
         return 0.5
 
     text_fp = _fingerprint(text)
-    if _fingerprint_exists(
-        text_fp,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        memory_principal_key=memory_principal_key,
-    ):
+    if _fingerprint_exists(text_fp, memory_principal_key=memory_principal_key):
         return 0.0
 
     if not recent_rows:
@@ -2197,23 +816,13 @@ def _build_novel_metadata(
     novelty_tags: Optional[List[str]] = None,
     source_scope: str = "l7",
     compare_window: int = 40,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
     existing = dict(metadata or {})
-    recent = _safe_recent_docs(
-        compare_window,
-        tenant_id=tenant,
-        workspace_id=workspace,
-        memory_principal_key=memory_principal_key,
-    )
+    recent = _safe_recent_docs(compare_window, memory_principal_key=memory_principal_key)
     novelty_score = _estimate_novelty(
         text,
         recent,
-        tenant_id=tenant,
-        workspace_id=workspace,
         memory_principal_key=memory_principal_key,
     )
     fp = _fingerprint(text)
@@ -2229,9 +838,6 @@ def _build_novel_metadata(
             "novelty_score": novelty_score,
             "novelty_bucket": _novelty_bucket(novelty_score),
             "novelty_fingerprint": fp,
-            "scoped_novelty_fingerprint": sha256(
-                f"{tenant}\0{workspace}\0{fp}".encode("utf-8")
-            ).hexdigest(),
             "novelty_version": "l7l22.v1.2",
             "novelty_source_scope": source_scope,
             "novelty_indexed_at": _utc_iso(),
@@ -2251,62 +857,61 @@ def _persist_fallback_memory(
     reason: str,
     mode: str,
 ) -> None:
-    supplied_metadata = dict(metadata or {})
-    tenant, workspace = _memory_scope(
-        supplied_metadata.get("tenant_id"),
-        supplied_metadata.get("storage_workspace_id", supplied_metadata.get("workspace_id")),
-    )
-    normalized_metadata = _normalize_memory_metadata(
-        supplied_metadata, tenant_id=tenant, workspace_id=workspace
-    )
+    _mark_fallback_write()
     row = {
         "id": memory_id,
         "text": text,
-        "metadata": normalized_metadata,
+        "metadata": dict(metadata or {}),
         "stored_at": _utc_iso(),
         "source": "librarian_fallback_log",
         "reason": reason,
         "mode": mode,
     }
     _append_fallback_row(row)
-    _mark_fallback_write()
 
 
-def _persist_indexed_novelty_memory(
-    memory_id: str,
+def index_with_novelty(
     text: str,
-    enriched_metadata: Dict[str, Any],
+    metadata: Optional[Dict[str, Any]] = None,
+    novelty_tags: Optional[List[str]] = None,
+    source_scope: str = "l7",
+    compare_window: int = 40,
+    memory_principal_key: Optional[str] = None,
 ) -> Dict[str, Any]:
+    if not (text or "").strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    memory_id = str(uuid.uuid4())
+    enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
+        text=text,
+        metadata=metadata,
+        novelty_tags=novelty_tags,
+        source_scope=source_scope,
+        compare_window=compare_window,
+        memory_principal_key=memory_principal_key,
+    ))
+
     try:
-        _add_memory_with_supersession(
-            memory_id,
-            text,
-            enriched_metadata,
-            tenant_id=str(enriched_metadata["tenant_id"]),
-            workspace_id=str(enriched_metadata["storage_workspace_id"]),
+        collection.add(
+            ids=[memory_id],
+            documents=[text],
+            metadatas=[enriched_metadata],
         )
+        fact_key = str(enriched_metadata.get("fact_key") or "").strip()
+        if fact_key:
+            _supersede_prior_fact_versions(
+                fact_key,
+                superseded_by=memory_id,
+                memory_principal_key=memory_principal_key,
+            )
         return {
             "id": memory_id,
             "status": "stored",
             "metadata": enriched_metadata,
         }
-    except FactSupersessionError:
-        raise
     except Exception as exc:
         _mark_embedding_error(exc)
-        try:
-            _persist_fallback_memory(
-                memory_id,
-                text,
-                enriched_metadata,
-                reason=str(exc),
-                mode="novelty_embed",
-            )
-        except FallbackPersistenceError as fallback_exc:
-            raise HTTPException(
-                status_code=503,
-                detail="semantic and fallback memory persistence are unavailable",
-            ) from fallback_exc
+        _persist_fallback_memory(memory_id, text, enriched_metadata, reason=str(exc), mode="novelty_embed")
         return {
             "id": memory_id,
             "status": "stored_fallback_lexical",
@@ -2316,59 +921,6 @@ def _persist_indexed_novelty_memory(
                 "fallback_reason": str(exc)[:220],
             },
         }
-
-
-def _run_librarian_quota_controlled_write(
-    *,
-    memory_id: str,
-    text: str,
-    metadata: Dict[str, Any],
-    tenant_id: str,
-    workspace_id: str,
-    publish,
-):
-    # L22 imports Librarian for its storage backend, so resolve the shared
-    # admission API lazily after both router modules have initialized.
-    from cortex_server.routers.l22 import run_l22_quota_controlled_write
-
-    return run_l22_quota_controlled_write(
-        memory_id=memory_id,
-        content=text,
-        metadata=metadata,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        publish=publish,
-    )
-
-
-def index_with_novelty(
-    text: str,
-    metadata: Optional[Dict[str, Any]] = None,
-    novelty_tags: Optional[List[str]] = None,
-    source_scope: str = "l7",
-    compare_window: int = 40,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
-    memory_id: Optional[str] = None,
-    memory_principal_key: Optional[str] = None,
-) -> Dict[str, Any]:
-    if not (text or "").strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-
-    memory_id = str(memory_id or uuid.uuid4())
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
-        text=text,
-        metadata=metadata,
-        novelty_tags=novelty_tags,
-        source_scope=source_scope,
-        compare_window=compare_window,
-        tenant_id=tenant,
-        workspace_id=workspace,
-        memory_principal_key=memory_principal_key,
-    ), tenant_id=tenant, workspace_id=workspace)
-
-    return _persist_indexed_novelty_memory(memory_id, text, enriched_metadata)
 
 
 def _relevance_from_distance(distance: float) -> float:
@@ -2801,22 +1353,15 @@ def _lexical_search_rows(
     query: str,
     n_results: int = 5,
     scan_limit: int = 300,
-    availability: Optional[List[bool]] = None,
     *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    scoped_kwargs = _scoped_call_kwargs(tenant, workspace)
     rows: List[Dict[str, Any]] = []
+    # Host files and the canonical project registry are not tenant-aware. They
+    # remain available only to non-HTTP internal callers that deliberately omit
+    # a principal namespace.
     if not memory_principal_key:
-        rows.extend(_canonical_project_search_rows(
-            query,
-            n_results=max(int(n_results) * 2, 8),
-            **scoped_kwargs,
-        ))
-    fallback_query_succeeded = bool(rows)
+        rows.extend(_canonical_project_search_rows(query, n_results=max(int(n_results) * 2, 8)))
 
     # Exact Chroma contains search first. Chroma's semantic query can miss
     # freshly-written unique identifiers, and bounded collection.get() scans can
@@ -2825,16 +1370,15 @@ def _lexical_search_rows(
     try:
         exact_query = str(query or "").strip()
         if exact_query:
-            exact_get_kwargs: Dict[str, Any] = {
+            exact_kwargs: Dict[str, Any] = {
                 "where_document": {"$contains": exact_query},
                 "limit": max(1, min(max(int(n_results) * 3, 12), 80)),
                 "include": ["documents", "metadatas"],
             }
-            where = _memory_query_where(tenant, workspace, memory_principal_key)
-            if where:
-                exact_get_kwargs["where"] = where
-            exact_data = collection.get(**exact_get_kwargs)
-            fallback_query_succeeded = True
+            scoped_where = _memory_namespace_where(memory_principal_key)
+            if scoped_where:
+                exact_kwargs["where"] = scoped_where
+            exact_data = collection.get(**exact_kwargs)
             exact_ids = exact_data.get("ids") or []
             exact_docs = exact_data.get("documents") or []
             exact_metas = exact_data.get("metadatas") or []
@@ -2843,12 +1387,7 @@ def _lexical_search_rows(
                 if not _document_contains_exact_query(exact_query, text):
                     continue
                 metadata = exact_metas[i] if i < len(exact_metas) else {}
-                if not _metadata_in_requested_scope(
-                    metadata,
-                    tenant,
-                    workspace,
-                    memory_principal_key,
-                ):
+                if not _metadata_in_memory_namespace(metadata, memory_principal_key):
                     continue
                 score = max(0.99, _lexical_score(query, text))
                 rows.append(
@@ -2874,23 +1413,17 @@ def _lexical_search_rows(
             "limit": max(1, min(scan_limit, 500)),
             "include": ["documents", "metadatas"],
         }
-        where = _memory_query_where(tenant, workspace, memory_principal_key)
-        if where:
-            get_kwargs["where"] = where
+        scoped_where = _memory_namespace_where(memory_principal_key)
+        if scoped_where:
+            get_kwargs["where"] = scoped_where
         data = collection.get(**get_kwargs)
-        fallback_query_succeeded = True
         ids = data.get("ids") or []
         docs = data.get("documents") or []
         metas = data.get("metadatas") or []
         for i, row_id in enumerate(ids):
             text = docs[i] if i < len(docs) else ""
             metadata = metas[i] if i < len(metas) else {}
-            if not _metadata_in_requested_scope(
-                metadata,
-                tenant,
-                workspace,
-                memory_principal_key,
-            ):
+            if not _metadata_in_memory_namespace(metadata, memory_principal_key):
                 continue
             score = _lexical_score(query, text)
             if score <= 0:
@@ -2913,13 +1446,8 @@ def _lexical_search_rows(
         pass
 
     # Explicit fallback rows captured during embed failures.
-    for row in _read_fallback_rows(limit=max(40, scan_limit), **scoped_kwargs):
-        if not _metadata_in_requested_scope(
-            row.get("metadata"),
-            tenant,
-            workspace,
-            memory_principal_key,
-        ):
+    for row in _read_fallback_rows(limit=max(40, scan_limit)):
+        if not _metadata_in_memory_namespace(row.get("metadata"), memory_principal_key):
             continue
         text = str(row.get("text") or "")
         score = _lexical_score(query, text)
@@ -2951,10 +1479,8 @@ def _lexical_search_rows(
                 query,
                 n_results=max(int(n_results) * 4, 12),
                 scan_limit=max(scan_limit, _LOCAL_FILE_MEMORY_MAX_FILES),
-                **scoped_kwargs,
             )
         )
-    fallback_query_succeeded = fallback_query_succeeded or bool(rows)
 
     dedup: Dict[str, Dict[str, Any]] = {}
     for item in rows:
@@ -2964,8 +1490,6 @@ def _lexical_search_rows(
             dedup[key] = item
 
     ordered = sorted(dedup.values(), key=lambda x: float(x.get("_score", 0.0)), reverse=True)
-    if availability is not None:
-        availability.append(fallback_query_succeeded)
     return ordered[: max(1, int(n_results))]
 
 
@@ -2974,33 +1498,26 @@ def robust_search(
     n_results: int = 5,
     allow_fallback: bool = True,
     *,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    scoped_kwargs = _scoped_call_kwargs(tenant, workspace)
-    _recover_fact_supersessions()
 
-    exact_query_succeeded = False
     # Exact lexical contains must run before semantic search. Embedding ranking can
     # return plausible but wrong neighbors for unique markers/IDs and otherwise
     # prevent fallback from executing. Durable-memory recall needs exact facts to
     # win when the query literally appears in stored text.
     try:
         exact_query = str(query or "").strip()
-        exact_get_kwargs: Dict[str, Any] = {
+        exact_kwargs: Dict[str, Any] = {
             "where_document": {"$contains": exact_query},
             "limit": max(1, min(max(int(n_results) * 3, 12), 80)),
             "include": ["documents", "metadatas"],
         }
-        where = _memory_query_where(tenant, workspace, memory_principal_key)
-        if where:
-            exact_get_kwargs["where"] = where
-        exact_data = collection.get(**exact_get_kwargs)
-        exact_query_succeeded = True
+        scoped_where = _memory_namespace_where(memory_principal_key)
+        if scoped_where:
+            exact_kwargs["where"] = scoped_where
+        exact_data = collection.get(**exact_kwargs)
         exact_rows: List[Dict[str, Any]] = []
         exact_ids = exact_data.get("ids") or []
         exact_docs = exact_data.get("documents") or []
@@ -3010,12 +1527,7 @@ def robust_search(
             if not _document_contains_exact_query(exact_query, text):
                 continue
             metadata = exact_metas[i] if i < len(exact_metas) else {}
-            if not _metadata_in_requested_scope(
-                metadata,
-                tenant,
-                workspace,
-                memory_principal_key,
-            ):
+            if not _metadata_in_memory_namespace(metadata, memory_principal_key):
                 continue
             exact_rows.append(
                 {
@@ -3033,11 +1545,7 @@ def robust_search(
             )
         if exact_rows:
             canonical_rows = (
-                _canonical_project_search_rows(
-                    query,
-                    n_results=max(6, int(n_results) * 2),
-                    **scoped_kwargs,
-                )
+                _canonical_project_search_rows(query, n_results=max(6, int(n_results) * 2))
                 if not memory_principal_key
                 else []
             )
@@ -3060,24 +1568,21 @@ def robust_search(
                 "search_mode": "exact_lexical",
                 "degraded": False,
                 "warning": None,
-                "available": True,
             }
     except Exception:
         pass
 
     semantic_warning: Optional[str] = None
     semantic_rows: List[Dict[str, Any]] = []
-    semantic_query_succeeded = False
     try:
         query_kwargs: Dict[str, Any] = {
             "query_texts": [query],
             "n_results": max(1, int(n_results)),
         }
-        where = _memory_query_where(tenant, workspace, memory_principal_key)
-        if where:
-            query_kwargs["where"] = where
+        scoped_where = _memory_namespace_where(memory_principal_key)
+        if scoped_where:
+            query_kwargs["where"] = scoped_where
         results = collection.query(**query_kwargs)
-        semantic_query_succeeded = True
         out_rows: List[Dict[str, Any]] = []
         ids = results.get("ids") or []
         docs = results.get("documents") or []
@@ -3087,12 +1592,7 @@ def robust_search(
         if ids and ids[0]:
             for i, row_id in enumerate(ids[0]):
                 metadata = metas[0][i] if metas and metas[0] and i < len(metas[0]) else None
-                if not _metadata_in_requested_scope(
-                    metadata,
-                    tenant,
-                    workspace,
-                    memory_principal_key,
-                ):
+                if not _metadata_in_memory_namespace(metadata, memory_principal_key):
                     continue
                 out_rows.append(
                     {
@@ -3109,16 +1609,10 @@ def robust_search(
                 query,
                 n_results=max(int(n_results) * 3, 8),
                 scan_limit=max(int(n_results) * 40, 240),
-                **scoped_kwargs,
             )
-            canonical_rows = (
-                _canonical_project_search_rows(
-                    query,
-                    n_results=max(int(n_results) * 2, 8),
-                    **scoped_kwargs,
-                )
-                if not memory_principal_key
-                else []
+            canonical_rows = [] if memory_principal_key else _canonical_project_search_rows(
+                query,
+                n_results=max(int(n_results) * 2, 8),
             )
             strong_local_rows = [row for row in local_rows if float(row.get("_score", 0.0)) >= max(_LOCAL_FILE_MEMORY_MIN_SCORE, 0.34)] + canonical_rows
             if strong_local_rows:
@@ -3128,7 +1622,6 @@ def robust_search(
                     "search_mode": "semantic_hybrid",
                     "degraded": False,
                     "warning": None,
-                    "available": True,
                 }
             return {
                 "query": query,
@@ -3136,7 +1629,6 @@ def robust_search(
                 "search_mode": "semantic",
                 "degraded": False,
                 "warning": None,
-                "available": True,
             }
 
         semantic_warning = "semantic_low_signal" if out_rows else "semantic_empty"
@@ -3151,19 +1643,14 @@ def robust_search(
             "search_mode": "semantic",
             "degraded": bool(semantic_warning),
             "warning": semantic_warning,
-            "available": exact_query_succeeded or semantic_query_succeeded,
         }
 
     _mark_fallback_search()
-    fallback_availability: List[bool] = []
     lexical_rows = _lexical_search_rows(
         query,
         n_results=max(1, int(n_results)),
-        availability=fallback_availability,
         memory_principal_key=memory_principal_key,
-        **scoped_kwargs,
     )
-    memory_available = exact_query_succeeded or semantic_query_succeeded or any(fallback_availability)
     merged_rows = _merge_ranked_rows(query, semantic_rows, lexical_rows, n_results=max(1, int(n_results)))
     if merged_rows:
         return {
@@ -3172,7 +1659,6 @@ def robust_search(
             "search_mode": "semantic_hybrid" if semantic_rows else "lexical_fallback",
             "degraded": bool(semantic_warning),
             "warning": semantic_warning or ("fallback_requested" if not semantic_rows else None),
-            "available": memory_available,
         }
 
     for row in lexical_rows:
@@ -3184,7 +1670,6 @@ def robust_search(
         "search_mode": "lexical_fallback",
         "degraded": True,
         "warning": semantic_warning or "fallback_requested",
-        "available": memory_available,
     }
 
 
@@ -3195,15 +1680,10 @@ def search_with_novelty(
     semantic_weight: float = 0.72,
     min_novelty: float = 0.0,
     allow_fallback: bool = True,
-    tenant_id: Optional[str] = None,
-    workspace_id: Optional[str] = None,
     memory_principal_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-    tenant, workspace = _memory_scope(tenant_id, workspace_id)
-    scoped_kwargs = _scoped_call_kwargs(tenant, workspace)
-    _recover_fact_supersessions()
 
     nw = _clamp01(novelty_weight)
     sw = _clamp01(semantic_weight)
@@ -3219,9 +1699,9 @@ def search_with_novelty(
 
     try:
         query_kwargs: Dict[str, Any] = {"query_texts": [query], "n_results": fetch_n}
-        where = _memory_query_where(tenant, workspace, memory_principal_key)
-        if where:
-            query_kwargs["where"] = where
+        scoped_where = _memory_namespace_where(memory_principal_key)
+        if scoped_where:
+            query_kwargs["where"] = scoped_where
         results = collection.query(**query_kwargs)
 
         rows: List[Dict[str, Any]] = []
@@ -3234,25 +1714,15 @@ def search_with_novelty(
             for i, row_id in enumerate(ids[0]):
                 text = docs[0][i] if docs and docs[0] and i < len(docs[0]) else ""
                 metadata = metas[0][i] if metas and metas[0] and i < len(metas[0]) else {}
-                if not _metadata_in_requested_scope(
-                    metadata,
-                    tenant,
-                    workspace,
-                    memory_principal_key,
-                ):
+                if not _metadata_in_memory_namespace(metadata, memory_principal_key):
                     continue
                 dist = dists[0][i] if dists and dists[0] and i < len(dists[0]) else 0.0
                 novelty_score = metadata.get("novelty_score")
                 if novelty_score is None:
                     novelty_score = _estimate_novelty(
                         text,
-                        _safe_recent_docs(
-                            limit=15,
-                            memory_principal_key=memory_principal_key,
-                            **scoped_kwargs,
-                        ),
+                        _safe_recent_docs(limit=15, memory_principal_key=memory_principal_key),
                         memory_principal_key=memory_principal_key,
-                        **scoped_kwargs,
                     )
                 novelty_score = round(_clamp01(float(novelty_score)), 4)
 
@@ -3308,20 +1778,14 @@ def search_with_novelty(
         n_results=max(1, int(n_results)),
         scan_limit=320,
         memory_principal_key=memory_principal_key,
-        **scoped_kwargs,
     )
     scored_rows: List[Dict[str, Any]] = []
     for row in fallback_rows:
         lex = float((row.get("metadata") or {}).get("lexical_score", 0.0))
         novelty_score = _estimate_novelty(
             str(row.get("text") or ""),
-            _safe_recent_docs(
-                limit=15,
-                memory_principal_key=memory_principal_key,
-                **scoped_kwargs,
-            ),
+            _safe_recent_docs(limit=15, memory_principal_key=memory_principal_key),
             memory_principal_key=memory_principal_key,
-            **scoped_kwargs,
         )
         if novelty_score < float(min_novelty):
             continue
@@ -3351,21 +1815,14 @@ def search_with_novelty(
 
 
 @router.get("/status")
-async def librarian_status(http_request: Request = None):
+async def librarian_status(http_request: Request):
     """L7 Librarian status."""
-    if http_request is not None:
-        memory_principal_for_request(http_request)
-    embedding = _embedding_health_snapshot()
-    collection_available = await _collection_available()
-    fallback_available = _fallback_store_appendable()
-    scope_auth_ready = _memory_scope_auth_ready()
-    available = (collection_available or fallback_available) and scope_auth_ready
-    explicitly_configured = bool(os.getenv("CORTEX_CHROMA_DIR", "").strip())
-    payload = {
-        "success": available,
+    memory_principal_for_request(http_request)
+    return {
+        "success": True,
         "level": 7,
         "name": "Librarian",
-        "status": "active" if available else "unavailable",
+        "status": "active",
         "capabilities": [
             "embed",
             "search",
@@ -3377,37 +1834,13 @@ async def librarian_status(http_request: Request = None):
             "supersession_tombstones",
         ],
         "novelty_version": "l7l22.v1.2",
-    }
-    if http_request is not None:
-        return {
-            **payload,
-            "principal_scoped": True,
-            "aggregate_operational_details": "withheld",
-        }
-    return {
-        **payload,
-        "embedding_health": embedding,
-        "embedding_runtime": runtime_pressure.pressure_snapshot(),
-        "fallback_store": str(_FALLBACK_LOG_PATH),
-        "scope_auth_ready": scope_auth_ready,
-        "durability": {
-            "explicitly_configured": explicitly_configured,
-            "production_required": _production_memory_mode(),
-            "mount_identity_verified": bool(
-                _production_memory_mode()
-                and os.getenv("CORTEX_CHROMA_MOUNT_ID", "").strip()
-            ),
-            "path": CHROMA_DIR,
-            "mode": "configured_durable" if explicitly_configured else "development_default",
-        },
+        "principal_scoped": True,
+        "aggregate_operational_details": "withheld",
     }
 
 
 @router.post("/embed", response_model=EmbedResponse)
-async def embed_memory(
-    request: EmbedRequest,
-    http_request: Request = None,
-):
+async def embed_memory(request: EmbedRequest, http_request: Request):
     """Store text in vector memory with semantic embedding.
 
     If embedding providers fail, persist to fallback log so recall remains possible.
@@ -3415,90 +1848,41 @@ async def embed_memory(
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     memory_id = str(uuid.uuid4())
-    metadata = _normalize_memory_metadata(
-        scoped_memory_metadata(principal, request.metadata),
-        tenant_id=tenant,
-        workspace_id=workspace,
-    )
-
-    def publish(scoped_metadata: Dict[str, Any]) -> str:
-        try:
-            _add_memory_with_supersession(
-                memory_id,
-                request.text,
-                scoped_metadata,
-                tenant_id=tenant,
-                workspace_id=workspace,
-            )
-            return "stored"
-        except FactSupersessionError:
-            raise
-        except Exception as exc:
-            _mark_embedding_error(exc)
-            try:
-                _persist_fallback_memory(
-                    memory_id,
-                    request.text,
-                    scoped_metadata,
-                    reason=str(exc),
-                    mode="embed",
-                )
-            except FallbackPersistenceError as fallback_exc:
-                raise HTTPException(
-                    status_code=503,
-                    detail="semantic and fallback memory persistence are unavailable",
-                ) from fallback_exc
-            return "stored_fallback_lexical"
+    principal = memory_principal_for_request(http_request)
+    metadata = _normalize_memory_metadata(scoped_memory_metadata(principal, request.metadata))
 
     try:
-        status = _run_librarian_quota_controlled_write(
-            memory_id=memory_id,
-            text=request.text,
-            metadata=metadata,
-            tenant_id=tenant,
-            workspace_id=workspace,
-            publish=publish,
+        collection.add(
+            ids=[memory_id],
+            documents=[request.text],
+            metadatas=[metadata],
         )
-    except FactSupersessionError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return EmbedResponse(id=memory_id, status=status)
+        fact_key = str(metadata.get("fact_key") or "").strip()
+        if fact_key:
+            _supersede_prior_fact_versions(
+                fact_key,
+                superseded_by=memory_id,
+                memory_principal_key=principal.memory_principal_key,
+            )
+        return EmbedResponse(id=memory_id, status="stored")
+    except Exception as exc:
+        _mark_embedding_error(exc)
+        _persist_fallback_memory(memory_id, request.text, metadata, reason=str(exc), mode="embed")
+        return EmbedResponse(id=memory_id, status="stored_fallback_lexical")
 
 
 @router.post("/embed_novel", response_model=NovelEmbedResponse)
-async def embed_memory_novel(
-    request: NovelEmbedRequest,
-    http_request: Request = None,
-):
+async def embed_memory_novel(request: NovelEmbedRequest, http_request: Request):
     """Store text with novelty metadata for L7/L22 orchestration."""
-    if not request.text.strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-    memory_id = str(uuid.uuid4())
-    enriched_metadata = _normalize_memory_metadata(_build_novel_metadata(
+    principal = memory_principal_for_request(http_request)
+    result = index_with_novelty(
         text=request.text,
         metadata=scoped_memory_metadata(principal, request.metadata),
         novelty_tags=request.novelty_tags,
         source_scope="l7",
         compare_window=request.compare_window,
-        tenant_id=tenant,
-        workspace_id=workspace,
         memory_principal_key=principal.memory_principal_key,
-    ), tenant_id=tenant, workspace_id=workspace)
-    result = _run_librarian_quota_controlled_write(
-        memory_id=memory_id,
-        text=request.text,
-        metadata=enriched_metadata,
-        tenant_id=tenant,
-        workspace_id=workspace,
-        publish=lambda scoped_metadata: _persist_indexed_novelty_memory(
-            memory_id,
-            request.text,
-            scoped_metadata,
-        ),
     )
 
     novelty_score = float(result["metadata"].get("novelty_score", 0.0))
@@ -3521,22 +1905,16 @@ async def embed_memory_novel(
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search_memory(
-    request: SearchRequest,
-    http_request: Request = None,
-):
+async def search_memory(request: SearchRequest, http_request: Request):
     """Search vector memory for semantically similar content.
 
     Falls back to lexical recall when semantic embedding/query is unavailable.
     """
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    principal = memory_principal_for_request(http_request)
     result = robust_search(
         request.query,
         n_results=request.n_results,
         allow_fallback=request.allow_fallback,
-        tenant_id=tenant,
-        workspace_id=workspace,
         memory_principal_key=principal.memory_principal_key,
     )
     memories = [MemoryResult(**row) for row in result.get("results", [])]
@@ -3550,13 +1928,9 @@ async def search_memory(
 
 
 @router.post("/search_novel", response_model=NovelSearchResponse)
-async def search_memory_novel(
-    request: NovelSearchRequest,
-    http_request: Request = None,
-):
+async def search_memory_novel(request: NovelSearchRequest, http_request: Request):
     """Search memory and rerank by semantic relevance + novelty."""
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    principal = memory_principal_for_request(http_request)
     ranked = search_with_novelty(
         query=request.query,
         n_results=request.n_results,
@@ -3564,8 +1938,6 @@ async def search_memory_novel(
         semantic_weight=request.semantic_weight,
         min_novelty=request.min_novelty,
         allow_fallback=request.allow_fallback,
-        tenant_id=tenant,
-        workspace_id=workspace,
         memory_principal_key=principal.memory_principal_key,
     )
 
@@ -3582,19 +1954,13 @@ async def search_memory_novel(
 
 
 @router.post("/recall", response_model=RecallResponse)
-async def recall_memory(
-    request: RecallRequest,
-    http_request: Request = None,
-):
+async def recall_memory(request: RecallRequest, http_request: Request):
     """Trustable recall path: semantic first, lexical fallback guaranteed."""
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    principal = memory_principal_for_request(http_request)
     result = robust_search(
         request.query,
         n_results=request.n_results,
         allow_fallback=True,
-        tenant_id=tenant,
-        workspace_id=workspace,
         memory_principal_key=principal.memory_principal_key,
     )
     memories = [MemoryResult(**row) for row in result.get("results", [])]
@@ -3608,13 +1974,9 @@ async def recall_memory(
 
 
 @router.post("/supersede")
-async def supersede_memory(
-    request: SupersedeRequest,
-    http_request: Request = None,
-):
+async def supersede_memory(request: SupersedeRequest, http_request: Request):
     """Mark semantic records as historical without deleting their audit trail."""
-    principal = _route_memory_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    principal = memory_principal_for_request(http_request)
     if request.superseded_by:
         target = collection.get(
             ids=[request.superseded_by],
@@ -3623,25 +1985,20 @@ async def supersede_memory(
         )
         target_ids = target.get("ids") or []
         target_metadatas = target.get("metadatas") or []
-        if not any(
+        target_is_scoped = any(
             str(memory_id) == request.superseded_by
             and _metadata_in_memory_namespace(
                 target_metadatas[index] if index < len(target_metadatas) else {},
                 principal.memory_principal_key,
             )
             for index, memory_id in enumerate(target_ids)
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail="superseded_by must belong to the authenticated principal",
-            )
+        )
+        if not target_is_scoped:
+            raise HTTPException(status_code=403, detail="superseded_by must belong to the authenticated principal")
     return {"success": True, **supersede_memory_records(
         request.memory_ids,
         superseded_by=request.superseded_by,
         reason=request.reason,
-        tenant_id=tenant,
-        workspace_id=workspace,
-        quota_credential_id=principal.credential_id,
         memory_principal_key=principal.memory_principal_key,
     )}
 

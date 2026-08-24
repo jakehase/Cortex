@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-import threading
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
 from cortex_server.worker import app as celery_app
@@ -15,27 +11,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import json
-import os
-import tempfile
 import threading
 import uuid
 
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
-_scheduler_was_shutdown = False
-_scheduler_loop = None
-_scheduler_shutdown_pending = False
-_scheduler_lock = threading.Lock()
 
-_configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
-_STATE_DIR = Path(_configured_state_dir or "/app/config/state")
-try:
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    if _configured_state_dir:
-        raise
-    _STATE_DIR = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
+_STATE_DIR = Path("/app/config/state")
+_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 _TRIGGER_LEDGER_PATH = _STATE_DIR / "l8_cron_trigger_events.jsonl"
 _NOTARY_LEDGER_PATH = _STATE_DIR / "l8_cron_notary_packets.jsonl"
@@ -804,74 +787,8 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
 
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
-    global scheduler, _scheduler_was_shutdown, _scheduler_loop
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    with _scheduler_lock:
-        if _scheduler_shutdown_pending:
-            raise RuntimeError("scheduler shutdown is still in progress")
-        if scheduler.running and _scheduler_loop is not loop:
-            raise RuntimeError("scheduler is already owned by another event loop")
-        if _scheduler_was_shutdown:
-            scheduler = AsyncIOScheduler(**({"event_loop": loop} if loop is not None else {}))
-            _scheduler_was_shutdown = False
-        if not scheduler.running:
-            scheduler.start()
-        _scheduler_loop = loop
-
-
-async def stop_scheduler() -> None:
-    """Stop APScheduler and wait for shutdown on its owning event loop."""
-    global _scheduler_was_shutdown, _scheduler_loop, _scheduler_shutdown_pending
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    with _scheduler_lock:
-        if scheduler.running and _scheduler_loop is not loop:
-            raise RuntimeError("cannot stop scheduler owned by another event loop")
-        if not scheduler.running:
-            _scheduler_loop = None
-            return
-        _scheduler_shutdown_pending = True
-        stopping_scheduler = scheduler
-        shutdown_complete = loop.create_future()
-
-        def mark_shutdown_complete(_event):
-            if not shutdown_complete.done():
-                shutdown_complete.set_result(None)
-
-        stopping_scheduler.add_listener(mark_shutdown_complete, EVENT_SCHEDULER_SHUTDOWN)
-        try:
-            stopping_scheduler.shutdown(wait=True)
-        except BaseException:
-            stopping_scheduler.remove_listener(mark_shutdown_complete)
-            _scheduler_shutdown_pending = False
-            raise
-
-    # AsyncIOScheduler.shutdown() queues its implementation with
-    # call_soon_threadsafe(), even when invoked from the owning loop. The event
-    # is dispatched only after executor and job-store shutdown has completed.
-    cancelled = None
-    try:
-        await asyncio.shield(shutdown_complete)
-    except asyncio.CancelledError as exc:
-        cancelled = exc
-        await asyncio.shield(shutdown_complete)
-    finally:
-        stopping_scheduler.remove_listener(mark_shutdown_complete)
-
-    with _scheduler_lock:
-        if stopping_scheduler.running:
-            raise RuntimeError("scheduler shutdown did not complete")
-        _scheduler_was_shutdown = True
-        _scheduler_loop = None
-        _scheduler_shutdown_pending = False
-
-    if cancelled is not None:
-        raise cancelled
+    if not scheduler.running:
+        scheduler.start()
 
 
 def get_scheduled_jobs():

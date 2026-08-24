@@ -13,6 +13,22 @@
 /public/.env
 /artifacts/openclaw-upgrade-guard/
 /artifacts/benchmarks/
+# Generated run evidence is retained outside source-control discovery by default.
+# Existing tracked proof files remain tracked; intentional new evidence can use git add -f.
+/artifacts/
+/cortex-learning-os/artifacts/
+/catalyst-radar/data/cache/
+/palworld-staging-work/
+/outgoing/
+/tmp/
+/.last_*
+/tmp_*.py
+/fix_*.py
+/patch_*.py
+/safe_connect_*.sh
+/*.pid
+/*.log
+/~.$*
 /AGENTS.md
 /MEMORY.md
 /SOUL.md
@@ -37,7 +53,3 @@
 **/__pycache__/
 *.pdb
 *.bak.*
-
-# Python bytecode
-__pycache__/
-*.py[cod]

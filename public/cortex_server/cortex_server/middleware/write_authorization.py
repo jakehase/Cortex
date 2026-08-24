@@ -11,9 +11,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-FORWARDED_HEADERS = frozenset({"forwarded", "x-forwarded-for", "x-real-ip"})
-AUTHORIZATION_MODES = frozenset({"token_required", "token_or_loopback", "disabled"})
-TRUSTED_FETCH_SITES = frozenset({"same-origin", "same-site", "none"})
 
 
 def _is_loopback(host: str) -> bool:
@@ -23,49 +20,13 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def is_trusted_direct_loopback(client_host: str, headers) -> bool:
-    """Return true only for a loopback peer that did not arrive via a proxy."""
-    return _is_loopback(client_host) and not any(name in headers for name in FORWARDED_HEADERS)
-
-
-def is_trusted_browser_context(headers, allowed_origins: frozenset[str]) -> bool:
-    """Reject browser writes that identify an untrusted source context."""
-    origin = headers.get("origin")
-    if origin is not None and origin not in allowed_origins:
-        return False
-
-    fetch_site = headers.get("sec-fetch-site")
-    if fetch_site is not None and fetch_site.strip().lower() not in TRUSTED_FETCH_SITES:
-        return False
-
-    return True
-
-
-def token_matches(supplied: str, configured: str) -> bool:
-    """Compare credentials on every path while failing closed when unconfigured."""
-    expected = str(configured or "\0").encode("utf-8")
-    candidate = str(supplied or "\0").encode("utf-8")
-    matched = hmac.compare_digest(candidate, expected)
-    return bool(configured) and bool(supplied) and matched
-
-
-def authorization_mode(value: str, *, strict: bool = False) -> str:
-    """Normalize an authorization mode, failing closed for runtime configuration."""
-    normalized = str(value or "").strip().lower()
-    if normalized in AUTHORIZATION_MODES:
-        return normalized
-    if strict:
-        raise ValueError(f"unsupported Cortex write authorization mode: {value}")
-    return "token_required"
-
-
 class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
     """Authorize writes with a token, optionally trusting the loopback boundary.
 
     Modes:
     - ``token_required``: every mutating request must carry the configured token.
-    - ``token_or_loopback``: loopback requests without an untrusted browser
-      context may omit the token; other callers must carry it.
+    - ``token_or_loopback``: loopback is a trusted local capability boundary;
+      non-loopback callers must carry the configured token.
     - ``disabled``: intended only for isolated tests and explicit rollback.
 
     Forwarded headers are deliberately ignored. A reverse proxy must present a
@@ -79,64 +40,32 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
         mode: str = "token_or_loopback",
         token: str = "",
         header_name: str = "x-cortex-write-token",
-        allowed_origins: Iterable[str] = (),
         exempt_paths: Iterable[str] = (),
-        exempt_prefixes: Iterable[str] = (),
-        sensitive_prefixes: Iterable[str] = (),
-        sensitive_token: str = "",
-        sensitive_header_name: str = "x-cortex-codec-admin-token",
-        sensitive_exempt_paths: Iterable[str] = (),
     ):
         super().__init__(app)
-        self.mode = authorization_mode(mode, strict=True)
+        normalized_mode = str(mode or "").strip().lower()
+        if normalized_mode not in {"token_required", "token_or_loopback", "disabled"}:
+            raise ValueError(f"unsupported Cortex write authorization mode: {mode}")
+        self.mode = normalized_mode
         self.token = str(token or "").strip()
         self.header_name = str(header_name or "x-cortex-write-token").strip().lower()
-        self.allowed_origins = frozenset(
-            str(origin).strip() for origin in allowed_origins if str(origin).strip()
-        )
         self.exempt_paths = frozenset(str(path) for path in exempt_paths)
-        self.exempt_prefixes = tuple(
-            str(prefix).rstrip("/")
-            for prefix in exempt_prefixes
-            if str(prefix).strip()
-        )
-        self.sensitive_prefixes = tuple(str(value).rstrip("/") for value in sensitive_prefixes if str(value).strip())
-        self.sensitive_token = str(sensitive_token or "").strip()
-        self.sensitive_header_name = str(sensitive_header_name or "x-cortex-codec-admin-token").strip().lower()
-        self.sensitive_exempt_paths = frozenset(str(path) for path in sensitive_exempt_paths)
 
     async def dispatch(self, request, call_next):
-        path = request.url.path
-        sensitive = any(path == prefix or path.startswith(f"{prefix}/") for prefix in self.sensitive_prefixes)
-        if sensitive and path not in self.sensitive_exempt_paths:
-            if not token_matches(request.headers.get(self.sensitive_header_name, ""), self.sensitive_token):
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "success": False,
-                        "error": "Codec control-plane authorization is not configured" if not self.sensitive_token else "Codec control-plane authorization required",
-                    },
-                )
-            request.state.cortex_sensitive_authorization = "codec_admin"
         if (
             self.mode == "disabled"
             or request.method.upper() not in MUTATING_METHODS
-            or path in self.exempt_paths
-            or any(path == prefix or path.startswith(f"{prefix}/") for prefix in self.exempt_prefixes)
+            or request.url.path in self.exempt_paths
         ):
             return await call_next(request)
 
         client_host = request.client.host if request.client else ""
-        if (
-            self.mode == "token_or_loopback"
-            and is_trusted_direct_loopback(client_host, request.headers)
-            and is_trusted_browser_context(request.headers, self.allowed_origins)
-        ):
+        if self.mode == "token_or_loopback" and _is_loopback(client_host):
             request.state.cortex_write_authorization = "trusted_loopback"
             return await call_next(request)
 
         supplied = request.headers.get(self.header_name, "")
-        if token_matches(supplied, self.token):
+        if self.token and supplied and hmac.compare_digest(supplied, self.token):
             request.state.cortex_write_authorization = "write_token"
             return await call_next(request)
 

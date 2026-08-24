@@ -3,6 +3,12 @@
   "name": "Cortex Memory Bridge",
   "description": "Workspace-staged bridge plugin that proxies OpenClaw memory_search to a Cortex HTTP service.",
   "kind": "memory",
+  "contracts": {
+    "tools": [
+      "memory_search",
+      "memory_get"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -34,6 +40,9 @@
       "lifecycleMaxInFlight": { "type": "number", "minimum": 1, "maximum": 4096 },
       "lifecycleMaxPending": { "type": "number", "minimum": 1, "maximum": 16384 },
       "lifecycleSpoolMaxRecords": { "type": "number", "minimum": 1, "maximum": 65536 },
+      "lifecycleReplayInitialDelayMs": { "type": "number", "minimum": 1, "maximum": 600000 },
+      "lifecycleReplayRetryMs": { "type": "number", "minimum": 1, "maximum": 600000 },
+      "lifecycleReplaySuccessDelayMs": { "type": "number", "minimum": 1, "maximum": 600000 },
       "recentOutputMaxChars": { "type": "number", "minimum": 1, "maximum": 65536 },
       "stateDir": { "type": "string", "minLength": 1 },
       "tenantId": { "type": "string", "minLength": 1 },

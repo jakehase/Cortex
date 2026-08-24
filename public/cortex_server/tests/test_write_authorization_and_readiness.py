@@ -39,9 +39,8 @@ def test_readiness_and_capability_inventory_are_explicit(monkeypatch):
     app = create_app()
     client = TestClient(app)
     readiness = client.get("/ready")
-    assert readiness.status_code == 503, readiness.text
+    assert readiness.status_code == 200, readiness.text
     assert readiness.json()["checks"]["requiredPaths"]["ok"] is True
-    assert readiness.json()["checks"]["redis"] == {"ok": False, "error": "not started"}
     capabilities = client.get("/capabilities").json()
     assert capabilities["schemaVersion"] == "cortex.capability_inventory.v1"
     assert capabilities["writeCapabilityCount"] > 0

@@ -8,14 +8,7 @@
     "additionalProperties": false,
     "properties": {
       "baseUrl": { "type": "string", "default": "http://127.0.0.1:18888" },
-      "writeToken": { "type": "string", "minLength": 1 },
-      "writeTokenHeader": { "type": "string", "minLength": 1, "default": "x-cortex-write-token" },
-      "timeoutMs": { "type": "number", "minimum": 1000, "maximum": 60000, "default": 15000 },
-      "maxResponseBytes": { "type": "number", "minimum": 1024, "maximum": 16777216, "default": 1048576 }
+      "timeoutMs": { "type": "number", "minimum": 1000, "maximum": 60000, "default": 15000 }
     }
-  },
-  "uiHints": {
-    "writeToken": { "label": "Cortex write token", "sensitive": true, "advanced": true },
-    "writeTokenHeader": { "label": "Cortex write token header", "advanced": true }
   }
 }

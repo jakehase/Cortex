@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, MutableMapping, Optional, Tuple
@@ -28,11 +27,6 @@ CompilePlanToWorkflowFn = Callable[[Any], JsonDict]
 CompilePlanToReasoningTaskFn = Callable[..., Any]
 ModelDumpCompatFn = Callable[[Any], JsonDict]
 BuildWorkflowPolicyFn = Callable[..., JsonDict]
-
-
-@asynccontextmanager
-async def _no_process_execution_fence():
-    yield
 
 
 
@@ -265,7 +259,6 @@ def record_runtime_beliefs(
     node_id: str,
     step_result: JsonDict,
     upsert_belief_fn: UpsertBeliefFn,
-    scope: Optional[JsonDict] = None,
 ) -> List[JsonDict]:
     subject = f"process:{process_id}:node:{node_id}"
     created: List[JsonDict] = []
@@ -282,7 +275,6 @@ def record_runtime_beliefs(
             source_ref=node_id,
             note="node execution result",
             metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
-            scope=scope,
         )
     )
     if step_result.get("status_code") is not None:
@@ -299,7 +291,6 @@ def record_runtime_beliefs(
                 source_ref=node_id,
                 note="http status from node execution",
                 metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
-                scope=scope,
             )
         )
     if step_result.get("error"):
@@ -317,7 +308,6 @@ def record_runtime_beliefs(
                 note="execution error",
                 metadata={"process_id": process_id, "node_id": node_id, "source_execution": "runtime"},
                 conflict_mode="contradict",
-                scope=scope,
             )
         )
     return created
@@ -337,7 +327,6 @@ async def execute_runtime_batch(
     record_node_result_fn: RecordNodeResultFn,
     workflow_policy_settings_fn: WorkflowPolicySettingsFn,
     scheduler_error_cls: type[Exception],
-    process_execution_fence_fn: Optional[Callable[[str], Any]] = None,
 ) -> JsonDict:
     executed: List[JsonDict] = []
     remaining = max(0, int(limit))
@@ -366,56 +355,36 @@ async def execute_runtime_batch(
                 remaining -= 1
                 continue
             try:
-                fence = process_execution_fence_fn(process_id) if process_execution_fence_fn is not None else _no_process_execution_fence()
-                async with fence:
-                    # Reload only after the rollback fence is owned. A tick
-                    # selected before rollback must not execute stale work.
-                    process = get_runtime_process_fn(process_id)
-                    if not process:
-                        remaining -= 1
-                        continue
-                    current_nodes = process.get("nodes")
-                    current_node = ((current_nodes or {}).get(node_id) or {})
-                    if isinstance(current_nodes, dict) and str(current_node.get("status") or "") != "ready":
-                        remaining -= 1
-                        continue
-                    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
-                    steps = workflow.get("steps") if isinstance(workflow.get("steps"), list) else []
-                    step = next((dict(s) for s in steps if str((s or {}).get("node_id") or "") == node_id), None)
-                    if not step:
-                        remaining -= 1
-                        continue
-                    mark_node_running_fn(process_id, node_id)
-                    refreshed = get_runtime_process_fn(process_id) or process
-                    results_by_node = dict(refreshed.get("results_by_node") or {})
-                    step_result = await execute_step_with_retry_fn(
-                        client,
-                        step,
-                        step_index=step_index_for_node_fn(workflow, node_id),
-                        results_by_node=results_by_node,
-                        workflow_metadata=workflow.get("metadata") or {},
-                    )
-                    if not isinstance(step_result.get("belief_context"), dict):
-                        backfilled_context = step_belief_context_fn(step, workflow.get("metadata") or {})
-                        step_result["belief_context"] = {
-                            "task_id": backfilled_context.get("task_id"),
-                            "selected_ids": backfilled_context.get("selected_ids"),
-                            "selected_count": len(backfilled_context.get("selected_ids") or []),
-                            "filters": backfilled_context.get("filters"),
-                        }
-                    produced_beliefs = record_runtime_beliefs_fn(
-                        process_id=process_id,
-                        task_id=(process.get("task_id") or refreshed.get("task_id")),
-                        node_id=node_id,
-                        step_result=step_result,
-                        workflow_metadata=workflow.get("metadata") or {},
-                    )
-                    step_result["produced_belief_ids"] = [
-                        str(row.get("claim_id") or "") for row in produced_beliefs if str(row.get("claim_id") or "").strip()
-                    ]
-                    step_result["produced_belief_count"] = len(step_result["produced_belief_ids"])
-                    record_node_result_fn(process_id, node_id, step_result)
-                    executed.append({"process_id": process_id, "node_id": node_id, "result": step_result})
+                mark_node_running_fn(process_id, node_id)
+                refreshed = get_runtime_process_fn(process_id) or process
+                results_by_node = dict(refreshed.get("results_by_node") or {})
+                step_result = await execute_step_with_retry_fn(
+                    client,
+                    step,
+                    step_index=step_index_for_node_fn(workflow, node_id),
+                    results_by_node=results_by_node,
+                    workflow_metadata=workflow.get("metadata") or {},
+                )
+                if not isinstance(step_result.get("belief_context"), dict):
+                    backfilled_context = step_belief_context_fn(step, workflow.get("metadata") or {})
+                    step_result["belief_context"] = {
+                        "task_id": backfilled_context.get("task_id"),
+                        "selected_ids": backfilled_context.get("selected_ids"),
+                        "selected_count": len(backfilled_context.get("selected_ids") or []),
+                        "filters": backfilled_context.get("filters"),
+                    }
+                produced_beliefs = record_runtime_beliefs_fn(
+                    process_id=process_id,
+                    task_id=(process.get("task_id") or refreshed.get("task_id")),
+                    node_id=node_id,
+                    step_result=step_result,
+                )
+                step_result["produced_belief_ids"] = [
+                    str(row.get("claim_id") or "") for row in produced_beliefs if str(row.get("claim_id") or "").strip()
+                ]
+                step_result["produced_belief_count"] = len(step_result["produced_belief_ids"])
+                record_node_result_fn(process_id, node_id, step_result)
+                executed.append({"process_id": process_id, "node_id": node_id, "result": step_result})
             except scheduler_error_cls as exc:
                 executed.append({"process_id": process_id, "node_id": node_id, "result": {"success": False, "error": str(exc)}})
             remaining -= 1

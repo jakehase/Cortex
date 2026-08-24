@@ -2,12 +2,11 @@
 Knowledge Graph Router - API endpoints for graph operations.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
-from typing import Annotated, Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
-import json
 import os
 import tempfile
 from cortex_server.models.requests import (
@@ -15,15 +14,7 @@ from cortex_server.models.requests import (
     GraphQueryResponse, GraphNodeResponse, GraphEdgeResponse
 )
 from cortex_server.services.knowledge_service import KnowledgeService
-from cortex_server.routers.librarian import (
-    DEFAULT_TENANT_ID,
-    DEFAULT_WORKSPACE_ID,
-    MemoryPrincipalScope,
-    MemoryScopeId,
-    _authenticated_memory_principal_scope,
-    collection,
-    robust_search,
-)
+from cortex_server.routers.librarian import collection, robust_search
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
 from cortex_server.modules.memory_scope import (
@@ -40,162 +31,33 @@ service = KnowledgeService()
 _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
 _DEFAULT_CODEBASE_INDEX_ROOT = Path("/root/clawd/artifacts/cortex-codebase-memory")
 
-BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
-
-MAX_GRAPH_STRING_LENGTH = 16_384
-MAX_GRAPH_TYPE_LENGTH = 256
-MAX_GRAPH_LANGUAGE_LENGTH = 256
-MAX_GRAPH_METADATA_BYTES = 65_536
-MAX_GRAPH_METADATA_DEPTH = 8
-MAX_GRAPH_METADATA_NODES = 1_000
-MAX_GRAPH_METADATA_STRING = 16_384
-MAX_GRAPH_METADATA_KEY = 256
-
-
-def _validate_graph_metadata(value: Dict[str, Any]) -> Dict[str, Any]:
-    nodes = 0
-    pending = [(value, 0)]
-    while pending:
-        item, depth = pending.pop()
-        nodes += 1
-        if nodes > MAX_GRAPH_METADATA_NODES:
-            raise ValueError("metadata has too many values")
-        if depth > MAX_GRAPH_METADATA_DEPTH:
-            raise ValueError("metadata is too deeply nested")
-        if isinstance(item, dict):
-            for key, child in item.items():
-                if not isinstance(key, str) or len(key) > MAX_GRAPH_METADATA_KEY:
-                    raise ValueError("metadata keys must be bounded strings")
-                pending.append((child, depth + 1))
-        elif isinstance(item, list):
-            pending.extend((child, depth + 1) for child in item)
-        elif isinstance(item, str):
-            if len(item) > MAX_GRAPH_METADATA_STRING:
-                raise ValueError("metadata string is too long")
-        elif item is not None and not isinstance(item, (bool, int, float)):
-            raise ValueError("metadata contains an unsupported value")
-
-    try:
-        encoded = json.dumps(
-            value,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
-        raise ValueError("metadata must be finite JSON") from exc
-    if len(encoded) > MAX_GRAPH_METADATA_BYTES:
-        raise ValueError("metadata exceeds byte limit")
-    return value
-
-
-class BoundedGraphNodeCreateRequest(GraphNodeCreateRequest):
-    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
-    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
-    name: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
-    uri: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
-    language: Optional[str] = Field(default=None, max_length=MAX_GRAPH_LANGUAGE_LENGTH)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
-
-
-class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
-    id: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
-    type: str = Field(max_length=MAX_GRAPH_TYPE_LENGTH)
-    source_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
-    target_id: str = Field(max_length=MAX_GRAPH_STRING_LENGTH)
-    context: Optional[str] = Field(default=None, max_length=MAX_GRAPH_STRING_LENGTH)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-    _bounded_metadata = field_validator("metadata")(_validate_graph_metadata)
-
 
 class KnowledgeSearchRequest(BaseModel):
-    query: str = Field(..., max_length=16_384)
-    n_results: int = Field(5, ge=1, le=100)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-
-class BoundedGraphQueryRequest(GraphQueryRequest):
-    query: str = Field(..., max_length=16_384)
-    limit: int = Field(100, ge=1, le=100)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
+    query: str
+    n_results: int = 5
 
 
 class StructuralSearchRequest(BaseModel):
-    query: BoundedKnowledgeText = ""
+    query: str = ""
     node_type: Optional[str] = None
-    limit: int = Field(25, ge=1, le=100)
+    limit: int = 25
     include_neighbors: bool = False
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
 
 
 class PriorArtGateRequest(BaseModel):
-    objective: str = Field(..., max_length=32_768)
-    planned_capabilities: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
-    planned_paths: List[BoundedKnowledgeText] = Field(default_factory=list, max_items=100)
-    proposed_action: str = Field("unspecified", max_length=64)
-    n_results: int = Field(5, ge=1, le=20)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
+    objective: str
+    planned_capabilities: List[str] = []
+    planned_paths: List[str] = []
+    proposed_action: str = "unspecified"
+    n_results: int = 5
 
 
 class ImpactRequest(BaseModel):
-    query: Optional[BoundedKnowledgeText] = None
-    node_id: Optional[BoundedKnowledgeText] = None
+    query: Optional[str] = None
+    node_id: Optional[str] = None
     edge_type: Optional[str] = None
     direction: str = "both"
-    limit: int = Field(10, ge=1, le=50)
-    tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
-    workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
-    scope: Optional[MemoryPrincipalScope] = None
-    scope_credential_id: Optional[MemoryScopeId] = None
-    scope_signature: Optional[str] = Field(None, max_length=256)
-
-
-def _graph_principal(request):
-    return _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
-
-
-def _route_principal(
-    request: Any,
-    http_request: Optional[Request],
-) -> AuthenticatedMemoryPrincipal:
-    """Use dependency-authenticated headers on HTTP routes, with direct-call compatibility."""
-
-    if http_request is not None:
-        return memory_principal_for_request(http_request)
-    return _graph_principal(request)
+    limit: int = 10
 
 
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
@@ -256,13 +118,15 @@ def _principal_graph_nodes(
     limit: int = 100,
 ) -> List[Any]:
     requested = max(1, min(int(limit or 100), 1000))
-    return service.graph.query(
+    candidates = service.graph.query(
         node_type=node_type,
         name_pattern=name_pattern,
-        limit=requested,
-        tenant_id=principal.tenant_id,
-        storage_workspace_id=principal.storage_workspace_id,
+        limit=1000,
     )
+    return [
+        node for node in candidates
+        if _graph_metadata_matches(getattr(node, "metadata", None), principal)
+    ][:requested]
 
 
 def _principal_graph_neighbors(
@@ -271,16 +135,13 @@ def _principal_graph_neighbors(
     *,
     edge_type: Optional[EdgeType] = None,
     direction: str = "out",
-    limit: int = 100,
 ) -> List[Dict[str, Any]]:
-    return service.graph.get_neighbors(
-        node_id,
-        edge_type=edge_type,
-        direction=direction,
-        limit=limit,
-        tenant_id=principal.tenant_id,
-        storage_workspace_id=principal.storage_workspace_id,
-    )
+    rows = service.graph.get_neighbors(node_id, edge_type=edge_type, direction=direction)
+    return [
+        row for row in rows
+        if _graph_metadata_matches(getattr(row.get("edge"), "metadata", None), principal)
+        and _graph_metadata_matches(getattr(row.get("node"), "metadata", None), principal)
+    ]
 
 
 def _principal_semantic_memory_count(
@@ -324,8 +185,6 @@ def _principal_memory_health_payload(
             query="memory health",
             max_chars=420,
             history_limit=3,
-            tenant_id=principal.tenant_id,
-            workspace_id=principal.storage_workspace_id,
         )
         codec = {
             "ok": bool(debug.get("enabled")) and bool(debug.get("durable_enabled")),
@@ -392,6 +251,116 @@ def _latest_index_artifact(root: Path = _DEFAULT_CODEBASE_INDEX_ROOT) -> Optiona
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _semantic_retention_canary_health() -> Dict[str, Any]:
+    """Verify retrieval of a pre-written completion-survival canary.
+
+    This probe is deliberately read-only. A canary writer must store a record
+    with the contract fields below through the real capture/promotion path; this
+    health endpoint must not manufacture evidence of its own health.
+    """
+
+    contract = {
+        "memory_health_canary": True,
+        "memory_health_canary_kind": "completion_survival",
+        "requiredMetadata": ["memory_health_canary_query", "memory_health_canary_token"],
+    }
+    try:
+        data = collection.get(
+            where={"memory_health_canary": True},
+            limit=8,
+            include=["documents", "metadatas"],
+        )
+    except Exception as exc:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "probe_error",
+            "contract": contract,
+            "error": str(exc),
+        }
+
+    ids = data.get("ids") or []
+    documents = data.get("documents") or []
+    metadatas = data.get("metadatas") or []
+    candidates = []
+    for index, record_id in enumerate(ids):
+        metadata = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        if str(metadata.get("memory_status") or "active").lower() != "active":
+            continue
+        if str(metadata.get("memory_health_canary_kind") or "") != "completion_survival":
+            continue
+        candidates.append({
+            "id": str(record_id),
+            "document": str(documents[index] if index < len(documents) else ""),
+            "metadata": metadata,
+        })
+    if not candidates:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "not_configured",
+            "contract": contract,
+            "reason": "no active completion-survival canary is present",
+        }
+
+    candidates.sort(key=lambda row: str(row["metadata"].get("recorded_at") or ""), reverse=True)
+    canary = candidates[0]
+    metadata = canary["metadata"]
+    query = str(metadata.get("memory_health_canary_query") or "").strip()
+    token = str(metadata.get("memory_health_canary_token") or "").strip()
+    canary_id = str(metadata.get("memory_health_canary_id") or canary["id"])
+    if not query or not token or token not in canary["document"]:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "invalid_contract",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "reason": "canary query/token metadata is missing or the token is absent from the stored document",
+        }
+
+    try:
+        result = robust_search(query, n_results=5, allow_fallback=False)
+    except Exception as exc:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "search_error",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "error": str(exc),
+        }
+
+    search_mode = str(result.get("search_mode") or "unknown")
+    degraded = bool(result.get("degraded", False))
+    warning = result.get("warning")
+    semantic_path = search_mode in {"semantic", "semantic_hybrid"} and not degraded and not warning
+    matched_id = None
+    for row in result.get("results", []) or []:
+        row_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        row_canary_id = str(row_metadata.get("memory_health_canary_id") or row.get("id") or "")
+        if row_canary_id == canary_id and token in str(row.get("text") or ""):
+            matched_id = str(row.get("id") or row_canary_id)
+            break
+    verified = bool(semantic_path and matched_id)
+    return {
+        "configured": True,
+        "verified": verified,
+        "status": "passed" if verified else "failed",
+        "contract": contract,
+        "canaryId": canary_id,
+        "recordedAt": metadata.get("recorded_at"),
+        "searchMode": search_mode,
+        "semanticPath": semantic_path,
+        "degraded": degraded,
+        "warning": warning,
+        "matchedId": matched_id,
+        "resultCount": len(result.get("results", []) or []),
+    }
+
+
 def _semantic_memory_health() -> Dict[str, Any]:
     count = None
     search_mode = "unknown"
@@ -401,16 +370,35 @@ def _semantic_memory_health() -> Dict[str, Any]:
     try:
         count = int(collection.count())
     except Exception as exc:
-        return {"ok": False, "count": None, "error": str(exc)}
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": None,
+            "error": str(exc),
+        }
     try:
         result = robust_search("Cortex memory health", n_results=1, allow_fallback=True)
         search_mode = result.get("search_mode", "semantic")
         degraded = bool(result.get("degraded", False))
         warning = result.get("warning")
         result_count = len(result.get("results", []) or [])
-        search_ok = search_mode != "error"
+        # This generic query is an availability probe, not a relevance canary.
+        # Low-signal warnings remain visible below, while the dedicated
+        # completion-survival probe is the fail-closed semantic quality gate.
+        search_ok = search_mode != "error" and result_count > 0
     except Exception as exc:
-        return {"ok": False, "count": count, "searchMode": "error", "error": str(exc)}
+        return {
+            "ok": False,
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": count,
+            "searchMode": "error",
+            "error": str(exc),
+        }
     lifecycle = {"active": 0, "superseded": 0, "tombstoned": 0, "historical": 0}
     try:
         data = collection.get(include=["metadatas"])
@@ -420,8 +408,17 @@ def _semantic_memory_health() -> Dict[str, Any]:
             lifecycle[status] = lifecycle.get(status, 0) + 1
     except Exception:
         lifecycle = {}
+    retention_probe = _semantic_retention_canary_health()
+    availability_ok = bool(count > 0 and search_ok)
+    retention_verified = bool(retention_probe.get("verified"))
+    ok = availability_ok and retention_verified
     return {
-        "ok": count > 0 and search_ok,
+        "ok": ok,
+        "status": "healthy" if ok else ("retention_unverified" if availability_ok else "degraded"),
+        "availabilityOk": availability_ok,
+        "retentionVerified": retention_verified,
+        "retentionStatus": retention_probe.get("status"),
+        "retentionProbe": retention_probe,
         "count": count,
         "searchOk": search_ok,
         "searchMode": search_mode,
@@ -715,26 +712,17 @@ def _memory_health_payload() -> Dict[str, Any]:
 
 
 @router.get("/status")
-async def knowledge_status(http_request: Request = None):
+async def knowledge_status(http_request: Request):
     """L22 Mnemosyne status endpoint (canonical)."""
     try:
-        principal = (
-            memory_principal_for_request(http_request)
-            if http_request is not None
-            else _authenticated_memory_principal_scope(
-                DEFAULT_TENANT_ID,
-                DEFAULT_WORKSPACE_ID,
-                None,
-            )
-        )
+        principal = memory_principal_for_request(http_request)
         memory_count = _principal_semantic_memory_count(principal)
 
-        available = memory_count is not None
         return {
-            "success": available,
+            "success": True,
             "level": 22,
             "name": "Mnemosyne",
-            "status": "active" if available else "unavailable",
+            "status": "active",
             "capabilities": [
                 "knowledge_graph",
                 "semantic_search",
@@ -756,25 +744,14 @@ async def knowledge_status(http_request: Request = None):
 
 
 @router.get("/memory-health")
-async def memory_health(http_request: Request = None):
+async def memory_health(http_request: Request):
     """Principal-local compatibility health; aggregate diagnostics are withheld."""
-    principal = (
-        memory_principal_for_request(http_request)
-        if http_request is not None
-        else _authenticated_memory_principal_scope(
-            DEFAULT_TENANT_ID,
-            DEFAULT_WORKSPACE_ID,
-            None,
-        )
-    )
+    principal = memory_principal_for_request(http_request)
     return _principal_memory_health_payload(principal)
 
 
 @router.post("/search")
-async def search_knowledge(
-    request: KnowledgeSearchRequest,
-    http_request: Request = None,
-):
+async def search_knowledge(request: KnowledgeSearchRequest, http_request: Request):
     """Compatibility semantic search endpoint used by OpenClaw config.
 
     Uses Librarian's resilient recall path so memory_search remains available even
@@ -784,15 +761,11 @@ async def search_knowledge(
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        principal = _route_principal(request, http_request)
-        tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-
+        principal = memory_principal_for_request(http_request)
         result = robust_search(
             query=request.query,
             n_results=request.n_results,
             allow_fallback=True,
-            tenant_id=tenant,
-            workspace_id=workspace,
             memory_principal_key=principal.memory_principal_key,
         )
         return {
@@ -800,7 +773,6 @@ async def search_knowledge(
             "results": result.get("results", []),
             "search_mode": result.get("search_mode", "semantic"),
             "degraded": bool(result.get("degraded", False)),
-            "available": bool(result.get("available", True)),
             "warning": result.get("warning"),
         }
     except HTTPException:
@@ -811,40 +783,26 @@ async def search_knowledge(
             "results": [],
             "search_mode": "error",
             "degraded": True,
-            "available": False,
             "error": str(e),
         }
 
 
-@router.post(
-    "/prior-art-gate",
-    openapi_extra={
-        "x-cortex-read-policy": "principal_semantic_read",
-        "x-cortex-principal-scope-required": True,
-    },
-)
-async def prior_art_gate(
-    request: PriorArtGateRequest,
-    http_request: Request = None,
-):
+@router.post("/prior-art-gate")
+async def prior_art_gate(request: PriorArtGateRequest, http_request: Request):
     """Pre-implementation recall gate for existing capabilities.
 
     Use this before building a new product/control-plane primitive. It searches
     durable memory plus the structural code graph and requires a reuse/extend/
     adapter decision when high-confidence prior art exists.
     """
-    principal = _route_principal(request, http_request)
-    tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-
     try:
+        principal = memory_principal_for_request(http_request)
         terms = extract_prior_art_terms(
             objective=request.objective,
             planned_capabilities=request.planned_capabilities,
             planned_paths=request.planned_paths,
         )
         memory_rows: List[Dict[str, Any]] = []
-        memory_query_succeeded = False
-        memory_query_failed = False
         for query in [*request.planned_capabilities, *terms[:6]]:
             if not str(query or "").strip():
                 continue
@@ -853,30 +811,20 @@ async def prior_art_gate(
                     query=str(query),
                     n_results=max(1, min(int(request.n_results or 5), 10)),
                     allow_fallback=True,
-                    tenant_id=tenant,
-                    workspace_id=workspace,
                     memory_principal_key=principal.memory_principal_key,
                 )
-                if result.get("available") is not True:
-                    memory_query_failed = True
-                else:
-                    memory_query_succeeded = True
-                    memory_rows.extend(result.get("results", []) or [])
+                memory_rows.extend(result.get("results", []) or [])
             except Exception:
-                memory_query_failed = True
-        memory_available = memory_query_succeeded and not memory_query_failed
+                continue
 
         structural_rows: List[Dict[str, Any]] = []
-        structural_query_succeeded = False
-        structural_query_failed = False
         seen_nodes = set()
         for term in terms[:8]:
             try:
-                for node in service.graph.query(
+                for node in _principal_graph_nodes(
+                    principal,
                     name_pattern=term,
                     limit=max(1, min(int(request.n_results or 5), 10)),
-                    tenant_id=tenant,
-                    storage_workspace_id=workspace,
                 ):
                     node_dict = _node_to_dict(node)
                     node_id = node_dict.get("id") if isinstance(node_dict, dict) else None
@@ -885,10 +833,8 @@ async def prior_art_gate(
                     if node_id:
                         seen_nodes.add(node_id)
                     structural_rows.append({"node": node_dict})
-                structural_query_succeeded = True
             except Exception:
-                structural_query_failed = True
-        structural_available = structural_query_succeeded and not structural_query_failed
+                continue
 
         gate = build_prior_art_gate(
             objective=request.objective,
@@ -897,8 +843,6 @@ async def prior_art_gate(
             proposed_action=request.proposed_action,
             memory_results=memory_rows,
             structural_results=structural_rows,
-            memory_available=memory_available,
-            structural_available=structural_available,
         )
         return {"success": gate.get("ok", False), **gate}
     except Exception as e:
@@ -913,21 +857,24 @@ async def prior_art_gate(
 
 
 @router.post("/query")
-async def query_graph(
-    request: BoundedGraphQueryRequest,
-    http_request: Request = None,
-):
+async def query_graph(request: GraphQueryRequest, http_request: Request):
     """Query the knowledge graph."""
     try:
-        principal = _route_principal(request, http_request)
-        result = await service.query(
-            request,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
+        principal = memory_principal_for_request(http_request)
+        node_type = None
+        if request.node_type:
+            try:
+                node_type = NodeType(request.node_type)
+            except ValueError:
+                node_type = None
+        nodes = _principal_graph_nodes(
+            principal,
+            node_type=node_type,
+            name_pattern=request.query or None,
+            limit=request.limit,
         )
+        result = {"nodes": [_node_to_dict(node) for node in nodes], "count": len(nodes)}
         return {"success": True, "data": result, "error": None}
-    except HTTPException:
-        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -940,9 +887,7 @@ async def graph_stats(http_request: Request):
         nodes = _principal_graph_nodes(principal, limit=1000)
         edges = [
             edge for edge in service.graph.storage.query_edges(limit=1000)
-            if str(getattr(edge, "tenant_id", "") or "") == principal.tenant_id
-            and str(getattr(edge, "storage_workspace_id", "") or "")
-            == principal.storage_workspace_id
+            if _graph_metadata_matches(getattr(edge, "metadata", None), principal)
         ]
         node_types: Dict[str, int] = {}
         edge_types: Dict[str, int] = {}
@@ -964,10 +909,7 @@ async def graph_stats(http_request: Request):
 
 
 @router.post("/structural/search")
-async def structural_search(
-    request: StructuralSearchRequest,
-    http_request: Request = None,
-):
+async def structural_search(request: StructuralSearchRequest, http_request: Request):
     """Search the Cortex structural code graph.
 
     This is deliberately separate from semantic memory search. Use it for
@@ -975,19 +917,18 @@ async def structural_search(
     functions, routes, and nearby dependency edges.
     """
     try:
-        principal = _route_principal(request, http_request)
+        principal = memory_principal_for_request(http_request)
         node_type = None
         if request.node_type:
             try:
                 node_type = NodeType(request.node_type)
             except ValueError:
-                raise HTTPException(status_code=422, detail="invalid node_type")
-        nodes = service.graph.query(
+                node_type = None
+        nodes = _principal_graph_nodes(
+            principal,
             node_type=node_type,
             name_pattern=request.query or None,
             limit=request.limit,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
         )
         results = []
         for node in nodes:
@@ -995,50 +936,27 @@ async def structural_search(
             if request.include_neighbors:
                 item["neighbors"] = [
                     _neighbor_to_dict(n)
-                    for n in service.graph.get_neighbors(
-                        node.id,
-                        direction="both",
-                        limit=25,
-                        tenant_id=principal.tenant_id,
-                        storage_workspace_id=principal.storage_workspace_id,
-                    )
+                    for n in _principal_graph_neighbors(principal, node.id, direction="both")[:25]
                 ]
             results.append(item)
         return {"success": True, "query": request.query, "results": results, "count": len(results)}
-    except HTTPException:
-        raise
     except Exception as e:
         return {"success": False, "query": request.query, "results": [], "count": 0, "error": str(e)}
 
 
 @router.post("/structural/impact")
-async def structural_impact(
-    request: ImpactRequest,
-    http_request: Request = None,
-):
+async def structural_impact(request: ImpactRequest, http_request: Request):
     """Return dependency/call/import neighborhood for a node or symbol query."""
     try:
-        principal = _route_principal(request, http_request)
+        principal = memory_principal_for_request(http_request)
         nodes = []
         if request.node_id:
-            node = service.graph.get_node(
-                service._scoped_id(
-                    request.node_id,
-                    principal.tenant_id,
-                    principal.storage_workspace_id,
-                ),
-                tenant_id=principal.tenant_id,
-                storage_workspace_id=principal.storage_workspace_id,
-            )
-            if node:
+            scoped_node_id = _scoped_graph_id(principal, "node", request.node_id)
+            node = service.graph.get_node(scoped_node_id)
+            if node and _graph_metadata_matches(getattr(node, "metadata", None), principal):
                 nodes = [node]
         elif request.query:
-            nodes = service.graph.query(
-                name_pattern=request.query,
-                limit=request.limit,
-                tenant_id=principal.tenant_id,
-                storage_workspace_id=principal.storage_workspace_id,
-            )
+            nodes = _principal_graph_nodes(principal, name_pattern=request.query, limit=request.limit)
         else:
             raise HTTPException(status_code=400, detail="node_id or query is required")
 
@@ -1047,19 +965,15 @@ async def structural_impact(
             try:
                 edge_type = EdgeType(request.edge_type)
             except ValueError:
-                raise HTTPException(status_code=422, detail="invalid edge_type")
+                edge_type = None
 
         impacts = []
         for node in nodes[: max(1, min(50, request.limit or 10))]:
-            if request.direction not in {"out", "in", "both"}:
-                raise HTTPException(status_code=422, detail="invalid direction")
-            neighbors = service.graph.get_neighbors(
+            neighbors = _principal_graph_neighbors(
+                principal,
                 node.id,
                 edge_type=edge_type,
                 direction=request.direction,
-                limit=request.limit,
-                tenant_id=principal.tenant_id,
-                storage_workspace_id=principal.storage_workspace_id,
             )
             impacts.append({
                 "node": _node_to_dict(node),
@@ -1074,21 +988,17 @@ async def structural_impact(
 
 
 @router.post("/nodes")
-async def create_node(
-    request: BoundedGraphNodeCreateRequest,
-    http_request: Request = None,
-):
+async def create_node(request: GraphNodeCreateRequest, http_request: Request):
     """Create a new node in the graph."""
     try:
-        principal = _route_principal(request, http_request)
-        result = await service.create_node(
-            request,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
-        )
+        principal = memory_principal_for_request(http_request)
+        external_id = request.id or f"{request.type}:{request.name}"
+        scoped_request = request.copy(update={
+            "id": _scoped_graph_id(principal, "node", external_id),
+            "metadata": _scoped_graph_metadata(principal, request.metadata),
+        })
+        result = await service.create_node(scoped_request)
         return {"success": True, "data": result, "error": None}
-    except HTTPException:
-        raise
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
@@ -1098,18 +1008,9 @@ async def get_node(node_id: str, http_request: Request):
     """Get a node by ID."""
     try:
         principal = memory_principal_for_request(http_request)
-        scoped_node_id = service._scoped_id(
-            node_id,
-            principal.tenant_id,
-            principal.storage_workspace_id,
-        )
-        node = service.graph.get_node(
-            scoped_node_id,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
-        )
-        if node is not None:
-            return {"success": True, "data": _node_to_dict(node), "error": None}
+        result = await service.get_node(_scoped_graph_id(principal, "node", node_id))
+        if result and _graph_metadata_matches(result.get("metadata"), principal):
+            return {"success": True, "data": result, "error": None}
         raise HTTPException(status_code=404, detail="Node not found")
     except HTTPException:
         raise
@@ -1118,18 +1019,24 @@ async def get_node(node_id: str, http_request: Request):
 
 
 @router.post("/edges")
-async def create_edge(
-    request: BoundedGraphEdgeCreateRequest,
-    http_request: Request = None,
-):
+async def create_edge(request: GraphEdgeCreateRequest, http_request: Request):
     """Create a new edge in the graph."""
     try:
-        principal = _route_principal(request, http_request)
-        result = await service.create_edge(
-            request,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
-        )
+        principal = memory_principal_for_request(http_request)
+        source_id = _scoped_graph_id(principal, "node", request.source_id)
+        target_id = _scoped_graph_id(principal, "node", request.target_id)
+        for endpoint_id in (source_id, target_id):
+            node = service.graph.get_node(endpoint_id)
+            if node is None or not _graph_metadata_matches(getattr(node, "metadata", None), principal):
+                raise HTTPException(status_code=404, detail="edge endpoint not found in authenticated principal namespace")
+        external_id = request.id or f"{request.type}:{request.source_id}:{request.target_id}"
+        scoped_request = request.copy(update={
+            "id": _scoped_graph_id(principal, "edge", external_id),
+            "source_id": source_id,
+            "target_id": target_id,
+            "metadata": _scoped_graph_metadata(principal, request.metadata),
+        })
+        result = await service.create_edge(scoped_request)
         return {"success": True, "data": result, "error": None}
     except HTTPException:
         raise
@@ -1138,40 +1045,25 @@ async def create_edge(
 
 
 @router.get("/nodes/{node_id}/neighbors")
-async def get_neighbors(
-    node_id: str,
-    http_request: Request,
-    edge_type: str = None,
-    direction: str = "out",
-    limit: int = Query(100, ge=1, le=100),
-):
+async def get_neighbors(node_id: str, http_request: Request, edge_type: str = None, direction: str = "out"):
     """Get neighbors of a node."""
     try:
         principal = memory_principal_for_request(http_request)
-        scoped_node_id = service._scoped_id(
-            node_id,
-            principal.tenant_id,
-            principal.storage_workspace_id,
-        )
-        node = service.graph.get_node(
-            scoped_node_id,
-            tenant_id=principal.tenant_id,
-            storage_workspace_id=principal.storage_workspace_id,
-        )
-        if node is None:
+        scoped_node_id = _scoped_graph_id(principal, "node", node_id)
+        node = service.graph.get_node(scoped_node_id)
+        if node is None or not _graph_metadata_matches(getattr(node, "metadata", None), principal):
             raise HTTPException(status_code=404, detail="Node not found")
         resolved_edge_type = None
         if edge_type:
             try:
                 resolved_edge_type = EdgeType(edge_type)
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail="invalid edge_type") from exc
+            except ValueError:
+                resolved_edge_type = None
         rows = _principal_graph_neighbors(
             principal,
             scoped_node_id,
             edge_type=resolved_edge_type,
             direction=direction,
-            limit=limit,
         )
         return {"success": True, "data": {
             "node_id": scoped_node_id,
@@ -1180,7 +1072,5 @@ async def get_neighbors(
         }}
     except HTTPException:
         raise
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         return {"success": False, "error": str(e)}

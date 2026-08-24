@@ -114,10 +114,6 @@ Environment variables:
 - `CORTEX_DB_PATH` - SQLite database path (default: `cortex_graph.db`)
 - `CORTEX_HOST` - Server host (default: `0.0.0.0`)
 - `CORTEX_PORT` - Server port (default: `8000`)
-- `CORTEX_MEMORY_SCOPE_CREDENTIALS` - JSON object of credential IDs, per-credential secrets, and exact `allowed_scopes` containing tenant, workspace, agent, user, channel, and session IDs; required in production
-- `CORTEX_CODEC_ADMIN_TOKEN` - Administrator token required for all `/nexus/codec` diagnostics and controls except the principal-authenticated `/nexus/codec/events` ingest path
-- `CORTEX_AGENT_ACK_CREDENTIALS` - JSON map of release verifier/manager agent IDs to recipient-only HMAC secrets used to authenticate revision-bound approvals; required by production release acknowledgements
-- `CORTEX_WRITE_TOKEN` - Token for mutating HTTP operations when write authorization is configured as token-required
 
 ## Dependencies
 

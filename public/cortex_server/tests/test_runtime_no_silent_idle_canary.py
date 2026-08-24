@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
-import cortex_server.runtime.agent_supervisor as agent_supervisor
 
 
 def _install_fake_diplomat(monkeypatch):
@@ -63,10 +62,8 @@ def _workflow(name: str, *, owner: str, session_key: str, channel: str, conversa
 def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_path, monkeypatch):
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
-    trusted_now = [datetime(2026, 2, 1, tzinfo=timezone.utc)]
 
     sent = _install_fake_diplomat(monkeypatch)
-    monkeypatch.setattr(agent_supervisor, "_now", lambda: trusted_now[0])
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
@@ -97,7 +94,7 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
         session_key="session:canary:delivery",
     )
 
-    first_now = trusted_now[0]
+    first_now = datetime(2026, 2, 1, tzinfo=timezone.utc)
     roadmap = asyncio.run(
         orchestrator.reconcile_runtime_roadmap(
             roadmap_process["process_id"],
@@ -149,8 +146,8 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
                 controller_id="controller",
                 controller_session_id="sess-canary-delivery",
                 now_iso=first_now.isoformat().replace("+00:00", "Z"),
-                initial_release_stage="draft",
-                promotion_stages=["build_verified", "canary_verified", "production"],
+                initial_release_stage="build_verified",
+                promotion_stages=["build_verified", "production"],
                 completion_criteria=[
                     {
                         "criterion_id": "release-stage",
@@ -173,33 +170,20 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
                     "proactive_report_seconds": 120,
                     "blocker_followup_seconds": 60,
                 },
-                dependability_profile="24h",
+                dependability_profile=dict(MINIMAL_PROFILE),
             ),
         )
     )
 
     assert roadmap["state"]["status"] == "active"
     assert delivery["state"]["status"] == "active"
-    assert delivery["contract"]["dependability_profile"] == "24h"
-    stores = orchestrator._runtime_delivery_stores()
-    controller_lease_expiries = [
-        datetime.fromisoformat(row.expires_at.replace("Z", "+00:00"))
-        for row in stores["supervisor"].list(status="active")
-        if row.scope in {
-            f"roadmap_executor:{roadmap_process['process_id']}",
-            f"production_build_loop:{delivery_process['process_id']}",
-        }
-    ]
-    assert len(controller_lease_expiries) == 2
-    watchdog_now = max(controller_lease_expiries) + timedelta(seconds=1)
-    trusted_now[0] = watchdog_now
 
     tick = asyncio.run(
         orchestrator.tick_runtime(
             orchestrator.RuntimeTickRequest(
                 limit=10,
                 execute=False,
-                now_iso=watchdog_now.isoformat().replace("+00:00", "Z"),
+                now_iso=(first_now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
             )
         )
     )

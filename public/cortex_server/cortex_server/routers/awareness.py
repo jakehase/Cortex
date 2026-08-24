@@ -2083,13 +2083,7 @@ def _on_bus_event(from_level: str, event_type: str, data: Any):
         wm.update_self_model({"last_user_intent": target})
 
 
-_subscribed_bus = None
-
-
 def _subscribe_to_all():
-    global _subscribed_bus
-    if _subscribed_bus is not None:
-        return
     bus = get_bus()
     if bus:
         bus.subscribe("awareness", [
@@ -2098,15 +2092,7 @@ def _subscribe_to_all():
             "emergence_detected", "cortex_insight", "cortex_alert",
             "cortex_distress", "cortex_recalibrating",
         ], _on_bus_event)
-        _subscribed_bus = bus
         logger.info("🧠 Awareness v2 subscribed to consciousness bus")
-
-
-def _unsubscribe_from_all():
-    global _subscribed_bus
-    bus, _subscribed_bus = _subscribed_bus, None
-    if bus is not None:
-        bus.unsubscribe("awareness", _on_bus_event)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2117,55 +2103,16 @@ _started = False
 
 
 async def start_awareness():
-    global _started, _loop_running, _loop_task
+    global _started, _loop_task
     if _started:
-        if _loop_task is not None and _loop_task.get_loop() is not asyncio.get_running_loop():
-            raise RuntimeError("awareness is already owned by another event loop")
-        return _loop_task
+        return
     _started = True
 
-    try:
-        _subscribe_to_all()
-        wm = get_working_memory()
-        await _bootstrap_autonomous_cognition(wm)
-        _loop_task = asyncio.create_task(awareness_loop(), name="cortex-awareness-loop")
-        logger.info("🧠 L37 Awareness v2 system online — consciousness active")
-        return _loop_task
-    except BaseException:
-        _unsubscribe_from_all()
-        _started = False
-        _loop_running = False
-        _loop_task = None
-        raise
-
-
-async def stop_awareness():
-    """Stop and await all awareness work, resetting per-lifespan globals."""
-    global _started, _loop_running, _loop_task, _memory, _pending_insights, _tools_last_queried
-    global _wonder_state, _last_index_at
-    _loop_running = False
-    task, _loop_task = _loop_task, None
-    if task is not None:
-        if task.get_loop() is not asyncio.get_running_loop():
-            _loop_task = task
-            _loop_running = True
-            raise RuntimeError("cannot stop awareness owned by another event loop")
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-    _unsubscribe_from_all()
-    _started = False
-    _memory = None
-    with _pending_insights_lock:
-        _pending_insights = []
-    _tools_last_queried = {}
-    _wonder_state = {
-        "active_wonder": None,
-        "wonder_ticks": 0,
-        "wonder_max_ticks": 10,
-        "wonder_chain": [],
-        "wonder_findings": [],
-    }
-    _last_index_at = 0.0
+    _subscribe_to_all()
+    wm = get_working_memory()
+    await _bootstrap_autonomous_cognition(wm)
+    _loop_task = asyncio.create_task(awareness_loop())
+    logger.info("🧠 L37 Awareness v2 system online — consciousness active")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2490,3 +2437,4 @@ async def get_pending_insights():
         "count": len(insights),
         "insights": insights,
     }
+

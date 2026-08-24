@@ -38,8 +38,16 @@ def clear_graph(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute("DELETE FROM edges")
-        conn.execute("DELETE FROM nodes")
+        # A fresh rebuild target is an empty SQLite file until ParserService
+        # initializes the graph schema. Clearing it must therefore be idempotent.
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        if "edges" in tables:
+            conn.execute("DELETE FROM edges")
+        if "nodes" in tables:
+            conn.execute("DELETE FROM nodes")
         conn.commit()
     finally:
         conn.close()

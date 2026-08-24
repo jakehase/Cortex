@@ -100,32 +100,20 @@ def test_runtime_process_traceability_alias_returns_canonical_bundle(monkeypatch
     assert result["traceability_contract"]["raw_event_class"] == "observed_evidence"
 
 
-def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(
-    monkeypatch,
-    configured_memory_principal,
-):
+def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(monkeypatch):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "session:nexus-memory-lineage"
-    auth = configured_memory_principal(session_key)
-    codec_session_key = auth.principal.codec_session_key
     update_codec_state_for_session(
-        codec_session_key,
+        session_key,
         [
             {
                 "text": "Call me Jake and start replies with [Cortex].",
                 "metadata": {"project": "Codec Memory Lineage"},
             }
         ],
-        tenant_id=auth.principal.tenant_id,
-        workspace_id=auth.principal.storage_workspace_id,
     )
-    packet = codec_module.get_codec_packet_for_session(
-        codec_session_key,
-        max_chars=400,
-        tenant_id=auth.principal.tenant_id,
-        workspace_id=auth.principal.storage_workspace_id,
-    )
+    packet = codec_module.get_codec_packet_for_session(session_key, max_chars=400)
     memory_facts = ((packet.get("state") or {}).get("memory_facts") or []) if isinstance(packet, dict) else []
     assert memory_facts, "expected codec memory facts to exist"
     memory_id = memory_facts[0]["memory_id"]
@@ -133,7 +121,7 @@ def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app, headers=auth.headers)
+    client = TestClient(app)
 
     response = client.get(f"/nexus/codec/memory/{memory_id}/lineage", headers={"x-session-id": session_key})
 

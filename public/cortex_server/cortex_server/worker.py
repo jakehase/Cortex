@@ -19,36 +19,9 @@ from cortex_server.modules.ouroboros import Ouroboros
 
 app = Celery(
     "cortex_tasks",
-    broker=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
-    backend=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
+    broker="redis://localhost:6379/0",
+    backend="redis://localhost:6379/0",
 )
-
-
-def _cortex_write_headers() -> dict[str, str]:
-    """Build authorization headers for mutating calls back into Cortex."""
-    token = os.getenv("CORTEX_WRITE_TOKEN", "").strip()
-    header = os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip()
-    return {header: token} if token and header else {}
-
-
-def check_redis_connection() -> bool:
-    """Return true only after the configured Celery broker is reachable."""
-    try:
-        socket_timeout = max(0.1, min(float(os.getenv("CORTEX_REDIS_STARTUP_TIMEOUT_SECONDS", "2.0")), 30.0))
-    except ValueError:
-        socket_timeout = 2.0
-    connection = app.connection_for_read(
-        url=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
-        transport_options={
-            "socket_connect_timeout": socket_timeout,
-            "socket_timeout": socket_timeout,
-        },
-    )
-    try:
-        connection.ensure_connection(max_retries=0)
-        return True
-    finally:
-        connection.release()
 
 
 @app.task(name="cortex_tasks.long_running_research")
@@ -126,7 +99,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
     }
 
     try:
-        oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, headers=_cortex_write_headers(), timeout=60)
+        oracle_resp = requests.post(ORACLE_URL, json=oracle_payload, timeout=60)
         plan_text = oracle_resp.json().get("response", "")
     except Exception as e:
         plan_text = f"Error: {str(e)}"
@@ -167,7 +140,7 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "args": [f"Swarm Task {i}: {task}"]
         }
         try:
-            queue_resp = requests.post(QUEUE_URL, json=queue_payload, headers=_cortex_write_headers(), timeout=10)
+            queue_resp = requests.post(QUEUE_URL, json=queue_payload, timeout=10)
             task_id = queue_resp.json().get("task_id")
             if task_id:
                 task_ids.append(task_id)
@@ -203,13 +176,14 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "novelty_summary": novelty_summary,
         }
     }
+
     try:
         memory_headers = configured_internal_memory_headers()
         if memory_headers is not None:
             requests.post(
                 LIBRARIAN_EMBED,
                 json=librarian_payload,
-                headers={**_cortex_write_headers(), **memory_headers},
+                headers=memory_headers,
                 timeout=10,
             )
     except:

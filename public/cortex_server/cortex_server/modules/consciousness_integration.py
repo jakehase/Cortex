@@ -30,7 +30,6 @@ import httpx
 
 from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.level_registry import get_level_registry
-from cortex_server.modules.memory_scope import configured_internal_memory_headers
 
 logger = logging.getLogger("consciousness_integration")
 
@@ -244,17 +243,11 @@ async def chain_to(
         pass
 
     try:
-        normalized_endpoint = endpoint.lstrip("/")
-        memory_endpoint = normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search"
-        memory_headers = configured_internal_memory_headers() if memory_endpoint else None
-        if memory_endpoint and memory_headers is None:
-            return None
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method.upper() == "GET":
-                resp = await client.get(url, params=payload, headers=memory_headers)
+                resp = await client.get(url, params=payload)
             else:
-                body = dict(payload or {})
-                resp = await client.post(url, json=body, headers=memory_headers)
+                resp = await client.post(url, json=payload or {})
             resp.raise_for_status()
             result = resp.json()
 

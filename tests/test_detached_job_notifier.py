@@ -74,6 +74,39 @@ class DetachedJobNotifierTests(unittest.TestCase):
             delivered = json.loads(ledger.read_text())["delivered"]
             self.assertEqual(len(delivered), 1)
 
+    def test_exit_after_delivery_terminates_a_terminal_watcher(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            state = root / "state.json"
+            ledger = root / "ledger.json"
+            sender = root / "sender"
+            state.write_text(json.dumps({"status": "blocked", "blocker": "terminal"}))
+            sender.write_text("#!/bin/sh\nprintf '{\"ok\":true,\"messageId\":\"proof-exit\"}\\n'\n")
+            sender.chmod(0o755)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--state-file",
+                    str(state),
+                    "--job-label",
+                    "test job",
+                    "--target",
+                    "+15555550123",
+                    "--sender",
+                    str(sender),
+                    "--dedupe-file",
+                    str(ledger),
+                    "--exit-after-delivery",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(json.loads(ledger.read_text())["delivered"]), 1)
+
     def test_grace_period_suppresses_a_recovered_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
