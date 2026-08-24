@@ -121,6 +121,11 @@ def _receipt_layer(environment_name: str, *, maximum_age_seconds: int | None = N
         return {"status": "red", "reason": f"invalid receipt: {type(exc).__name__}"}
     raw_status = str(payload.get("status") or payload.get("outcome") or "").lower()
     status = "green" if raw_status in {"green", "complete", "allowed"} else "red"
+    expected_release = os.getenv("CORTEX_RELEASE_ID", "").strip()
+    receipt_release = str(payload.get("releaseId") or "").strip()
+    release_bound = bool(expected_release and receipt_release == expected_release)
+    if not release_bound:
+        status = "red"
     timestamp_value = next(
         (payload.get(key) for key in ("verifiedAt", "refreshedAt", "generatedAt", "completedAt") if payload.get(key)),
         None,
@@ -140,6 +145,8 @@ def _receipt_layer(environment_name: str, *, maximum_age_seconds: int | None = N
         "status": status,
         "receiptSchemaVersion": payload.get("schemaVersion"),
         "receiptSha256": _sha256(path),
+        "releaseBound": release_bound,
+        "releaseId": receipt_release or None,
         "ageSeconds": round(age_seconds, 3) if age_seconds is not None else None,
         "maximumAgeSeconds": maximum_age_seconds,
         "stale": stale,

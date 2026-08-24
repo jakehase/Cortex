@@ -105,7 +105,9 @@ def main() -> None:
         "agent_id": "main",
         "user_id": "jake",
         "channel_id": "whatsapp",
-        "session_id": f"openclaw-q9-canary-{nonce}",
+        # A fixed canary scope plus a fixed external graph id guarantees that
+        # repeated canaries update one bounded row instead of leaking rows.
+        "session_id": "openclaw-q9-canary",
     }
     headers = principal_headers(environment, credential_id=args.credential_id, scope=scope)
     checks = []
@@ -223,6 +225,7 @@ def main() -> None:
         "schemaVersion": "cortex.q9.live-canary.v1",
         "outcome": "green",
         "status": "green",
+        "releaseId": environment.get("CORTEX_RELEASE_ID"),
         "checkCount": len(checks),
         "passedCheckCount": sum(1 for row in checks if row["ok"]),
         "failedCheckCount": sum(1 for row in checks if not row["ok"]),

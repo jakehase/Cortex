@@ -47,6 +47,7 @@ def _write_receipt(path: Path, *, age_seconds: int = 0):
             {
                 "schemaVersion": "test.receipt.v1",
                 "outcome": "green",
+                "releaseId": "cortex-q9-test",
                 "verifiedAt": when.isoformat().replace("+00:00", "Z"),
             }
         )
@@ -98,6 +99,7 @@ def _client(tmp_path, monkeypatch, *, evidence_age=0):
         receipts[name] = path
     monkeypatch.setenv("CORTEX_ADMIN_TOKEN", "admin-token-for-q9-tests-0000000000")
     monkeypatch.setenv("CORTEX_RELEASE_ROOT", str(root))
+    monkeypatch.setenv("CORTEX_RELEASE_ID", "cortex-q9-test")
     monkeypatch.setenv("CORTEX_RELEASE_ENVELOPE_PATH", str(envelope))
     monkeypatch.setenv("CORTEX_AIOS_ATTESTATION_PATH", str(receipts["aios"]))
     monkeypatch.setenv("CORTEX_CANARY_RECEIPT_PATH", str(receipts["canary"]))
