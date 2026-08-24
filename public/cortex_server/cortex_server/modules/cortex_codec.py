@@ -131,6 +131,38 @@ PROJECT_SINGLE_TOKEN_STOPWORDS = {
     "do",
 }
 
+PROJECT_CONTEXT_NOUNS = (
+    "project",
+    "program",
+    "pilot",
+    "initiative",
+    "repo",
+    "repository",
+    "workspace",
+    "codebase",
+    "capsule",
+)
+
+PROJECT_ALIASES = (
+    (re.compile(r"\blearning[\s_-]+os\b", re.IGNORECASE), "Learning OS"),
+    (re.compile(r"\bprofessional[\s_-]+web(?:site)?[\s_-]+design\b", re.IGNORECASE), "Website Design"),
+    (re.compile(r"\bwebsite[\s_-]+design\b", re.IGNORECASE), "Website Design"),
+    (re.compile(r"\bweb[\s_-]+design\b", re.IGNORECASE), "Website Design"),
+)
+
+_PROJECT_NEGATED_ACTIVITY_TERMS = (
+    "change",
+    "changes",
+    "work",
+    "deployment",
+    "deployments",
+    "activity",
+    "touch",
+    "touches",
+    "update",
+    "updates",
+)
+
 _SESSION_CODEC_STATE: Dict[str, Dict[str, Any]] = {}
 _SESSION_CODEC_LOCK = threading.RLock()
 _SESSION_CODEC_PERSIST: Dict[str, Dict[str, Any]] = {}
@@ -146,18 +178,26 @@ CODEC_RETENTION_MAX_SNAPSHOTS = int(os.getenv("CODEC_RETENTION_MAX_SNAPSHOTS", "
 CODEC_RETENTION_MIN_PRIORITY = float(os.getenv("CODEC_RETENTION_MIN_PRIORITY", "2.4"))
 CODEC_RETENTION_MAX_PRIORITY_OVERFLOW = int(os.getenv("CODEC_RETENTION_MAX_PRIORITY_OVERFLOW", "2"))
 CODEC_SESSION_CACHE_MAX = max(1, int(os.getenv("CODEC_SESSION_CACHE_MAX", "512")))
-# Compatibility name used by the predeployment runtime.  Keep the stricter of
-# the old and new limits so either deployment knob can only tighten retention.
-CODEC_IN_MEMORY_MAX_SESSIONS = max(
-    1,
-    int(os.getenv("CODEC_IN_MEMORY_MAX_SESSIONS", str(CODEC_SESSION_CACHE_MAX))),
-)
+# The live runtime introduced a second cache limit. Honor both and use the
+# stricter capacity so either deployment knob can only tighten retention.
+CODEC_IN_MEMORY_MAX_SESSIONS = max(1, int(os.getenv("CODEC_IN_MEMORY_MAX_SESSIONS", "128")))
 CODEC_SESSION_TTL_SECONDS = max(1, int(os.getenv("CODEC_SESSION_TTL_SECONDS", "3600")))
 CODEC_SESSION_KEY_MAX_CHARS = max(32, int(os.getenv("CODEC_SESSION_KEY_MAX_CHARS", "256")))
 CODEC_DURABLE_MAX_SESSIONS = max(1, int(os.getenv("CODEC_DURABLE_MAX_SESSIONS", "128")))
-CODEC_STATE_SUMMARY_MAX_CHARS = max(256, int(os.getenv("CODEC_STATE_SUMMARY_MAX_CHARS", "4096")))
-CODEC_STATE_ITEM_MAX_CHARS = max(128, int(os.getenv("CODEC_STATE_ITEM_MAX_CHARS", "4096")))
+CODEC_STATE_TEXT_MAX_CHARS = max(128, int(os.getenv("CODEC_STATE_TEXT_MAX_CHARS", "1200")))
+CODEC_STATE_SUMMARY_MAX_CHARS = max(256, int(os.getenv("CODEC_STATE_SUMMARY_MAX_CHARS", "2400")))
+CODEC_STATE_ITEM_MAX_CHARS = max(
+    128,
+    min(
+        int(os.getenv("CODEC_STATE_ITEM_MAX_CHARS", "4096")),
+        CODEC_STATE_TEXT_MAX_CHARS,
+    ),
+)
 CODEC_STATE_MAX_SERIALIZED_CHARS = max(16_384, int(os.getenv("CODEC_STATE_MAX_SERIALIZED_CHARS", "96000")))
+CODEC_OUTCOME_RECEIPT_MAX = max(
+    1,
+    min(int(os.getenv("CODEC_OUTCOME_RECEIPT_MAX", "256")), 4096),
+)
 
 _CODEC_DERIVED_STATE_KEYS = frozenset({
     "durable_write",
@@ -320,7 +360,6 @@ def _codec_cache_retention_snapshot() -> Dict[str, Any]:
             "durable_max_sessions": max(1, int(CODEC_DURABLE_MAX_SESSIONS)),
         }
 
-
 def _codec_retention_policy() -> Dict[str, Any]:
     return {
         "max_snapshots": max(1, int(CODEC_RETENTION_MAX_SNAPSHOTS)),
@@ -329,8 +368,6 @@ def _codec_retention_policy() -> Dict[str, Any]:
         "dedupe_by_fingerprint": True,
         "selection_order": ["protected", "retention_priority", "generated_at"],
     }
-
-
 
 def _default_rollup_autotune_row() -> Dict[str, Any]:
     return {
@@ -607,12 +644,16 @@ def _clean_text(value: Any) -> str:
     return text
 
 
+def _clean_state_text(value: Any) -> str:
+    return _clean_text(value)[: max(128, int(CODEC_STATE_TEXT_MAX_CHARS))]
+
+
 def _normalize_text_list(value: Any, *, limit: int = 8) -> List[str]:
     items = value if isinstance(value, list) else []
     cleaned: List[str] = []
     seen = set()
     for item in items:
-        text = _clean_text(item)
+        text = _clean_state_text(item)
         if not text:
             continue
         key = text.lower()
@@ -631,10 +672,10 @@ def _normalize_revision_log(value: Any) -> List[Dict[str, Any]]:
             continue
         normalized.append({
             "bucket": _clean_text(item.get("bucket")),
-            "superseded_text": _clean_text(item.get("superseded_text")),
-            "replacement_text": _clean_text(item.get("replacement_text")),
-            "claim_key": _clean_text(item.get("claim_key")),
-            "reason": _clean_text(item.get("reason") or "revision"),
+            "superseded_text": _clean_state_text(item.get("superseded_text")),
+            "replacement_text": _clean_state_text(item.get("replacement_text")),
+            "claim_key": _clean_state_text(item.get("claim_key")),
+            "reason": _clean_state_text(item.get("reason") or "revision"),
             "generated_at": _clean_text(item.get("generated_at")),
         })
     return normalized[-REVISION_LOG_LIMIT:]
@@ -650,6 +691,19 @@ def _coerce_nonnegative_int(value: Any, default: int = 0, *, maximum: int = 2_14
 
 def _bounded_codec_text(value: Any, *, limit: int) -> str:
     return _clean_text(value)[: max(1, int(limit))]
+
+
+def _bounded_codec_receipt_ids(value: Any) -> List[str]:
+    items = value if isinstance(value, list) else []
+    bounded: List[str] = []
+    seen = set()
+    for item in items[-CODEC_OUTCOME_RECEIPT_MAX:]:
+        receipt_id = _bounded_codec_text(item, limit=128)
+        if not receipt_id or receipt_id in seen:
+            continue
+        seen.add(receipt_id)
+        bounded.append(receipt_id)
+    return bounded
 
 
 def _compact_text_bucket(value: Any, *, text_limit: int, item_limit: int = 8) -> tuple[List[str], Dict[str, str]]:
@@ -801,6 +855,9 @@ def _compact_codec_state_with_text_limit(state: Dict[str, Any], *, text_limit: i
         "state_revision": _coerce_nonnegative_int(payload.get("state_revision")),
         "generated_at": generated_at,
         "source_event_count": _coerce_nonnegative_int(payload.get("source_event_count")),
+        "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
+            payload.get("outcome_feedback_receipt_ids")
+        ),
         "source_refs": source_refs,
         "compression": {
             "raw_characters": _coerce_nonnegative_int(compression.get("raw_characters")),
@@ -871,7 +928,14 @@ def _compact_codec_state(state: Dict[str, Any]) -> Dict[str, Any]:
     compact: Dict[str, Any] = {}
     for text_limit in limits:
         compact = _compact_codec_state_with_text_limit(state, text_limit=text_limit)
-        if len(json.dumps(compact, ensure_ascii=False, sort_keys=True)) < CODEC_STATE_MAX_SERIALIZED_CHARS:
+        encoded_size = len(json.dumps(compact, ensure_ascii=False, sort_keys=True))
+        receipts = compact.get("outcome_feedback_receipt_ids", [])
+        while encoded_size >= CODEC_STATE_MAX_SERIALIZED_CHARS and receipts:
+            drop_count = max(1, len(receipts) // 4)
+            receipts = receipts[drop_count:]
+            compact["outcome_feedback_receipt_ids"] = receipts
+            encoded_size = len(json.dumps(compact, ensure_ascii=False, sort_keys=True))
+        if encoded_size < CODEC_STATE_MAX_SERIALIZED_CHARS:
             break
     return compact
 
@@ -895,6 +959,9 @@ def _stable_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
         "version": payload.get("version", CODEC_VERSION),
         "schema_version": payload.get("schema_version", CODEC_SCHEMA_VERSION),
         "state_revision": int(payload.get("state_revision", 0) or 0),
+        "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
+            payload.get("outcome_feedback_receipt_ids")
+        ),
         "identity_state": payload.get("identity_state", {}),
         "project_state": payload.get("project_state", {}),
         "world_state": payload.get("world_state", {}),
@@ -1030,6 +1097,45 @@ def _is_durable_completion_checkpoint(text: str) -> bool:
     )
 
 
+def _looks_like_completed_checkpoint(text: str) -> bool:
+    """Live compatibility name backed by q6's fail-closed evidence gate."""
+
+    return _is_durable_completion_checkpoint(text)
+
+
+def _looks_like_success_outcome(text: str) -> bool:
+    return not _has_incomplete_test_pass_ratio(text) and _contains_affirmed_hint(
+        text,
+        OUTCOME_SUCCESS_HINTS,
+    )
+
+
+def _project_alias_candidates(value: str) -> List[str]:
+    return [label for pattern, label in PROJECT_ALIASES if pattern.search(value or "")]
+
+
+def _project_mention_is_negated(text: str, candidate: str) -> bool:
+    """Reject explicit non-assignment/activity boundaries for a project name."""
+
+    candidate_tokens = re.findall(r"[a-z0-9]+", (candidate or "").lower())
+    if not candidate_tokens:
+        return False
+    candidate_pattern = r"[\s_-]+".join(re.escape(token) for token in candidate_tokens)
+    activity_pattern = "|".join(re.escape(term) for term in _PROJECT_NEGATED_ACTIVITY_TERMS)
+    patterns = (
+        rf"\bno\s+{candidate_pattern}(?:\s+(?:production|live|project))?\s+(?:{activity_pattern})\b",
+        rf"\bwithout\s+{candidate_pattern}(?:\s+(?:production|live|project))?\s+(?:{activity_pattern})\b",
+        rf"\bnot\s+(?:a\s+|an\s+|part\s+of\s+|for\s+|related\s+to\s+){candidate_pattern}\b",
+    )
+    matches = list(
+        re.finditer(rf"\b{candidate_pattern}\b", text or "", flags=re.IGNORECASE)
+    )
+    return any(re.search(pattern, text or "", flags=re.IGNORECASE) for pattern in patterns) or (
+        bool(matches)
+        and all(_match_is_negated(text, match.start(), match.end()) for match in matches)
+    )
+
+
 def _looks_like_question(text: str) -> bool:
     return "?" in text or text.lower().startswith(("what ", "how ", "why ", "when ", "could ", "should "))
 
@@ -1043,6 +1149,10 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _bounded_nonnegative_int(value: Any, *, maximum: int, default: int = 0) -> int:
+    return _coerce_nonnegative_int(value, default, maximum=maximum)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -1146,7 +1256,7 @@ def _base_utility_score(text: str, bucket: str) -> float:
         score += 0.24
     if _contains_any(text, FAILURE_HINTS):
         score += 0.18
-    if _contains_any(text, OUTCOME_SUCCESS_HINTS) or _contains_any(text, OUTCOME_FAILURE_HINTS):
+    if _looks_like_success_outcome(text) or _contains_any(text, OUTCOME_FAILURE_HINTS):
         score += 0.16
     if _looks_like_question(text):
         score += 0.12
@@ -1154,6 +1264,8 @@ def _base_utility_score(text: str, bucket: str) -> float:
         score += 0.12
     if re.search(r"\b(goal|aim|want|ship|implement|create|need to)\b", text.lower()):
         score += 0.1
+    if _looks_like_completed_checkpoint(text):
+        score += 0.22
     return _clamp(score, 0.0, UTILITY_MAX_SCORE)
 
 
@@ -1166,10 +1278,18 @@ def _build_bucket_utility(
     generated_at: str = "",
 ) -> Dict[str, Dict[str, Any]]:
     previous_scores = previous_scores or {}
+    normalized_previous: Dict[str, Dict[str, Any]] = {}
+    for previous_key, previous_value in previous_scores.items():
+        if not isinstance(previous_value, dict):
+            continue
+        bounded = _clean_state_text(previous_value.get("text") or previous_key)
+        if bounded:
+            normalized_previous[bounded.lower()] = previous_value
+
     counts: Counter[str] = Counter()
     originals: Dict[str, str] = {}
     for item in raw_items:
-        cleaned = _clean_text(item)
+        cleaned = _clean_state_text(item)
         if not cleaned:
             continue
         key = cleaned.lower()
@@ -1178,11 +1298,11 @@ def _build_bucket_utility(
 
     out: Dict[str, Dict[str, Any]] = {}
     for item in kept_items or []:
-        cleaned = _clean_text(item)
+        cleaned = _clean_state_text(item)
         if not cleaned:
             continue
         key = cleaned.lower()
-        prior = previous_scores.get(key) if isinstance(previous_scores.get(key), dict) else {}
+        prior = normalized_previous.get(key) if isinstance(normalized_previous.get(key), dict) else {}
         current_seen = int(counts.get(key, 0) or 0)
         prior_evidence = max(0, int(prior.get("evidence_count", 0) or 0))
         evidence_count = max(1, prior_evidence + current_seen)
@@ -1202,6 +1322,33 @@ def _build_bucket_utility(
             "last_seen_at": generated_at if current_seen > 0 else (_clean_text(prior.get("last_seen_at")) or generated_at or _now_iso()),
         }, reference_at=generated_at)
     return out
+
+
+def _normalize_bucket_utility_scores(
+    bucket: str,
+    kept_items: List[str],
+    previous_scores: Optional[Dict[str, Dict[str, Any]]],
+    *,
+    generated_at: str,
+) -> Dict[str, Dict[str, Any]]:
+    previous_scores = previous_scores if isinstance(previous_scores, dict) else {}
+    normalized_previous: Dict[str, Dict[str, Any]] = {}
+    for previous_key, previous_value in previous_scores.items():
+        if not isinstance(previous_value, dict):
+            continue
+        bounded = _clean_state_text(previous_value.get("text") or previous_key)
+        if bounded:
+            normalized_previous[bounded.lower()] = previous_value
+
+    items = [_clean_state_text(item) for item in kept_items or []]
+    items = [item for item in items if item]
+    return _compact_utility_bucket(
+        bucket,
+        items,
+        {item.lower(): item.lower() for item in items},
+        normalized_previous,
+        generated_at=generated_at,
+    )
 
 
 def _utility_summary(bucket_scores: Dict[str, Dict[str, Dict[str, Any]]]) -> Dict[str, Any]:
@@ -1279,7 +1426,7 @@ def _promotion_bonus(bucket: str, text: str, state: Dict[str, Any]) -> float:
     if bucket == "open_loops" and _contains_any(lowered, OPEN_LOOP_HINTS):
         bonus += 0.08
     if bucket == "lessons":
-        if _contains_any(lowered, OUTCOME_SUCCESS_HINTS) or int(outcome_state.get("success_count", 0) or 0) > 0:
+        if _looks_like_success_outcome(lowered) or int(outcome_state.get("success_count", 0) or 0) > 0:
             bonus += PROMOTION_OUTCOME_BONUS
         if _contains_any(lowered, OUTCOME_FAILURE_HINTS):
             bonus += 0.08
@@ -1495,11 +1642,25 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     payload["version"] = CODEC_VERSION
     payload["schema_version"] = CODEC_SCHEMA_VERSION
-    payload["state_revision"] = max(0, int(payload.get("state_revision", 0) or 0))
+    payload["state_revision"] = _bounded_nonnegative_int(
+        payload.get("state_revision"),
+        maximum=10**12,
+    )
+    payload["source_event_count"] = _bounded_nonnegative_int(
+        payload.get("source_event_count"),
+        maximum=10**12,
+    )
+    payload["generated_at"] = _bounded_codec_text(
+        payload.get("generated_at") or _now_iso(),
+        limit=64,
+    )
+    payload["outcome_feedback_receipt_ids"] = _bounded_codec_receipt_ids(
+        payload.get("outcome_feedback_receipt_ids")
+    )
     payload["identity_state"] = {
         "preferences": _normalize_text_list(identity_state.get("preferences", [])),
         "preference_revisions": _normalize_revision_log(identity_state.get("preference_revisions", [])),
-        "preference_revision_count": max(int(identity_state.get("preference_revision_count", 0) or 0), len(_normalize_revision_log(identity_state.get("preference_revisions", [])))),
+        "preference_revision_count": max(_bounded_nonnegative_int(identity_state.get("preference_revision_count"), maximum=10**12), len(_normalize_revision_log(identity_state.get("preference_revisions", [])))),
     }
     payload["project_state"] = {
         "active_projects": _normalize_text_list(project_state.get("active_projects", [])),
@@ -1509,23 +1670,40 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     payload["world_state"] = {
         "durable_facts": _normalize_text_list(world_state.get("durable_facts", [])),
         "fact_revisions": _normalize_revision_log(world_state.get("fact_revisions", [])),
-        "fact_revision_count": max(int(world_state.get("fact_revision_count", 0) or 0), len(_normalize_revision_log(world_state.get("fact_revisions", [])))),
+        "fact_revision_count": max(_bounded_nonnegative_int(world_state.get("fact_revision_count"), maximum=10**12), len(_normalize_revision_log(world_state.get("fact_revisions", [])))),
     }
     payload["failure_state"] = {
         "patterns": _normalize_text_list(failure_state.get("patterns", [])),
         "lessons": _normalize_text_list(failure_state.get("lessons", [])),
         "lesson_revisions": _normalize_revision_log(failure_state.get("lesson_revisions", [])),
-        "lesson_revision_count": max(int(failure_state.get("lesson_revision_count", 0) or 0), len(_normalize_revision_log(failure_state.get("lesson_revisions", [])))),
+        "lesson_revision_count": max(_bounded_nonnegative_int(failure_state.get("lesson_revision_count"), maximum=10**12), len(_normalize_revision_log(failure_state.get("lesson_revisions", [])))),
     }
     payload["outcome_state"] = {
-        "success_count": int(outcome_state.get("success_count", 0) or 0),
-        "failure_count": int(outcome_state.get("failure_count", 0) or 0),
-        "neutral_count": int(outcome_state.get("neutral_count", 0) or 0),
+        "success_count": _bounded_nonnegative_int(outcome_state.get("success_count"), maximum=10**12),
+        "failure_count": _bounded_nonnegative_int(outcome_state.get("failure_count"), maximum=10**12),
+        "neutral_count": _bounded_nonnegative_int(outcome_state.get("neutral_count"), maximum=10**12),
     }
-    bucket_scores = utility_state.get("bucket_scores", {}) if isinstance(utility_state.get("bucket_scores", {}), dict) else {}
-    utility_summary = utility_state.get("summary", {}) if isinstance(utility_state.get("summary", {}), dict) else {}
-    if not utility_summary and bucket_scores:
-        utility_summary = _utility_summary(bucket_scores)
+    previous_bucket_scores = utility_state.get("bucket_scores", {}) if isinstance(utility_state.get("bucket_scores", {}), dict) else {}
+    generated_at = payload["generated_at"]
+    active_bucket_items = {
+        "preferences": payload["identity_state"]["preferences"],
+        "active_projects": payload["project_state"]["active_projects"],
+        "active_goals": payload["project_state"]["active_goals"],
+        "open_loops": payload["project_state"]["open_loops"],
+        "durable_facts": payload["world_state"]["durable_facts"],
+        "patterns": payload["failure_state"]["patterns"],
+        "lessons": payload["failure_state"]["lessons"],
+    }
+    bucket_scores = {
+        bucket: _normalize_bucket_utility_scores(
+            bucket,
+            items,
+            previous_bucket_scores.get(bucket) if isinstance(previous_bucket_scores.get(bucket), dict) else {},
+            generated_at=generated_at,
+        )
+        for bucket, items in active_bucket_items.items()
+    }
+    utility_summary = _utility_summary(bucket_scores)
     payload["source_refs"] = [dict(row) for row in (payload.get("source_refs") or []) if isinstance(row, dict)][:32]
     payload["utility_state"] = {
         "version": _clean_text(utility_state.get("version") or "cortex.codec.utility.v1") or "cortex.codec.utility.v1",
@@ -1573,8 +1751,8 @@ def _boost_utility_bucket(
 
 
 _KNOWN_CODEC_PROJECT_PATTERNS = (
-    ("Learning OS", r"\b(?:cortex[- ]?)?learning[- ]os\b"),
-    ("Website Design", r"\b(?:professional\s+)?(?:website|web)[- ]design(?:\s+learning)?\b"),
+    ("Learning OS", r"\b(?:cortex[\s_-]*)?learning[\s_-]+os\b"),
+    ("Website Design", r"\b(?:professional[\s_-]+)?(?:website|web)[\s_-]+design(?:\s+learning)?\b"),
 )
 
 
@@ -1627,7 +1805,9 @@ def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
     for key in ("project", "topic", "domain"):
         value = metadata.get(key)
         if isinstance(value, str) and value.strip():
-            candidates.append(_canonical_project_candidate(value))
+            canonical = _canonical_project_candidate(value)
+            if not _project_mention_is_negated(text, canonical):
+                candidates.append(canonical)
 
     tags = event.get("tags")
     if isinstance(tags, list):
@@ -1638,25 +1818,47 @@ def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
             lowered = cleaned.lower()
             if lowered in PROJECT_STOPWORDS or lowered in PROJECT_GENERIC_TAGS:
                 continue
-            if (preference_like or feedback_like) and not any(ch in cleaned for ch in "-_"):
+            aliases = [alias for alias in _project_alias_candidates(cleaned) if not _project_mention_is_negated(text, alias)]
+            if aliases:
+                candidates.extend(aliases)
                 continue
-            if any(ch in cleaned for ch in "-_") or cleaned.isupper() or (len(lowered) >= 5 and lowered not in PROJECT_SINGLE_TOKEN_STOPWORDS):
-                candidates.append(cleaned)
+            explicit = re.match(r"^(?:project|repo|repository|workspace)\s*[:=/]\s*(.+)$", cleaned, flags=re.IGNORECASE)
+            if explicit and not _project_mention_is_negated(text, explicit.group(1)):
+                candidates.append(explicit.group(1).strip())
+
+    candidates.extend(alias for alias in _project_alias_candidates(text) if not _project_mention_is_negated(text, alias))
 
     if not preference_like and not feedback_like:
         for match in re.findall(r"\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){0,2})\b", text):
             cleaned = match.strip()
+            parts = cleaned.split()
+            if parts and parts[0].lower() in {"no", "not", "without"}:
+                continue
+            if len(parts) > 1 and parts[0].lower() == "the":
+                cleaned = " ".join(parts[1:])
+                parts = cleaned.split()
             lowered = cleaned.lower()
             if not cleaned or lowered in PROJECT_STOPWORDS or lowered in PROJECT_GENERIC_TAGS:
                 continue
-            parts = cleaned.split()
-            if len(parts) == 1 and (len(lowered) < 5 or lowered in PROJECT_SINGLE_TOKEN_STOPWORDS):
+            if len(parts) == 1 and not re.search(r"[a-z][A-Z]", cleaned):
                 continue
-            candidates.append(cleaned)
+            if len(parts) == 1 and lowered in PROJECT_SINGLE_TOKEN_STOPWORDS:
+                continue
+            if _project_mention_is_negated(text, cleaned):
+                continue
+            aliases = _project_alias_candidates(cleaned)
+            candidates.extend(aliases or [cleaned])
 
-    for match in re.findall(r"\b([a-z0-9]+(?:[-_][a-z0-9]+)+)\b", text.lower()):
-        if match not in PROJECT_STOPWORDS:
-            candidates.append(match)
+    context_nouns = "|".join(re.escape(noun) for noun in PROJECT_CONTEXT_NOUNS)
+    contextual_patterns = (
+        rf"\b(?:{context_nouns})\s+(?:called\s+|named\s+)?[`'\"]?([a-z0-9]+(?:[-_][a-z0-9]+)+)",
+        rf"\b([a-z0-9]+(?:[-_][a-z0-9]+)+)\s+(?:{context_nouns})\b",
+    )
+    for pattern in contextual_patterns:
+        for match in re.findall(pattern, text.lower()):
+            if match not in PROJECT_STOPWORDS and not _project_mention_is_negated(text, match):
+                aliases = _project_alias_candidates(match)
+                candidates.extend(aliases or [match])
 
     deduped: List[str] = []
     seen = set()
@@ -1674,7 +1876,7 @@ def _rank_unique(items: Iterable[str], *, limit: int = 8) -> List[str]:
     counter: Counter[str] = Counter()
     original: Dict[str, str] = {}
     for raw in items:
-        text = _clean_text(raw)
+        text = _clean_state_text(raw)
         if not text:
             continue
         key = text.lower()
@@ -1689,7 +1891,7 @@ def _merge_ranked(existing: Optional[List[str]], new_items: Iterable[str], *, li
     seen = set()
     for bucket in (existing or [], list(new_items)):
         for item in bucket:
-            text = _clean_text(item)
+            text = _clean_state_text(item)
             if not text:
                 continue
             key = text.lower()
@@ -1872,7 +2074,7 @@ def _resolve_bucket_revisions(
     active: List[str] = []
     seen = set()
     for item in existing_items or []:
-        cleaned = _clean_text(item)
+        cleaned = _clean_state_text(item)
         if not cleaned:
             continue
         key = cleaned.lower()
@@ -1882,7 +2084,7 @@ def _resolve_bucket_revisions(
         active.append(cleaned)
 
     for item in new_items or []:
-        cleaned = _clean_text(item)
+        cleaned = _clean_state_text(item)
         if not cleaned:
             continue
         candidate_claim = _claim_signature(cleaned)
@@ -1941,7 +2143,7 @@ def build_codec_state(
 
     for event in events:
         event_text = " | ".join(_iter_text_candidates(event))
-        text = _clean_text(event_text)
+        text = _clean_state_text(event_text)
         if not text:
             continue
         raw_texts.append(text)
@@ -1949,6 +2151,14 @@ def build_codec_state(
         project_candidates.extend(_extract_project_candidates(event, text))
 
         lowered = text.lower()
+        event_tags = {
+            str(tag).strip().lower()
+            for tag in (event.get("tags") if isinstance(event.get("tags"), list) else [])
+            if str(tag).strip()
+        }
+        durable_tagged = bool(
+            event_tags.intersection({"fact", "durable_fact", "recovery", "canary"})
+        )
         completion_checkpoint = _is_durable_completion_checkpoint(text)
         affirmed_success = completion_checkpoint or (
             not _has_incomplete_test_pass_ratio(text)
@@ -1971,7 +2181,7 @@ def build_codec_state(
 
         if re.search(r"\b(goal|aim|want|build|ship|design|implement|create)\b", lowered):
             goals.append(text)
-        if completion_checkpoint or re.search(r"\b(decision|important|note|fact|remember|state)\b", lowered):
+        if durable_tagged or completion_checkpoint or re.search(r"\b(decision|important|note|fact|remember|state)\b", lowered):
             facts.append(text)
 
     projects = _rank_unique(project_candidates, limit=max_items_per_bucket)
@@ -2013,9 +2223,15 @@ def build_codec_state(
     state = {
         "version": CODEC_VERSION,
         "schema_version": CODEC_SCHEMA_VERSION,
-        "state_revision": max(0, int(previous_state.get("state_revision", 0) or 0)),
+        "state_revision": _bounded_nonnegative_int(
+            previous_state.get("state_revision"),
+            maximum=10**12,
+        ),
         "generated_at": generated_at,
         "source_event_count": len(events),
+        "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
+            previous_state.get("outcome_feedback_receipt_ids")
+        ),
         "source_refs": _source_refs_from_events(events),
         "compression": {
             "raw_characters": sum(len(text) for text in raw_texts),
@@ -2078,7 +2294,7 @@ def build_codec_state(
         summary_parts.append("Open loops: " + "; ".join(state["project_state"]["open_loops"][:2]))
     if state["identity_state"]["preferences"]:
         summary_parts.append("Preferences: " + "; ".join(state["identity_state"]["preferences"][:1]))
-    state["summary"] = " | ".join(summary_parts) if summary_parts else "No stable state extracted yet."
+    state["summary"] = (" | ".join(summary_parts) if summary_parts else "No stable state extracted yet.")[: max(256, int(CODEC_STATE_SUMMARY_MAX_CHARS))]
 
     compressed_chars = len(compress_codec_for_prompt(state, max_chars=10000))
     raw_chars = max(1, state["compression"]["raw_characters"])
@@ -2109,7 +2325,7 @@ def apply_codec_outcome_feedback(
         "utility_state": json.loads(json.dumps(state.get("utility_state", {}))) if isinstance(state.get("utility_state", {}), dict) else {},
     }
 
-    text = _clean_text(outcome_event.get("text") or outcome_event.get("summary") or outcome_event.get("message"))
+    text = _clean_state_text(outcome_event.get("text") or outcome_event.get("summary") or outcome_event.get("message"))
     status = str(outcome_event.get("status") or "neutral").lower()
 
     if status == "success":
@@ -2546,7 +2762,23 @@ def _enrich_codec_state_with_rollups(
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    if not session_key or not isinstance(state, dict) or not state or not CODEC_DURABLE_ENABLED:
+    if not session_key or not isinstance(state, dict) or not state:
+        return state
+
+    # Source state is cached and persisted; all projections are rebuilt for
+    # the exact server-derived session key on every read, even in memory-only
+    # mode where no durable rollup fetch will occur.
+    if isinstance(state.get("utility_state"), dict):
+        state["utility_state"]["summary"] = _utility_summary(
+            state["utility_state"].get("bucket_scores", {})
+        )
+    state["promotion_state"] = _build_promotion_state(state)
+    state["schema_state"] = _export_schema_state(state)
+    state["memory_facts"] = build_codec_memory_facts(
+        session_key=session_key,
+        codec_state=state,
+    )
+    if not CODEC_DURABLE_ENABLED:
         return state
 
     # Codec state is principal-session state. Rollups must never incorporate
@@ -2606,6 +2838,10 @@ def _enrich_codec_state_with_rollups(
         state["utility_state"]["summary"] = _utility_summary(state["utility_state"].get("bucket_scores", {}))
     state["promotion_state"] = _build_promotion_state(state)
     state["schema_state"] = _export_schema_state(state)
+    state["memory_facts"] = build_codec_memory_facts(
+        session_key=session_key,
+        codec_state=state,
+    )
     return state
 
 
