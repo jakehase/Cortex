@@ -121,7 +121,7 @@ def main() -> None:
     def check(name: str, ok: bool, details=None):
         checks.append({"name": name, "ok": bool(ok), **({"details": details} if details is not None else {})})
         if not ok:
-            raise RuntimeError(f"canary failed: {name}")
+            raise RuntimeError(f"canary failed: {name}; details={details!r}")
 
     health = request_json(args.base_url, "/health")
     ready = request_json(args.base_url, "/ready")
@@ -142,7 +142,7 @@ def main() -> None:
             "metadata": {"canary": True, "marker_sha256": marker, "fixed_resource": True},
         },
     )
-    check("graph_fixed_resource_write", created.get("success") is True)
+    check("graph_fixed_resource_write", created.get("success") is True, created.get("error"))
     retrieved = request_json(
         args.base_url,
         f"/knowledge/nodes/{urllib.parse.quote(external_id, safe='')}",
