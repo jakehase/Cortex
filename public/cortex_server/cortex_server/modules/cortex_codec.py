@@ -2157,7 +2157,16 @@ def build_codec_state(
             if str(tag).strip()
         }
         durable_tagged = bool(
-            event_tags.intersection({"fact", "durable_fact", "recovery", "canary"})
+            event_tags.intersection(
+                {
+                    "fact",
+                    "durable_fact",
+                    "recovery",
+                    "canary",
+                    "continuity",
+                    "session-continuity",
+                }
+            )
         )
         completion_checkpoint = _is_durable_completion_checkpoint(text)
         affirmed_success = completion_checkpoint or (
