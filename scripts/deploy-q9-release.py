@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 
 LOCK_PATH = Path("/run/cortex-q9-deploy.lock")
 LIVE_ENV = Path("/etc/cortex/cortex.env")
+LIVE_OPENCLAW_CONFIG = Path("/root/.openclaw/openclaw.json")
 LIVE_UNITS = {
     "cortex.service": Path("/etc/systemd/system/cortex.service"),
     "cortex-health-watchdog.service": Path("/etc/systemd/system/cortex-health-watchdog.service"),
@@ -166,6 +167,40 @@ def wait_runtime(environment: dict[str, str], timeout_seconds: int = 120) -> tup
     raise RuntimeError(f"Cortex did not become ready: {last}")
 
 
+def gateway_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "HOME": "/root",
+            "XDG_RUNTIME_DIR": "/run/user/0",
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/0/bus",
+        }
+    )
+    return environment
+
+
+def restart_gateway(timeout_seconds: int = 120) -> None:
+    environment = gateway_environment()
+    run(["/usr/bin/openclaw", "config", "validate"], env=environment, timeout=60)
+    run(["/usr/bin/openclaw", "gateway", "restart"], env=environment, timeout=90)
+    deadline = time.monotonic() + timeout_seconds
+    last = "not attempted"
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["/usr/bin/openclaw", "gateway", "status"],
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        last = result.stdout + result.stderr
+        if result.returncode == 0 and "Connectivity probe: ok" in last:
+            return
+        time.sleep(2)
+    raise RuntimeError(f"OpenClaw gateway did not recover: {last[-1000:]}")
+
+
 def validate_pending_environment(environment: dict[str, str], release_root: Path) -> None:
     required = [
         "CORTEX_WRITE_TOKEN", "CORTEX_ADMIN_TOKEN", "CORTEX_MEMORY_SCOPE_CREDENTIALS",
@@ -209,7 +244,7 @@ def build_preimage(artifact_root: Path, contract: dict) -> dict:
     preimage = artifact_root / "preimage"
     preimage.mkdir(parents=True, exist_ok=False)
     files = []
-    for name, path in {"cortex.env": LIVE_ENV, **LIVE_UNITS}.items():
+    for name, path in {"cortex.env": LIVE_ENV, "openclaw.json": LIVE_OPENCLAW_CONFIG, **LIVE_UNITS}.items():
         safe = name.replace("/", "_")
         files.append(capture_file(path, preimage / "files" / safe))
     current_target = os.readlink(CURRENT_POINTER) if CURRENT_POINTER.is_symlink() else None
@@ -320,6 +355,7 @@ def restore_preimage(artifact_root: Path) -> None:
         wait_runtime(load_env(LIVE_ENV), 120)
     if manifest["watchdogTimerWasActive"]:
         run(["systemctl", "enable", "--now", "cortex-health-watchdog.timer"], timeout=45)
+    restart_gateway()
     atomic_json(
         artifact_root / "rollback.json",
         {
@@ -363,6 +399,7 @@ def activate(contract: dict, artifact_root: Path) -> None:
             output=artifact_root / "graph-migration.log",
         )
         install_file(Path(contract["pendingEnvironment"]), LIVE_ENV, mode=0o600)
+        install_file(Path(contract["pendingOpenclawConfig"]), LIVE_OPENCLAW_CONFIG, mode=0o600)
         install_units(contract, release)
         temporary_pointer = CURRENT_POINTER.with_name(f".{CURRENT_POINTER.name}.{os.getpid()}.tmp")
         if temporary_pointer.exists() or temporary_pointer.is_symlink():
@@ -376,6 +413,7 @@ def activate(contract: dict, artifact_root: Path) -> None:
         run(["systemctl", "enable", "cortex.service"], timeout=30)
         run(["systemctl", "start", "cortex.service"], timeout=120)
         wait_runtime(environment, 120)
+        restart_gateway()
         run(
             [sys.executable, str(release / "scripts/run-q9-canary.py"), "--env-file", str(LIVE_ENV), "--output", environment["CORTEX_CANARY_RECEIPT_PATH"]],
             cwd=release,
