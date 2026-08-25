@@ -136,6 +136,7 @@ def test_system_attestation_separates_functional_and_evidence_truth(tmp_path, mo
     assert payload["status"] == "green"
     assert payload["functionalStatus"] == "green"
     assert payload["attestationStatus"] == "green"
+    assert payload["evidenceAgeStatus"] == "current"
     assert payload["layers"]["capacity"]["legacyUnscoped"]["classification"] == "global_only"
     assert payload["layers"]["sourceIntegrity"]["mismatchCount"] == 0
     assert payload["layers"]["security"]["secretValuesExposed"] is False
@@ -147,8 +148,12 @@ def test_expired_evidence_does_not_masquerade_as_runtime_outage(tmp_path, monkey
         "/system/attestation",
         headers={"x-cortex-admin-token": "admin-token-for-q9-tests-0000000000"},
     ).json()
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "green"
     assert payload["functionalStatus"] == "green"
-    assert payload["attestationStatus"] == "degraded"
-    assert payload["layers"]["evidenceFreshness"]["status"] == "stale"
+    assert payload["attestationStatus"] == "green"
+    assert payload["evidenceAgeStatus"] == "aged"
+    assert payload["layers"]["evidenceFreshness"]["status"] == "green"
+    assert payload["layers"]["evidenceFreshness"]["freshnessStatus"] == "aged"
+    assert payload["layers"]["evidenceFreshness"]["lastVerifiedAt"] is not None
+    assert payload["layers"]["evidenceFreshness"]["stale"] is True
     assert payload["layers"]["capacity"]["status"] == "green"

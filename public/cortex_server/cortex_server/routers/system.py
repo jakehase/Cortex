@@ -130,25 +130,36 @@ def _receipt_layer(environment_name: str, *, maximum_age_seconds: int | None = N
         (payload.get(key) for key in ("verifiedAt", "refreshedAt", "generatedAt", "completedAt") if payload.get(key)),
         None,
     )
+    last_verified_at = None
     age_seconds = None
     stale = False
     if timestamp_value:
         try:
             observed = dt.datetime.fromisoformat(str(timestamp_value).replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                raise ValueError("receipt timestamp must include a timezone")
+            last_verified_at = _iso(observed)
             age_seconds = max(0.0, (_now() - observed.astimezone(dt.timezone.utc)).total_seconds())
             stale = maximum_age_seconds is not None and age_seconds > maximum_age_seconds
         except ValueError:
             status = "red"
-    if stale and status == "green":
-        status = "stale"
+    elif maximum_age_seconds is not None:
+        status = "red"
+    freshness_status = "not_applicable"
+    if maximum_age_seconds is not None:
+        freshness_status = "aged" if stale else "current"
+        if last_verified_at is None:
+            freshness_status = "unknown"
     return {
         "status": status,
         "receiptSchemaVersion": payload.get("schemaVersion"),
         "receiptSha256": _sha256(path),
         "releaseBound": release_bound,
         "releaseId": receipt_release or None,
+        "lastVerifiedAt": last_verified_at,
         "ageSeconds": round(age_seconds, 3) if age_seconds is not None else None,
         "maximumAgeSeconds": maximum_age_seconds,
+        "freshnessStatus": freshness_status,
         "stale": stale,
     }
 
@@ -225,12 +236,21 @@ async def system_attestation(request: Request) -> Dict[str, Any]:
     evidence_required = ("evidenceFreshness", "canaries", "rollbackReadiness", "remotePersistence")
     functional_green = all(layers[name].get("status") == "green" for name in runtime_required)
     evidence_green = all(layers[name].get("status") == "green" for name in evidence_required)
+    timed_evidence = (layers["evidenceFreshness"], layers["canaries"])
+    evidence_age_status = (
+        "red"
+        if not evidence_green
+        else "aged"
+        if any(layer.get("freshnessStatus") == "aged" for layer in timed_evidence)
+        else "current"
+    )
     return {
         "schemaVersion": "cortex.system-attestation.v1",
         "status": "green" if functional_green and evidence_green else "degraded",
         "functionalStatus": "green" if functional_green else "red",
         "attestationStatus": "green" if evidence_green else "degraded",
+        "evidenceAgeStatus": evidence_age_status,
         "layers": layers,
         "generatedAt": _iso(_now()),
-        "truthBoundary": "Functional runtime and evidence freshness are independent. An expired receipt never becomes a runtime outage, and runtime health never substitutes for current attestation evidence.",
+        "truthBoundary": "Functional runtime, receipt validity, and evidence age are independent. A valid aged receipt remains explicit through lastVerifiedAt and evidenceAgeStatus; it does not become a runtime outage or masquerade as current evidence.",
     }
