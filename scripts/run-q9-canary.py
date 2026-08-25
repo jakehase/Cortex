@@ -162,7 +162,11 @@ def main() -> None:
         payload={"query": marker, "top_k": 1},
         expected=403,
     )
-    check("unauthorized_principal_denied", denied.get("error") == "principal is not authorized for the requested scope")
+    check(
+        "unauthorized_principal_denied",
+        denied.get("error") in {"Request not authorized", "principal is not authorized for the requested scope"},
+        denied.get("error"),
+    )
 
     oracle_scope = dict(scope)
     oracle_scope["agent_id"] = "oracle"
