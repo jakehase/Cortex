@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /root/clawd/public/cortex_server
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+cd "$SERVER_ROOT"
 export PYTHONUNBUFFERED=1
 
 # Cortex's Chroma/ONNX native workers allocate from glibc on several threads.

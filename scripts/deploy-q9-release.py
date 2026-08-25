@@ -417,6 +417,27 @@ def activate(contract: dict, artifact_root: Path) -> None:
         run(["systemctl", "enable", "cortex.service"], timeout=30)
         run(["systemctl", "start", "cortex.service"], timeout=120)
         wait_runtime(environment, 120)
+        with sqlite3.connect(f"file:{environment['CORTEX_DB_PATH']}?mode=ro", uri=True, timeout=30) as diagnostic_connection:
+            quota_scope_rows = diagnostic_connection.execute(
+                """
+                SELECT tenant_id, storage_workspace_id, COUNT(*)
+                FROM graph_quota_ledger
+                GROUP BY tenant_id, storage_workspace_id
+                ORDER BY COUNT(*) DESC
+                LIMIT 20
+                """
+            ).fetchall()
+        atomic_json(
+            artifact_root / "quota-pre-canary.json",
+            {
+                "schemaVersion": "cortex.q9.quota-pre-canary.v1",
+                "rows": [
+                    {"tenantId": row[0], "storageWorkspaceId": row[1], "rows": int(row[2])}
+                    for row in quota_scope_rows
+                ],
+                "capturedAt": now(),
+            },
+        )
         restart_gateway()
         run(
             [sys.executable, str(release / "scripts/run-q9-canary.py"), "--env-file", str(LIVE_ENV), "--output", environment["CORTEX_CANARY_RECEIPT_PATH"]],
