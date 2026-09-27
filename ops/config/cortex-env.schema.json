@@ -28,6 +28,7 @@
   "properties": {
     "CORTEX_ENV": {"const": "production"},
     "CORTEX_SAFE_MODE": {"enum": ["true", "1"]},
+    "CORTEX_BROWSER_PUBLIC_READ_ENABLED": {"enum": ["true", "1", "false", "0"]},
     "CORTEX_WRITE_AUTH_MODE": {"const": "token_required"},
     "CORTEX_WRITE_TOKEN": {"type": "string", "minLength": 32},
     "CORTEX_ADMIN_TOKEN": {"type": "string", "minLength": 32},

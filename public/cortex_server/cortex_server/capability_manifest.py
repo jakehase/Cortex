@@ -17,6 +17,7 @@ class RouterCapability:
     safety_class: str
     kind: str = "http"
     production: bool = True
+    safe_mode_routes: tuple[tuple[str, str], ...] = ()
 
 
 def _cap(
@@ -26,6 +27,7 @@ def _cap(
     kind: str = "http",
     safety_class: str,
     production: bool = True,
+    safe_mode_routes: tuple[tuple[str, str], ...] = (),
 ) -> RouterCapability:
     return RouterCapability(
         module=module,
@@ -34,6 +36,7 @@ def _cap(
         kind=kind,
         safety_class=safety_class,
         production=production,
+        safe_mode_routes=safe_mode_routes,
     )
 
 
@@ -47,9 +50,19 @@ def _service(
     return _cap(module, tag, kind=kind, safety_class="service")
 
 
-def _unsafe(module: str, tag: str | None = None) -> RouterCapability:
+def _unsafe(
+    module: str,
+    tag: str | None = None,
+    *,
+    safe_mode_routes: tuple[tuple[str, str], ...] = (),
+) -> RouterCapability:
     """Declare a router that can mutate the host, devices, or external systems."""
-    return _cap(module, tag, safety_class="unsafe_action")
+    return _cap(
+        module,
+        tag,
+        safety_class="unsafe_action",
+        safe_mode_routes=safe_mode_routes,
+    )
 
 
 def _test_only(module: str, tag: str | None = None) -> RouterCapability:
@@ -74,7 +87,15 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("awareness"),
     _service("bard"),
     _service("bridge"),
-    _unsafe("browser", "Browser"),
+    _unsafe(
+        "browser",
+        "Browser",
+        safe_mode_routes=(
+            ("GET", "/status"),
+            ("POST", "/browse"),
+            ("POST", "/search"),
+        ),
+    ),
     _service("catalyst"),
     _service("chronos"),
     _service("command_center", "Command Center"),
@@ -134,9 +155,34 @@ CAPABILITY_BY_MODULE = {row.module: row for row in ROUTER_CAPABILITIES}
 UNSAFE_ACTION_MODULES = frozenset(
     row.module for row in ROUTER_CAPABILITIES if row.safety_class == "unsafe_action"
 )
+SAFE_MODE_ALLOWED_ROUTES = frozenset(
+    (method, f"{row.prefix}{path}")
+    for row in ROUTER_CAPABILITIES
+    for method, path in row.safe_mode_routes
+)
 
 if len(CAPABILITY_BY_MODULE) != len(ROUTER_CAPABILITIES):  # pragma: no cover - import invariant
     raise RuntimeError("duplicate router module in capability manifest")
 
 if any(row.kind not in {"http", "websocket"} for row in ROUTER_CAPABILITIES):  # pragma: no cover
     raise RuntimeError("invalid capability kind in router manifest")
+
+if any(
+    row.safe_mode_routes and row.safety_class != "unsafe_action"
+    for row in ROUTER_CAPABILITIES
+):  # pragma: no cover
+    raise RuntimeError("safe-mode route subsets are valid only for unsafe action routers")
+
+if any(
+    method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    or not path.startswith("/")
+    or path == "/"
+    for row in ROUTER_CAPABILITIES
+    for method, path in row.safe_mode_routes
+):  # pragma: no cover
+    raise RuntimeError("invalid safe-mode route subset entry")
+
+if len(SAFE_MODE_ALLOWED_ROUTES) != sum(
+    len(row.safe_mode_routes) for row in ROUTER_CAPABILITIES
+):  # pragma: no cover
+    raise RuntimeError("duplicate safe-mode route subset entry")

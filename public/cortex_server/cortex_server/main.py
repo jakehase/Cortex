@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
@@ -29,6 +29,7 @@ from starlette.routing import WebSocketRoute
 from cortex_server.capability_manifest import (
     CAPABILITY_BY_MODULE,
     ROUTER_CAPABILITIES,
+    SAFE_MODE_ALLOWED_ROUTES,
     UNSAFE_ACTION_MODULES,
 )
 from cortex_server.models.api_contracts import (
@@ -1532,6 +1533,7 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
 
     report = {
         "loaded": [],
+        "safeModePartial": [],
         "safeModeSkipped": [],
         "disabled": [],
         "failed": [],
@@ -1550,7 +1552,16 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
                 }
             )
             continue
-        if safe_mode and capability.safety_class == "unsafe_action":
+        safe_mode_subset = (
+            capability.safe_mode_routes
+            if safe_mode and capability.safety_class == "unsafe_action"
+            else ()
+        )
+        if (
+            safe_mode
+            and capability.safety_class == "unsafe_action"
+            and not safe_mode_subset
+        ):
             logger.warning("SAFE_MODE: deny-loading unsafe action router '%s'", module_name)
             report["safeModeSkipped"].append(module_name)
             report["disabled"].append(
@@ -1575,9 +1586,37 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
             continue
         router = getattr(module, "router", None)
         if router is not None:
+            router_to_mount = router
+            if safe_mode_subset:
+                declared_routes = set(safe_mode_subset)
+                observed_routes: set[tuple[str, str]] = set()
+                selected_routes = []
+                for route in getattr(router, "routes", ()):
+                    route_path = str(getattr(route, "path", "") or "")
+                    route_keys = {
+                        (str(method).upper(), route_path)
+                        for method in (getattr(route, "methods", None) or ())
+                        if str(method).upper() not in {"HEAD", "OPTIONS"}
+                    }
+                    selected_keys = route_keys & declared_routes
+                    if not selected_keys:
+                        continue
+                    if selected_keys != route_keys:
+                        raise RuntimeError(
+                            f"safe-mode route subset partially selects one route: {module_name} {sorted(route_keys)}"
+                        )
+                    selected_routes.append(route)
+                    observed_routes.update(selected_keys)
+                if observed_routes != declared_routes:
+                    missing = sorted(declared_routes - observed_routes)
+                    unexpected = sorted(observed_routes - declared_routes)
+                    raise RuntimeError(
+                        f"safe-mode route subset mismatch for {module_name}: missing={missing}, unexpected={unexpected}"
+                    )
+                router_to_mount = APIRouter(routes=selected_routes)
             first_new_route = len(app.routes)
             app.include_router(
-                router,
+                router_to_mount,
                 prefix=capability.prefix,
                 tags=[capability.tag],
             )
@@ -1585,12 +1624,24 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
                 if hasattr(route, "tags"):
                     route.tags = [capability.tag]
             report["loaded"].append(module_name)
+            if safe_mode_subset:
+                report["safeModePartial"].append(
+                    {
+                        "router": module_name,
+                        "safetyClass": capability.safety_class,
+                        "routes": [
+                            f"{method} {capability.prefix}{path}"
+                            for method, path in safe_mode_subset
+                        ],
+                    }
+                )
         else:
             report["missingRouter"].append(module_name)
     for key in ("loaded", "safeModeSkipped", "missingRouter"):
         report[key].sort()
     report["failed"].sort(key=lambda row: row["router"])
     report["disabled"].sort(key=lambda row: row["router"])
+    report["safeModePartial"].sort(key=lambda row: row["router"])
     app.state.router_load_report = report
     return report
 
@@ -2285,7 +2336,7 @@ def _create_app(
             if any(
                 p.startswith(f"/{module}/") or p == f"/{module}"
                 for module in UNSAFE_ACTION_MODULES
-            ):
+            ) and (request.method.upper(), p) not in SAFE_MODE_ALLOWED_ROUTES:
                 if not admin_token or request.headers.get("x-cortex-admin-token", "") != admin_token:
                     from fastapi.responses import JSONResponse
                     return JSONResponse(status_code=403, content={"success": False, "error": "admin token required"})
@@ -2688,6 +2739,7 @@ def _create_app(
             "checks": checks,
             "routerLoad": {
                 "loadedCount": len(router_load_report["loaded"]),
+                "safeModePartial": router_load_report.get("safeModePartial", []),
                 "safeModeSkipped": router_load_report["safeModeSkipped"],
                 "disabled": router_load_report.get("disabled", []),
                 "failed": router_load_report["failed"],
@@ -2976,7 +3028,10 @@ def _create_app(
         from fastapi.responses import JSONResponse
 
         readiness = await async_readiness_payload()
-        safe_mode_restricted = bool(readiness.get("routerLoad", {}).get("safeModeSkipped"))
+        safe_mode_restricted = bool(
+            readiness.get("routerLoad", {}).get("safeModeSkipped")
+            or readiness.get("routerLoad", {}).get("safeModePartial")
+        )
         readiness_checks = dict(readiness.get("checks") or {})
         event_ledger_ok = bool(
             (readiness_checks.get("eventLedgerDurability") or {}).get("ok")

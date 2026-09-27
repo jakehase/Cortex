@@ -7,7 +7,7 @@ import base64
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import parse_qs, quote_plus, urlsplit
 from collections import Counter
 import hashlib
 import hmac
@@ -48,6 +48,7 @@ MAX_BROWSER_SCREENSHOT_BYTES = 8_000_000
 MAX_PERSISTED_URL_CHARS = 8_192
 NOTARY_SECRET_ENV = "L2_NOTARY_SECRET"
 MIN_NOTARY_SECRET_BYTES = 32
+BROWSER_PUBLIC_READ_ENV = "CORTEX_BROWSER_PUBLIC_READ_ENABLED"
 _NOTARY_DISALLOWED_CREDENTIAL_ENVS = (
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
@@ -463,6 +464,35 @@ def _browser_policy() -> EgressPolicy:
     return EgressPolicy.from_environment("browser")
 
 
+def _browser_public_read_policy(url: str) -> EgressPolicy:
+    """Bind one authorized public read to its exact caller-selected hostname.
+
+    An explicit server allowlist remains authoritative when configured.  The
+    public-read mode is narrower than a wildcard: it grants only the hostname
+    in this request, then the existing egress broker still rejects credentials,
+    non-HTTP(S) schemes, any non-global DNS answer, unsafe redirects, excess
+    bytes, and timeouts.
+    """
+
+    policy = _browser_policy()
+    if policy.allowed_hosts:
+        return policy
+    if os.getenv(BROWSER_PUBLIC_READ_ENV, "false").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return policy
+    try:
+        hostname = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except (UnicodeError, ValueError) as exc:
+        raise EgressPolicyError("destination hostname is invalid") from exc
+    if not hostname:
+        raise EgressPolicyError("destination hostname is invalid")
+    return EgressPolicy(capability="browser_public_read", allowed_hosts=(hostname,))
+
+
 def _domain_allowed(url: str, allowed_domains: Optional[List[str]]) -> bool:
     """Apply an optional caller constraint after the server policy."""
 
@@ -568,6 +598,7 @@ async def _fetch_browser_document(
         headers={
             "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
             "Accept-Language": "en-US,en;q=0.5",
+            "User-Agent": "Cortex-L2-Public-Read/1.0",
         },
         timeout=15.0,
         max_response_bytes=MAX_BROWSER_DOCUMENT_BYTES,
@@ -585,8 +616,9 @@ async def _fetch_page_text(
     ttl_seconds: int = 600,
     *,
     allowed_domains: Optional[List[str]] = None,
+    public_read: bool = False,
 ) -> Dict[str, Any]:
-    policy = _browser_policy()
+    policy = _browser_public_read_policy(url) if public_read else _browser_policy()
     await _validate_browser_destination(
         url,
         policy=policy,
@@ -608,9 +640,34 @@ async def _fetch_page_text(
     return {"text": text, "cached": False, "navigation": nav_meta}
 
 
-async def _search_startpage(query: str, limit: int = 5) -> Dict[str, Any]:
-    policy = _browser_policy()
-    search_url = f"https://www.startpage.com/sp/search?q={quote_plus(query)}"
+def _public_search_result_url(value: Any) -> Optional[str]:
+    raw = str(value or "").strip()
+    if raw.startswith("//"):
+        raw = f"https:{raw}"
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if hostname in {"duckduckgo.com", "www.duckduckgo.com"} and parsed.path == "/l/":
+        raw = str((parse_qs(parsed.query).get("uddg") or [""])[0]).strip()
+        try:
+            parsed = urlsplit(raw)
+        except ValueError:
+            return None
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return raw
+
+
+async def _search_public_web(query: str, limit: int = 5) -> Dict[str, Any]:
+    search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+    policy = _browser_public_read_policy(search_url)
     html, nav_meta = await _fetch_browser_document(
         search_url,
         policy=policy,
@@ -621,12 +678,16 @@ async def _search_startpage(query: str, limit: int = 5) -> Dict[str, Any]:
     for container in soup.select(".result"):
         if len(results) >= limit:
             break
-        link_el = container.select_one("a.result-title") or container.select_one("h3 a") or container.select_one("a[href^='http']")
+        link_el = (
+            container.select_one("a.result__a")
+            or container.select_one("h2 a")
+            or container.select_one("a[href^='http']")
+        )
         if not link_el:
             continue
         title = link_el.get_text(strip=True)
-        href = link_el.get("href")
-        if title and href and href.startswith("http") and "startpage.com" not in href:
+        href = _public_search_result_url(link_el.get("href"))
+        if title and href:
             results.append({"title": title, "link": href})
 
     return {"results": results, "navigation": nav_meta}
@@ -677,37 +738,60 @@ async def _capture_screenshot(
             await browser.close()
 
 
+_CAPABILITY_ROUTE_REQUIREMENTS = {
+    "web_search": {"/browser/search"},
+    "web_browse": {"/browser/browse"},
+    "screenshot": {"/browser/screenshot"},
+    "temporal_cache_ingest": {"/browser/twin/ingest"},
+    "heuristic_truth_arbitration": {"/browser/truth/arbitrate"},
+    "local_change_radar": {"/browser/radar/watch", "/browser/radar/check"},
+    "evidence_packet_notary": {"/browser/notary/create", "/browser/notary/verify"},
+    "domain_limited_web_action_sandbox": {"/browser/sandbox/run"},
+    "heuristic_counterfactual_simulation": {"/browser/simulate/counterfactual"},
+}
+
+_CAPABILITY_DETAILS = {
+    "web_search": "Pinned HTTP-broker DuckDuckGo HTML retrieval; dependent on upstream page structure and anti-bot behavior.",
+    "web_browse": "Pinned HTTP-broker page fetch plus BeautifulSoup text extraction with short-lived in-memory cache.",
+    "screenshot": "Broker-fetched HTML rendered without JavaScript in Playwright Chromium for screenshot capture.",
+    "temporal_cache_ingest": "Local JSONL snapshots and claim extraction; not a complete web archive.",
+    "heuristic_truth_arbitration": "Token-similarity clustering over provided claims; not an independent fact verifier.",
+    "local_change_radar": "Local watchlist plus repeated fetch/diff; requires scheduled caller to run checks.",
+    "evidence_packet_notary": "Hash/signature packet for fetched evidence; does not prove source truthfulness.",
+    "domain_limited_web_action_sandbox": "Allows search/browse/screenshot actions constrained by caller-supplied domains.",
+    "heuristic_counterfactual_simulation": "Textual assumption comparison using overlap heuristics.",
+}
+
+
 @router.get("/status")
-async def browser_status():
+async def browser_status(request: Request):
+    mounted_paths = {
+        str(getattr(route, "path", "") or "")
+        for route in request.app.routes
+        if str(getattr(route, "path", "") or "").startswith("/browser/")
+    }
+    capabilities = [
+        name
+        for name, required_paths in _CAPABILITY_ROUTE_REQUIREMENTS.items()
+        if required_paths.issubset(mounted_paths)
+    ]
+    restricted_capabilities = [
+        name for name in _CAPABILITY_ROUTE_REQUIREMENTS if name not in capabilities
+    ]
     return {
         "success": True,
         "level": 2,
         "name": "Ghost (Browser)",
         "status": "active",
-        "capabilities": [
-            "web_search",
-            "web_browse",
-            "screenshot",
-            "temporal_cache_ingest",
-            "heuristic_truth_arbitration",
-            "local_change_radar",
-            "evidence_packet_notary",
-            "domain_limited_web_action_sandbox",
-            "heuristic_counterfactual_simulation",
-        ],
+        "mode": "read_only_safe_mode" if restricted_capabilities else "full_router",
+        "capabilities": capabilities,
+        "restricted_capabilities": restricted_capabilities,
+        "mounted_routes": sorted(mounted_paths),
         "capability_details": {
-            "web_search": "Playwright-backed Startpage retrieval; dependent on upstream page structure and anti-bot behavior.",
-            "web_browse": "Playwright page fetch plus BeautifulSoup text extraction with short-lived in-memory cache.",
-            "screenshot": "Playwright Chromium screenshot capture.",
-            "temporal_cache_ingest": "Local JSONL snapshots and claim extraction; not a complete web archive.",
-            "heuristic_truth_arbitration": "Token-similarity clustering over provided claims; not an independent fact verifier.",
-            "local_change_radar": "Local watchlist plus repeated fetch/diff; requires scheduled caller to run checks.",
-            "evidence_packet_notary": "Hash/signature packet for fetched evidence; does not prove source truthfulness.",
-            "domain_limited_web_action_sandbox": "Allows search/browse/screenshot actions constrained by caller-supplied domains.",
-            "heuristic_counterfactual_simulation": "Textual assumption comparison using overlap heuristics.",
+            name: _CAPABILITY_DETAILS[name] for name in capabilities
         },
         "honesty": "Advanced Ghost endpoints are local/heuristic helpers unless the detail explicitly says otherwise.",
-        "engine": "playwright_chromium",
+        "engine": "pinned_http_broker",
     }
 
 
@@ -723,7 +807,11 @@ async def browser_browse(
     ) as ctx:
         try:
             assert_action_authorized(authorization)
-            fetched = await _fetch_page_text(req.url, ttl_seconds=600)
+            fetched = await _fetch_page_text(
+                req.url,
+                ttl_seconds=600,
+                public_read=True,
+            )
             result = fetched["text"]
             ctx.set_result(
                 {
@@ -775,7 +863,7 @@ async def browser_search(
     ) as ctx:
         try:
             assert_action_authorized(authorization)
-            out = await _search_startpage(req.query, limit=5)
+            out = await _search_public_web(req.query, limit=5)
             results = out["results"]
             ctx.set_result({"query": req.query, "results_count": len(results), "navigation": out.get("navigation", {})})
             return results
@@ -1142,7 +1230,7 @@ async def sandbox_run(
                 if not act.query:
                     raise HTTPException(status_code=400, detail="query required for search")
                 assert_action_authorized(authorization)
-                out = await _search_startpage(act.query, limit=5)
+                out = await _search_public_web(act.query, limit=5)
                 result = redact_sensitive_data(out["results"], max_string_chars=1_200)
             elif act.type == "browse":
                 assert_action_authorized(authorization)
