@@ -3,6 +3,7 @@
   "name": "Cortex Browser Bridge",
   "version": "0.1.0",
   "entry": "./index.ts",
+  "contracts": { "tools": ["cortex_browse", "cortex_browser_status"] },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
