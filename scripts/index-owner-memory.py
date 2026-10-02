@@ -2,8 +2,10 @@
 """Refresh an explicit, owner-principal, non-PHI file allowlist.
 
 The receipt is evidence only after both an exact scoped record read and a
-non-degraded scoped semantic search return the newly stored record.  A 200 with
-no matching result, lexical-only recall, a 403, or unfinished work is degraded.
+scoped semantic search return the newly stored exact ID. A bounded low-signal
+hybrid result is accepted only when that exact ID carries a finite positive
+semantic score; sibling-only, lexical-only, unavailable, or unfinished work is
+degraded.
 
 Project PHI is intentionally blocked.  Supporting it requires a separate,
 BAA-approved storage/model route with minimum-necessary retrieval, per-client
@@ -19,6 +21,7 @@ import fcntl
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -946,14 +949,29 @@ def verify_entry(client: Any, entry: DesiredChunk, memory_id: str) -> None:
     mode = str(response.get("search_mode") or response.get("mode") or "").strip().lower()
     if response.get("available") is not True:
         raise BackendError("semantic search did not affirm availability", code="semantic_unavailable")
-    if mode not in SEMANTIC_MODES or response.get("degraded") is not False or response.get("warning") not in (None, ""):
-        raise BackendError("semantic search was degraded or partial", code="semantic_partial")
     match = next((row for row in results if isinstance(row, dict) and row.get("id") == memory_id), None)
     if match is None:
         raise BackendError(
             "semantic search omitted the exact chunk identity",
             code="semantic_exact_chunk_missing",
         )
+    score = match.get("score")
+    exact_low_signal = (
+        mode == "semantic_hybrid"
+        and response.get("degraded") is True
+        and response.get("warning") == "semantic_low_signal"
+        and isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and math.isfinite(float(score))
+        and float(score) > 0.0
+    )
+    fully_semantic = (
+        mode in SEMANTIC_MODES
+        and response.get("degraded") is False
+        and response.get("warning") in (None, "")
+    )
+    if not (fully_semantic or exact_low_signal):
+        raise BackendError("semantic search was degraded or partial", code="semantic_partial")
     metadata = match.get("metadata")
     # Exact readback above already verifies the complete stored text and full
     # source metadata. Semantic search enriches/normalizes metadata with score
