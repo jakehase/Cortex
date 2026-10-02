@@ -915,13 +915,12 @@ def _entry_store_digest(entry: DesiredChunk) -> str:
 
 
 def _semantic_query(entry: DesiredChunk) -> str:
-    # The prefix prevents the exact-contains path from masquerading as semantic
-    # recall while retaining enough source meaning for deterministic retrieval.
+    # Keep the source text dominant in embedding space, then append a bounded
+    # semantic instruction so the exact-contains shortcut cannot masquerade as
+    # vector recall. Exact source/fact filters plus the exact returned ID remain
+    # the acceptance authority.
     compact = " ".join(entry.text.split())[:1200]
-    return (
-        f"Find the current facts from owner source {entry.path}, stable chunk "
-        f"{entry.chunk_id}. Meaning and context: {compact}"
-    )
+    return f"{compact} What durable information does this owner memory convey?"
 
 
 def verify_entry(client: Any, entry: DesiredChunk, memory_id: str) -> None:
