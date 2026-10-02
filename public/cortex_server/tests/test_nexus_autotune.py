@@ -22,9 +22,14 @@ def _client(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_autotune_status_exposed(monkeypatch, tmp_path):
+async def test_autotune_status_exposed(monkeypatch, tmp_path, configured_memory_principal):
     transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-autotune-status")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         r = await client.get("/nexus/autotune/status")
     assert r.status_code == 200, r.text
     body = r.json()
@@ -35,9 +40,18 @@ async def test_autotune_status_exposed(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_orchestrate_returns_autotune_policy(monkeypatch, tmp_path):
+async def test_orchestrate_returns_autotune_policy(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-autotune-policy")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         r = await client.post("/nexus/orchestrate", json={}, params={"query": "Implement bug fix and add unit tests for the API"})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -46,10 +60,15 @@ async def test_orchestrate_returns_autotune_policy(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_complexity_query_auto_l9(monkeypatch, tmp_path):
+async def test_complexity_query_auto_l9(monkeypatch, tmp_path, configured_memory_principal):
     transport = httpx.ASGITransport(app=_client(monkeypatch, tmp_path))
     q = "Optimize a multi-step strategy under budget with 5 constraints and tradeoff analysis versus baseline"
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-autotune-complexity")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         r = await client.post("/nexus/orchestrate", json={}, params={"query": q})
     assert r.status_code == 200
     body = r.json()
@@ -58,7 +77,11 @@ async def test_complexity_query_auto_l9(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path):
+async def test_live_rollout_applies_adaptive_chooser_chain(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     observed = {}
     original_transaction = nexus.ExecutionTransaction
     monkeypatch.setattr(
@@ -133,7 +156,12 @@ async def test_live_rollout_applies_adaptive_chooser_chain(monkeypatch, tmp_path
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-autotune-live-rollout")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         response = await client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
 
     assert response.status_code == 200, response.text

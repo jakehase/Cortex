@@ -18,20 +18,29 @@ def _client():
         track_level(request, 36, "Conductor", always_on=False)
         return {"response": "  hello world  "}
 
+    @app.get("/explicit")
+    async def explicit_success(request: Request):
+        track_level(request, 36, "Conductor", always_on=False)
+        return {"success": False, "response": " unchanged "}
+
     return TestClient(app)
 
 
-def test_contract_normalization_and_success_default():
+def test_contract_normalization_does_not_invent_success():
     c = _client()
     r = c.get("/demo")
     assert r.status_code == 200
     body = r.json()
-    assert body["success"] is True
+    assert "success" not in body
     assert body["response"] == "hello world"
     assert body["response_shape_version"] == "cortex.v1"
     assert body["contract"]["identity_phrase"]
     assert body["contract"]["activation_metadata_available"] is True
     assert body["contract"]["contract_version"] == "cortex.contract.v1"
+
+    explicit = c.get("/explicit").json()
+    assert explicit["success"] is False
+    assert explicit["response"] == "unchanged"
 
 
 def test_observability_metrics_populated():

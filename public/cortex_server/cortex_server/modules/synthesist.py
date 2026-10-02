@@ -1,5 +1,5 @@
 """Level 32: The Synthesist - Knowledge Synthesis & Meta-Insight
-Cross-references all 34 levels, synthesizes holistic understanding, generates novel insights.
+Cross-references the canonical level registry, synthesizes holistic understanding, generates novel insights.
 The apex meta-layer of The Cortex.
 """
 
@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 from collections import defaultdict
 from urllib.request import urlopen
+
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
 class Synthesist:
     """Level 32: The Synthesist - Unified Knowledge & Insight Generation"""
@@ -42,12 +45,7 @@ class Synthesist:
 
         # Fallback if live registry lookup fails.
         self._expected_levels_fallback = {
-            'kernel', 'ghost', 'parser', 'lab', 'oracle', 'bard', 'librarian', 'cron',
-            'architect', 'listener', 'catalyst', 'hive', 'dreamer', 'chronos', 'council',
-            'academy', 'exoskeleton', 'diplomat', 'geneticist', 'simulator', 'sentinel',
-            'mnemosyne', 'cartographer', 'nexus', 'bridge', 'orchestrator', 'forge',
-            'polyglot', 'muse', 'seer', 'mediator', 'synthesist', 'ethicist',
-            'validator', 'singularity', 'conductor', 'awareness', 'augmenter'
+            str(row["slug"]) for row in get_level_registry()
         }
 
         self._level_aliases = {
@@ -64,7 +62,9 @@ class Synthesist:
             "status": "active",
             "insights_generated": self._count_insights(),
             "patterns_discovered": self._count_patterns(),
-            "levels_integrated": 34
+            "levels_integrated": len(get_level_registry()),
+            "registry_version": LEVEL_REGISTRY_VERSION,
+            "registry_source": "cortex_server.modules.level_registry",
         }
     
     def _count_insights(self) -> int:
@@ -137,7 +137,7 @@ class Synthesist:
 
     def _load_live_expected_levels(self) -> Set[str]:
         try:
-            with urlopen('http://127.0.0.1:8888/kernel/levels', timeout=1.5) as r:
+            with urlopen(internal_url("/kernel/levels"), timeout=1.5) as r:
                 payload = json.loads(r.read().decode('utf-8', 'replace'))
             levels = payload.get('levels') or []
             expected = set()

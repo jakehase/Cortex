@@ -5,7 +5,7 @@ import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
-def _client(monkeypatch):
+def _client(monkeypatch, *, headers=None):
     monkeypatch.setattr(
         nexus,
         "analyze_intent_with_oracle",
@@ -15,10 +15,13 @@ def _client(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    return TestClient(app)
+    return TestClient(app, headers=headers)
 
 
-def test_world_grounding_forces_live_path(monkeypatch):
+def test_world_grounding_forces_live_path(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(
         nexus,
         "gather_live_evidence",
@@ -34,7 +37,7 @@ def test_world_grounding_forces_live_path(monkeypatch):
             ],
         },
     )
-    client = _client(monkeypatch)
+    client = _client(monkeypatch, headers=configured_memory_principal().headers)
 
     r = client.post("/nexus/orchestrate", json={}, params={"query": "What is the latest bitcoin price right now?"})
     assert r.status_code == 200
@@ -48,7 +51,7 @@ def test_world_grounding_forces_live_path(monkeypatch):
     assert 34 in levels
 
 
-def test_world_grounding_not_required(monkeypatch):
+def test_world_grounding_not_required(monkeypatch, configured_memory_principal):
     monkeypatch.setattr(
         nexus,
         "gather_live_evidence",
@@ -61,7 +64,7 @@ def test_world_grounding_not_required(monkeypatch):
             "evidence": [],
         },
     )
-    client = _client(monkeypatch)
+    client = _client(monkeypatch, headers=configured_memory_principal().headers)
 
     r = client.post("/nexus/orchestrate", json={}, params={"query": "Explain TCP in one paragraph"})
     assert r.status_code == 200

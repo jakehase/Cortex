@@ -16,7 +16,7 @@ import {
   renderTransferContext,
   selectQualifiedTransferEntries,
 } from './transfer-registry.mjs';
-import { routeMathTransfer } from './transfer.mjs';
+import { routeTransferContracts } from './transfer.mjs';
 
 function asBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
@@ -386,8 +386,8 @@ export default function register(api: any) {
       try { appendTransferTelemetry(transferTelemetryPath, { ...baseRecord, outcome: 'no_match', reasonCodes: [reason] }, transferTelemetryMaxRecords); } catch {}
       return;
     }
-    const route = routeMathTransfer(query, { selectionMode: transferMode, maxSelections: 3 });
-    const evaluated = route.selections;
+    const route = routeTransferContracts(query, { selectionMode: transferMode, maxSelections: 3 });
+    const evaluated = route.evaluations;
     const routeRecord = {
       ...baseRecord,
       applicable: route.applicable,
@@ -428,12 +428,12 @@ export default function register(api: any) {
       transferRegistryKeyId: transferRegistry.signature.keyId,
       evidenceDigests: qualifiedEntries.map((entry: any) => entry.evidenceDigest),
     };
-    if (transferMode === 'shadow') {
-      try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'shadow_selected', reasonCodes: [...route.reasonCodes, 'shadow-zero-answer-influence'] }, transferTelemetryMaxRecords); } catch {}
-      return;
-    }
     if (!qualifiedEntries.length) {
       try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'no_match', reasonCodes: [...route.reasonCodes, 'no-active-qualified-entry'] }, transferTelemetryMaxRecords); } catch {}
+      return;
+    }
+    if (transferMode === 'shadow') {
+      try { appendTransferTelemetry(transferTelemetryPath, { ...registryRecord, outcome: 'shadow_selected', reasonCodes: [...route.reasonCodes, 'shadow-zero-answer-influence'] }, transferTelemetryMaxRecords); } catch {}
       return;
     }
     const context = renderTransferContext(qualifiedEntries, route, { maxChars: transferMaxContextChars });

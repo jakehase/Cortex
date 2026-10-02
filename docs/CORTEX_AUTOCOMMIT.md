@@ -17,6 +17,8 @@ Exported paths
 - `plugins/cortex-route-gate`
 - `plugins/cortex-memory-bridge`
 - `plugins/cortex-browser-bridge`
+- `plugins/cortex-principal-identity.mjs`
+- `plugins/cortex-principal-parity.test.mjs`
 - `scripts/cortex-upgrade-selftest.mjs`
 - `docs/CORTEX_*.md`
 - `docs/cortex_*`

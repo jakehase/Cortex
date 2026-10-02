@@ -16,8 +16,6 @@ from typing import Any
 
 from cortex_server.middleware.write_authorization import (
     MUTATING_METHODS,
-    is_trusted_browser_context,
-    is_trusted_direct_loopback,
     token_matches,
 )
 
@@ -149,14 +147,6 @@ class RequestBodyLimitMiddleware:
         ):
             return True
         headers = self._headers(scope)
-        client = scope.get("client") or ("", 0)
-        client_host = str(client[0] if isinstance(client, (tuple, list)) and client else "")
-        if (
-            self.write_auth_mode == "token_or_loopback"
-            and is_trusted_direct_loopback(client_host, headers)
-            and is_trusted_browser_context(headers, self.allowed_origins)
-        ):
-            return True
         return token_matches(headers.get(self.write_token_header, ""), self.write_token)
 
     def _uses_unauthenticated_partition(self, scope: dict[str, Any]) -> bool:

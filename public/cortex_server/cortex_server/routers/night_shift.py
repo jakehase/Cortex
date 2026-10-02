@@ -10,8 +10,13 @@ from pathlib import Path
 import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    assert_action_authorized,
+    require_action_capability_unless_dry_run,
+)
 
 router = APIRouter()
 
@@ -100,29 +105,36 @@ async def night_shift_status():
 
 
 @router.post("/trigger", response_model=TriggerResponse)
-async def trigger_night_shift(request: Optional[TriggerRequest] = None):
+async def trigger_night_shift(
+    request: Optional[TriggerRequest] = None,
+    authorization: ActionAuthorization = Depends(
+        require_action_capability_unless_dry_run
+    ),
+):
     """Manually trigger the night shift evolution cycle.
 
     Use ``dry_run=true`` to validate without executing side-effects.
     """
-    chronos = _get_chronos()
     req = request or TriggerRequest()
 
     if req.dry_run:
+        assert_action_authorized(authorization, allow_dry_run=True)
         return TriggerResponse(
             triggered=False,
             message="Dry-run: night shift would execute but was not started.",
             timestamp=datetime.now().isoformat(),
         )
 
-    try:
-        import asyncio
-        # run_night_shift is an async method on Chronos
-        asyncio.ensure_future(chronos.run_night_shift())
-        return TriggerResponse(
-            triggered=True,
-            message="Night shift cycle triggered. Check /status or changelog for progress.",
-            timestamp=datetime.now().isoformat(),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to trigger night shift: {exc}")
+    assert_action_authorized(authorization)
+    # An HTTP receipt expires within two minutes and cannot safely escape into
+    # an unbounded background coroutine.  Automatic Chronos runs use a
+    # separately persisted and sink-time-consumed delegated capability; the
+    # manual asynchronous compatibility path remains closed until it can mint
+    # and persist that same proof.
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "manual night shift execution is disabled until background work "
+            "consumes a delegated action capability"
+        ),
+    )

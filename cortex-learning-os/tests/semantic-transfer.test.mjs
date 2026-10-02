@@ -1,16 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson } from '../../plugins/cortex-learning-os-live/registry.mjs';
 import {
+  atomicWriteSignedTransferRegistry,
   emptyTransferRegistry,
+  initializeTransferRegistry,
+  loadSignedTransferRegistry,
+  readTransferRegistrySecret,
+  selectQualifiedTransferEntries,
   signTransferRegistry,
+  validateTransferEntry,
   verifyTransferRegistry,
 } from '../../plugins/cortex-learning-os-live/transfer-registry.mjs';
-import { routeCodingTransfer } from '../../plugins/cortex-learning-os-live/transfer.mjs';
+import { routeCodingTransfer, routeMathTransfer, TRANSFER_CATALOG_METADATA, validateTransferCatalog } from '../../plugins/cortex-learning-os-live/transfer.mjs';
+import { buildOperatorEntries, installOperatorEntries } from '../src/install-applied-math-direct.mjs';
 import { readJson } from '../src/json.mjs';
 import { sha256Text } from '../src/hash.mjs';
 import { CLOS_ROOT } from '../src/paths.mjs';
@@ -29,6 +38,38 @@ const secret = 'transfer-test-secret-that-is-at-least-thirty-two-bytes';
 const graph = readJson(path.join(CLOS_ROOT, 'capsules/math-foundations/curriculum.graph.json'));
 const policy = readJson(path.join(CLOS_ROOT, 'policies/coding-transfer-v0.9.json'));
 const profiles = loadAllTransferProfiles({ graph });
+
+function qualifiedTransferEntry({ profileId, matcherId, conceptIds }) {
+  return {
+    schemaVersion: 'cortex.learning_os.live_transfer_entry.v1',
+    entryId: `qualified-${matcherId}`,
+    profileId,
+    profileVersion: '1.0.0',
+    conceptIds,
+    matcherId,
+    enabled: true,
+    qualificationState: 'qualified',
+    activationBasis: 'independent_qualification',
+    qualificationRunId: `run-${matcherId}`,
+    artifactManifestDigest: '1'.repeat(64),
+    evidenceDigest: '2'.repeat(64),
+    profileDigest: '3'.repeat(64),
+    qualifiedAt: '2026-08-22T00:00:00.000Z',
+    expiresAt: '2027-08-22T00:00:00.000Z',
+    allowedAgentIds: ['main'],
+    context: {
+      applicabilityReason: 'Exact independently qualified legacy contract.',
+      assumptions: [{ code: 'bounded-input', description: 'The declared matcher assumptions hold.' }],
+      contraindications: ['Reject when the exact matcher assumptions do not hold.'],
+      computationalFormulation: 'Use the exact bounded legacy formulation.',
+      implementationPatterns: ['Preserve exact arithmetic and explicit invariants.'],
+      verificationOracle: 'Replay the deterministic legacy oracle.',
+      complexityRisk: 'Input size remains explicitly bounded.',
+      numericalRisk: 'Do not convert exact values to floating point.',
+      truthBoundary: 'This entry proves only its independently qualified legacy contract.',
+    },
+  };
+}
 
 function attemptFor(plan, task, arm, result, index) {
   const payload = {
@@ -148,6 +189,225 @@ test('semantic router requires software context and rejects factoring homonyms a
     assert.ok(route.evaluations[0].negativeGateCodes.length > 0);
   }
   assert.equal(routeCodingTransfer('Implement exact univariate polynomial expansion with integer coefficients and verify integer roots evaluate to zero.', { allowedProfileIds: ['algebra-factoring'] }).applicable, true);
+});
+
+test('full-spectrum routing rejects ambiguous pure-math software vocabulary', () => {
+  for (const query of [
+    'Explain an algorithm for algebra-factoring for a class of univariate polynomials.',
+    'Study the function number-fractions in a mathematics class.',
+    'Give a solver method for a convex optimization theorem.',
+    'Derive the waiting time distribution for a queue with a given arrival rate and service rate.',
+    'Study a mathematical program in convex optimization.',
+    'Describe a module over a ring and prove its universal property.',
+    'Compare a library of functions in a functional-analysis text.',
+  ]) {
+    const route = routeMathTransfer(query);
+    assert.equal(route.codingContext, false);
+    assert.equal(route.applicable, false);
+    assert.equal(route.answerInfluence, false);
+    if (route.evaluations.length) {
+      assert.ok(route.reasonCodes.includes('software-context-required'));
+    } else {
+      assert.ok(!route.reasonCodes.includes('full-spectrum-concept-selected'));
+    }
+  }
+});
+
+test('full-spectrum routing recognizes delimited C++ as software context', () => {
+  const route = routeMathTransfer('Use C++ for exact number-fractions arithmetic.');
+  assert.equal(route.codingContext, true);
+});
+
+test('legacy and full-spectrum matcher contracts remain explicitly versioned rather than aliased', () => {
+  const legacy = routeCodingTransfer('Implement overflow-safe arbitrary-precision integer multiplication with BigInt and return the exact product.');
+  assert.equal(legacy.schemaVersion, 'cortex.learning_os.transfer_route.v1');
+  assert.equal(legacy.selections[0].profileId, 'exact-multiplication');
+  assert.equal(legacy.selections[0].matcherId, 'code-exact-integer-multiplication-v1');
+});
+
+test('transfer catalog binds derived routing metadata to a versioned rubric and derivation policy', () => {
+  const catalog = readJson(path.join(CLOS_ROOT, '../plugins/cortex-learning-os-live/phd-math-transfer-catalog.v1.json'));
+  const rubricPath = path.join(CLOS_ROOT, 'capsules/math-foundations/phd-competency-rubric.v1.json');
+  const rubric = readJson(rubricPath);
+  const mappings = new Map(rubric.conceptMappings.map((row) => [row.conceptId, row]));
+  assert.equal(validateTransferCatalog(catalog).ok, true);
+  assert.equal(TRANSFER_CATALOG_METADATA.source.routingMetadataSource.rubricVersion, rubric.version);
+  assert.equal(
+    TRANSFER_CATALOG_METADATA.source.routingMetadataSource.sha256,
+    crypto.createHash('sha256').update(fs.readFileSync(rubricPath)).digest('hex'),
+  );
+  for (const concept of catalog.concepts) {
+    const mapping = mappings.get(concept.conceptId);
+    assert.deepEqual({
+      stage: concept.stage,
+      tracks: concept.tracks,
+      requiredForQualification: concept.requiredForQualification,
+    }, {
+      stage: mapping.stage,
+      tracks: mapping.tracks,
+      requiredForQualification: mapping.requiredForQualification,
+    });
+  }
+  const tampered = structuredClone(catalog);
+  tampered.source.derivation.generatorVersion = 'unreviewed';
+  assert.equal(validateTransferCatalog(tampered).ok, false);
+});
+
+test('operator proposals are disabled and carry no synthetic qualification evidence', () => {
+  const proposals = buildOperatorEntries({
+    now: '2026-08-22T00:00:00.000Z',
+    allowedAgentIds: ['main'],
+  });
+  assert.equal(proposals.length, 264);
+  for (const proposal of proposals) {
+    assert.equal(proposal.enabled, false);
+    assert.equal(proposal.artifactManifestDigest, null);
+    assert.equal(proposal.evidenceDigest, null);
+    assert.equal(proposal.profileDigest, null);
+    assert.equal(validateTransferEntry(proposal).ok, true);
+  }
+});
+
+test('operator migration preserves coexisting versioned legacy transfer contracts', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-transfer-migration-'));
+  const registryPath = path.join(root, 'transfer-registry.json');
+  const secretPath = path.join(root, 'transfer-registry.hmac');
+  try {
+    const initialized = initializeTransferRegistry({
+      registryPath,
+      secretPath,
+      now: '2026-08-22T00:00:00.000Z',
+    });
+    const legacyEntries = [
+      qualifiedTransferEntry({
+        profileId: 'exact-multiplication',
+        matcherId: 'code-exact-integer-multiplication-v1',
+        conceptIds: ['number-fractions'],
+      }),
+      qualifiedTransferEntry({
+        profileId: 'algebra-factoring',
+        matcherId: 'code-polynomial-factoring-v1',
+        conceptIds: ['algebra-factoring'],
+      }),
+    ];
+    atomicWriteSignedTransferRegistry(registryPath, {
+      ...initialized.registry,
+      revision: 1,
+      updatedAt: '2026-08-22T00:00:00.000Z',
+      entries: legacyEntries,
+    }, initialized.secret);
+
+    const migration = installOperatorEntries({
+      registryPath,
+      secretPath,
+      agentId: 'main',
+      now: '2026-08-23T00:00:00.000Z',
+    });
+    const secret = readTransferRegistrySecret(secretPath);
+    const registry = loadSignedTransferRegistry(registryPath, secret, {
+      allowExpiredEntries: true,
+    });
+
+    assert.equal(verifyTransferRegistry(registry, secret).ok, true);
+    assert.equal(migration.preservedIndependentProfileCount, 2);
+    assert.equal(migration.installedProposalProductionEligibleCount, 0);
+    assert.equal(migration.preservedEnabledIndependentCount, 2);
+    assert.equal(registry.entries.length, 266);
+    assert.equal(
+      registry.entries.filter((entry) => entry.profileId === 'algebra-factoring').length,
+      2,
+    );
+    const selectionOptions = {
+      agentId: 'main',
+      now: Date.parse('2026-08-23T00:00:00.000Z'),
+    };
+    const exact = selectQualifiedTransferEntries(
+      registry,
+      routeCodingTransfer('Implement overflow-safe arbitrary-precision integer multiplication with BigInt and return the exact product.'),
+      selectionOptions,
+    );
+    const factoring = selectQualifiedTransferEntries(
+      registry,
+      routeCodingTransfer('Implement exact univariate polynomial expansion with integer coefficients and verify integer roots evaluate to zero.', { allowedProfileIds: ['algebra-factoring'] }),
+      selectionOptions,
+    );
+    assert.equal(exact[0]?.matcherId, 'code-exact-integer-multiplication-v1');
+    assert.equal(factoring[0]?.matcherId, 'code-polynomial-factoring-v1');
+
+    const disabledLegacy = registry.entries.map((entry) => (
+      entry.profileId === 'algebra-factoring'
+        && entry.matcherId === 'code-polynomial-factoring-v1'
+        ? { ...entry, enabled: false }
+        : entry
+    ));
+    atomicWriteSignedTransferRegistry(registryPath, {
+      ...registry,
+      revision: registry.revision + 1,
+      updatedAt: '2026-08-23T00:01:00.000Z',
+      entries: disabledLegacy,
+    }, secret);
+    const enable = spawnSync(process.execPath, [
+      path.join(CLOS_ROOT, 'src/transfer-control.mjs'),
+      'enable',
+      '--profile', 'algebra-factoring',
+      '--state-root', root,
+    ], {
+      cwd: CLOS_ROOT,
+      env: { ...process.env, HOME: root, OPENCLAW_STATE_DIR: root },
+      encoding: 'utf8',
+    });
+    assert.equal(enable.status, 0, enable.stderr);
+    const afterEnable = loadSignedTransferRegistry(registryPath, secret, {
+      allowExpiredEntries: true,
+    });
+    assert.equal(afterEnable.entries.find((entry) => (
+      entry.profileId === 'algebra-factoring'
+        && entry.matcherId === 'code-polynomial-factoring-v1'
+    ))?.enabled, true);
+    assert.equal(afterEnable.entries.find((entry) => (
+      entry.profileId === 'algebra-factoring'
+        && entry.matcherId === 'phd-math-algebra-factoring-v1'
+    ))?.enabled, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('operator migration preserves the signed registry kill switch', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'clos-transfer-kill-switch-'));
+  const registryPath = path.join(root, 'transfer-registry.json');
+  const secretPath = path.join(root, 'transfer-registry.hmac');
+  try {
+    const initialized = initializeTransferRegistry({
+      registryPath,
+      secretPath,
+      now: '2026-08-22T00:00:00.000Z',
+    });
+    atomicWriteSignedTransferRegistry(registryPath, {
+      ...initialized.registry,
+      revision: 1,
+      updatedAt: '2026-08-22T00:01:00.000Z',
+      enabled: false,
+    }, initialized.secret);
+
+    installOperatorEntries({
+      registryPath,
+      secretPath,
+      agentId: 'main',
+      now: '2026-08-23T00:00:00.000Z',
+    });
+    const registry = loadSignedTransferRegistry(
+      registryPath,
+      readTransferRegistrySecret(secretPath),
+      { allowExpiredEntries: true },
+    );
+
+    assert.equal(registry.enabled, false);
+    assert.equal(registry.entries.length, 264);
+    assert.equal(registry.entries.every((entry) => entry.enabled === false), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('polynomial oracle binds exactly two monic factors to exactly two verified roots', () => {

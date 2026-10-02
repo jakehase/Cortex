@@ -75,7 +75,7 @@ The approved provider surface is deliberately narrow:
 - compilation embeds a tenant/workspace-bound grant and policy digest in the emitted job;
 - runtime rejects missing capabilities, unknown providers, policy-digest drift, forged grants, scope mismatch, unallowlisted arguments/models/response modes, redirects, non-POST transport, invalid origins, oversized requests/responses, and non-2xx responses;
 - complete provider responses are written only to `provider-results/<processId>/<ordinal>-<operation>.json` inside the selected artifact root;
-- result receipts record `outputBoundary: internal-artifact-only` and `externalWrites: false`.
+- result receipts report `externalWrites: true` and `externalTransportEffect: network-post` for every provider POST, while `resultStorageExternalWrites: false` records that returned data stays in internal artifacts; remote side effects remain `not_observable`.
 
 Example:
 
@@ -167,11 +167,11 @@ The compiler permits only the exact frozen runtime operation list above. It bloc
 - all other external capabilities and runtime adapters;
 - provider access without an exact declared capability and active policy grant;
 - provider write/send/post/email/schedule/publish/deploy operations;
-- arbitrary provider origins, paths, methods, models, and redirects;
+- any provider policy whose normalized digest is not pinned as a reviewed kernel policy, plus origin escapes, insecure non-loopback HTTP, non-POST methods, ungranted paths/providers, unallowlisted models, and redirects;
 - jobs without a capability, verifier contract, or truth boundary;
 - compiler output that is not export-ready.
 
-This path does not replace Cortex/OpenClaw routing, expose user-visible or external writes, deploy software, replace the runtime, or promote benchmark output. Any such expansion requires separate explicit approval, implementation, and artifact-backed promotion.
+This path does not replace Cortex/OpenClaw routing, publish provider results to users, deploy software, replace the runtime, or promote benchmark output. Provider read/compute does perform externally visible network POST writes; result storage remains internal and remote side effects are not observable. Any expansion requires separate explicit approval, implementation, and artifact-backed promotion.
 
 ## Adoption gate
 

@@ -6,6 +6,10 @@ Real self-improvement analysis powered by L5 Oracle (cloud reasoning).
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from cortex_server.models.api_contracts import (
+    AcceptedJobResponse,
+    SingularityAnalysisResponse,
+)
 from typing import Optional, Dict, Any, List
 import asyncio
 import ast
@@ -16,6 +20,7 @@ import re
 import time
 import uuid
 
+from cortex_server.internal_addressing import internal_url
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
     conscious_action,
@@ -25,7 +30,7 @@ from cortex_server.modules.unified_messaging import get_bus
 
 router = APIRouter(tags=["Singularity"])
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 ORACLE_TIMEOUT_SYNC = 20.0
 ORACLE_TIMEOUT_ASYNC = 75.0
 SINGULARITY_GUARD_TIMEOUT_SYNC = 22.0
@@ -767,7 +772,11 @@ async def _run_async_analyze_job(job_id: str, code: str, source_label: str, scop
 
 
 # ── Routes ──────────────────────────────────────────────────────────
-@router.post("/analyze")
+@router.post(
+    "/analyze",
+    response_model=SingularityAnalysisResponse,
+    responses={202: {"model": AcceptedJobResponse, "description": "Analysis accepted"}},
+)
 async def analyze_code(request: AnalyzeRequest, http_request: Request):
     """Analyze code (string or file path) for improvements via Oracle.
 

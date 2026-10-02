@@ -102,6 +102,14 @@ def _configured_production_app(monkeypatch, tmp_path):
     monkeypatch.setenv("CORTEX_WRITE_AUTH_MODE", "token_required")
     monkeypatch.setenv("CORTEX_WRITE_TOKEN", WRITE_SECRET)
     monkeypatch.setenv("CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", RELEASE_ARTIFACT_SECRET)
+    monkeypatch.setenv(
+        "CORTEX_ACTION_DELEGATION_SECRET",
+        "read-test-delegation-secret-00000000000001",
+    )
+    monkeypatch.setenv(
+        "L2_NOTARY_SECRET",
+        "read-test-notary-secret-00000000000000001",
+    )
     monkeypatch.setenv("CORTEX_MEMORY_SCOPE_CREDENTIALS", _credential_registry())
     monkeypatch.setenv("CORTEX_ADMIN_TOKEN", ADMIN_SECRET)
     monkeypatch.setenv("CORTEX_CODEC_ADMIN_TOKEN", "codec-admin-secret-0000000000000001")
@@ -235,9 +243,10 @@ async def test_kernel_telemetry_requires_authentication_and_is_operationally_red
 @pytest.mark.asyncio
 async def test_codec_admin_read_credential_is_confined_to_codec_routes(monkeypatch):
     app = _configured_app(monkeypatch)
-    codec_headers = {
+    codec_admin_headers = {
         "x-cortex-codec-admin-token": "codec-admin-secret-0000000000000001",
     }
+    codec_headers = {**_principal_headers(ALICE_SCOPE), **codec_admin_headers}
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -246,7 +255,7 @@ async def test_codec_admin_read_credential_is_confined_to_codec_routes(monkeypat
 
         unrelated_admin_read = await client.get(
             "/nexus/kernel/telemetry",
-            headers=codec_headers,
+            headers=codec_admin_headers,
         )
         assert unrelated_admin_read.status_code == 403
 
@@ -750,6 +759,10 @@ def test_runtime_ownership_snapshot_reads_only_admitted_process_identity(monkeyp
 
 @pytest.mark.asyncio
 async def test_read_route_inventory_is_explicit_and_guards_aliases_and_state(monkeypatch):
+    # This inventory intentionally exercises read surfaces on action-capable
+    # routers. Safe mode correctly omits those routers by default, so opt into
+    # their registration without weakening the application's default.
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "false")
     app = _configured_app(monkeypatch)
     declared = {}
     for route in main._effective_routes(app.routes):
@@ -764,6 +777,7 @@ async def test_read_route_inventory_is_explicit_and_guards_aliases_and_state(mon
 
     assert declared["/conductor/runtime/processes"] == "runtime_collection"
     assert declared["/conductor/runtime/process/{process_id}"] == "runtime_resource"
+    assert declared["/browser/status"] == "public_redacted"
     assert declared["/orchestrator/runtime-delivery/readiness"] == "public_redacted"
     assert declared["/conductor/runtime-delivery/readiness"] == "public_redacted"
     for path in (

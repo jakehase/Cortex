@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { compileCanonicalAiosSource } from '../packages/aios-language/canonical.mjs';
@@ -13,6 +13,7 @@ import {
   providerOperationFromSyscall,
   providerPolicyDigest,
 } from '../packages/aios-language/runtime/provider-read-compute.mjs';
+import { validateBoundVerifierEvidence } from '../packages/aios-language/runtime/claim-evidence.mjs';
 
 const command = process.argv[2] || 'help';
 const known = ['help', 'compile', 'boot', 'run', 'claim', 'ps', 'logs', 'approve'];
@@ -57,7 +58,7 @@ const usage = {
   compile: 'aios compile <source.aios> --artifact-root <path> [--workspace <id>] [--tenant <id>] [--role <role>] [--provider-policy <path>]',
   boot: 'aios boot --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--kernel-contracts <path>] [--hosted-boot-module <path>] [--lifecycle enabled|disabled] [--scheduler immediate|hold] [--approvals required|optional]',
   run: 'aios run <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--provider-policy <path>]',
-  claim: 'aios claim <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>]',
+  claim: 'aios claim <job.json> --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--handoff-uri <uri>] [--provider-policy <path>]',
   ps: 'aios ps --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--state <state>] [--strict-health]',
   logs: 'aios logs --artifact-root <path> [--tenant <id>] [--role <role>] [--provider <id>] [--process <processId>]',
   approve: 'aios approve --artifact-root <path> --subject <id> [--tenant <id>] [--role <role>] [--provider <id>] [--decision approve|reject] [--reason <text>] [--handoff-uri <uri>]',
@@ -178,14 +179,43 @@ const stableJson = (value) => {
 
 const sha256 = (value) => createHash('sha256').update(typeof value === 'string' ? value : stableJson(value)).digest('hex');
 
+const isPathInside = (parent, candidate) => {
+  const child = relative(parent, candidate);
+  return child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child));
+};
+
+const nearestExistingAncestor = (candidate) => {
+  let current = candidate;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return current;
+};
+
 const resolveInsideWorkspace = (input, label) => {
   if (!input || typeof input !== 'string') {
     fail(2, 'aios_cli_missing_required_flag', { flag: label });
   }
   const resolved = resolve(process.cwd(), input);
-  const relative = resolved.startsWith(repoRoot + '/') || resolved === repoRoot;
-  const absoluteAllowed = isAbsolute(input) && (resolved.startsWith(repoRoot + '/') || resolved.startsWith('/tmp/'));
-  if (!relative && !absoluteAllowed) {
+  const temporaryRoot = resolve('/tmp');
+  const lexicalRoot = isPathInside(repoRoot, resolved)
+    ? repoRoot
+    : isAbsolute(input) && isPathInside(temporaryRoot, resolved)
+      ? temporaryRoot
+      : null;
+  let canonicalInside = false;
+  if (lexicalRoot) {
+    try {
+      const canonicalRoot = realpathSync(lexicalRoot);
+      const canonicalAncestor = realpathSync(nearestExistingAncestor(resolved));
+      canonicalInside = isPathInside(canonicalRoot, canonicalAncestor);
+    } catch {
+      canonicalInside = false;
+    }
+  }
+  if (!lexicalRoot || !canonicalInside) {
     fail(2, 'aios_cli_path_outside_workspace', { flag: label, value: input });
   }
   return resolved;
@@ -1985,7 +2015,9 @@ const run = async (operatorRequest) => {
         digest: providerPolicyState.digest,
         mode: providerPolicyState.policy.mode,
         outputBoundary: providerPolicyState.policy.outputBoundary,
-        externalWrites: false,
+        externalWrites: providerPolicyState.policy.externalWrites,
+        externalTransportEffect: providerPolicyState.policy.externalTransportEffect,
+        resultStorageExternalWrites: providerPolicyState.policy.resultStorageExternalWrites,
       },
       restartSafety: {
         idempotent: true,
@@ -2085,7 +2117,9 @@ const run = async (operatorRequest) => {
       digest: providerPolicyState.digest,
       mode: providerPolicyState.policy.mode,
       outputBoundary: providerPolicyState.policy.outputBoundary,
-      externalWrites: false,
+      externalWrites: providerPolicyState.policy.externalWrites,
+      externalTransportEffect: providerPolicyState.policy.externalTransportEffect,
+      resultStorageExternalWrites: providerPolicyState.policy.resultStorageExternalWrites,
     },
     lifecycle,
     syscallResults,
@@ -2163,6 +2197,7 @@ const claim = async (operatorRequest) => {
     descriptor,
     mode: 'require',
   });
+  const providerPolicyState = await loadProviderPolicy(flags);
   const requestState = withOperatorRequestState(operatorRequest, {
     artifactRoot,
     tenantBoundary,
@@ -2177,6 +2212,10 @@ const claim = async (operatorRequest) => {
         providerId: providerContract.providerId,
         negotiatedCapabilities: providerContract.negotiatedCapabilities,
         externalHandoff: providerContract.externalHandoff.state,
+      },
+      providerPolicy: {
+        path: providerPolicyState.path,
+        digest: providerPolicyState.digest,
       },
     },
   });
@@ -2208,9 +2247,22 @@ const claim = async (operatorRequest) => {
     'verifier-result.json',
   ], 'verifier_evidence');
 
-  requireGreenArtifact(bootProof, 'boot_proof');
-  requireGreenArtifact(runProof, 'run_proof');
-  requireVerifierEvidence(verifierEvidence);
+  const verifierValidation = validateBoundVerifierEvidence({
+    artifactRoot,
+    job,
+    bootProof: bootProof.payload,
+    runProof: runProof.payload,
+    verifierEvidence: verifierEvidence.payload,
+    providerPolicy: providerPolicyState.policy,
+    tenantBoundary,
+  });
+  if (!verifierValidation.ok) {
+    fail(EXIT_CODES.runtimeBlocked, 'aios_cli_claim_blocked_unbound_or_stale_verifier_evidence', {
+      jobPath,
+      artifactRoot,
+      errors: verifierValidation.errors,
+    });
+  }
 
   const packetType = 'aios.completion.claim';
   const route = 'L24_nexus+L27_forge+L20_simulator+L7_librarian_context_governor';
@@ -2223,6 +2275,7 @@ const claim = async (operatorRequest) => {
         runProof: runProof.hash,
         verifierEvidence: verifierEvidence.hash,
       },
+      evidenceBinding: verifierValidation.binding,
       approvalRequirement: lifecycleSettings.controls.approvals,
       lifecycleNextAction: lifecycleSettings.nextAction.state,
       providerSyncRevision: providerContract.sync.revision,
@@ -2263,6 +2316,13 @@ const claim = async (operatorRequest) => {
         green: true,
       },
     },
+    evidenceBinding: verifierValidation.binding,
+    verifierIdentity: verifierValidation.verifier,
+    claimScope: {
+      kind: 'supported_job_verifier_contracts',
+      contracts: Array.isArray(job.verifierContracts) ? job.verifierContracts : [],
+      excludes: ['operator_approval', 'workflow_checks_not_named_by_the_job', 'remote_provider_side_effects'],
+    },
     claimStatus: 'allowed',
     approvalRequirement: lifecycleSettings.controls.approvals,
     nextAction: lifecycleSettings.controls.approvals === 'required'
@@ -2274,7 +2334,7 @@ const claim = async (operatorRequest) => {
         state: 'approval_optional',
         command: ['aios', 'ps', '--artifact-root', artifactRoot],
       },
-    truthBoundary: 'Completion claims require green boot proof, green run proof, and green verifier evidence under the artifact root.',
+    truthBoundary: 'Completion claims require fresh boot/run/process-completion evidence and successful replay of a supported job verifier contract, bound to the exact job, process, tenant, workspace, provider policy, and local verifier version. Executable hashes detect version drift; they do not cryptographically authenticate a principal who can rewrite source and artifacts.',
   };
   claimPacket.claimHash = sha256({
     packetType,
@@ -2286,6 +2346,9 @@ const claim = async (operatorRequest) => {
     lifecycleSettings,
     providerContract,
     requiredArtifacts: claimPacket.requiredArtifacts,
+    evidenceBinding: claimPacket.evidenceBinding,
+    verifierIdentity: claimPacket.verifierIdentity,
+    claimScope: claimPacket.claimScope,
     claimStatus: claimPacket.claimStatus,
     approvalRequirement: claimPacket.approvalRequirement,
   });
@@ -2854,7 +2917,9 @@ const compile = async (operatorRequest) => {
       digest: providerPolicyState.digest,
       mode: providerPolicyState.policy.mode,
       outputBoundary: providerPolicyState.policy.outputBoundary,
-      externalWrites: false,
+      externalWrites: providerPolicyState.policy.externalWrites,
+      externalTransportEffect: providerPolicyState.policy.externalTransportEffect,
+      resultStorageExternalWrites: providerPolicyState.policy.resultStorageExternalWrites,
     },
   };
   packet.proofHash = sha256({
@@ -2909,7 +2974,10 @@ const help = async (operatorRequest) => {
       defaultPath: defaultProviderPolicyPath,
       operations: ['provider.read', 'provider.compute'],
       outputBoundary: 'internal-artifact-only',
-      externalWrites: false,
+      externalWrites: true,
+      externalTransportEffect: 'network-post',
+      resultStorageExternalWrites: false,
+      remoteSideEffects: 'not_observable',
     },
     lifecycleSettings: {
       contract: 'aios.operator.lifecycle_settings.v0',
@@ -2919,7 +2987,7 @@ const help = async (operatorRequest) => {
       enforcedBy: ['run'],
       reportedBy: ['boot', 'ps', 'logs'],
     },
-    truthBoundary: 'AI OS CLI compiles canonical .aios source and routes boot, run, claim, ps, logs, and approve through operator-userland handlers. Capability-gated provider reads/compute may emit internal artifacts; user-visible and external writes remain blocked.',
+    truthBoundary: 'AI OS CLI compiles canonical .aios source and routes boot, run, claim, ps, logs, and approve through operator-userland handlers. Capability-gated provider reads/compute perform externally visible network POST writes; returned results are retained only as internal artifacts and remote side effects are not observable here.',
   });
 };
 
@@ -2978,7 +3046,7 @@ const operatorUserlandModules = {
     failureExitCodes: [EXIT_CODES.invalidInput, EXIT_CODES.runtimeBlocked],
     requiredPositionals: ['job'],
     requiredFlags: ['artifact-root'],
-    optionalFlags: ['provider', 'handoff-uri'],
+    optionalFlags: ['provider', 'handoff-uri', 'provider-policy'],
     allowedRoles: ['runner', 'operator', 'admin'],
     requiredCapabilities: ['artifact_root_sync', 'completion_claim'],
     capabilities: ['completion_claim'],

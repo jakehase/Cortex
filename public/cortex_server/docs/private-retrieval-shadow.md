@@ -48,14 +48,13 @@ privateRetrievalShadowTelemetryEnabled=true
 privateRetrievalShadowTelemetryMaxRecords=1000
 ```
 
-Current OpenClaw prompt hooks do not always include `requesterSenderId`. In that runtime, provision the same non-PII deployment principal in both `cortex-route-gate` and `cortex-memory-bridge`:
+Current OpenClaw prompt hooks do not always include `requesterSenderId`. In that runtime, provision the same non-PII fallback user in both `cortex-route-gate` and `cortex-memory-bridge`:
 
 ```text
 userId=openclaw-owner
-preferConfiguredUserId=true
 ```
 
-The credential allow-list must authorize that exact user scope. Session identity remains callback-derived and HMAC-opaque, so separate conversations still use separate storage and adaptive-state namespaces. Callback user identity remains the default when `preferConfiguredUserId` is false.
+Legacy configurations may retain `preferConfiguredUserId=true` during an upgrade, but the boolean option is deprecated and ignored. Trusted callback user, agent, and channel identity always takes precedence; configured identifiers are fallback-only when the callback omits a dimension. The credential allow-list must authorize the effective callback-or-fallback user scope. Session identity remains callback-derived and HMAC-opaque, so separate conversations still use separate storage and adaptive-state namespaces.
 
 The immediate stop control is `CORTEX_PRIVATE_RETRIEVAL_SHADOW_KILL_SWITCH=true`. Disabling route-gate telemetry does not enable answer-path use; it only stops the baseline join records.
 

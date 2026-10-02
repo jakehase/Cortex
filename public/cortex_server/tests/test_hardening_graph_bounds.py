@@ -105,7 +105,10 @@ def test_graph_create_endpoints_are_bound_to_hardened_models():
 
 
 @pytest.mark.asyncio
-async def test_graph_create_endpoints_reject_oversized_input_before_persistence(monkeypatch):
+async def test_graph_create_endpoints_reject_oversized_input_before_persistence(
+    monkeypatch,
+    configured_memory_principal,
+):
     async def unexpected_write(_request):
         pytest.fail("invalid request reached persistence")
 
@@ -114,8 +117,13 @@ async def test_graph_create_endpoints_reject_oversized_input_before_persistence(
     app = FastAPI()
     app.include_router(knowledge.router, prefix="/knowledge")
     transport = httpx.ASGITransport(app=app)
+    auth = configured_memory_principal("graph-bounds-positive")
 
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         node_response = await client.post(
             "/knowledge/nodes",
             json=_node_payload(name="x" * (knowledge.MAX_GRAPH_STRING_LENGTH + 1)),

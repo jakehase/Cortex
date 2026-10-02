@@ -9,6 +9,7 @@ import sys
 
 from cortex_server.modules.l4_transcendence import build_l4_transcendence_bundle
 from cortex_server.modules.runtime_trace import classify_command, extract_trace_context, record_trace_event
+from cortex_server.modules.execution_capabilities import unsafe_lab_execution_enabled
 
 router = APIRouter()
 
@@ -56,6 +57,18 @@ async def _stream_reader(stream, chunks: List[str], *, context: Optional[Dict[st
 
 
 async def _run_python(code: str, timeout_seconds: int = 30, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    # A service-user Python subprocess inherits host files, credentials, and
+    # network access.  It is not a sandbox.  Keep the implementation dormant
+    # until an external isolated worker can provide the required OS boundary.
+    if not unsafe_lab_execution_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "lab_execution_unavailable",
+                "message": "raw code execution is disabled until an OS-isolated worker is configured",
+                "degraded": True,
+            },
+        )
     base_dir = "/tmp/cortex_lab"
     os.makedirs(base_dir, exist_ok=True, mode=0o755)
     script_path = f"{base_dir}/script_{uuid.uuid4().hex}.py"
@@ -178,7 +191,7 @@ async def _run_python(code: str, timeout_seconds: int = 30, *, trace_context: Op
 
 @router.post("/execute")
 async def lab_execute(request: LabExecuteRequest, http_request: Request):
-    """Execute code in an isolated python subprocess."""
+    """Execute code only when a real OS-isolated worker is available."""
     if request.language.strip().lower() not in ["python", "py"]:
         raise HTTPException(status_code=400, detail="Only Python is supported")
     trace_context = extract_trace_context(http_request, defaults={"tool_name": "lab.execute", "scope": "lab:execute"})
@@ -250,11 +263,14 @@ async def lab_status():
         'success': True,
         'level': 4,
         'name': 'Lab',
-        'status': 'active',
+        'status': 'degraded',
+        'execution': {
+            'available': False,
+            'reason': 'os_isolated_worker_not_configured',
+            'defaultDeny': True,
+        },
         'capabilities': [
-            'execute',
             'transcend_plan',
-            'transcend_execute',
             'proof_carrying_execution',
             'counterfactual_runner',
             'causal_debugger',

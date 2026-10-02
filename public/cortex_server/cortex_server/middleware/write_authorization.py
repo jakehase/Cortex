@@ -60,23 +60,23 @@ def authorization_mode(value: str, *, strict: bool = False) -> str:
 
 
 class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
-    """Authorize writes with a token, optionally trusting the loopback boundary.
+    """Authenticate the transport used for writes.
 
     Modes:
     - ``token_required``: every mutating request must carry the configured token.
-    - ``token_or_loopback``: loopback requests without an untrusted browser
-      context may omit the token; other callers must carry it.
+    - ``token_or_loopback``: retained as a configuration-compatible alias for
+      ``token_required``.  A source address is never an identity or authority.
     - ``disabled``: intended only for isolated tests and explicit rollback.
 
-    Forwarded headers are deliberately ignored. A reverse proxy must present a
-    token rather than spoofing a source address.
+    Successful transport authentication does not authorize an action.  Direct
+    external-action routes separately require a principal-bound capability.
     """
 
     def __init__(
         self,
         app,
         *,
-        mode: str = "token_or_loopback",
+        mode: str = "token_required",
         token: str = "",
         header_name: str = "x-cortex-write-token",
         allowed_origins: Iterable[str] = (),
@@ -124,15 +124,6 @@ class WriteAuthorizationMiddleware(BaseHTTPMiddleware):
             or path in self.exempt_paths
             or any(path == prefix or path.startswith(f"{prefix}/") for prefix in self.exempt_prefixes)
         ):
-            return await call_next(request)
-
-        client_host = request.client.host if request.client else ""
-        if (
-            self.mode == "token_or_loopback"
-            and is_trusted_direct_loopback(client_host, request.headers)
-            and is_trusted_browser_context(request.headers, self.allowed_origins)
-        ):
-            request.state.cortex_write_authorization = "trusted_loopback"
             return await call_next(request)
 
         supplied = request.headers.get(self.header_name, "")

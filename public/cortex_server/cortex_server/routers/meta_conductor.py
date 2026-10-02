@@ -7,11 +7,11 @@ Adds legacy status/health fields expected by watchdogs.
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 import asyncio
-import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.routers.nexus import orchestrate_query
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
@@ -19,12 +19,13 @@ from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_lev
 router = APIRouter()
 
 LEGACY_LEVELS: Dict[int, Dict[str, str]] = {
-    33: {"name": "Ethicist", "path": "/ethicist", "status_path": "/ethicist/status"},
-    34: {"name": "Validator", "path": "/validator", "status_path": "/validator/status"},
-    35: {"name": "Singularity", "path": "/singularity", "status_path": "/singularity/status"},
-    36: {"name": "Conductor (Meta)", "path": "/meta_conductor", "status_path": "/meta_conductor/status"},
-    37: {"name": "Awareness", "path": "/awareness", "status_path": "/awareness/status"},
-    38: {"name": "Augmenter", "path": "/augmenter", "status_path": "/augmenter/status"},
+    int(row["level"]): {
+        "name": str(row["name"]),
+        "path": str(row["route_prefix"]),
+        "status_path": str(row["canonical_status"]),
+    }
+    for row in get_level_registry()
+    if int(row["level"]) in {33, 34, 35, 36, 37, 38}
 }
 
 # Probes we can safely call without recursive self-status loops.
@@ -94,11 +95,7 @@ def _status_levels() -> List[Dict[str, Any]]:
 async def _probe_level(client: httpx.AsyncClient, level: int, timeout_seconds: float) -> Dict[str, Any]:
     info = PROBE_LEVELS[level]
     started = datetime.utcnow()
-    base_urls = [
-        base.strip().rstrip("/")
-        for base in str(os.getenv("CORTEX_META_PROBE_BASES", "http://127.0.0.1:8000,http://127.0.0.1:8888")).split(",")
-        if base.strip()
-    ]
+    base_urls = [CORTEX_INTERNAL_BASE_URL]
     status_path = str(info.get("status_path") or f"{info['path'].rstrip('/')}/status")
     path_candidates: List[str] = []
     for candidate in [status_path, str(info["path"] or "")]:

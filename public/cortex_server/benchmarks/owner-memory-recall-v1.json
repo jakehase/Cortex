@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "cortex.owner-memory-recall.v1",
+  "privacy": "owner_questions_no_phi_no_credentials",
+  "cases": [
+    {
+      "id": "default-model-policy",
+      "query": "What model, reasoning level, and service tier should new model-backed work use by default?",
+      "expected_source_paths": ["USER.md"],
+      "forbidden_source_paths": ["MEMORY.md", "memory/2026-09-29.md", "memory/2026-09-30.md", "memory/projects/cortex-memory-system.md"],
+      "filters": {
+        "source_paths": ["USER.md"],
+        "statuses": ["active"],
+        "include_stale": false
+      }
+    },
+    {
+      "id": "authorization-carry-forward",
+      "query": "After Jake approves a bounded implementation, when should work continue without asking for the same approval again?",
+      "expected_source_paths": ["USER.md"],
+      "filters": {
+        "source_paths": ["USER.md"],
+        "statuses": ["active"]
+      }
+    },
+    {
+      "id": "whole-system-green-checkpoint",
+      "query": "What is the authoritative terminal checkpoint for the Cortex whole-system-green campaign?",
+      "expected_source_paths": ["MEMORY.md"]
+    },
+    {
+      "id": "memory-health-truth-boundary",
+      "query": "What does a healthy owner-memory receipt prove, and what does it not prove about complete recall?",
+      "expected_source_paths": ["memory/projects/cortex-memory-system.md"]
+    },
+    {
+      "id": "remote-execution-boundary",
+      "query": "Where should heavy benchmark and repository-scale execution run while the local storage incident remains unresolved?",
+      "expected_source_paths": ["USER.md", "MEMORY.md"]
+    },
+    {
+      "id": "memory-repair-terminal-state",
+      "query": "What was the terminal state of the September 30 Cortex memory repair and owner-index verification?",
+      "expected_source_paths": ["memory/2026-09-30.md", "memory/projects/cortex-memory-system.md"]
+    }
+  ]
+}

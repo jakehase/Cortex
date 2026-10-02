@@ -11,10 +11,12 @@ from typing import Optional, List
 from datetime import datetime
 import httpx
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter()
 
 # ── Config ──────────────────────────────────────────────────────────────────
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 
 # ── In-memory stats ────────────────────────────────────────────────────────
 _stats = {

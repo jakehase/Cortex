@@ -3,10 +3,10 @@ Nexus Router - Semantic Orchestration using L5 Oracle
 
 Replaces keyword matching with true semantic understanding.
 """
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Mapping, Optional
+from typing import Dict, List, Any, Mapping, Optional, Union
 import base64
 from contextlib import asynccontextmanager, contextmanager
 import fcntl
@@ -25,52 +25,85 @@ import requests
 import shutil
 from pathlib import Path
 
-from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
-from cortex_server.modules.qa_micro_retrieval import retrieve_top3
-from cortex_server.modules.qa_validator import fast_verify
-from cortex_server.modules.private_retrieval_shadow import (
-    ShadowConfig,
-    private_retrieval_shadow_status,
-    submit_private_retrieval_shadow,
+from cortex_server.construction import (
+    construction_config,
+    read_only_construction,
+    runtime_construction_active,
 )
-from cortex_server.modules.level_optimizer import (
-    ContextualBanditScheduler,
-    TokenBudgetPlanner,
-    BudgetItem,
-    SemanticDeltaCache,
-    should_early_exit,
-    run_counterfactual_replay,
-)
-from cortex_server.modules import routing_autotune as _routing_autotune_module
-from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
-from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
-from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
-from cortex_server.modules.outcome_tuner import OutcomeTuner
-from cortex_server.modules.world_grounding import gather_live_evidence
-from cortex_server.modules.route_health import RouteHealthMonitor
-from cortex_server.modules import codec_policy as _codec_policy_module
-from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
-from cortex_server.modules import cortex_codec as _cortex_codec_module
-from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
-from cortex_server.modules import cortex_kernel_v2
-from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, MemoryScopeAuthError, authenticate_memory_principal
-from cortex_server.modules.evidence_governance import capability_matrix
-from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
-from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
-from cortex_server.middleware.hud_middleware import track_level
-from cortex_server.runtime.assurance_receipt_ledger import (
-    AssuranceReceiptLedgerUnavailable,
-    assurance_receipt_status,
-    consumed_assurance_receipt_result,
-    finalize_assurance_receipt,
-    recover_assurance_receipt,
-    release_assurance_receipt,
-    reserve_assurance_receipt,
-)
-from cortex_server.runtime.durable_files import durable_mkdir
-from cortex_server.routers.librarian import robust_search
-from services.routing.adaptive_router_policy import choose_route
-from services.routing.route_feature_pipeline import build_route_features
+
+# Nexus has a broad dependency graph whose older modules still read optional
+# tuning variables at import. Suppress those reads unless an application
+# factory has explicitly entered runtime construction.
+with read_only_construction(not runtime_construction_active()):
+    from cortex_server.modules.qa_fastlane import classify_qtype, build_template, confidence_score, should_escalate
+    from cortex_server.modules.qa_micro_retrieval import retrieve_top3
+    from cortex_server.modules.qa_validator import fast_verify
+    from cortex_server.modules.private_retrieval_shadow import (
+        ShadowConfig,
+        private_retrieval_shadow_status,
+        submit_private_retrieval_shadow,
+    )
+    from cortex_server.modules.level_optimizer import (
+        ContextualBanditScheduler,
+        TokenBudgetPlanner,
+        BudgetItem,
+        SemanticDeltaCache,
+        should_early_exit,
+        run_counterfactual_replay,
+    )
+    from cortex_server.modules.async_offload import (
+        BlockingCallDeadlineExceeded,
+        remaining_seconds,
+        run_blocking,
+    )
+    from cortex_server.modules import routing_autotune as _routing_autotune_module
+    from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_outcome
+    from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
+    from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
+    from cortex_server.modules.outcome_tuner import OutcomeTuner
+    from cortex_server.modules.world_grounding import gather_live_evidence
+    from cortex_server.modules.route_health import RouteHealthMonitor
+    from cortex_server.modules import codec_policy as _codec_policy_module
+    from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
+    from cortex_server.modules import cortex_codec as _cortex_codec_module
+    from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+    from cortex_server.modules import cortex_kernel_v2
+    from cortex_server.modules.level_registry import (
+        LEVEL_REGISTRY_VERSION,
+        get_level_registry,
+    )
+    from cortex_server.models.api_contracts import (
+        NexusCodecProbeResponse,
+        NexusOrchestrationResponse,
+    )
+    from cortex_server.modules.evidence_governance import capability_matrix
+    from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
+    from cortex_server.modules.memory_scope import (
+        AuthenticatedMemoryPrincipal,
+        MemoryScopeAuthError,
+        authenticate_memory_headers,
+        authenticate_memory_principal,
+        authenticate_memory_request,
+        require_authenticated_memory_principal,
+        scoped_memory_metadata,
+    )
+    from cortex_server.internal_addressing import internal_url
+    from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
+    from cortex_server.middleware.hud_middleware import track_level
+    from cortex_server.runtime.assurance_receipt_ledger import (
+        AssuranceReceiptLedgerUnavailable,
+        assurance_receipt_status,
+        consumed_assurance_receipt_result,
+        finalize_assurance_receipt,
+        recover_assurance_receipt,
+        release_assurance_receipt,
+        reserve_assurance_receipt,
+    )
+    from cortex_server.runtime.durable_files import durable_mkdir
+    from cortex_server.routers.librarian import robust_search
+    from cortex_server.routers.openclaw import load_config as load_openclaw_config
+    from services.routing.adaptive_router_policy import choose_route
+    from services.routing.route_feature_pipeline import build_route_features
 
 @asynccontextmanager
 async def _nexus_lifespan(_app):
@@ -82,6 +115,20 @@ router = APIRouter(lifespan=_nexus_lifespan)
 
 # OpenRouter configuration for L5 Oracle semantic analysis
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+_ORACLE_SEMANTIC_INTENTS = frozenset({
+    "web_search",
+    "code_execution",
+    "memory_recall",
+    "security_scan",
+    "creative_writing",
+    "data_analysis",
+    "scheduling",
+    "translation",
+    "prediction",
+    "optimization",
+})
+_ORACLE_SEMANTIC_KEYS = frozenset({"intents", "levels", "confidence", "reasoning"})
 
 def _load_openrouter_key() -> str:
     """Load OpenRouter API key."""
@@ -98,60 +145,167 @@ def _load_openrouter_key() -> str:
         pass
     return ""
 
-OPENROUTER_API_KEY = _load_openrouter_key()
+# ``None`` means resolve the credential at the runtime call boundary. Keeping
+# the public override supports deployments/tests that inject a key directly
+# without reading the operator's home configuration during router discovery.
+OPENROUTER_API_KEY: Optional[str] = None
 
-CODEC_EVAL_MIN_RATIO = float(os.getenv("CODEC_EVAL_MIN_RATIO", "1.05"))
-CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(os.getenv("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
-CODEC_EVAL_MIN_JUDGE_MARGIN = float(os.getenv("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02"))
-CODEC_EVAL_CODEC_MARGIN_FLOOR = float(os.getenv("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
-CODEC_EVAL_MIN_VARIANTS = int(os.getenv("CODEC_EVAL_MIN_VARIANTS", "3"))
-CODEC_EVAL_MIN_ORACLE_COVERAGE = float(os.getenv("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
-CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "1").lower() not in {"0", "false", "no", "off"}
-CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
 
-# Level definitions
+def _oracle_semantic_provider_policy() -> Optional[Dict[str, str]]:
+    """Resolve the semantic model from the standing runtime policy.
+
+    Nexus owns an OpenRouter transport, so a non-OpenRouter standing provider is
+    unavailable to this helper rather than silently being replaced by a model
+    hardcoded in source. Deployments may provide an explicit semantic override,
+    but provider and model must be supplied as one policy pair.
+    """
+    try:
+        config = load_openclaw_config() or {}
+    except Exception:
+        config = {}
+    runtime = config.get("runtime") if isinstance(config, dict) else {}
+    if not isinstance(runtime, dict):
+        runtime = {}
+
+    provider = str(
+        os.getenv("NEXUS_ORACLE_SEMANTIC_PROVIDER")
+        or runtime.get("semantic_provider")
+        or runtime.get("provider")
+        or ""
+    ).strip().lower()
+    model = str(
+        os.getenv("NEXUS_ORACLE_SEMANTIC_MODEL")
+        or runtime.get("semantic_model")
+        or runtime.get("base_model")
+        or ""
+    ).strip()
+
+    if model.startswith("openrouter/"):
+        provider = provider or "openrouter"
+        model = model.removeprefix("openrouter/")
+    if provider != "openrouter" or not model:
+        return None
+    if len(model) > 200 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model) is None:
+        return None
+    return {"provider": provider, "model": model}
+
+
+def _parse_oracle_semantic_content(content: Any) -> Dict[str, Any]:
+    """Validate the complete provider response before granting semantic credit."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("semantic_content_missing")
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("semantic_json_invalid") from exc
+    if not isinstance(result, dict) or set(result) != _ORACLE_SEMANTIC_KEYS:
+        raise ValueError("semantic_schema_invalid")
+
+    intents = result.get("intents")
+    if (
+        not isinstance(intents, list)
+        or not 1 <= len(intents) <= 10
+        or any(not isinstance(intent, str) or intent not in _ORACLE_SEMANTIC_INTENTS for intent in intents)
+        or len(set(intents)) != len(intents)
+    ):
+        raise ValueError("semantic_intents_invalid")
+
+    levels = result.get("levels")
+    if (
+        not isinstance(levels, list)
+        or not 1 <= len(levels) <= 20
+        or any(isinstance(level, bool) or not isinstance(level, int) or level not in LEVEL_MAP for level in levels)
+        or len(set(levels)) != len(levels)
+    ):
+        raise ValueError("semantic_levels_invalid")
+
+    confidence = result.get("confidence")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(float(confidence))
+        or not 0.0 <= float(confidence) <= 1.0
+    ):
+        raise ValueError("semantic_confidence_invalid")
+
+    reasoning_text = result.get("reasoning")
+    if not isinstance(reasoning_text, str) or not reasoning_text.strip() or len(reasoning_text) > 2000:
+        raise ValueError("semantic_reasoning_invalid")
+    return {
+        "intents": list(intents),
+        "levels": list(levels),
+        "confidence": float(confidence),
+        "reasoning": reasoning_text.strip(),
+    }
+
+
+def _oracle_semantic_timeout(deadline_monotonic: Optional[float]) -> Optional[float]:
+    try:
+        configured = float(os.getenv("NEXUS_ORACLE_SEMANTIC_TIMEOUT_S", "6"))
+    except (TypeError, ValueError):
+        configured = 6.0
+    configured = max(0.1, min(configured, 15.0))
+    if deadline_monotonic is None:
+        return configured
+    remaining = float(deadline_monotonic) - time.monotonic() - 0.05
+    if remaining <= 0.05:
+        return None
+    return max(0.05, min(configured, remaining))
+
+
+def _oracle_semantic_deadline(
+    request: Optional[Request],
+    *,
+    started_monotonic: float,
+    latency_plan: Mapping[str, Any],
+) -> float:
+    """Derive one absolute deadline shared by retries and the nested provider."""
+    try:
+        local_budget_s = max(0.1, min(float(latency_plan.get("max_latency_ms", 2200)) / 1000.0, 15.0))
+    except (TypeError, ValueError):
+        local_budget_s = 2.2
+    deadline = started_monotonic + local_budget_s
+
+    raw_header = ""
+    if request is not None:
+        raw_header = str(request.headers.get("x-cortex-deadline-ms") or "").strip()
+    if raw_header:
+        try:
+            upstream_remaining_s = (int(raw_header) - int(time.time() * 1000)) / 1000.0
+        except (TypeError, ValueError):
+            upstream_remaining_s = 0.0
+        if upstream_remaining_s <= 0:
+            return time.monotonic()
+        deadline = min(deadline, time.monotonic() + upstream_remaining_s)
+    return deadline
+
+def _openrouter_api_key() -> str:
+    configured = OPENROUTER_API_KEY
+    return _load_openrouter_key() if configured is None else configured
+
+CODEC_EVAL_MIN_RATIO = float(construction_config("CODEC_EVAL_MIN_RATIO", "1.05"))
+CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(construction_config("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
+CODEC_EVAL_MIN_JUDGE_MARGIN = float(construction_config("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02"))
+CODEC_EVAL_CODEC_MARGIN_FLOOR = float(construction_config("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
+CODEC_EVAL_MIN_VARIANTS = int(construction_config("CODEC_EVAL_MIN_VARIANTS", "3"))
+CODEC_EVAL_MIN_ORACLE_COVERAGE = float(construction_config("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
+CODEC_REPLAY_SCHEDULER_ENABLED = str(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0")).lower() not in {"0", "false", "no", "off"}
+CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
+_MEMORY_COMMIT_ACK_VERSION = "nexus.memory-commit-ack.v1"
+_CODEC_WRITE_ACK_VERSION = "nexus.codec-write-ack.v1"
+
+# Canonical level definitions; display identity and always-on policy are never
+# maintained separately from the registry.
 LEVEL_MAP = {
-    1: {"name": "kernel", "layer": "Foundation", "purpose": "System core"},
-    2: {"name": "ghost", "layer": "Foundation", "purpose": "External intelligence - web search, browsing"},
-    3: {"name": "hive", "layer": "Foundation", "purpose": "Distributed processing - parallel execution"},
-    4: {"name": "lab", "layer": "Foundation", "purpose": "Code execution - Python, calculations"},
-    5: {"name": "oracle", "layer": "Foundation", "purpose": "Analysis - reasoning, predictions"},
-    6: {"name": "bard", "layer": "Foundation", "purpose": "Content creation - TTS, writing"},
-    7: {"name": "librarian", "layer": "Foundation", "purpose": "Memory - recall, knowledge retrieval"},
-    8: {"name": "sentinel", "layer": "Foundation", "purpose": "Security - scanning, threat detection"},
-    9: {"name": "architect", "layer": "Foundation", "purpose": "System design - blueprints, infrastructure"},
-    10: {"name": "listener", "layer": "Foundation", "purpose": "Input processing - intent recognition"},
-    11: {"name": "catalyst", "layer": "Intelligence", "purpose": "Optimization - speed, efficiency"},
-    12: {"name": "darwin", "layer": "Intelligence", "purpose": "Evolution - adaptation, learning"},
-    13: {"name": "dreamer", "layer": "Intelligence", "purpose": "Creativity - scenarios, imagination"},
-    14: {"name": "chronos", "layer": "Intelligence", "purpose": "Scheduling - time, cron jobs"},
-    15: {"name": "council", "layer": "Intelligence", "purpose": "Multi-perspective - critique, debate"},
-    16: {"name": "academy", "layer": "Intelligence", "purpose": "Training - education, patterns"},
-    17: {"name": "exoskeleton", "layer": "Intelligence", "purpose": "Tool integration - external APIs"},
-    18: {"name": "diplomat", "layer": "Intelligence", "purpose": "Communication - messaging, negotiation"},
-    19: {"name": "geneticist", "layer": "Intelligence", "purpose": "Optimization - breeding solutions"},
-    20: {"name": "simulator", "layer": "Intelligence", "purpose": "Scenario testing - what-if analysis"},
-    21: {"name": "ouroboros", "layer": "Meta", "purpose": "Self-monitoring - health checks"},
-    22: {"name": "mnemosyne", "layer": "Meta", "purpose": "Long-term memory - deep storage"},
-    23: {"name": "cartographer", "layer": "Meta", "purpose": "Self-mapping - capability discovery"},
-    24: {"name": "nexus", "layer": "Meta", "purpose": "Orchestration - level coordination"},
-    25: {"name": "bridge", "layer": "Meta", "purpose": "External AI - federation"},
-    26: {"name": "conductor", "layer": "Meta", "purpose": "Workflow orchestration"},
-    27: {"name": "forge", "layer": "Meta", "purpose": "Creation - module generation"},
-    28: {"name": "polyglot", "layer": "Meta", "purpose": "Translation - languages"},
-    29: {"name": "muse", "layer": "Meta", "purpose": "Artistic guidance - inspiration"},
-    30: {"name": "seer", "layer": "Meta", "purpose": "Prediction - forecasting"},
-    31: {"name": "mediator", "layer": "Apex", "purpose": "Conflict resolution - arbitration"},
-    32: {"name": "synthesist", "layer": "Apex", "purpose": "Cross-level synthesis"},
-    33: {"name": "ethicist", "layer": "Apex", "purpose": "Ethical governance"},
-    34: {"name": "validator", "layer": "Apex", "purpose": "Testing - verification"},
-    35: {"name": "singularity", "layer": "Apex", "purpose": "Self-improvement"},
-    36: {"name": "conductor", "layer": "Apex", "purpose": "Meta-orchestration"},
-    37: {"name": "awareness", "layer": "Apex", "purpose": "Self-awareness and internal state"},
-    38: {"name": "augmenter", "layer": "Apex", "purpose": "Intent augmentation and control surface"},
+    int(row["level"]): {
+        **row,
+        "name": str(row["slug"]),
+    }
+    for row in get_level_registry()
 }
-
-ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
+ALWAYS_ON_LEVELS = [
+    level for level, row in LEVEL_MAP.items() if bool(row["always_on"])
+]
 
 _CODEC_REPLAY_SCHEDULER_LOCK = threading.Lock()
 _CODEC_REPLAY_SCHEDULER_THREAD: Optional[threading.Thread] = None
@@ -165,6 +319,18 @@ _CODEC_REPLAY_SCHEDULER_STATE: Dict[str, Any] = {
     "last_executed_count": 0,
     "last_error": "",
 }
+
+def _principal_codec_scheduler_view() -> Dict[str, Any]:
+    """Expose policy, never cross-principal scheduler activity counters."""
+
+    return {
+        "enabled": False,
+        "configured": bool(CODEC_REPLAY_SCHEDULER_ENABLED),
+        "interval_seconds": int(CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS),
+        "automatic_execution": False,
+        "authenticated_tick_required": True,
+        "reason": "automatic cross-principal replay is disabled; use authenticated scheduler/tick",
+    }
 
 _CONTEXT_LOCK = threading.RLock()
 _CONTEXT_TTL_SECONDS = 1800
@@ -186,23 +352,23 @@ _REFERENT_STATE_RESERVATION_TTL_SECONDS = 10 * 60
 _REFERENT_QUOTA_LOCK = threading.RLock()
 _CONTEXT_STATES: Dict[str, Dict[str, Any]] = {}
 _CONTEXT_QUARANTINE_CHECKED: set[str] = set()
-_REFERENT_STATE_PATH = Path(os.getenv("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
-_CHECKPOINT_STORE_PATH = Path(os.getenv("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
-_CODEC_EVAL_HISTORY_PATH = Path(os.getenv("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
-_CODEC_REPLAY_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
-_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
-_CODEC_CORPUS_EXPORTS_PATH = Path(os.getenv("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
-_CODEC_ACTIVE_POLICY_PATH = Path(os.getenv("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
-_CODEC_REPLAY_PLANS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
+_REFERENT_STATE_PATH = Path(construction_config("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
+_CHECKPOINT_STORE_PATH = Path(construction_config("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
+_CODEC_EVAL_HISTORY_PATH = Path(construction_config("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
+_CODEC_REPLAY_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
+_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
+_CODEC_CORPUS_EXPORTS_PATH = Path(construction_config("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
+_CODEC_ACTIVE_POLICY_PATH = Path(construction_config("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
+_CODEC_REPLAY_PLANS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
 _TOKEN_PLANNER = TokenBudgetPlanner()
-_INITIAL_ENVIRONMENT = os.getenv("CORTEX_ENV", os.getenv("CORTEX_ENVIRONMENT", "development")).strip().lower()
+_INITIAL_ENVIRONMENT = str(construction_config("CORTEX_ENV", construction_config("CORTEX_ENVIRONMENT", "development"))).strip().lower()
 _DEFAULT_ADAPTIVE_STATE_ROOT = (
     Path("/opt/clawdbot/state/nexus_principals")
     if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
     else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
 )
 _ADAPTIVE_STATE_ROOT = Path(
-    os.getenv("NEXUS_ADAPTIVE_STATE_ROOT", str(_DEFAULT_ADAPTIVE_STATE_ROOT))
+    construction_config("NEXUS_ADAPTIVE_STATE_ROOT", str(_DEFAULT_ADAPTIVE_STATE_ROOT))
 )
 _ADAPTIVE_POLICY_LOCK = threading.RLock()
 _ADAPTIVE_POLICY_STATES: Dict[str, Any] = {}
@@ -218,8 +384,8 @@ _CODEC_ROLLUP_SCOPE_LOCK = threading.RLock()
 _cortex_codec_module._ROLLUP_AUTOTUNE_LOCK = _CODEC_ROLLUP_SCOPE_LOCK
 _ADAPTIVE_RATE_LOCK = threading.Lock()
 _ADAPTIVE_OBSERVATION_RATES: Dict[str, deque] = {}
-NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
-NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
+NEXUS_CODEC_ENABLED = str(construction_config("NEXUS_CODEC_ENABLED", "true")).strip().lower() in {"1", "true", "yes", "on"}
+NEXUS_CODEC_MAX_CHARS = max(120, min(int(construction_config("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
 _ASSURANCE_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 _ASSURANCE_RECEIPT_VERSION = "nexus.commit-receipt.v1"
 _ASSURANCE_LEGACY_RECEIPT_VERSION = "nexus.commit-receipt.v1"
@@ -227,26 +393,27 @@ _ASSURANCE_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _ASSURANCE_MAX_VERIFY_KEYS = 16
 _ASSURANCE_MAX_KEY_EPOCH = 4_102_444_800  # 2100-01-01T00:00:00Z
 _CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT = _ASSURANCE_MAX_KEY_EPOCH
-_ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(os.getenv("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
+_ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(construction_config("NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS", "300")), 900))
 _ASSURANCE_RECEIPT_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
         "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
     )
 )
 _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
         "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
     )
 )
-_OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.outcome-feedback-receipt.v1"
+_OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.causal-outcome-receipt.v2"
+_ROUTE_SELECTION_RECEIPT_VERSION = "nexus.route-selection-receipt.v1"
 _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
     30,
-    min(int(os.getenv("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
+    min(int(construction_config("NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS", "300")), 900),
 )
 _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
-    os.getenv(
+    construction_config(
         "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
         "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
     )
@@ -260,6 +427,224 @@ _OUTCOME_FEEDBACK_CLAIM_SECONDS = 30
 _OUTCOME_FEEDBACK_COMPLETED_RETENTION_SECONDS = 60
 _PRINCIPAL_OUTCOME_TUNER_LOCK = threading.RLock()
 _PRINCIPAL_OUTCOME_TUNERS: Dict[str, OutcomeTuner] = {}
+_IMPORT_CONFIGURATION = {
+    name: globals()[name]
+    for name in (
+        "CODEC_EVAL_MIN_RATIO",
+        "CODEC_EVAL_MAX_INCREMENTAL_CHARS",
+        "CODEC_EVAL_MIN_JUDGE_MARGIN",
+        "CODEC_EVAL_CODEC_MARGIN_FLOOR",
+        "CODEC_EVAL_MIN_VARIANTS",
+        "CODEC_EVAL_MIN_ORACLE_COVERAGE",
+        "CODEC_REPLAY_SCHEDULER_ENABLED",
+        "CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+        "_REFERENT_STATE_PATH",
+        "_CHECKPOINT_STORE_PATH",
+        "_CODEC_EVAL_HISTORY_PATH",
+        "_CODEC_REPLAY_REPORTS_PATH",
+        "_CODEC_LIVE_REEXEC_REPORTS_PATH",
+        "_CODEC_CORPUS_EXPORTS_PATH",
+        "_CODEC_ACTIVE_POLICY_PATH",
+        "_CODEC_REPLAY_PLANS_PATH",
+        "_INITIAL_ENVIRONMENT",
+        "_DEFAULT_ADAPTIVE_STATE_ROOT",
+        "_ADAPTIVE_STATE_ROOT",
+        "NEXUS_CODEC_ENABLED",
+        "NEXUS_CODEC_MAX_CHARS",
+        "_ASSURANCE_RECEIPT_TTL_SECONDS",
+        "_ASSURANCE_RECEIPT_STATE_PATH",
+        "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        "_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+        "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+    )
+}
+
+
+def _activate_runtime_configuration() -> None:
+    """Capture runtime tuning/state paths without replacing this module."""
+
+    global CODEC_EVAL_MIN_RATIO, CODEC_EVAL_MAX_INCREMENTAL_CHARS
+    global CODEC_EVAL_MIN_JUDGE_MARGIN, CODEC_EVAL_CODEC_MARGIN_FLOOR
+    global CODEC_EVAL_MIN_VARIANTS, CODEC_EVAL_MIN_ORACLE_COVERAGE
+    global CODEC_REPLAY_SCHEDULER_ENABLED, CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS
+    global _REFERENT_STATE_PATH, _CHECKPOINT_STORE_PATH, _CODEC_EVAL_HISTORY_PATH
+    global _CODEC_REPLAY_REPORTS_PATH, _CODEC_LIVE_REEXEC_REPORTS_PATH
+    global _CODEC_CORPUS_EXPORTS_PATH, _CODEC_ACTIVE_POLICY_PATH
+    global _CODEC_REPLAY_PLANS_PATH, _INITIAL_ENVIRONMENT
+    global _DEFAULT_ADAPTIVE_STATE_ROOT, _ADAPTIVE_STATE_ROOT
+    global NEXUS_CODEC_ENABLED, NEXUS_CODEC_MAX_CHARS
+    global _ASSURANCE_RECEIPT_TTL_SECONDS, _ASSURANCE_RECEIPT_STATE_PATH
+    global _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH
+    global _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS
+    global _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH
+
+    def configured(name: str, candidate: Any) -> Any:
+        current = globals()[name]
+        return candidate if current == _IMPORT_CONFIGURATION[name] else current
+
+    CODEC_EVAL_MIN_RATIO = configured(
+        "CODEC_EVAL_MIN_RATIO",
+        float(construction_config("CODEC_EVAL_MIN_RATIO", "1.05")),
+    )
+    CODEC_EVAL_MAX_INCREMENTAL_CHARS = configured(
+        "CODEC_EVAL_MAX_INCREMENTAL_CHARS",
+        int(construction_config("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900")),
+    )
+    CODEC_EVAL_MIN_JUDGE_MARGIN = configured(
+        "CODEC_EVAL_MIN_JUDGE_MARGIN",
+        float(construction_config("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02")),
+    )
+    CODEC_EVAL_CODEC_MARGIN_FLOOR = configured(
+        "CODEC_EVAL_CODEC_MARGIN_FLOOR",
+        float(construction_config("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05")),
+    )
+    CODEC_EVAL_MIN_VARIANTS = configured(
+        "CODEC_EVAL_MIN_VARIANTS",
+        int(construction_config("CODEC_EVAL_MIN_VARIANTS", "3")),
+    )
+    CODEC_EVAL_MIN_ORACLE_COVERAGE = configured(
+        "CODEC_EVAL_MIN_ORACLE_COVERAGE",
+        float(construction_config("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0")),
+    )
+    CODEC_REPLAY_SCHEDULER_ENABLED = configured(
+        "CODEC_REPLAY_SCHEDULER_ENABLED",
+        str(construction_config("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "0")).lower()
+        not in {"0", "false", "no", "off"},
+    )
+    CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = configured(
+        "CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+        max(
+            5,
+            int(
+                construction_config(
+                    "NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS",
+                    "60",
+                )
+            ),
+        ),
+    )
+    for name, setting, default in (
+        ("_REFERENT_STATE_PATH", "NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"),
+        ("_CHECKPOINT_STORE_PATH", "NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"),
+        ("_CODEC_EVAL_HISTORY_PATH", "NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"),
+        ("_CODEC_REPLAY_REPORTS_PATH", "NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"),
+        ("_CODEC_LIVE_REEXEC_REPORTS_PATH", "NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"),
+        ("_CODEC_CORPUS_EXPORTS_PATH", "NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"),
+        ("_CODEC_ACTIVE_POLICY_PATH", "NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"),
+        ("_CODEC_REPLAY_PLANS_PATH", "NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"),
+    ):
+        globals()[name] = configured(
+            name,
+            Path(construction_config(setting, default)),
+        )
+    _INITIAL_ENVIRONMENT = configured(
+        "_INITIAL_ENVIRONMENT",
+        str(
+            construction_config(
+                "CORTEX_ENV",
+                construction_config("CORTEX_ENVIRONMENT", "development"),
+            )
+        )
+        .strip()
+        .lower(),
+    )
+    runtime_default_adaptive_root = (
+        Path("/opt/clawdbot/state/nexus_principals")
+        if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
+        else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
+    )
+    _DEFAULT_ADAPTIVE_STATE_ROOT = configured(
+        "_DEFAULT_ADAPTIVE_STATE_ROOT",
+        runtime_default_adaptive_root,
+    )
+    _ADAPTIVE_STATE_ROOT = configured(
+        "_ADAPTIVE_STATE_ROOT",
+        Path(
+            construction_config(
+                "NEXUS_ADAPTIVE_STATE_ROOT",
+                str(_DEFAULT_ADAPTIVE_STATE_ROOT),
+            )
+        ),
+    )
+    NEXUS_CODEC_ENABLED = configured(
+        "NEXUS_CODEC_ENABLED",
+        str(construction_config("NEXUS_CODEC_ENABLED", "true")).strip().lower()
+        in {"1", "true", "yes", "on"},
+    )
+    NEXUS_CODEC_MAX_CHARS = configured(
+        "NEXUS_CODEC_MAX_CHARS",
+        max(
+            120,
+            min(
+                int(construction_config("NEXUS_CODEC_MAX_CHARS", "420")),
+                2400,
+            ),
+        ),
+    )
+    _ASSURANCE_RECEIPT_TTL_SECONDS = configured(
+        "_ASSURANCE_RECEIPT_TTL_SECONDS",
+        max(
+            30,
+            min(
+                int(
+                    construction_config(
+                        "NEXUS_ASSURANCE_RECEIPT_TTL_SECONDS",
+                        "300",
+                    )
+                ),
+                900,
+            ),
+        ),
+    )
+    _ASSURANCE_RECEIPT_STATE_PATH = configured(
+        "_ASSURANCE_RECEIPT_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
+                "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+            )
+        ),
+    )
+    _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = configured(
+        "_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
+                "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
+            )
+        ),
+    )
+    _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = configured(
+        "_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+        max(
+            30,
+            min(
+                int(
+                    construction_config(
+                        "NEXUS_OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS",
+                        "300",
+                    )
+                ),
+                900,
+            ),
+        ),
+    )
+    _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = configured(
+        "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+        Path(
+            construction_config(
+                "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
+                "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
+            )
+        ),
+    )
+    _CODEC_REPLAY_SCHEDULER_STATE["enabled"] = bool(
+        CODEC_REPLAY_SCHEDULER_ENABLED
+    )
+    _CODEC_REPLAY_SCHEDULER_STATE["interval_seconds"] = int(
+        CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS
+    )
+
 _ASSURANCE_RESERVED_METADATA = {
     "assurance",
     "assurance_receipt",
@@ -277,6 +662,9 @@ _ASSURANCE_RESERVED_METADATA = {
     "session_id",
     "scope_credential_id",
     "storage_workspace_id",
+    "memory_principal_key",
+    "knowledge_principal_key",
+    "codec_session_key",
     "idempotency_key",
     "receipt_id",
     "world_grounding",
@@ -801,6 +1189,20 @@ def _codec_session_key(request: Optional[Request]) -> str:
     return f"{client_host}|{user_agent}"
 
 
+def _principal_codec_session_key(principal: AuthenticatedMemoryPrincipal) -> str:
+    """Return the sole storage/search namespace admitted by Codec routes."""
+
+    return principal.codec_session_key
+
+
+def _authenticated_codec_principal(request: Request) -> AuthenticatedMemoryPrincipal:
+    principal = getattr(request.state, "authenticated_memory_principal", None)
+    if isinstance(principal, AuthenticatedMemoryPrincipal):
+        return principal
+    principal, _ = _authenticated_nexus_principal(request)
+    return principal
+
+
 def _principal_continuity_key(principal: AuthenticatedMemoryPrincipal, session_key: str) -> str:
     resolved_session = str(session_key or principal.session_id)
     principal_key = principal.isolation_key("nexus-referent-continuity-v1")
@@ -1172,13 +1574,24 @@ def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_resu
     return payload
 
 
-def _codec_variant_prompts(session_key: str, query: str) -> Dict[str, Any]:
+def _codec_variant_prompts(
+    session_key: str,
+    query: str,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     resolved_query = (query or "What should I remember from this conversation?").strip()
     try:
         from cortex_server.routers.oracle import _codec_prefix, _continuity_prefix, _get_session_memory
 
         referent_packet = _continuity_prefix(session_key, resolved_query) or ""
-        oracle_codec_packet = _codec_prefix(session_key, resolved_query) or ""
+        oracle_codec_packet = _codec_prefix(
+            session_key,
+            resolved_query,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        ) or ""
         memory_bucket = _get_session_memory(session_key) or {}
     except Exception as exc:
         return {
@@ -1241,7 +1654,7 @@ def _infer_codec_execution_variant(
     policy = _scoped_codec_policy_call(adaptive_policies, get_codec_policy_for_query, query)
     codec_available = bool((codec_context or {}).get("available"))
     referents_available = bool((referent_info or {}).get("resolved")) or bool((referent_info or {}).get("referent_memory"))
-    if codec_available and (bool(policy.get("should_inject", True)) or str(policy.get("action") or "") == "prefer_codec"):
+    if codec_available:
         return "referents_plus_codec"
     if referents_available:
         return "referents_only"
@@ -1474,13 +1887,23 @@ def _codec_evaluation_gates(evaluation: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _codec_benchmark_view(session_key: str, *, benchmark_query: str = "", max_chars: int = 420, history_limit: int = 8) -> Dict[str, Any]:
+def _codec_benchmark_view(
+    session_key: str,
+    *,
+    benchmark_query: str = "",
+    max_chars: int = 420,
+    history_limit: int = 8,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     resolved_query = (benchmark_query or "What should I remember from this conversation?").strip()
     debug = get_codec_debug_view(
         session_key,
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
         query=resolved_query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
     raw_state_chars = int(((debug.get("compression") or {}).get("raw_characters", 0)) or 0)
@@ -1495,7 +1918,12 @@ def _codec_benchmark_view(session_key: str, *, benchmark_query: str = "", max_ch
         "timeline": (debug.get("persisted_snapshots") or {}).get("recent", []),
     }
 
-    variant_view = _codec_variant_prompts(session_key, resolved_query)
+    variant_view = _codec_variant_prompts(
+        session_key,
+        resolved_query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     if variant_view.get("error"):
         benchmark["prompt_comparison"] = {"error": variant_view.get("error")}
     else:
@@ -1634,6 +2062,8 @@ def _codec_evaluation_view(
     max_chars: int = 420,
     history_limit: int = 8,
     adaptive_policies: Optional[_PrincipalAdaptivePolicies] = None,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     resolved_query = (eval_query or "What should I remember from this conversation?").strip()
     debug = get_codec_debug_view(
@@ -1641,8 +2071,15 @@ def _codec_evaluation_view(
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
         query=resolved_query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
-    variants_view = _codec_variant_prompts(session_key, resolved_query)
+    variants_view = _codec_variant_prompts(
+        session_key,
+        resolved_query,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+    )
     variants = []
     for item in variants_view.get("variants", []):
         prompt = item.get("prompt", "")
@@ -2362,21 +2799,48 @@ def _find_codec_replay_report(*, session_key: str, report_id: str = "") -> Dict[
 
 
 
-def _load_codec_active_policy() -> Dict[str, Any]:
+def _load_codec_active_policy(session_key: str) -> Dict[str, Any]:
+    if not str(session_key or "").strip():
+        return {}
     try:
         if not _CODEC_ACTIVE_POLICY_PATH.exists():
             return {}
         raw = json.loads(_CODEC_ACTIVE_POLICY_PATH.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
+        if not isinstance(raw, dict):
+            return {}
+        principals = raw.get("principal_sessions") if isinstance(raw.get("principal_sessions"), dict) else {}
+        if principals:
+            state = principals.get(session_key)
+            return state if isinstance(state, dict) else {}
+        # Read a legacy single-policy file only when it already carries the
+        # exact authenticated session. Never expose or migrate another session.
+        return raw if str(raw.get("session_key") or "") == session_key else {}
     except Exception:
         return {}
 
 
 
-def _save_codec_active_policy(state: Dict[str, Any]) -> None:
+def _save_codec_active_policy(state: Dict[str, Any], *, session_key: str) -> None:
+    if not str(session_key or "").strip() or str(state.get("session_key") or "") != session_key:
+        raise ValueError("active Codec policy must be bound to the authenticated principal session")
     try:
         _CODEC_ACTIVE_POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CODEC_ACTIVE_POLICY_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        existing: Dict[str, Any] = {}
+        if _CODEC_ACTIVE_POLICY_PATH.exists():
+            raw = json.loads(_CODEC_ACTIVE_POLICY_PATH.read_text(encoding="utf-8"))
+            existing = raw if isinstance(raw, dict) else {}
+        principals = existing.get("principal_sessions") if isinstance(existing.get("principal_sessions"), dict) else {}
+        principals = dict(principals)
+        legacy_session = str(existing.get("session_key") or "")
+        if legacy_session and legacy_session not in principals:
+            principals[legacy_session] = existing
+        principals[session_key] = state
+        envelope = {
+            "version": "cortex.codec.active_benchmark_policy.principal.v1",
+            "updated_at": _now_iso(),
+            "principal_sessions": principals,
+        }
+        _CODEC_ACTIVE_POLICY_PATH.write_text(json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
 
@@ -2471,7 +2935,7 @@ def _execute_replay_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
             "corpus_version": str(report.get("corpus_version") or ""),
             "policies": report.get("recommendations") if isinstance(report.get("recommendations"), dict) else {},
         }
-        _save_codec_active_policy(active_policy)
+        _save_codec_active_policy(active_policy, session_key=session_key)
         promoted = True
     now_iso = _now_iso()
     update = {
@@ -2498,6 +2962,14 @@ def _execute_replay_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _run_due_replay_plans_once(*, session_key: str = "", limit: int = 100) -> Dict[str, Any]:
+    if not str(session_key or "").strip():
+        return {
+            "due_count": 0,
+            "executed_count": 0,
+            "items": [],
+            "degraded": True,
+            "reason": "authenticated_principal_session_required",
+        }
     plans = _load_codec_replay_plan_states(session_key=session_key, limit=max(1, min(int(limit), 200)))
     due = [plan for plan in plans if _plan_due(plan)]
     results = [_execute_replay_plan(plan) for plan in due]
@@ -3724,6 +4196,139 @@ def _normalized_commit_levels(levels: List[int]) -> List[int]:
     return sorted(out)
 
 
+def _deduplicate_route_levels(levels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep the last decision for each level while preserving final-plan order."""
+    selected_reversed: List[Dict[str, Any]] = []
+    seen: set[int] = set()
+    for raw in reversed(levels or []):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            level = int(raw.get("level"))
+        except (TypeError, ValueError):
+            continue
+        if level not in LEVEL_MAP or level in seen:
+            continue
+        seen.add(level)
+        row = dict(raw)
+        row["level"] = level
+        row["name"] = str(row.get("name") or LEVEL_MAP[level]["name"])
+        selected_reversed.append(row)
+    return list(reversed(selected_reversed))
+
+
+def _canonical_chain_level_map() -> Dict[str, int]:
+    """Resolve logical chain members from the canonical level registry."""
+    resolved: Dict[str, int] = {}
+    ambiguous: set[str] = set()
+    for row in get_level_registry():
+        try:
+            level = int(row.get("level"))
+        except (TypeError, ValueError):
+            continue
+        name = str(row.get("name") or "").strip().lower()
+        candidates = {
+            token
+            for token in re.split(r"[^a-z0-9_]+", name)
+            if token
+        }
+        for endpoint in [row.get("canonical_status"), *(row.get("aliases") or [])]:
+            prefix = str(endpoint or "").strip().strip("/").split("/", 1)[0].lower()
+            if prefix:
+                candidates.add(prefix)
+        for candidate in candidates:
+            if candidate in ambiguous:
+                continue
+            existing = resolved.get(candidate)
+            if existing is not None and existing != level:
+                resolved.pop(candidate, None)
+                ambiguous.add(candidate)
+            else:
+                resolved[candidate] = level
+    return resolved
+
+
+def _final_route_contract(
+    *,
+    tx_id: str,
+    routing_method: str,
+    recommended: List[Dict[str, Any]],
+    routing_markers: Mapping[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Build the sole final selection plus an evidence-bounded activation receipt."""
+    selected_levels = [int(row["level"]) for row in recommended]
+    chain_fields = {
+        "brainstorm": "brainstorm_chain",
+        "coding": "coding_chain",
+        "incident": "incident_chain",
+        "research": "research_chain",
+        "architecture": "l9_chain",
+        "translation": "translation_chain",
+        "schedule": "schedule_chain",
+        "mediation": "mediation_chain",
+        "forecast": "forecast_chain",
+        "training": "training_chain",
+        "ethics": "ethics_chain",
+    }
+    chain_levels = _canonical_chain_level_map()
+    selected_level_set = set(selected_levels)
+    selected_chains: Dict[str, List[str]] = {}
+    omitted_chain_members: Dict[str, List[str]] = {}
+    for name, field in chain_fields.items():
+        raw_chain = routing_markers.get(field)
+        if not isinstance(raw_chain, list) or not raw_chain:
+            continue
+        normalized_chain = [str(member).strip().lower() for member in raw_chain if str(member).strip()]
+        selected = [
+            member
+            for member in normalized_chain
+            if chain_levels.get(member) in selected_level_set
+        ]
+        omitted = [member for member in normalized_chain if member not in selected]
+        if selected:
+            selected_chains[name] = selected
+        if omitted:
+            omitted_chain_members[name] = omitted
+    primary_name = {
+        "brainstorm_chain_forced": "brainstorm",
+        "coding_chain_forced": "coding",
+        "incident_chain_forced": "incident",
+        "research_chain_forced": "research",
+        "l9_chain_forced": "architecture",
+    }.get(str(routing_method or ""))
+    primary_chain = list(selected_chains.get(primary_name, [])) if primary_name else []
+    digest_payload = {
+        "chain_id": str(tx_id),
+        "routing_method": str(routing_method),
+        "selected_levels": selected_levels,
+        "primary_chain": primary_chain,
+        "selected_chains": selected_chains,
+        "omitted_chain_members": omitted_chain_members,
+    }
+    plan_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    final_plan = {
+        "schema_version": "nexus.final-route-plan.v1",
+        **digest_payload,
+        "plan_digest": plan_digest,
+        "immutable": True,
+    }
+    activation_receipt = {
+        "schema_version": "nexus.activation-receipt.v1",
+        "chain_id": str(tx_id),
+        "plan_digest": plan_digest,
+        "selected_levels": selected_levels,
+        # Nexus can prove only its own handler/transaction at response time.
+        # Downstream level execution must append independently observed results.
+        "activated_levels": [{"level": 24, "name": "nexus", "evidence": "nexus_router_transaction"}],
+        "level_results": [{"level": 24, "status": "completed", "transaction_id": str(tx_id)}],
+        "complete": False,
+        "terminal_reason": "awaiting_downstream_execution_evidence",
+    }
+    return final_plan, activation_receipt
+
+
 def _bounded_scope_value(value: str, default: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -3745,56 +4350,41 @@ def _authenticated_nexus_principal(
     session_hint: str = "",
 ) -> tuple[AuthenticatedMemoryPrincipal, str]:
     headers = request.headers if request is not None else {}
-    scoped_header_names = {
-        "tenant_id": "x-cortex-tenant-id",
-        "workspace_id": "x-cortex-workspace-id",
-        "agent_id": "x-cortex-agent-id",
-        "user_id": "x-cortex-user-id",
-        "channel_id": "x-cortex-channel-id",
-        "session_id": "x-cortex-session-id",
-    }
     has_scoped_identity = any(
         str(headers.get(name, "") or "").strip()
         for name in (
-            *scoped_header_names.values(),
+            "x-cortex-tenant-id",
+            "x-cortex-workspace-id",
+            "x-cortex-agent-id",
+            "x-cortex-user-id",
+            "x-cortex-channel-id",
+            "x-cortex-session-id",
             "x-cortex-scope-credential-id",
             "x-cortex-scope-signature",
         )
     )
-    raw_scope: Optional[Dict[str, str]] = None
-    tenant_id: Optional[str] = None
-    workspace_id: Optional[str] = None
-    if has_scoped_identity:
-        missing = [field for field, name in scoped_header_names.items() if not str(headers.get(name, "") or "").strip()]
-        if missing:
-            raise HTTPException(status_code=403, detail=f"full authenticated principal scope is required: {', '.join(missing)}")
-        raw_scope = {
-            field: _bounded_scope_value(headers.get(name, ""), "")
-            for field, name in scoped_header_names.items()
-        }
-        tenant_id = raw_scope["tenant_id"]
-        workspace_id = raw_scope["workspace_id"]
-
     scoped_session = str(headers.get("x-cortex-session-id", "") or "").strip()
     transport_session = str(headers.get("x-session-id", "") or "").strip()
     if scoped_session and transport_session and not hmac.compare_digest(scoped_session, transport_session):
         raise HTTPException(status_code=403, detail="transport session must match the authenticated principal session")
 
     try:
-        principal = authenticate_memory_principal(
-            tenant_id=tenant_id,
-            workspace_id=workspace_id,
-            scope=raw_scope,
-            credential_id=headers.get("x-cortex-scope-credential-id", ""),
-            signature=headers.get("x-cortex-scope-signature", ""),
-            production=_production_memory_scope_mode(),
-        )
+        if request is not None:
+            principal = getattr(request.state, "authenticated_memory_principal", None)
+            if not isinstance(principal, AuthenticatedMemoryPrincipal):
+                principal = authenticate_memory_request(request)
+        else:
+            principal = authenticate_memory_headers(headers)
     except MemoryScopeAuthError as exc:
         status_code = 503 if "not configured" in str(exc) else 403
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     resolved_session = str(session_hint or principal.session_id).strip()[:128]
     if has_scoped_identity and not hmac.compare_digest(principal.session_id, resolved_session):
         raise HTTPException(status_code=403, detail="request session must match the authenticated principal session")
+    if request is not None:
+        # Nexus authenticates directly instead of using the memory dependency.
+        # Register only after both transport and requested-session checks pass.
+        request.state.authenticated_memory_principal = principal
     return principal, resolved_session
 
 
@@ -4262,6 +4852,16 @@ def _outcome_receipt_scope(scope: Mapping[str, Any]) -> Dict[str, str]:
     return {field: str(scope.get(field) or "") for field in fields}
 
 
+def _strict_causal_levels(values: Any, *, field: str) -> List[int]:
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"{field}_required")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value not in LEVEL_MAP for value in values):
+        raise ValueError(f"{field}_invalid")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{field}_invalid")
+    return sorted(values)
+
+
 def _issue_outcome_feedback_receipt(
     *,
     scope: Mapping[str, Any],
@@ -4270,15 +4870,36 @@ def _issue_outcome_feedback_receipt(
     task_archetype: str,
     policy_label: str,
     codec_variant: str,
+    output: str,
+    user_outcome: str,
+    executed_levels: List[int],
+    selected_levels: List[int],
+    plan_digest: str,
     validator_pass: bool,
-    execution_success: bool,
     recovery_needed: bool,
     latency_ms: int,
     outcome_confidence: float,
 ) -> Dict[str, Any]:
+    """Issue a trainable receipt only from complete causal outcome evidence."""
+    output_text = str(output or "")
+    if not output_text.strip() or len(output_text) > 1_048_576:
+        raise ValueError("verified_output_required")
+    normalized_outcome = str(user_outcome or "").strip().lower()
+    if normalized_outcome not in {"accepted", "corrected", "failed"}:
+        raise ValueError("explicit_user_outcome_required")
+    normalized_executed = _strict_causal_levels(executed_levels, field="executed_levels")
+    normalized_selected = _strict_causal_levels(selected_levels, field="selected_levels")
+    if not set(normalized_executed).issubset(normalized_selected):
+        raise ValueError("executed_levels_not_selected")
+    normalized_plan_digest = str(plan_digest or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", normalized_plan_digest) is None:
+        raise ValueError("invalid_plan_binding")
+
     issued_at = int(time.time())
     payload = {
         "version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+        "receipt_kind": "causal_outcome",
+        "trainable": True,
         "jti": secrets.token_hex(16),
         "issued_at": issued_at,
         "expires_at": issued_at + _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS,
@@ -4287,11 +4908,49 @@ def _issue_outcome_feedback_receipt(
         "task_archetype": str(task_archetype or "simple_qa")[:80],
         "policy_label": str(policy_label or "unknown")[:128],
         "codec_variant": str(codec_variant or "query_only")[:64],
+        "plan_digest": normalized_plan_digest,
+        "selected_levels": normalized_selected,
+        "executed_levels": normalized_executed,
+        "output_observed": True,
+        "output_hash": hashlib.sha256(output_text.encode("utf-8")).hexdigest(),
+        "user_outcome": normalized_outcome,
+        "activation_complete": True,
+        "causal_evidence_complete": True,
         "validator_pass": bool(validator_pass),
-        "execution_success": bool(execution_success),
         "recovery_needed": bool(recovery_needed),
         "latency_ms": max(0, int(latency_ms)),
         "outcome_confidence": round(max(0.0, min(1.0, float(outcome_confidence))), 3),
+        "scope": _outcome_receipt_scope(scope),
+    }
+    return {"receipt": _encode_outcome_feedback_receipt(payload), "payload": payload}
+
+
+def _issue_route_selection_receipt(
+    *,
+    scope: Mapping[str, Any],
+    execution_id: str,
+    query: str,
+    final_plan: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Sign a non-trainable orchestration selection for later causal binding."""
+    selected_levels = _strict_causal_levels(list(final_plan.get("selected_levels") or []), field="selected_levels")
+    plan_digest = str(final_plan.get("plan_digest") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", plan_digest) is None:
+        raise ValueError("invalid_plan_binding")
+    issued_at = int(time.time())
+    payload = {
+        "version": _ROUTE_SELECTION_RECEIPT_VERSION,
+        "receipt_kind": "route_selection",
+        "trainable": False,
+        "jti": secrets.token_hex(16),
+        "issued_at": issued_at,
+        "expires_at": issued_at + _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS,
+        "execution_id": str(execution_id or "")[:128],
+        "query_hash": hashlib.sha256(str(query or "").encode("utf-8")).hexdigest(),
+        "plan_digest": plan_digest,
+        "selected_levels": selected_levels,
+        "activation_complete": False,
+        "causal_evidence_complete": False,
         "scope": _outcome_receipt_scope(scope),
     }
     return {"receipt": _encode_outcome_feedback_receipt(payload), "payload": payload}
@@ -4303,6 +4962,14 @@ def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -
     if payload.get("version") != _OUTCOME_FEEDBACK_RECEIPT_VERSION:
         raise ValueError("unsupported_receipt_version")
     if (
+        payload.get("receipt_kind") != "causal_outcome"
+        or payload.get("trainable") is not True
+        or payload.get("output_observed") is not True
+        or payload.get("activation_complete") is not True
+        or payload.get("causal_evidence_complete") is not True
+    ):
+        raise ValueError("incomplete_causal_evidence")
+    if (
         int(payload.get("issued_at", 0)) > now + 5
         or int(payload.get("expires_at", 0)) <= int(payload.get("issued_at", 0))
     ):
@@ -4311,6 +4978,16 @@ def _verify_outcome_feedback_receipt(receipt: str, request: Optional[Request]) -
         raise ValueError("missing_receipt_identity")
     if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("query_hash") or "")):
         raise ValueError("invalid_query_binding")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("output_hash") or "")):
+        raise ValueError("invalid_output_binding")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("plan_digest") or "")):
+        raise ValueError("invalid_plan_binding")
+    selected_levels = _strict_causal_levels(payload.get("selected_levels"), field="selected_levels")
+    executed_levels = _strict_causal_levels(payload.get("executed_levels"), field="executed_levels")
+    if not set(executed_levels).issubset(selected_levels):
+        raise ValueError("executed_levels_not_selected")
+    if payload.get("user_outcome") not in {"accepted", "corrected", "failed"}:
+        raise ValueError("explicit_user_outcome_required")
     if payload.get("codec_variant") not in {"query_only", "referents_only", "referents_plus_codec"}:
         raise ValueError("invalid_codec_variant")
     current_scope = _outcome_receipt_scope(_assurance_scope(request))
@@ -4911,9 +5588,36 @@ def _apply_codec_outcome_projection(
 ) -> Dict[str, Any]:
     """Apply one Codec outcome with a marker in the same durable snapshot."""
 
-    original_session_key = str(scope.get("session_id") or "")
-    tenant_id = str(scope.get("tenant_id") or "")
-    workspace_id = str(scope.get("storage_workspace_id") or "")
+    principal_fields = {
+        field: str(scope.get(field) or "").strip()
+        for field in (
+            "tenant_id",
+            "workspace_id",
+            "agent_id",
+            "user_id",
+            "channel_id",
+            "session_id",
+        )
+    }
+    credential_id = str(scope.get("scope_credential_id") or "").strip()
+    if not credential_id or not all(principal_fields.values()):
+        raise RuntimeError("outcome_feedback_codec_scope_missing")
+    principal = AuthenticatedMemoryPrincipal(
+        credential_id=credential_id,
+        **principal_fields,
+    )
+    supplied_storage_workspace = str(
+        scope.get("storage_workspace_id") or ""
+    ).strip()
+    if not supplied_storage_workspace or not hmac.compare_digest(
+        supplied_storage_workspace,
+        principal.storage_workspace_id,
+    ):
+        raise RuntimeError("outcome_feedback_codec_scope_mismatch")
+
+    original_session_key = principal.codec_session_key
+    tenant_id = principal.tenant_id
+    workspace_id = principal.storage_workspace_id
     scoped_session_key = _cortex_codec_module._scoped_codec_session_key(
         original_session_key,
         tenant_id=tenant_id,
@@ -5030,7 +5734,13 @@ class AssuranceReceiptRequest(BaseModel):
 
 
 class OrchestrateRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=1_048_576)
+    query: Optional[str] = Field(None, min_length=1, max_length=1_048_576)
+    # The endpoint enforces this field's 16,384-character boundary explicitly
+    # so callers receive the stable, security-specific HTTP error contract.
+    private_retrieval_shadow_query: Optional[str] = None
+
+    class Config:
+        extra = "forbid"
 
 
 class PolicyReplayRequest(BaseModel):
@@ -5071,6 +5781,7 @@ class CodecEventsRequest(BaseModel):
     scope: Optional[Dict[str, str]] = None
     scope_credential_id: Optional[str] = Field(None, max_length=128)
     scope_signature: Optional[str] = Field(None, max_length=256)
+    acknowledgement_only: bool = False
 
 
 def _codec_events_idempotency_scope(
@@ -5144,17 +5855,50 @@ def _codec_events_replay_result(
     return dict(response)
 
 
-def analyze_intent_with_oracle(query: str, *, route_health: Optional[RouteHealthMonitor] = None) -> Dict[str, Any]:
+def analyze_intent_with_oracle(
+    query: str,
+    *,
+    route_health: Optional[RouteHealthMonitor] = None,
+    timeout_seconds: float = 10.0,
+    deadline_monotonic: Optional[float] = None,
+) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
-    if not OPENROUTER_API_KEY:
-        return {"intents": [], "confidence": 0, "method": "fallback"}
+    openrouter_api_key = _openrouter_api_key()
+    if not openrouter_api_key:
+        return {"intents": [], "levels": [], "confidence": 0, "method": "fallback"}
+
+    provider_policy = _oracle_semantic_provider_policy()
+    if provider_policy is None:
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "provider_policy_unavailable",
+            "reasoning": "Standing semantic provider/model policy is unavailable or incompatible.",
+        }
+
+    provider_timeout = _oracle_semantic_timeout(deadline_monotonic)
+    if provider_timeout is None:
+        if route_health is not None:
+            route_health.record_failure("oracle", error="deadline_exhausted", latency_ms=0.0)
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "deadline_exhausted",
+            "reasoning": "Semantic provider deadline was exhausted before dispatch.",
+        }
+    provider_timeout = min(
+        provider_timeout,
+        max(0.1, min(float(timeout_seconds), 10.0)),
+    )
 
     gate = route_health.allow("oracle") if route_health is not None else {"allowed": True}
     if not gate.get("allowed"):
-        return {"intents": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
+        return {"intents": [], "levels": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {openrouter_api_key}",
         "HTTP-Referer": "http://localhost:8000",
         "Content-Type": "application/json"
     }
@@ -5192,7 +5936,7 @@ Intents to detect:
 - optimization: Improving efficiency"""
 
     payload = {
-        "model": "openrouter/moonshotai/kimi-k2.5",
+        "model": provider_policy["model"],
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Analyze intent: \"{query}\""}
@@ -5203,38 +5947,66 @@ Intents to detect:
 
     started = datetime.utcnow()
     try:
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            OPENROUTER_URL,
+            headers=headers,
+            json=payload,
+            timeout=provider_timeout,
+        )
         response.raise_for_status()
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ValueError("semantic_envelope_invalid")
+        provider_model = str(data.get("model") or "").strip()
+        if not provider_model or not hmac.compare_digest(
+            provider_model.casefold(),
+            provider_policy["model"].casefold(),
+        ):
+            raise ValueError("semantic_model_mismatch")
+        finish_reason = str(choices[0].get("finish_reason") or "").strip().lower()
+        if finish_reason != "stop":
+            raise ValueError("semantic_completion_incomplete")
+        message = choices[0].get("message")
+        if not isinstance(message, dict):
+            raise ValueError("semantic_envelope_invalid")
+        content = message.get("content")
         latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
 
-        # Parse JSON from response
         try:
-            result = json.loads(content)
+            result = _parse_oracle_semantic_content(content)
             if route_health is not None:
                 route_health.record_success("oracle", latency_ms=latency_ms)
             return {
-                "intents": result.get("intents", []),
-                "levels": result.get("levels", []),
-                "confidence": result.get("confidence", 0.5),
-                "reasoning": result.get("reasoning", "Semantic analysis"),
+                **result,
                 "method": "oracle_semantic"
             }
-        except json.JSONDecodeError:
+        except ValueError as exc:
             if route_health is not None:
-                route_health.record_failure("oracle", error="parse_error", latency_ms=latency_ms)
-            return {"intents": [], "confidence": 0, "method": "parse_error"}
-    except Exception as e:
+                route_health.record_failure("oracle", error=str(exc), latency_ms=latency_ms)
+            return {
+                "intents": [],
+                "levels": [],
+                "confidence": 0,
+                "method": "invalid_schema",
+                "reasoning": str(exc),
+            }
+    except Exception as exc:
         latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
         if route_health is not None:
-            route_health.record_failure("oracle", error=str(e), latency_ms=latency_ms)
-        return {"intents": [], "confidence": 0, "method": f"error: {str(e)}"}
+            route_health.record_failure("oracle", error=type(exc).__name__, latency_ms=latency_ms)
+        return {
+            "intents": [],
+            "levels": [],
+            "confidence": 0,
+            "method": "provider_error",
+            "reasoning": "Semantic provider call failed.",
+        }
 
 
 def _fetch_kernel_online_levels() -> Optional[set]:
     try:
-        resp = requests.get("http://localhost:8888/kernel/levels", timeout=1.2)
+        resp = requests.get(internal_url("/kernel/levels"), timeout=1.2)
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -5257,7 +6029,7 @@ def _fetch_kernel_online_levels() -> Optional[set]:
 
 def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> bool:
     # In SAFE_MODE, L9 is intentionally proxied by meta-conductor.
-    # Avoid blocking self-HTTP calls back into the same 8888 worker.
+    # Avoid blocking self-HTTP calls back into the configured internal Cortex worker.
     if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
         return True
 
@@ -5268,7 +6040,7 @@ def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> 
     started = datetime.utcnow()
     for path in ["/meta_conductor/status", "/architect_expanded/status", "/architect/status"]:
         try:
-            resp = requests.get(f"http://localhost:8888{path}", timeout=1.2)
+            resp = requests.get(internal_url(path), timeout=1.2)
             latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
             if resp.status_code != 200:
                 if route_health is not None:
@@ -5307,7 +6079,7 @@ async def get_nexus_context():
             "level": 24,
             "name": "The Nexus",
             "role": "Consciousness Bridge",
-            "total_levels": 38,
+            "total_levels": len(LEVEL_MAP),
             "always_on": [LEVEL_MAP[l] for l in ALWAYS_ON_LEVELS],
             "orchestration_method": "semantic_via_oracle",
             "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
@@ -5331,6 +6103,9 @@ async def get_nexus_status():
     return {
         "success": True,
         "status": "operational",
+        "level": 24,
+        "name": LEVEL_MAP[24]["name"],
+        "registry_version": LEVEL_REGISTRY_VERSION,
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
         "codec": {
             "enabled": bool(NEXUS_CODEC_ENABLED),
@@ -5368,16 +6143,18 @@ async def get_private_retrieval_shadow_status(request: Request):
     }
 
 
-@router.get("/codec/status")
+@router.get("/codec/status", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_status(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-
     view = get_codec_debug_view(
         resolved_session_key,
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
     return {
         "success": True,
@@ -5387,28 +6164,13 @@ async def get_nexus_codec_status(request: Request, session_key: Optional[str] = 
     }
 
 
-@router.post("/codec/events")
+@router.post("/codec/events", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request):
     """Low-latency, authenticated Codec write-through path for trusted runtimes and recovery canaries."""
-    resolved_session_key = (payload.session_key or _codec_session_key(request) or "").strip()[:128]
-    if not resolved_session_key:
-        raise HTTPException(status_code=400, detail="session_key is required")
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not payload.events or len(payload.events) > 32:
         raise HTTPException(status_code=400, detail="events must contain between 1 and 32 records")
-    try:
-        principal = authenticate_memory_principal(
-            tenant_id=payload.tenant_id,
-            workspace_id=payload.workspace_id,
-            scope=payload.scope,
-            credential_id=payload.scope_credential_id,
-            signature=payload.scope_signature,
-            production=_production_memory_scope_mode(),
-        )
-    except MemoryScopeAuthError as exc:
-        status_code = 503 if "not configured" in str(exc) else 403
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-    if principal.session_id != resolved_session_key:
-        raise HTTPException(status_code=403, detail="Codec session key must match the authenticated principal session")
     events = []
     for row in payload.events:
         if not isinstance(row, dict):
@@ -5418,8 +6180,11 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
             raise HTTPException(status_code=400, detail="event text must contain between 1 and 8000 characters")
         tags = row.get("tags") if isinstance(row.get("tags"), list) else []
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        metadata = {**metadata, **principal.storage_metadata}
-        events.append({"text": text, "tags": [str(tag)[:80] for tag in tags[:24]], "metadata": metadata})
+        events.append({
+            "text": text,
+            "tags": [str(tag)[:80] for tag in tags[:24]],
+            "metadata": scoped_memory_metadata(principal, metadata),
+        })
     max_chars = max(120, min(int(payload.max_chars), 2400))
     idempotency_key = str(payload.idempotency_key or "").strip()
     idempotency_scope: Optional[Dict[str, str]] = None
@@ -5558,6 +6323,36 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         tenant_id=principal.tenant_id,
         workspace_id=principal.storage_workspace_id,
     )
+    durable_write = state.get("durable_write", {}) if isinstance(state.get("durable_write"), dict) else {}
+    # Always acknowledge the exact low-latency state mutation, even when the
+    # optional L22 snapshot path is disabled. Prefer the canonical durable
+    # fingerprint when present; otherwise hash the bounded state returned by
+    # the write function without its transport-only durable_write envelope.
+    codec_state = {key: value for key, value in state.items() if key != "durable_write"}
+    state_fingerprint = str(durable_write.get("fingerprint") or hashlib.sha256(
+        json.dumps(codec_state, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest())
+    acknowledgement = {
+        "version": _CODEC_WRITE_ACK_VERSION,
+        "status": "accepted",
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+    }
+    if durable_write.get("status") is not None:
+        acknowledgement["durable_write_status"] = str(durable_write.get("status"))
+    if durable_write.get("id") is not None:
+        acknowledgement["durable_record_id"] = str(durable_write.get("id"))
+    response = {
+        "success": True,
+        "session_key": resolved_session_key,
+        "event_count": len(events),
+        "state_fingerprint": state_fingerprint,
+        "acknowledgement": acknowledgement,
+        "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
+    }
+    if payload.acknowledgement_only:
+        return response
     packet = await run_in_threadpool(
         get_codec_packet_for_session,
         resolved_session_key,
@@ -5590,9 +6385,10 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
     return response
 
 
-@router.get("/codec/benchmark")
+@router.get("/codec/benchmark", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str] = None, benchmark_query: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5601,6 +6397,8 @@ async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str]
         benchmark_query=benchmark_query or "",
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
     return {
         "success": True,
@@ -5610,12 +6408,12 @@ async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str]
     }
 
 
-@router.get("/codec/policy")
+@router.get("/codec/policy", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, session_key: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
-    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     policies = _adaptive_policies_for_scope(principal.storage_metadata)
-    telemetry_key = _principal_continuity_key(principal, resolved_session_key)
+    telemetry_key = _principal_continuity_key(principal, principal.session_id)
     return {
         "success": True,
         "level": 24,
@@ -5630,15 +6428,18 @@ async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, 
     }
 
 
-@router.get("/codec/lineage")
+@router.get("/codec/lineage", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     view = get_codec_debug_view(
         resolved_session_key,
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
     return {
         "success": True,
@@ -5661,19 +6462,31 @@ async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] =
     }
 
 
-@router.get("/codec/memory/{memory_id}/lineage")
+@router.get("/codec/memory/{memory_id}/lineage", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_memory_lineage(request: Request, memory_id: str, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     view = get_codec_debug_view(
         resolved_session_key,
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
-    packet = get_codec_packet_for_session(resolved_session_key, max_chars=max(120, min(int(max_chars), 2400)))
+    packet = get_codec_packet_for_session(
+        resolved_session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+    )
     state = packet.get("state") if isinstance(packet, dict) and isinstance(packet.get("state"), dict) else {}
-    lineage = build_codec_memory_lineage(memory_id=memory_id, session_key=resolved_session_key, codec_state=state)
+    lineage = build_codec_memory_lineage(
+        memory_id=memory_id,
+        session_key=str(packet.get("storage_session_key") or resolved_session_key),
+        codec_state=state,
+    )
     if not lineage:
         raise HTTPException(status_code=404, detail="codec memory fact not found")
     return {
@@ -5691,15 +6504,18 @@ async def get_nexus_codec_memory_lineage(request: Request, memory_id: str, sessi
     }
 
 
-@router.get("/codec/corpus-replay")
-@router.post("/codec/corpus-replay")
+@router.get("/codec/corpus-replay", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay(request: Request, session_key: Optional[str] = None, limit: int = 50, persist_report: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if persist_report and request.method.upper() != "POST":
+        raise HTTPException(
+            status_code=405,
+            detail="GET corpus replay is read-only; persist reports through an authenticated POST workflow",
+        )
 
-    if persist_report and request.method != "POST":
-        raise HTTPException(status_code=405, detail="persist_report requires an authorized POST control operation")
     report = _codec_replay_report(resolved_session_key, limit=max(1, min(int(limit), 100)))
     if persist_report:
         _persist_codec_replay_report(report)
@@ -5714,9 +6530,9 @@ async def get_nexus_codec_corpus_replay(request: Request, session_key: Optional[
     }
 
 
-@router.post("/codec/corpus-replay/reexecute")
+@router.post("/codec/corpus-replay/reexecute", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     report = _codec_true_reexecute_summary(resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -5730,11 +6546,16 @@ async def get_nexus_codec_corpus_replay_reexecute(request: Request, session_key:
     }
 
 
-@router.post("/codec/corpus-replay/live-reexecute")
+@router.post("/codec/corpus-replay/live-reexecute", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backend: str = "openclaw_local", persist_report: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if request.method.upper() == "GET":
+        raise HTTPException(
+            status_code=405,
+            detail="live re-execution is side-effecting and requires authenticated POST",
+        )
     report = _codec_live_reexecute_summary(
         resolved_session_key,
         limit=max(1, min(int(limit), 20)),
@@ -5762,8 +6583,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session
     }
 
 
-@router.get("/codec/corpus-replay/live-reexecute/backends")
-async def get_nexus_codec_corpus_replay_live_reexecute_backends():
+@router.get("/codec/corpus-replay/live-reexecute/backends", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_live_reexecute_backends(request: Request):
+    _authenticated_codec_principal(request)
     return {
         "success": True,
         "level": 24,
@@ -5774,11 +6596,16 @@ async def get_nexus_codec_corpus_replay_live_reexecute_backends():
     }
 
 
-@router.post("/codec/corpus-replay/live-reexecute/compare")
+@router.post("/codec/corpus-replay/live-reexecute/compare", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute_compare(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backends: str = "recorded,openclaw_local"):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
+    if request.method.upper() == "GET":
+        raise HTTPException(
+            status_code=405,
+            detail="live backend comparison is side-effecting and requires authenticated POST",
+        )
     available_backends = {item.get("backend") for item in (_live_reexecute_backend_status().get("items") or []) if isinstance(item, dict)}
     backend_list = [item.strip() for item in str(backends or "recorded,openclaw_local").split(",") if item.strip() and item.strip() in available_backends]
     reports = {
@@ -5803,9 +6630,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute_compare(request: Request,
     }
 
 
-@router.get("/codec/corpus-replay/live-reexecute/reports")
+@router.get("/codec/corpus-replay/live-reexecute/reports", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     rows: List[Dict[str, Any]] = []
@@ -5868,9 +6695,9 @@ async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request,
     }
 
 
-@router.get("/codec/corpus-replay/reports")
+@router.get("/codec/corpus-replay/reports", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5899,9 +6726,9 @@ async def get_nexus_codec_corpus_replay_reports(request: Request, session_key: O
     }
 
 
-@router.get("/codec/corpus-replay/diff")
+@router.get("/codec/corpus-replay/diff", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_diff(request: Request, session_key: Optional[str] = None, newer_report_id: Optional[str] = None, older_report_id: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5924,21 +6751,22 @@ async def get_nexus_codec_corpus_replay_diff(request: Request, session_key: Opti
     }
 
 
-@router.get("/codec/corpus-replay/active-policy")
-async def get_nexus_codec_corpus_replay_active_policy():
+@router.get("/codec/corpus-replay/active-policy", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_active_policy(request: Request):
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     return {
         "success": True,
         "level": 24,
         "name": "The Nexus",
         "codec": {
-            "active_policy": _load_codec_active_policy(),
+            "active_policy": _load_codec_active_policy(resolved_session_key),
         },
     }
 
 
-@router.post("/codec/corpus-replay/promote-best")
+@router.post("/codec/corpus-replay/promote-best", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_key: Optional[str] = None, report_id: Optional[str] = None, source: str = "recommendations"):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
 
@@ -5955,7 +6783,7 @@ async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_
         "corpus_version": str(report.get("corpus_version") or ""),
         "policies": recommended,
     }
-    _save_codec_active_policy(payload)
+    _save_codec_active_policy(payload, session_key=resolved_session_key)
     return {
         "success": True,
         "level": 24,
@@ -5966,9 +6794,9 @@ async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_
     }
 
 
-@router.get("/codec/corpus-replay/plans")
+@router.get("/codec/corpus-replay/plans", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_plans(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -5986,9 +6814,9 @@ async def get_nexus_codec_corpus_replay_plans(request: Request, session_key: Opt
     }
 
 
-@router.post("/codec/corpus-replay/plan")
+@router.post("/codec/corpus-replay/plan", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Optional[str] = None, cadence_minutes: int = 1440, enabled: bool = True, note: str = "", start_immediately: bool = True, auto_promote_on_success: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     created_at = _now_iso()
@@ -6008,7 +6836,7 @@ async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Opt
         "suggested_endpoint": "/nexus/codec/corpus-replay?persist_report=true",
     }
     _persist_codec_replay_plan(plan)
-    scheduler = _ensure_codec_replay_scheduler_started()
+    scheduler = _principal_codec_scheduler_view()
     return {
         "success": True,
         "level": 24,
@@ -6020,9 +6848,9 @@ async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Opt
     }
 
 
-@router.post("/codec/corpus-replay/plan/run")
+@router.post("/codec/corpus-replay/plan/run", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plan_run(request: Request, session_key: Optional[str] = None, plan_id: Optional[str] = None):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=200)
@@ -6042,9 +6870,9 @@ async def post_nexus_codec_corpus_replay_plan_run(request: Request, session_key:
     }
 
 
-@router.post("/codec/corpus-replay/plans/run-due")
+@router.post("/codec/corpus-replay/plans/run-due", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_plans_run_due(request: Request, session_key: Optional[str] = None, limit: int = 20):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
@@ -6063,9 +6891,10 @@ async def post_nexus_codec_corpus_replay_plans_run_due(request: Request, session
     }
 
 
-@router.post("/codec/corpus-replay/scheduler")
-async def get_nexus_codec_corpus_replay_scheduler():
-    scheduler = _ensure_codec_replay_scheduler_started()
+@router.post("/codec/corpus-replay/scheduler", dependencies=[Depends(require_authenticated_memory_principal)])
+async def get_nexus_codec_corpus_replay_scheduler(request: Request):
+    _authenticated_codec_principal(request)
+    scheduler = _principal_codec_scheduler_view()
     return {
         "success": True,
         "level": 24,
@@ -6076,9 +6905,9 @@ async def get_nexus_codec_corpus_replay_scheduler():
     }
 
 
-@router.post("/codec/corpus-replay/scheduler/tick")
+@router.post("/codec/corpus-replay/scheduler/tick", dependencies=[Depends(require_authenticated_memory_principal)])
 async def post_nexus_codec_corpus_replay_scheduler_tick(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     result = _run_due_replay_plans_once(session_key=resolved_session_key or "", limit=max(1, min(int(limit), 200)))
     return {
         "success": True,
@@ -6086,14 +6915,14 @@ async def post_nexus_codec_corpus_replay_scheduler_tick(request: Request, sessio
         "name": "The Nexus",
         "codec": {
             "scheduler_tick": result,
-            "scheduler": dict(_CODEC_REPLAY_SCHEDULER_STATE),
+            "scheduler": _principal_codec_scheduler_view(),
         },
     }
 
 
-@router.get("/codec/corpus-replay/corpus-versions")
+@router.get("/codec/corpus-replay/corpus-versions", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_corpus_versions(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     return {
@@ -6106,9 +6935,9 @@ async def get_nexus_codec_corpus_replay_corpus_versions(request: Request, sessio
     }
 
 
-@router.get("/codec/corpus-replay/retention")
+@router.get("/codec/corpus-replay/retention", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_retention(request: Request, session_key: Optional[str] = None, limit: int = 100):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
     return {
@@ -6121,14 +6950,17 @@ async def get_nexus_codec_corpus_replay_retention(request: Request, session_key:
     }
 
 
-@router.get("/codec/corpus-replay/export")
-@router.post("/codec/corpus-replay/export")
+@router.get("/codec/corpus-replay/export", dependencies=[Depends(require_authenticated_memory_principal)])
+@router.post("/codec/corpus-replay/export", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Optional[str] = None, limit: int = 100, persist_export: bool = False):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    resolved_session_key = _principal_codec_session_key(_authenticated_codec_principal(request))
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-    if persist_export and request.method != "POST":
-        raise HTTPException(status_code=405, detail="persist_export requires an authorized POST control operation")
+    if persist_export and request.method.upper() != "POST":
+        raise HTTPException(
+            status_code=405,
+            detail="GET corpus export is read-only and cannot persist artifacts",
+        )
     export = _codec_benchmark_corpus_export(resolved_session_key, limit=max(1, min(int(limit), 200)))
     if persist_export:
         _persist_codec_corpus_export(export)
@@ -6143,8 +6975,8 @@ async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Op
     }
 
 
-@router.post("/codec/outcome")
-async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Request = None):
+@router.post("/codec/outcome", dependencies=[Depends(require_authenticated_memory_principal)])
+async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Request):
     _authenticated_nexus_principal(request)
     raise HTTPException(
         status_code=403,
@@ -6155,7 +6987,7 @@ async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest, request: Req
     )
 
 
-@router.post("/codec/evaluate")
+@router.post("/codec/evaluate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def get_nexus_codec_evaluate(
     request: Request,
     session_key: Optional[str] = None,
@@ -6166,12 +6998,18 @@ async def get_nexus_codec_evaluate(
     judge_with_oracle: bool = False,
     priority: str = "normal",
 ):
-    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    principal = _authenticated_codec_principal(request)
+    resolved_session_key = _principal_codec_session_key(principal)
     if not resolved_session_key:
         raise HTTPException(status_code=400, detail="session_key is required")
-    principal, _ = _authenticated_nexus_principal(request, session_hint=resolved_session_key)
+    write_mode = request.method.upper() == "POST"
+    if not write_mode and (run_oracle or judge_with_oracle):
+        raise HTTPException(
+            status_code=405,
+            detail="GET Codec evaluation is read-only; Oracle execution requires authenticated POST",
+        )
     policies = _adaptive_policies_for_scope(principal.storage_metadata)
-    policy_session_key = _principal_continuity_key(principal, resolved_session_key)
+    policy_session_key = _principal_continuity_key(principal, principal.session_id)
     if not _adaptive_observation_allowed(principal.storage_metadata):
         raise HTTPException(status_code=429, detail="principal adaptive observation rate limit exceeded")
 
@@ -6181,9 +7019,16 @@ async def get_nexus_codec_evaluate(
         max_chars=max(120, min(int(max_chars), 2400)),
         history_limit=max(1, min(int(history_limit), 50)),
         adaptive_policies=policies,
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
     )
 
     evaluation = view.get("evaluation") if isinstance(view.get("evaluation"), dict) else {}
+    evaluation["policy"] = {
+        "action": "neutral",
+        "stage": "principal_isolated_compatibility",
+        "reason": "global learned policy state is not authoritative for this principal",
+    }
     variants = evaluation.get("variants") if isinstance(evaluation.get("variants"), list) else []
     evaluation["oracle_run"] = {"requested": bool(run_oracle), "completed": False, "priority": priority}
     evaluation["oracle_judge"] = {"requested": bool(judge_with_oracle), "completed": False, "priority": priority}
@@ -6326,7 +7171,8 @@ async def get_nexus_codec_evaluate(
         "bucket_snapshot": _codec_bucket_snapshot(view),
         "recommended_policies": evaluation.get("recommendations") if isinstance(evaluation.get("recommendations"), dict) else {},
     }
-    _persist_codec_eval_run(eval_record)
+    if write_mode:
+        _persist_codec_eval_run(eval_record)
     history = _codec_eval_trend_summary(resolved_session_key, limit=20)
     history["sweep"] = _codec_eval_sweep_summary(resolved_session_key, limit=50)
     history["rollup_sweep"] = _codec_rollup_sweep_summary(resolved_session_key, limit=50)
@@ -6358,7 +7204,7 @@ async def get_nexus_full():
                 "role": "Consciousness Bridge & Orchestrator"
             },
             "orchestration": {
-                "total_levels": 38,
+                "total_levels": len(LEVEL_MAP),
                 "always_on": ALWAYS_ON_LEVELS,
                 "level_map": LEVEL_MAP,
                 "method": "semantic_analysis_via_l5_oracle"
@@ -6391,7 +7237,7 @@ async def autotune_status(request: Request):
     }
 
 
-@router.post("/outcome/feedback")
+@router.post("/outcome/feedback", dependencies=[Depends(require_authenticated_memory_principal)])
 async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Request):
     _require_outcome_feedback_control(request)
     try:
@@ -6421,11 +7267,17 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
         "query_hash": receipt["query_hash"][:16],
         "task_archetype": receipt["task_archetype"],
         "policy_label": receipt["policy_label"],
-        "execution_success": bool(receipt["execution_success"]),
-        "validator_result": {"pass": bool(receipt["validator_pass"]), "source": "nexus.orchestrate.receipt"},
+        "execution_success": bool(
+            receipt["user_outcome"] == "accepted" and receipt["validator_pass"]
+        ),
+        "validator_result": {"pass": bool(receipt["validator_pass"]), "source": "causal_outcome_receipt"},
         "latency_ms": int(receipt["latency_ms"]),
-        "user_correction": False,
+        "user_correction": receipt["user_outcome"] == "corrected",
         "recovery_needed": bool(receipt["recovery_needed"]),
+        "executed_levels": list(receipt["executed_levels"]),
+        "selected_levels": list(receipt["selected_levels"]),
+        "output_hash": receipt["output_hash"],
+        "plan_digest": receipt["plan_digest"],
         "execution_id": receipt["execution_id"],
         "receipt_id": receipt["jti"],
         "tenant_id": scope.get("tenant_id"),
@@ -6447,7 +7299,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
                 scope,
                 {
                     "status": "success"
-                    if receipt["execution_success"]
+                    if receipt["user_outcome"] == "accepted"
                     and receipt["validator_pass"]
                     and not receipt["recovery_needed"]
                     else "failure",
@@ -6489,7 +7341,7 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
             _release_outcome_feedback_claim(reservation)
 
 
-@router.get("/orchestrate")
+@router.get("/orchestrate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def orchestrate_query_read_only_guard():
     """Keep legacy route discovery truthful without permitting GET mutations."""
     raise HTTPException(
@@ -6498,15 +7350,26 @@ async def orchestrate_query_read_only_guard():
     )
 
 
-@router.post("/orchestrate")
+@router.post(
+    "/orchestrate",
+    dependencies=[Depends(require_authenticated_memory_principal)],
+    response_model=Union[NexusOrchestrationResponse, NexusCodecProbeResponse],
+)
 async def orchestrate_query(
     query: Optional[str] = None,
     request: Request = None,
     codec_probe: bool = False,
-    payload: Optional[Dict[str, Any]] = Body(default=None),
+    payload: Optional[OrchestrateRequest] = Body(default=None),
 ):
     """Semantic query orchestration with Q&A fastlane option."""
-    body_query = payload.get("query") if payload is not None else None
+    payload_data = (
+        payload.model_dump(exclude_none=True)
+        if payload is not None and hasattr(payload, "model_dump")
+        else payload.dict(exclude_none=True)
+        if payload is not None and hasattr(payload, "dict")
+        else dict(payload or {})
+    )
+    body_query = payload_data.get("query")
     if body_query is not None and not isinstance(body_query, str):
         raise HTTPException(status_code=422, detail="JSON body query must be a string")
     if query is not None and body_query is not None and query != body_query:
@@ -6516,7 +7379,7 @@ async def orchestrate_query(
         raise HTTPException(status_code=422, detail="query is required")
     if len(query) > 1_048_576:
         raise HTTPException(status_code=422, detail="query exceeds maximum length")
-    shadow_query_value = payload.get("private_retrieval_shadow_query") if payload is not None else None
+    shadow_query_value = payload_data.get("private_retrieval_shadow_query")
     if shadow_query_value is not None and not isinstance(shadow_query_value, str):
         raise HTTPException(status_code=422, detail="private_retrieval_shadow_query must be a string")
     private_retrieval_shadow_query = (
@@ -6531,6 +7394,7 @@ async def orchestrate_query(
         request,
         session_hint=requested_session_key,
     )
+    codec_session_key = _principal_codec_session_key(principal)
     continuity_session_key = _principal_continuity_key(principal, session_key)
     principal_scope = principal.storage_metadata
     quota_principal_key = _referent_principal_quota_key(principal)
@@ -6538,6 +7402,8 @@ async def orchestrate_query(
     adaptive_policies = None
     outcome_tuner = None
     started = datetime.utcnow()
+    started_monotonic = time.monotonic()
+    request_deadline_monotonic = started_monotonic + 25.0
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
     tx: Optional[ExecutionTransaction] = None
@@ -6566,7 +7432,7 @@ async def orchestrate_query(
         kernel_trace: Optional[Dict[str, Any]] = None
         kernel_result: Optional[Dict[str, Any]] = None
         codec_context = _codec_context_packet(
-            session_key,
+            codec_session_key,
             query=query,
             tenant_id=principal.tenant_id,
             workspace_id=principal.storage_workspace_id,
@@ -6694,13 +7560,48 @@ async def orchestrate_query(
                 })
             except Exception as exc:
                 adaptive_route.update({"reason": f"adaptive_router_error:{type(exc).__name__}", "error": str(exc)[:160]})
-        world_grounding = gather_live_evidence(
-            query,
-            max_sources=3,
-            notary_packets=1,
-            enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
-        )
+        try:
+            world_grounding = await run_blocking(
+                "nexus.world_grounding",
+                gather_live_evidence,
+                query,
+                max_sources=3,
+                notary_packets=1,
+                enabled=bool(
+                    os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower()
+                    in {"1", "true", "yes", "on"}
+                ),
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=8.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded as exc:
+            world_grounding = {
+                "required": True,
+                "engaged": True,
+                "mode": "live_grounding_timed_out",
+                "evidence": [],
+                "evidence_count": 0,
+                "degraded": True,
+                "error": str(exc),
+            }
+        try:
+            architect_is_healthy = await run_blocking(
+                "nexus.architect_health",
+                _architect_healthy,
+                route_health=adaptive_policies.health,
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=4.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded:
+            architect_is_healthy = False
         latency_plan = adaptive_policies.latency.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
+        oracle_deadline_monotonic = _oracle_semantic_deadline(
+            request,
+            started_monotonic=started_monotonic,
+            latency_plan=latency_plan,
+        )
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
@@ -6785,7 +7686,7 @@ async def orchestrate_query(
                 if lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "kernel_v2"})
             if kernel_intent in {"planning", "coding", "ops"}:
-                if _architect_healthy(route_health=adaptive_policies.health):
+                if architect_is_healthy:
                     if 9 not in [r.get("level") for r in recommended]:
                         recommended.append({"level": 9, "name": "architect", "method": "kernel_v2"})
                 else:
@@ -6831,14 +7732,15 @@ async def orchestrate_query(
             routing_markers["incident_chain"] = ["sentinel", "seer", "council", "diplomat", "chronos"]
             reasoning.append("Incident trigger detected; forcing Sentinel+Seer+Council+Diplomat+Chronos chain.")
             for lvl in [21, 30, 15, 18, 14]:
-                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "incident_forced"})
+                name = "sentinel" if lvl == 21 else LEVEL_MAP[lvl]["name"]
+                recommended.append({"level": lvl, "name": name, "method": "incident_forced"})
         elif architecture_forced:
             routing_method = "l9_chain_forced"
             routing_markers["l9_triggered"] = True
             routing_markers["l9_chain"] = ["architect", "council", "synthesist", "validator"]
             reasoning.append("Architecture trigger detected; forcing L9 Architect chain for design reasoning.")
             for lvl in [9, 15, 32, 34]:
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for architecture-chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -6853,7 +7755,7 @@ async def orchestrate_query(
             routing_markers["l9_chain"] = ["architect"]
             reasoning.append("Coding trigger detected; forcing Lab+Architect+Validator+Forge+Council chain.")
             for lvl in [4, 9, 34, 27, 15]:
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for coding chain resilience.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -7028,9 +7930,11 @@ async def orchestrate_query(
                 if lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "complexity_gate"})
         if complexity_gate.get("l9_triggered"):
+            l9_already_forced = bool(routing_markers.get("l9_triggered"))
             routing_markers["l9_triggered"] = True
-            if _architect_healthy(route_health=adaptive_policies.health):
-                routing_markers["l9_chain"] = ["architect"]
+            if architect_is_healthy:
+                if not l9_already_forced:
+                    routing_markers["l9_chain"] = ["architect"]
                 if 9 not in [r.get("level") for r in recommended]:
                     recommended.append({"level": 9, "name": "architect", "method": "autotune_l9"})
                 reasoning.append("Autotune L9 activation threshold met; adding Architect.")
@@ -7171,11 +8075,27 @@ async def orchestrate_query(
                 reasoning.append("Anytime early-exit confidence gate bypassed semantic oracle call.")
 
         if not semantic_result:
+            provider_timeout = remaining_seconds(
+                request_deadline_monotonic, ceiling=10.0
+            )
+            try:
+                provider_result = await run_blocking(
+                    "nexus.semantic_analysis",
+                    lambda: analyze_intent_with_oracle(
+                        query,
+                        route_health=adaptive_policies.health,
+                        timeout_seconds=provider_timeout,
+                        deadline_monotonic=oracle_deadline_monotonic,
+                    ),
+                    timeout_seconds=provider_timeout,
+                )
+            except BlockingCallDeadlineExceeded as exc:
+                raise HTTPException(status_code=504, detail=str(exc)) from exc
             semantic_result = tx.run_step(
                 "semantic_analysis",
-                lambda: analyze_intent_with_oracle(query, route_health=adaptive_policies.health),
+                lambda: provider_result,
                 retry_policy=RetryPolicy.for_kind("transient_io"),
-                verify=lambda x: isinstance(x, dict),
+                verify=lambda value: isinstance(value, dict),
             )
         semantic_low_signal = not semantic_result.get("intents") or float(semantic_result.get("confidence", 0) or 0) <= 0.05
         if semantic_low_signal:
@@ -7186,7 +8106,7 @@ async def orchestrate_query(
 
         if semantic_result.get("confidence", 0) > 0.3:
             for lvl in semantic_result.get("levels", []):
-                if lvl == 9 and not _architect_healthy(route_health=adaptive_policies.health):
+                if lvl == 9 and not architect_is_healthy:
                     reasoning.append("L9 architect health check failed; substituting L15/L32 for resilient planning.")
                     for fallback_lvl in [15, 32]:
                         if fallback_lvl not in [r.get("level") for r in recommended]:
@@ -7230,30 +8150,6 @@ async def orchestrate_query(
         for lvl in ALWAYS_ON_LEVELS:
             if lvl not in [r["level"] for r in recommended]:
                 recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "always_on": True})
-
-        kernel_online = _fetch_kernel_online_levels()
-        offline_filtered: List[int] = []
-        if kernel_online is not None:
-            filtered = []
-            for item in recommended:
-                lvl = int(item.get("level"))
-                if lvl in kernel_online or item.get("always_on"):
-                    filtered.append(item)
-                else:
-                    offline_filtered.append(lvl)
-            recommended = filtered
-            if offline_filtered:
-                reasoning.append(f"Kernel consistency guard filtered offline levels: {sorted(set(offline_filtered))}")
-
-        hud_parts = []
-        for lvl in recommended[:5]:
-            level_num = lvl.get('level', '?')
-            name = lvl.get('name', 'Unknown').title()
-            hud_parts.append(f"🟢 L{level_num} ({name})")
-        hud_line = " | ".join(hud_parts)
-
-        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'adaptive_router_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
-        workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
 
         try:
             private_retrieval_shadow = submit_private_retrieval_shadow(
@@ -7313,6 +8209,60 @@ async def orchestrate_query(
             recommended.append({"level": 13, "name": "dreamer", "method": "cognitive_policy"})
             reasoning.append("Cognitive policy selected divergent path; ensuring Dreamer participation.")
 
+        # No route mutations occur after this point. Deduplicate once, apply the
+        # live-kernel filter once, then derive every plan/receipt/checkpoint view
+        # from that same immutable selection.
+        recommended = _deduplicate_route_levels(recommended)
+        try:
+            kernel_online = await run_blocking(
+                "nexus.kernel_levels",
+                _fetch_kernel_online_levels,
+                timeout_seconds=remaining_seconds(
+                    request_deadline_monotonic, ceiling=2.0
+                ),
+            )
+        except BlockingCallDeadlineExceeded:
+            kernel_online = None
+        offline_filtered: List[int] = []
+        if kernel_online is not None:
+            filtered = []
+            for item in recommended:
+                lvl = int(item.get("level"))
+                if lvl in kernel_online or item.get("always_on"):
+                    filtered.append(item)
+                else:
+                    offline_filtered.append(lvl)
+            recommended = filtered
+            if offline_filtered:
+                reasoning.append(f"Kernel consistency guard filtered offline levels: {sorted(set(offline_filtered))}")
+
+        final_plan, activation_receipt = _final_route_contract(
+            tx_id=tx_id,
+            routing_method=routing_method,
+            recommended=recommended,
+            routing_markers=routing_markers,
+        )
+        for chain_name, marker_field in {
+            "brainstorm": "brainstorm_chain",
+            "coding": "coding_chain",
+            "incident": "incident_chain",
+            "research": "research_chain",
+            "architecture": "l9_chain",
+            "translation": "translation_chain",
+            "schedule": "schedule_chain",
+            "mediation": "mediation_chain",
+            "forecast": "forecast_chain",
+            "training": "training_chain",
+            "ethics": "ethics_chain",
+        }.items():
+            routing_markers[marker_field] = list(
+                final_plan["selected_chains"].get(chain_name, [])
+            )
+        routing_markers["final_plan"] = final_plan
+        activated = list(activation_receipt["activated_levels"])
+        hud_line = "🟢 L24 (Nexus)"
+        workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
+
         cognitive_slice = {
             "enabled": bool(cognitive_cfg.get("enabled", True)),
             "stage": cognitive_stage["effective_stage"],
@@ -7338,7 +8288,7 @@ async def orchestrate_query(
         )
         referent_reservation = None
         codec_context = _update_codec_context(
-            session_key,
+            codec_session_key,
             query,
             (fastlane.get("answer") if isinstance(fastlane, dict) and isinstance(fastlane.get("answer"), str) else ""),
             routing_method=routing_method,
@@ -7349,9 +8299,9 @@ async def orchestrate_query(
         )
 
         if request is not None:
-            for item in recommended:
-                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "adaptive_router_policy", "autotune_l9", "complexity_gate", "world_grounding"}:
-                    track_level(request, item["level"], item["name"], always_on=False)
+            # Selection is not activation. This handler can prove Nexus itself;
+            # downstream workers must contribute their own result receipts.
+            track_level(request, 24, LEVEL_MAP[24]["name"], always_on=False)
             request.state.routing_method = routing_method
 
         execution_tx = tx.finalize({"recommended_levels": recommended, "routing_method": routing_method}, verify=lambda payload: bool(payload.get("recommended_levels")) and bool(payload.get("routing_method")))
@@ -7403,46 +8353,19 @@ async def orchestrate_query(
             recommended_levels=recommended,
             quality_score=quality_score,
         )
-        if adaptive_observation_allowed:
-            autotune_policy = _scoped_routing_policy_call(
-                adaptive_policies,
-                observe_outcome,
-                routing_method,
-                quality_score,
-                l9_used=bool(routing_markers.get("l9_triggered")),
-                complexity_score=float(complexity_gate.get("score", 0.0)),
-                intent_flags={
-                    "architecture": archetype in {"planning", "complex_general"},
-                    "coding": archetype == "coding",
-                    "incident": archetype == "ops_triage",
-                    "research": archetype == "citation_required",
-                    "training": False,
-                    "ethics": bool(risk_flags),
-                },
-            )
+        # Route completion is not answer quality. Keep the current policy
+        # snapshot unchanged; only complete causal outcome receipts may train.
         observed_policy_label = str((bandit_choice or {}).get("selected_arm") or routing_method)
-        with _PRINCIPAL_OUTCOME_TUNER_LOCK:
-            outcome_artifact = outcome_tuner.observe({
-                "query": query,
-                "task_archetype": archetype,
-                "activated_chain": activated,
-                "policy_label": observed_policy_label,
-                "routing_method": routing_method,
-                "model_used": str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "fallback")),
-                "tools_attempted": tool_path_observability.get("steps", []),
-                "tools_used": [step for step in tool_path_observability.get("steps", []) if step not in {"escalate"}],
-                "latency_ms": elapsed_ms,
-                "retry_count": int(execution_tx.get("step_attempts_total", 0)) - len(execution_tx.get("steps", [])),
-                "validator_result": validator_result,
-                "execution_success": True,
-                "user_correction": False,
-                "recovery_needed": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
-                "assurance_verdict": assurance.get("verdict"),
-                "assurance_reason_codes": assurance.get("reason_codes", []),
-                "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
-                "tenant_id": principal.tenant_id,
-                "storage_workspace_id": principal.storage_workspace_id,
-            }) if adaptive_observation_allowed else {"recorded": False, "reason": "principal_rate_limit"}
+        # A routing response proves selection, not execution of the selected
+        # levels. OutcomeTuner accepts only the separately controlled signed
+        # feedback path after downstream causal evidence is available.
+        outcome_artifact = {
+            "recorded": False,
+            "reason": "downstream_activation_evidence_required",
+            "chain_id": final_plan["chain_id"],
+            "plan_digest": final_plan["plan_digest"],
+            "policy_label": observed_policy_label,
+        }
         codec_execution_artifact = _observe_codec_execution_outcome(
             query=query,
             session_key=continuity_session_key,
@@ -7488,29 +8411,11 @@ async def orchestrate_query(
             if isinstance(codec_execution_artifact, dict)
             else {}
         )
-        receipt_recovery_needed = bool(
-            execution_metrics.get("escalated")
-            or not execution_metrics.get("validator_pass")
-            or not execution_metrics.get("tx_completed")
-            or int(execution_metrics.get("failed_steps", 0) or 0) > 0
-            or int(execution_metrics.get("rollback_count", 0) or 0) > 0
-        )
-        outcome_feedback_receipt = _issue_outcome_feedback_receipt(
+        route_selection_receipt = _issue_route_selection_receipt(
             scope=principal_scope,
             execution_id=tx_id,
             query=query,
-            task_archetype=archetype,
-            policy_label=observed_policy_label,
-            codec_variant=served_codec_variant,
-            validator_pass=bool(validator_result.get("pass")),
-            execution_success=bool(
-                execution_metrics.get("tx_completed")
-                and execution_metrics.get("validator_pass")
-                and not receipt_recovery_needed
-            ),
-            recovery_needed=receipt_recovery_needed,
-            latency_ms=elapsed_ms,
-            outcome_confidence=float(execution_metrics.get("confidence", 0.0) or 0.0),
+            final_plan=final_plan,
         )
 
         return {
@@ -7521,13 +8426,15 @@ async def orchestrate_query(
             "semantic_analysis": semantic_result,
             "routing_method": routing_method,
             "routing_markers": routing_markers,
+            "final_plan": final_plan,
+            "activation_receipt": activation_receipt,
             "workflow_checkpoint": workflow_checkpoint,
             "contract_version": "orchestrate_guard_v3",
             "contract": {
                 "contract_version": "orchestrate_guard_v3",
                 "identity_phrase": "Cortex-first orchestration active",
-                "activation_metadata_available": True,
-                "activation_metadata_source": "router",
+                "activation_metadata_available": False,
+                "activation_metadata_source": "selection_only",
                 "consistency_guard": "kernel_levels_filtered" if kernel_online is not None else "best_effort",
                 "canary_first": True,
                 "assurance_version": assurance.get("version"),
@@ -7555,10 +8462,17 @@ async def orchestrate_query(
             "validator_result": validator_result,
             "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=kernel_result),
             "outcome_feedback": {
-                "receipt": outcome_feedback_receipt["receipt"],
-                "receipt_version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
-                "expires_at": outcome_feedback_receipt["payload"]["expires_at"],
+                "available": False,
+                "reason": "complete_causal_outcome_evidence_required",
+                "required_receipt_version": _OUTCOME_FEEDBACK_RECEIPT_VERSION,
+            },
+            "route_selection_receipt": {
+                "receipt": route_selection_receipt["receipt"],
+                "receipt_version": _ROUTE_SELECTION_RECEIPT_VERSION,
+                "expires_at": route_selection_receipt["payload"]["expires_at"],
                 "execution_id": tx_id,
+                "trainable": False,
+                "plan_digest": final_plan["plan_digest"],
             },
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,
@@ -7569,6 +8483,10 @@ async def orchestrate_query(
             "hud": hud_line,
             "autonomous": True
         }
+    except HTTPException:
+        if tx is not None:
+            tx.rollback()
+        raise
     except ReferentStateQuotaError as e:
         if tx is not None:
             tx.rollback()
@@ -7678,28 +8596,21 @@ async def commit_memory(interaction: InteractionData, request: Request):
         ) from exc
     if prior_result is not None:
         return prior_result
-    recovery_required = False
-    expired_recovery_state_missing = False
-    if receipt_expired:
-        try:
-            receipt_status = assurance_receipt_status(
-                _ASSURANCE_RECEIPT_STATE_PATH,
-                scope=scope,
-                jti=signed_receipt_jti,
-            )
-        except AssuranceReceiptLedgerUnavailable as exc:
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(exc)},
-            ) from exc
-        if receipt_status == "reserved":
-            recovery_required = True
-        else:
-            # A compacted stale reservation can still be reconciled if its
-            # exact JTI-bound L22 outcome exists. Absence is checked read-only
-            # below before deciding that the expired receipt never committed.
-            recovery_required = True
-            expired_recovery_state_missing = True
+    try:
+        receipt_status = assurance_receipt_status(
+            _ASSURANCE_RECEIPT_STATE_PATH,
+            scope=scope,
+            jti=signed_receipt_jti,
+        )
+    except AssuranceReceiptLedgerUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "assurance_receipt_ledger_unavailable", "reason": str(exc)},
+        ) from exc
+    # Recovery reconciles an existing identity; new-write representation limits
+    # must not prevent exact recovery of a prior-version durable record.
+    recovery_required = receipt_status == "reserved" or receipt_expired
+    expired_recovery_state_missing = receipt_expired and receipt_status != "reserved"
 
     server_assurance = _server_commit_assurance(interaction.query, interaction.response)
     risk_flags = list(server_assurance.get("risk_flags") or [])
@@ -7733,6 +8644,55 @@ async def commit_memory(interaction: InteractionData, request: Request):
         for key, value in supplied_metadata.items()
         if str(key) not in _ASSURANCE_RESERVED_METADATA
     }
+    # Pure validation precedes receipt reservation. Storage remains authoritative;
+    # no failed/ambiguous publication receipt is released by this preflight.
+    from cortex_server.routers.l22 import prepare_memory_store_request
+
+    l22_request = dict(
+        content=interaction.response,
+        memory_type="memory",
+        tags=["nexus_commit", "durable_memory"],
+        tenant_id=scope["tenant_id"],
+        workspace_id=scope["storage_workspace_id"],
+        idempotency_key=signed_receipt_jti,
+        metadata={
+            **caller_metadata,
+            "query": interaction.query,
+            "levels_used": _normalized_commit_levels(interaction.levels_used),
+            "source": "nexus.commit",
+            "tenant_id": scope["tenant_id"],
+            "workspace_id": scope["workspace_id"],
+            "storage_workspace_id": scope["storage_workspace_id"],
+            "memory_principal_key": scope["memory_principal_key"],
+            "agent_id": scope["agent_id"],
+            "user_id": scope["user_id"],
+            "channel_id": scope["channel_id"],
+            "session_id": scope["session_id"],
+            "scope_credential_id": scope["scope_credential_id"],
+            "assurance": {
+                "receipt_version": _ASSURANCE_RECEIPT_VERSION,
+                "receipt_id": signed_receipt_jti,
+                "validator_pass": bool(validator_summary.get("pass")),
+                "validator_reason_codes": validator_summary.get("reason_codes", []),
+                "risk_flags": risk_flags,
+                "scope": scope,
+            },
+        },
+    )
+    if not recovery_required:
+        try:
+            prepare_memory_store_request(**l22_request)
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            raise HTTPException(
+                status_code=422, detail={"error": "memory_metadata_not_storable"}
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422, detail={"error": "memory_metadata_not_storable"}
+            ) from exc
+
     route_health = _adaptive_policies_for_scope(scope).health
     receipt_reservation = None
     try:
@@ -7776,30 +8736,6 @@ async def commit_memory(interaction: InteractionData, request: Request):
         try:
             from cortex_server.routers.l22 import lookup_idempotent_memory_record, store_memory_record
 
-            l22_request = dict(
-                content=interaction.response,
-                memory_type="memory",
-                tags=["nexus_commit", "durable_memory"],
-                tenant_id=scope["tenant_id"],
-                workspace_id=scope["storage_workspace_id"],
-                idempotency_key=signed_receipt_jti,
-                metadata={
-                    **caller_metadata,
-                    "query": interaction.query,
-                    "levels_used": _normalized_commit_levels(interaction.levels_used),
-                    "source": "nexus.commit",
-                    "tenant_id": scope["tenant_id"],
-                    "workspace_id": scope["workspace_id"],
-                    "assurance": {
-                        "receipt_version": _ASSURANCE_RECEIPT_VERSION,
-                        "receipt_id": signed_receipt_jti,
-                        "validator_pass": bool(validator_summary.get("pass")),
-                        "validator_reason_codes": validator_summary.get("reason_codes", []),
-                        "risk_flags": risk_flags,
-                        "scope": scope,
-                    },
-                },
-            )
             if recovery_required:
                 durable_write = lookup_idempotent_memory_record(**l22_request)
                 if durable_write is None:
@@ -7824,8 +8760,14 @@ async def commit_memory(interaction: InteractionData, request: Request):
         except HTTPException:
             raise
         except Exception as exc:
-            durable_write = {"status": "write_failed", "error": str(exc)}
-            route_health.record_failure("l22", error=str(exc))
+            # A storage exception can occur after durable publication. Do not
+            # turn an unknown outcome into a certified failed-write release.
+            # Retry must reconcile the exact existing JTI-bound L22 identity.
+            route_health.record_failure("l22", error=type(exc).__name__)
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "assurance_receipt_commit_outcome_unknown"},
+            ) from exc
     else:
         durable_write = {"status": "skipped", "reason": "assurance_gate"}
 
@@ -7884,6 +8826,17 @@ async def commit_memory(interaction: InteractionData, request: Request):
     commit_result = {
         "success": bool(memory_decision.get("eligible")) and durable_write and durable_write.get("status") == "stored",
         "committed": bool(durable_write and durable_write.get("status") == "stored"),
+        "acknowledgement": {
+            "version": _MEMORY_COMMIT_ACK_VERSION,
+            "status": "committed" if durable_status == "stored" else "not_committed",
+            "receipt_id": signed_receipt_jti,
+            "memory_id": (durable_write or {}).get("id"),
+            "idempotent_replay": bool((durable_write or {}).get("idempotent_replay")),
+            "retrieval": {
+                "path": "/knowledge/search",
+                "identifier_field": "id",
+            },
+        },
         "levels": [7, 22],
         "query_preview": interaction.query[:50] if interaction.query else "",
         "durable_write": durable_write,

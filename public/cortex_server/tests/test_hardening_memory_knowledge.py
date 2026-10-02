@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import fcntl
 import json
@@ -5,7 +6,9 @@ import multiprocessing
 import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -25,7 +28,9 @@ from cortex_server.knowledge.graph import (
     NodeType,
     SQLiteStorage,
 )
+from cortex_server.construction import read_only_construction
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
+from cortex_server.modules.bounded_health_probe import SingleFlightHealthProbe
 from cortex_server.modules.prior_art_gate import build_prior_art_gate
 from cortex_server.routers import knowledge, librarian
 from cortex_server.services.knowledge_service import KnowledgeService
@@ -530,6 +535,88 @@ def test_graph_quota_backfills_legacy_rows_and_fails_closed_when_over_limit(
         SQLiteStorage(str(database))
 
 
+def test_graph_quota_treats_legacy_unscoped_rows_as_global_not_one_principal(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "legacy-unscoped.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE nodes (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL,
+                uri TEXT, language TEXT, created_at TEXT, updated_at TEXT,
+                metadata TEXT, tenant_id TEXT, storage_workspace_id TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE edges (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL, weight REAL, context TEXT, metadata TEXT,
+                tenant_id TEXT, storage_workspace_id TEXT,
+                FOREIGN KEY(source_id) REFERENCES nodes(id),
+                FOREIGN KEY(target_id) REFERENCES nodes(id)
+            )
+            """
+        )
+        for node_id in ("legacy-a", "legacy-b", "legacy-c"):
+            connection.execute(
+                "INSERT INTO nodes VALUES (?, 'Function', ?, NULL, NULL, ?, ?, '{}', NULL, NULL)",
+                (node_id, node_id, "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_PRINCIPAL_ROWS", 1)
+    monkeypatch.setattr(graph_module, "MAX_GRAPH_TENANT_ROWS", 2)
+    storage = SQLiteStorage(str(database))
+    assert storage._get_conn().execute(
+        "SELECT COUNT(*) FROM graph_quota_ledger"
+    ).fetchone()[0] == 3
+    status = storage.quota_status()
+    assert status["ledgerComplete"] is True
+    assert status["legacyUnscoped"]["rows"] == 3
+    assert status["topPrincipalScopes"] == []
+    assert status["topTenants"] == []
+
+    scoped = _node("scoped-a").model_copy(
+        update={"tenant_id": "tenant", "storage_workspace_id": "principal"}
+    )
+    storage.insert_node(scoped)
+    with pytest.raises(GraphQuotaError, match="principal workspace row quota"):
+        storage.insert_node(
+            _node("scoped-b").model_copy(
+                update={"tenant_id": "tenant", "storage_workspace_id": "principal"}
+            )
+        )
+
+
+def test_graph_quota_complete_ledger_skips_destructive_rebuild(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "idempotent-ledger.db"
+    first = SQLiteStorage(str(database))
+    first.insert_nodes([_node("a"), _node("b")])
+    assert first.quota_status()["ledgerComplete"] is True
+    first._get_conn().close()
+    first._local.conn = None
+
+    def unexpected_rebuild(cls, connection):  # pragma: no cover - called only on regression
+        raise AssertionError("complete quota ledger must not be rebuilt")
+
+    monkeypatch.setattr(
+        SQLiteStorage,
+        "_reconcile_quota_ledger",
+        classmethod(unexpected_rebuild),
+    )
+    restarted = SQLiteStorage(str(database))
+    status = restarted.quota_status()
+    assert status["status"] == "green"
+    assert status["sourceRows"] == 2
+    assert status["global"]["rows"] == 2
+
+
 def test_batch_edge_insert_is_atomic_and_preserves_unrelated_data(tmp_path):
     storage = SQLiteStorage(str(tmp_path / "graph.db"))
     storage.insert_nodes([_node("a"), _node("b")])
@@ -648,7 +735,7 @@ def test_production_knowledge_identity_binds_marker_database_and_mount_id(
     marker.write_text("replacement-volume\n", encoding="utf-8")
     mismatch = cortex_main._knowledge_volume_identity_check(production=True)
     assert mismatch["ok"] is False
-    assert "identity mismatch" in mismatch["error"]
+    assert mismatch["error"] == "RuntimeError"
 
 
 def test_high_degree_neighbors_are_limited_in_sql_without_per_neighbor_loading(tmp_path):
@@ -922,7 +1009,7 @@ async def test_structural_search_invalid_node_type_preserves_http_422(monkeypatc
     assert exc_info.value.detail == "invalid node_type"
 
 
-def test_failed_fact_supersession_removes_pending_version_and_restores_prior(monkeypatch):
+def test_failed_fact_supersession_keeps_pending_version_and_rolls_forward(monkeypatch):
     fake = FakeCollection()
     fake.add(["old"], ["old fact"], [{"fact_key": "color", "memory_status": "active", "marker": "keep"}])
     monkeypatch.setattr(librarian, "collection", fake)
@@ -937,23 +1024,51 @@ def test_failed_fact_supersession_removes_pending_version_and_restores_prior(mon
         return original_update(ids, metadatas)
 
     monkeypatch.setattr(fake, "update", fail_activation)
-    with pytest.raises(librarian.FactSupersessionError, match="new version was removed"):
+    with pytest.raises(
+        librarian.FactSupersessionError,
+        match="durable recovery is required",
+    ):
         librarian._add_memory_with_supersession("new", "new fact", {"fact_key": "color"})
-    assert set(fake.rows) == {"old"}
-    assert fake.rows["old"]["metadata"] == {"fact_key": "color", "memory_status": "active", "marker": "keep"}
+    assert set(fake.rows) == {"old", "new"}
+    assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["new"]["metadata"]["memory_status"] == "tombstoned"
+    assert fake.rows["new"]["metadata"]["supersession_pending"] is True
+    assert librarian._memory_visible_for_query("", fake.rows["new"]["metadata"]) is False
+
+    monkeypatch.setattr(fake, "update", original_update)
+    librarian._recover_fact_supersessions()
+
+    assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["old"]["metadata"]["superseded_by"] == "new"
+    assert fake.rows["new"]["metadata"]["memory_status"] == "active"
+    assert librarian._memory_visible_for_query("", fake.rows["new"]["metadata"]) is True
+    assert list(librarian._fact_supersession_journal_dir().glob("*.json")) == []
 
 
-def test_compensation_failure_is_reported_without_exposing_new_active_version(monkeypatch):
+def test_failed_retirement_is_reported_without_exposing_pending_version(monkeypatch):
     fake = FakeCollection()
     fake.add(["old"], ["old"], [{"fact_key": "key", "memory_status": "active"}])
     fake.fail_update = True
     fake.fail_delete = True
     monkeypatch.setattr(librarian, "collection", fake)
-    with pytest.raises(librarian.FactSupersessionError, match="compensation failed"):
+    with pytest.raises(
+        librarian.FactSupersessionError,
+        match="durable recovery is required",
+    ):
         librarian._add_memory_with_supersession("new", "new", {"fact_key": "key"})
     assert fake.rows["new"]["metadata"]["memory_status"] == "tombstoned"
     assert fake.rows["new"]["metadata"]["supersession_pending"] is True
     assert fake.rows["old"]["metadata"]["memory_status"] == "active"
+    assert librarian._memory_visible_for_query("", fake.rows["new"]["metadata"]) is False
+
+    fake.fail_update = False
+    fake.fail_delete = False
+    librarian._recover_fact_supersessions()
+
+    assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["new"]["metadata"]["memory_status"] == "active"
+    assert librarian._memory_visible_for_query("", fake.rows["new"]["metadata"]) is True
+    assert list(librarian._fact_supersession_journal_dir().glob("*.json")) == []
 
 
 def test_crash_after_prior_supersession_is_rolled_forward_before_recall(monkeypatch):
@@ -1012,8 +1127,20 @@ def test_journal_persistence_failure_leaves_existing_fact_untouched(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_committed_embed_succeeds_when_journal_cleanup_fails_and_recovers(monkeypatch, caplog):
+    request = librarian.EmbedRequest(text="new", metadata={"fact_key": "key"})
+    principal = librarian._route_memory_principal(request, None)
     fake = FakeCollection()
-    fake.add(["old"], ["old"], [{"fact_key": "key", "memory_status": "active"}])
+    fake.add(
+        ["old"],
+        ["old"],
+        [
+            librarian._normalize_memory_metadata(
+                {**principal.storage_metadata, "fact_key": "key", "memory_status": "active"},
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.storage_workspace_id,
+            )
+        ],
+    )
     monkeypatch.setattr(librarian, "collection", fake)
     remove_journal = librarian._remove_fact_supersession_journal
 
@@ -1022,15 +1149,17 @@ async def test_committed_embed_succeeds_when_journal_cleanup_fails_and_recovers(
 
     monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", fail_cleanup)
     with caplog.at_level("WARNING", logger=librarian.__name__):
-        response = await librarian.embed_memory(
-            librarian.EmbedRequest(text="new", metadata={"fact_key": "key"})
-        )
+        response = await librarian.embed_memory(request)
 
     assert response.status == "stored"
     assert fake.rows[response.id]["metadata"]["memory_status"] == "active"
     assert fake.rows["old"]["metadata"]["memory_status"] == "superseded"
     journal_paths = list(librarian._fact_supersession_journal_dir().glob("*.json"))
-    assert len(journal_paths) == 1
+    assert len(journal_paths) == 2
+    assert {
+        librarian._read_fact_supersession_journal(path).get("operation", "fact_revision")
+        for path in journal_paths
+    } == {"fact_revision", "retire_ids"}
     assert "recovery journal cleanup remains pending" in caplog.text
 
     monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", remove_journal)
@@ -1118,6 +1247,230 @@ async def test_memory_status_is_unavailable_when_persistence_backend_fails(monke
     assert result["status"] == "unavailable"
     assert result["memory_count"] is None
     assert result["canonical_endpoint"] == "/knowledge/status"
+
+
+@pytest.mark.asyncio
+async def test_librarian_principal_stats_never_turn_backend_failure_into_zero(
+    monkeypatch,
+    tmp_path,
+):
+    principal = SimpleNamespace(
+        tenant_id="tenant-stats",
+        storage_workspace_id="workspace-stats",
+        memory_principal_key="principal:" + "e" * 64,
+    )
+
+    class DownCollection:
+        def get(self, **_kwargs):
+            raise RuntimeError("synthetic collection outage")
+
+    monkeypatch.setattr(librarian, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(librarian, "collection", DownCollection())
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: True)
+
+    result = await librarian.memory_stats(object())
+
+    assert result["success"] is False
+    assert result["status"] == "degraded"
+    assert result["total_memories"] is None
+    assert result["active_memories"] is None
+    assert result["lifecycle"] is None
+    assert result["semantic_store_available"] is False
+    assert result["fallback_persistence_available"] is True
+
+
+@pytest.mark.asyncio
+async def test_librarian_principal_stats_rejects_malformed_empty_backend_response(
+    monkeypatch,
+    tmp_path,
+):
+    principal = SimpleNamespace(
+        tenant_id="tenant-stats",
+        storage_workspace_id="workspace-stats",
+        memory_principal_key="principal:" + "f" * 64,
+    )
+
+    class MalformedCollection:
+        def get(self, **_kwargs):
+            # A transport/backend shim returning an empty object is not proof
+            # that this principal really has zero memories.
+            return {}
+
+    monkeypatch.setattr(librarian, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(librarian, "collection", MalformedCollection())
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: False)
+
+    result = await librarian.memory_stats(object())
+
+    assert result["success"] is False
+    assert result["status"] == "unavailable"
+    assert result["total_memories"] is None
+    assert result["active_memories"] is None
+    assert result["lifecycle"] is None
+    assert result["semantic_store_available"] is False
+
+
+def test_agg_f059_principal_health_scan_has_a_hard_row_bound(monkeypatch):
+    calls = []
+    principal = SimpleNamespace(memory_principal_key="principal-health-key")
+
+    class OversizedCollection:
+        def get(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                    for _ in range(4)
+                ]
+            }
+
+    monkeypatch.setattr(knowledge, "collection", OversizedCollection())
+    monkeypatch.setattr(knowledge, "HEALTH_PRINCIPAL_SCAN_MAX_ROWS", 3)
+
+    probe = knowledge._principal_semantic_memory_probe(principal)
+
+    assert calls == [
+        {
+            "where": {"memory_principal_key": principal.memory_principal_key},
+            "include": ["metadatas"],
+            "limit": 4,
+        }
+    ]
+    assert probe["available"] is True
+    assert probe["count"] == 3
+    assert probe["countIsLowerBound"] is True
+    assert probe["scanLimit"] == 3
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_knowledge_status_timeout_is_off_loop_and_single_flight(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="principal-slow-health")
+    release = threading.Event()
+    calls = []
+    tick_observed = []
+
+    def slow_payload(_principal):
+        calls.append(threading.current_thread().name)
+        release.wait(timeout=0.25)
+        return {"success": True, "status": "active"}
+
+    monkeypatch.setattr(
+        knowledge,
+        "_authenticated_memory_principal_scope",
+        lambda *_args, **_kwargs: principal,
+    )
+    monkeypatch.setattr(knowledge, "_knowledge_status_payload", slow_payload)
+    monkeypatch.setattr(
+        knowledge,
+        "_KNOWLEDGE_STATUS_PROBE",
+        SingleFlightHealthProbe("knowledge-status-test"),
+    )
+    monkeypatch.setenv("CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS", "0.03")
+
+    started = time.perf_counter()
+
+    async def event_loop_tick():
+        await asyncio.sleep(0.005)
+        tick_observed.append(time.perf_counter() - started)
+
+    first, _ = await asyncio.gather(knowledge.knowledge_status(), event_loop_tick())
+    second = await knowledge.knowledge_status()
+    release.set()
+    await asyncio.sleep(0.03)
+
+    assert first["probe_status"] == "timeout"
+    assert second["probe_status"] == "timeout"
+    assert tick_observed and tick_observed[0] < 0.1
+    assert len(calls) == 1
+    assert calls[0].startswith("cortex-health-probe")
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_principal_memory_health_runs_off_event_loop(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="principal-memory-health")
+    worker_threads = []
+
+    def payload(_principal):
+        worker_threads.append(threading.current_thread().name)
+        return {"success": True, "ok": True, "status": "principal_scoped"}
+
+    monkeypatch.setattr(
+        knowledge,
+        "_authenticated_memory_principal_scope",
+        lambda *_args, **_kwargs: principal,
+    )
+    monkeypatch.setattr(knowledge, "_principal_memory_health_payload", payload)
+    monkeypatch.setattr(
+        knowledge,
+        "_KNOWLEDGE_MEMORY_HEALTH_PROBE",
+        SingleFlightHealthProbe("knowledge-memory-health-test"),
+    )
+
+    result = await knowledge.memory_health()
+
+    assert result["success"] is True, result
+    assert len(worker_threads) == 1
+    assert worker_threads[0].startswith("cortex-health-probe")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("semantic_fails", "structured_fails", "expected_status", "expected_success"),
+    [
+        (False, False, "active", True),
+        (True, False, "degraded", False),
+        (False, True, "degraded", False),
+        (True, True, "unavailable", False),
+    ],
+)
+async def test_l22_status_derives_truth_from_each_required_backend(
+    monkeypatch,
+    semantic_fails,
+    structured_fails,
+    expected_status,
+    expected_success,
+):
+    from cortex_server.routers import l22
+
+    principal = AuthenticatedMemoryPrincipal(
+        credential_id="test",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        agent_id="agent-a",
+        user_id="user-a",
+        channel_id="channel-a",
+        session_id="session-a",
+    )
+
+    class SemanticBackend:
+        def get(self, **_kwargs):
+            if semantic_fails:
+                raise RuntimeError("sensitive semantic backend detail")
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                ]
+            }
+
+    def structured_count(**_kwargs):
+        if structured_fails:
+            raise RuntimeError("sensitive structured backend detail")
+        return 2
+
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "collection", SemanticBackend())
+    monkeypatch.setattr(l22, "count_structured_memory_records", structured_count)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+
+    result = await l22.l22_status(object())
+
+    assert result["status"] == expected_status
+    assert result["success"] is expected_success
+    assert result["checks"]["semantic_memory"]["ok"] is not semantic_fails
+    assert result["checks"]["structured_memory"]["ok"] is not structured_fails
+    assert "sensitive" not in json.dumps(result)
 
 
 @pytest.mark.asyncio
@@ -1333,8 +1686,11 @@ def test_external_memory_scope_requires_authenticated_signature(monkeypatch):
 def test_production_memory_path_never_silently_falls_back_to_home(monkeypatch):
     monkeypatch.setenv("CORTEX_ENV", "production")
     monkeypatch.delenv("CORTEX_CHROMA_DIR", raising=False)
-    with pytest.raises(RuntimeError, match="required"):
-        librarian._default_chroma_dir()
+    # The path resolver is intentionally inert outside an explicit runtime
+    # construction boundary so schema inventory cannot touch persistence.
+    with read_only_construction(False):
+        with pytest.raises(RuntimeError, match="required"):
+            librarian._default_chroma_dir()
 
 
 def test_production_memory_path_verifies_durable_mount_identity(monkeypatch, tmp_path):
@@ -1458,3 +1814,370 @@ def test_production_memory_readiness_fails_closed_after_authority_loss(monkeypat
     assert lost["ok"] is False
     assert "authority database is missing" in lost["error"]
     assert not database.exists()
+
+
+def test_recovered_active_metadata_clears_transient_tombstone_fields():
+    class MergeCollection:
+        def __init__(self, metadata):
+            self.metadata = librarian.prepare_memory_metadata_for_storage(metadata)
+
+        def get(self, ids, include):
+            return {"ids": list(ids), "metadatas": [copy.deepcopy(self.metadata)]}
+
+        def update(self, ids, metadatas):
+            for key, value in metadatas[0].items():
+                if value is None:
+                    self.metadata.pop(key, None)
+                else:
+                    self.metadata[key] = value
+
+    pending = librarian._supersession_recovery_metadata(
+        {"fact_key": "synthetic:color", "memory_status": "active"},
+        stage="pending",
+    )
+    pending.update({
+        "superseded": True,
+        "superseded_by": "stale-row",
+        "superseded_at": "2026-01-01T00:00:00Z",
+        "supersession_reason": "stale recovery metadata",
+    })
+
+    active = librarian._supersession_recovery_metadata(pending, stage="active")
+
+    assert active["memory_status"] == "active"
+    assert librarian._ACTIVE_LIFECYCLE_STALE_FIELDS.isdisjoint(active)
+
+    stored = MergeCollection(pending)
+    librarian._dispatch_memory_storage(
+        stored,
+        "update",
+        (),
+        {"ids": ["synthetic-row"], "metadatas": [active]},
+    )
+    decoded = librarian._decode_memory_metadata_from_storage(stored.metadata)
+    assert decoded["memory_status"] == "active"
+    assert librarian._ACTIVE_LIFECYCLE_STALE_FIELDS.isdisjoint(decoded)
+
+
+def test_supersession_recovery_never_crosses_principal_namespace(monkeypatch, tmp_path):
+    fake = FakeCollection()
+    tenant = "tenant-shared"
+    workspace = "principal-shared"
+    principal_a = "principal:" + "a" * 64
+    principal_b = "principal:" + "b" * 64
+    common = {"fact_key": "synthetic:color", "memory_status": "active"}
+    fake.add(
+        ["a-old", "b-current"],
+        ["synthetic A old", "synthetic B current"],
+        [
+            librarian._normalize_memory_metadata(
+                {**common, "memory_principal_key": principal_a},
+                tenant_id=tenant,
+                workspace_id=workspace,
+            ),
+            librarian._normalize_memory_metadata(
+                {**common, "memory_principal_key": principal_b},
+                tenant_id=tenant,
+                workspace_id=workspace,
+            ),
+        ],
+    )
+    monkeypatch.setattr(librarian, "collection", fake)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    librarian._persist_fallback_memory(
+        "a-fallback-old",
+        "synthetic A fallback old",
+        librarian._normalize_memory_metadata(
+            {**common, "memory_principal_key": principal_a},
+            tenant_id=tenant,
+            workspace_id=workspace,
+        ),
+        reason="offline",
+        mode="embed",
+    )
+    librarian._persist_fallback_memory(
+        "b-fallback-current",
+        "synthetic B fallback current",
+        librarian._normalize_memory_metadata(
+            {**common, "memory_principal_key": principal_b},
+            tenant_id=tenant,
+            workspace_id=workspace,
+        ),
+        reason="offline",
+        mode="embed",
+    )
+    librarian._write_fact_supersession_journal({
+        "version": 1,
+        "transaction_id": "principal-recovery",
+        "fact_key": "synthetic:color",
+        "memory_id": "a-new",
+        "text": "synthetic A corrected",
+        "metadata": librarian._normalize_memory_metadata(
+            {**common, "memory_principal_key": principal_a},
+            tenant_id=tenant,
+            workspace_id=workspace,
+        ),
+        "created_at": librarian._utc_iso(),
+        "tenant_id": tenant,
+        "workspace_id": workspace,
+    })
+
+    librarian._recover_fact_supersessions()
+
+    assert fake.rows["a-old"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["a-new"]["metadata"]["memory_status"] == "active"
+    assert fake.rows["a-new"]["metadata"]["memory_principal_key"] == principal_a
+    assert "tombstoned" not in fake.rows["a-new"]["metadata"]
+    assert "supersession_pending" not in fake.rows["a-new"]["metadata"]
+    assert fake.rows["b-current"]["metadata"]["memory_status"] == "active"
+    assert librarian._read_fallback_rows(
+        limit=20,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal_a,
+    ) == []
+    fallback_b = librarian._read_fallback_rows(
+        limit=20,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal_b,
+    )
+    assert [row["id"] for row in fallback_b] == ["b-fallback-current"]
+    markers = [
+        row
+        for row in librarian._raw_fallback_rows(limit=20)
+        if row.get("kind") == "fact_supersession"
+    ]
+    assert [row["memory_principal_key"] for row in markers] == [principal_a]
+
+
+def test_manual_supersession_never_crosses_principal_namespace(monkeypatch, tmp_path):
+    from cortex_server.routers import l22
+
+    class ScopeIgnoringCollection(FakeCollection):
+        def get(self, ids=None, where=None, include=None, **_kwargs):
+            # Model a backend/filter regression so the application-level scope
+            # check remains a required defense in depth.
+            return super().get(ids=ids, where=None, include=include)
+
+    fake = ScopeIgnoringCollection()
+    tenant = "tenant-shared"
+    workspace = "workspace-shared"
+    principal_a = "principal:" + "a" * 64
+    principal_b = "principal:" + "b" * 64
+    fake.add(
+        ["a-current", "b-current"],
+        ["synthetic A", "synthetic B"],
+        [
+            librarian._normalize_memory_metadata(
+                {"memory_principal_key": principal_a},
+                tenant_id=tenant,
+                workspace_id=workspace,
+            ),
+            librarian._normalize_memory_metadata(
+                {"memory_principal_key": principal_b},
+                tenant_id=tenant,
+                workspace_id=workspace,
+            ),
+        ],
+    )
+    monkeypatch.setattr(librarian, "collection", fake)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    monkeypatch.setattr(
+        l22,
+        "run_l22_quota_controlled_side_effect",
+        lambda **kwargs: kwargs["publish"](),
+    )
+
+    result = librarian.supersede_memory_records(
+        ["a-current", "b-current"],
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal_a,
+    )
+
+    assert result["ids"] == ["a-current"]
+    assert result["missing"] == ["b-current"]
+    assert fake.rows["a-current"]["metadata"]["memory_status"] == "superseded"
+    assert fake.rows["b-current"]["metadata"]["memory_status"] == "active"
+
+
+def test_supersede_reports_primary_lookup_failure_instead_of_fake_missing(monkeypatch, tmp_path):
+    class DownCollection:
+        def get(self, **_kwargs):
+            raise RuntimeError("synthetic collection outage")
+
+    monkeypatch.setattr(librarian, "collection", DownCollection())
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "empty-fallback.jsonl")
+
+    with pytest.raises(librarian.FactSupersessionError, match="lookup"):
+        librarian.supersede_memory_records(
+            ["synthetic-memory-id"],
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+            memory_principal_key="principal:" + "c" * 64,
+        )
+
+
+@pytest.mark.asyncio
+async def test_supersede_route_reports_backend_lookup_failure_as_unavailable(
+    monkeypatch,
+    tmp_path,
+):
+    class DownCollection:
+        def get(self, **_kwargs):
+            raise RuntimeError("synthetic collection outage")
+
+    monkeypatch.setattr(librarian, "collection", DownCollection())
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "empty-fallback.jsonl")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await librarian.supersede_memory(
+            librarian.SupersedeRequest(memory_ids=["synthetic-memory-id"])
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "lookup" in str(exc_info.value.detail)
+
+
+def test_supersede_accounts_for_fallback_only_and_cross_store_records_once(
+    monkeypatch,
+    tmp_path,
+):
+    from cortex_server.routers import l22
+
+    fake = FakeCollection()
+    tenant = "tenant-accounting"
+    workspace = "workspace-accounting"
+    principal = "principal:" + "d" * 64
+    metadata = librarian._normalize_memory_metadata(
+        {"memory_principal_key": principal, "memory_status": "active"},
+        tenant_id=tenant,
+        workspace_id=workspace,
+    )
+    fake.add(["both-stores"], ["primary copy"], [metadata])
+    monkeypatch.setattr(librarian, "collection", fake)
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    monkeypatch.setattr(
+        l22,
+        "run_l22_quota_controlled_side_effect",
+        lambda **kwargs: kwargs["publish"](),
+    )
+    librarian._persist_fallback_memory(
+        "fallback-only",
+        "fallback-only copy",
+        metadata,
+        reason="synthetic outage",
+        mode="embed",
+    )
+    librarian._persist_fallback_memory(
+        "both-stores",
+        "fallback copy",
+        metadata,
+        reason="synthetic retry",
+        mode="embed",
+    )
+
+    result = librarian.supersede_memory_records(
+        ["fallback-only", "both-stores", "missing"],
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal,
+    )
+
+    assert result == {
+        "updated": 2,
+        "ids": ["fallback-only", "both-stores"],
+        "missing": ["missing"],
+        "primary_updated": 1,
+        "fallback_updated": 2,
+        "superseded_by": None,
+    }
+    assert fake.rows["both-stores"]["metadata"]["memory_status"] == "superseded"
+    assert librarian._read_fallback_rows(
+        limit=20,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal,
+    ) == []
+    historical = librarian._read_fallback_rows(
+        limit=20,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=principal,
+        include_historical=True,
+    )
+    assert {row["id"] for row in historical} == {"fallback-only", "both-stores"}
+    assert all(row["metadata"]["memory_status"] == "superseded" for row in historical)
+
+
+def test_strict_fallback_lifecycle_read_rejects_corrupt_rows(monkeypatch, tmp_path):
+    fallback_path = tmp_path / "fallback.jsonl"
+    fallback_path.write_text(
+        '{"kind":"memory","id":"valid","metadata":{}}\nnot-json\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", fallback_path)
+
+    with pytest.raises(
+        librarian.FallbackPersistenceError,
+        match="invalid row",
+    ):
+        librarian._read_fallback_rows(limit=20, _strict=True)
+
+    assert [row["id"] for row in librarian._raw_fallback_rows(limit=20)] == [
+        "valid"
+    ]
+
+
+def test_inactive_exact_hit_falls_through_to_active_correction(monkeypatch):
+    class CorrectionCollection:
+        def get(self, **kwargs):
+            if kwargs.get("where_document"):
+                return {
+                    "ids": ["old"],
+                    "documents": ["Synthetic project color was blue."],
+                    "metadatas": [{"memory_status": "superseded", "fact_key": "synthetic:color"}],
+                }
+            return {
+                "ids": ["new"],
+                "documents": ["Synthetic project color is green."],
+                "metadatas": [{"memory_status": "active", "fact_key": "synthetic:color"}],
+            }
+
+        def query(self, **_kwargs):
+            return {
+                "ids": [["new"]],
+                "documents": [["Synthetic project color is green."]],
+                "distances": [[0.1]],
+                "metadatas": [[{"memory_status": "active", "fact_key": "synthetic:color"}]],
+            }
+
+    monkeypatch.setattr(librarian, "collection", CorrectionCollection())
+
+    result = librarian.robust_search("Synthetic project color was blue.", n_results=3)
+
+    assert [row["id"] for row in result["results"]] == ["new"]
+    assert result["available"] is True
+
+
+def test_novelty_search_hides_inactive_rows_for_current_queries(monkeypatch):
+    class NoveltyCollection:
+        def query(self, **_kwargs):
+            return {
+                "ids": [["old", "new"]],
+                "documents": [["synthetic old value", "synthetic current value"]],
+                "distances": [[0.01, 0.2]],
+                "metadatas": [[
+                    {"memory_status": "tombstoned", "novelty_score": 1.0},
+                    {"memory_status": "active", "novelty_score": 0.8},
+                ]],
+            }
+
+    monkeypatch.setattr(librarian, "collection", NoveltyCollection())
+
+    current = librarian.search_with_novelty("current synthetic value", n_results=5)
+    historical = librarian.search_with_novelty("historical synthetic value", n_results=5)
+
+    assert [row["id"] for row in current["results"]] == ["new"]
+    assert {row["id"] for row in historical["results"]} == {"old", "new"}

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from cortex_server.runtime.agent_work_dsl import AgentWorkPermissions, AgentWorkSurface, CortexAgentWorkHandoff
 from cortex_server.modules.reasoning_kernel import (
@@ -12,6 +12,7 @@ from cortex_server.modules.reasoning_kernel import (
     VerificationSpec,
     model_dump_compat,
 )
+from cortex_server.modules.reasoning_retry_policy import validate_retry_metadata
 
 
 PlanFailureMode = Literal["halt", "continue", "retry", "compensate"]
@@ -32,6 +33,12 @@ class PlanNode(BaseModel):
     failure_mode: PlanFailureMode = "halt"
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        validate_retry_metadata(value)
+        return value
+
 
 class ReasoningPlanGraph(BaseModel):
     version: str = "cortex.reasoning.plan.v1"
@@ -42,6 +49,15 @@ class ReasoningPlanGraph(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     success_criteria: List[str] = Field(default_factory=list)
     constraints: List[str] = Field(default_factory=list)
+
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        validate_retry_metadata(value)
+        policy = value.get("policy") if isinstance(value.get("policy"), dict) else {}
+        settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
+        validate_retry_metadata(settings)
+        return value
 
 
 class PlanGraphSummary(BaseModel):

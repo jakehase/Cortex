@@ -13,6 +13,8 @@ CORTEX_PATHS=(
   "plugins/cortex-route-gate"
   "plugins/cortex-memory-bridge"
   "plugins/cortex-browser-bridge"
+  "plugins/cortex-principal-identity.mjs"
+  "plugins/cortex-principal-parity.test.mjs"
   "scripts/cortex-upgrade-selftest.mjs"
   "scripts/cortex-capability-preflight.mjs"
   "scripts/cortex-capability-probe.mjs"

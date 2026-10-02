@@ -33,10 +33,12 @@ import httpx
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter(tags=["augmenter"])
 
-SENTINEL_WATCH_URL = 'http://127.0.0.1:8888/sentinel/watch'
-SENTINEL_SCAN_URL = 'http://127.0.0.1:8888/sentinel/scan'
+SENTINEL_WATCH_URL = internal_url("/sentinel/watch")
+SENTINEL_SCAN_URL = internal_url("/sentinel/scan")
 
 BRIDGE_DELEGATION_ENABLED = os.getenv('BRIDGE_DELEGATION_ENABLED','false').lower() in ('1','true','yes')
 BRIDGE_TOKEN = os.getenv('BRIDGE_TOKEN','')
@@ -132,9 +134,9 @@ _OPS_RISK_MARKERS = re.compile(
 async def _sentinel_preflight_ops() -> Dict[str, Any]:
     """Run a fast Sentinel preflight for ops/deploy prompts."""
     targets = [
-        'http://127.0.0.1:8888/health',
-        'http://127.0.0.1:8888/oracle/status',
-        'http://127.0.0.1:8888/augmenter/status',
+        internal_url("/health"),
+        internal_url("/oracle/status"),
+        internal_url("/augmenter/status"),
     ]
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
@@ -153,7 +155,7 @@ async def _sentinel_preflight_ops() -> Dict[str, Any]:
 
 
 async def _bridge_relay(connection_id: str, query: str) -> Dict[str, Any]:
-    url = 'http://127.0.0.1:8888/bridge/relay'
+    url = internal_url("/bridge/relay")
     headers = {'x-bridge-token': BRIDGE_TOKEN} if BRIDGE_TOKEN else {}
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(url, json={'connection_id': connection_id, 'query': query, 'timeout_seconds': 8.0}, headers=headers)
@@ -174,7 +176,7 @@ def _wants_deep_sim(prompt: str, payload: Dict[str, Any]) -> bool:
 
 
 async def _call_simulator(scenario: str, mode: str, timeout_s: float) -> Dict[str, Any]:
-    url = 'http://127.0.0.1:8888/simulator/run'
+    url = internal_url("/simulator/run")
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         r = await client.post(url, json={'scenario': scenario, 'mode': mode})
         r.raise_for_status()
@@ -354,7 +356,7 @@ async def _call_oracle(
     *,
     headers: Optional[Dict[str, str]] = None,
 ) -> str:
-    url = "http://127.0.0.1:8888/oracle/chat"
+    url = internal_url("/oracle/chat")
     payload = {"prompt": prompt, "response_mode": response_mode, "priority": priority}
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         r = await client.post(
@@ -397,7 +399,7 @@ async def _call_oracle_with_retry(
 async def _oracle_ready() -> bool:
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
-            r = await client.get("http://127.0.0.1:8888/oracle/status")
+            r = await client.get(internal_url("/oracle/status"))
             return r.status_code == 200
     except Exception:
         return False

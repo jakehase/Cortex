@@ -1,3 +1,0 @@
-import { buildSenderReputationSnapshot, createSenderReputationChecklist } from '../service-sender-reputation.mjs';
-
-export function createSenderReputationOpsRoutes(basePath='/ops/sender-reputation'){const snapshot=buildSenderReputationSnapshot(); return [{id:'sender-reputation.ops.health',method:'GET',path:basePath+'/health',checklist:createSenderReputationChecklist(snapshot)},{id:'sender-reputation.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'sender-reputation.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

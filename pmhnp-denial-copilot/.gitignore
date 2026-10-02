@@ -1,5 +1,0 @@
-state/
-backups/
-.env
-.env.*
-!.env.production.example

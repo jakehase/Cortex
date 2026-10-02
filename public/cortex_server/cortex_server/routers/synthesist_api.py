@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
+from cortex_server.modules.provider_result import provider_result_fields
+
 router = APIRouter()
 
 _seen_insight_types: Dict[str, datetime] = {}
@@ -79,6 +81,14 @@ async def run_synthesis(request: Optional[SynthesizeRequest] = None):
             'levels_contributing': int(result.get('levels_contributing', 0)) if isinstance(result, dict) else 0,
             'insights': insights,
             **(result if isinstance(result, dict) else {}),
+            **provider_result_fields(
+                origin="heuristic",
+                provider_invoked=False,
+                provider=None,
+                degraded=False,
+                repair_applied=False,
+                validated_evidence=["local_level_knowledge", "local_cross_references"],
+            ),
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f'Synthesis failed: {exc}')

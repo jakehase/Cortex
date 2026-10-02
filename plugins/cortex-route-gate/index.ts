@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { deriveCortexPrincipal } from '../cortex-principal-identity.mjs';
 
-type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
-type LiveRouteLevel = RouteLevel & { always_on?: boolean };
+type RouteLevelOrigin = 'provider' | 'local_mandatory' | 'local_governor' | 'cache';
+type RouteLevelFields = { level: number; name?: string; reason?: string; method?: string; score?: number };
+type RouteLevel = RouteLevelFields & { alwaysOn?: boolean; origin?: RouteLevelOrigin };
+type LiveRouteLevel = RouteLevelFields & { always_on?: boolean };
 type RoutePlan = {
   recommendedLevels: RouteLevel[];
   routingMethod?: string;
@@ -44,7 +47,7 @@ type PromptHistoryEntry = {
   createdAt: string;
   promptFingerprint: string;
   taskClass: string;
-  tokens: string[];
+  tokenDigests: string[];
 };
 
 type CreativityAudit = {
@@ -57,12 +60,21 @@ type CreativityAudit = {
   retryRecommended: boolean;
 };
 
+type CreativityRetryMetadata = {
+  auditedAt: string;
+  passed: boolean;
+  overlapCount: number;
+  overlapDigest: string;
+  overlapRatio: number;
+  itemCount: number;
+  reasons: string[];
+  retryRecommended: boolean;
+};
+
 type PendingCreativitySuppression = {
   deliveryKey: string;
   expectedOutputFingerprint: string;
   createdAt: number;
-  retryPrompt: string;
-  sessionKey: string;
 };
 
 type LastGoodRoutePlan = {
@@ -71,6 +83,11 @@ type LastGoodRoutePlan = {
   scopeTag: string;
   plan: RoutePlan;
   tag: string;
+};
+
+type RecentLiveRoutePlan = {
+  savedAtMs: number;
+  plan: RoutePlan;
 };
 
 type PrincipalStatePaths = {
@@ -101,8 +118,10 @@ type PrivateRetrievalShadowMarker = {
 
 const ALLOWED_CORTEX_LEVELS = new Set(Array.from({ length: 38 }, (_, index) => index + 1));
 const ROUTE_PLAN_KEYS = new Set(['recommendedLevels', 'routingMethod', 'reasoning', 'routingError', 'routingMarkers', 'workflowCheckpoint']);
-const ROUTE_LEVEL_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
-const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_KEYS, 'always_on']);
+const ROUTE_LEVEL_FIELD_KEYS = new Set(['level', 'name', 'reason', 'method', 'score']);
+const ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'alwaysOn', 'origin']);
+const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'always_on']);
+const ROUTE_LEVEL_ORIGINS = new Set<RouteLevelOrigin>(['provider', 'local_mandatory', 'local_governor', 'cache']);
 const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,18 +155,23 @@ function isWorkflowCheckpoint(value: unknown): boolean {
   return Array.isArray(value.levels) && value.levels.length <= 38
     && value.levels.every((level) => Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level as number));
 }
-function isRouteLevel(value: unknown): value is RouteLevel {
-  if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_LEVEL_KEYS)) return false;
+function isRouteLevelFields(value: unknown, allowedKeys: Set<string>): boolean {
+  if (!isRecord(value) || !hasOnlyKeys(value, allowedKeys)) return false;
   if (!Number.isInteger(value.level) || !ALLOWED_CORTEX_LEVELS.has(value.level as number)) return false;
   for (const field of ['name', 'reason', 'method'] as const) {
     if (value[field] !== undefined && !isBoundedString(value[field], 4_096)) return false;
   }
   return value.score === undefined || (typeof value.score === 'number' && Number.isFinite(value.score) && value.score >= 0 && value.score <= 1);
 }
+function isRouteLevel(value: unknown): value is RouteLevel {
+  if (!isRecord(value) || !isRouteLevelFields(value, ROUTE_LEVEL_KEYS)) return false;
+  if (value.alwaysOn !== undefined && typeof value.alwaysOn !== 'boolean') return false;
+  return value.origin === undefined || (typeof value.origin === 'string' && ROUTE_LEVEL_ORIGINS.has(value.origin as RouteLevelOrigin));
+}
 function isLiveRouteLevel(value: unknown): value is LiveRouteLevel {
   if (!isRecord(value) || !hasOnlyKeys(value, LIVE_ROUTE_LEVEL_KEYS)) return false;
   const { always_on: alwaysOn, ...routeLevel } = value;
-  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevel(routeLevel);
+  return (alwaysOn === undefined || typeof alwaysOn === 'boolean') && isRouteLevelFields(routeLevel, ROUTE_LEVEL_FIELD_KEYS);
 }
 function isRoutePlan(value: unknown): value is RoutePlan {
   if (!isRecord(value) || !hasOnlyKeys(value, ROUTE_PLAN_KEYS)) return false;
@@ -191,13 +215,34 @@ function verifyRouteCache(cache: unknown, secret: string | null): cache is LastG
   const expected = Buffer.from(signRouteCache(cache, secret), 'hex');
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
 }
+// Pydantic's public Nexus response emits null for absent optional fields.
+// Omit only those declared optional fields before the existing strict validator.
+// Required values, unknown keys, level bounds and policy metadata remain intact.
+function normalizeLiveRoutePayload(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const out = { ...value };
+  const field = Object.prototype.hasOwnProperty.call(out, 'recommended_levels') ? 'recommended_levels' : 'recommended';
+  if (Array.isArray(out[field])) out[field] = out[field].map((row: unknown) => {
+    if (!isRecord(row)) return row;
+    const level = { ...row };
+    for (const name of ['name', 'reason', 'method', 'score', 'always_on']) {
+      if (level[name] === null) delete level[name];
+    }
+    return level;
+  });
+  if (out.workflow_checkpoint === null) delete out.workflow_checkpoint;
+  return out;
+}
+
 function liveRouteLevels(value: unknown): LiveRouteLevel[] | null {
   if (!isRecord(value)) return null;
   const levels = value.recommended_levels ?? value.recommended;
   if (!Array.isArray(levels) || levels.length < 1 || levels.length > 64 || !levels.every(isLiveRouteLevel)) return null;
-  if (value.routing_method !== undefined && !isBoundedString(value.routing_method, 1_024)) return null;
-  if (value.reasoning !== undefined && (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item)))) return null;
-  if (value.routing_markers !== undefined && (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers))) return null;
+  if (value.success !== true) return null;
+  if (!isBoundedString(value.routing_method, 1_024, false)) return null;
+  if (!Array.isArray(value.reasoning) || value.reasoning.length > 128 || !value.reasoning.every((item) => isBoundedString(item))) return null;
+  if (!isRecord(value.routing_markers) || !isJsonMetadata(value.routing_markers)) return null;
+  if (!isRecord(value.contract) || !isJsonMetadata(value.contract)) return null;
   if (value.workflow_checkpoint !== undefined && !isWorkflowCheckpoint(value.workflow_checkpoint)) return null;
   return levels;
 }
@@ -215,8 +260,54 @@ type RunState = {
   selfModel?: CapabilitySelfModel;
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
-  creativityAudit?: CreativityAudit;
+  creativityAudit?: CreativityAudit | CreativityRetryMetadata;
   statePaths: PrincipalStatePaths;
+};
+
+type RouteOutcomeReceipt = {
+  schemaVersion: 'cortex.route-gate.outcome.v1';
+  promptSha256: string;
+  runCompleted: boolean;
+  outputObserved: boolean;
+  userOutcome: 'accepted' | 'corrected' | 'failed';
+  executedLevels: number[];
+};
+
+function verifiedRouteOutcomeReceipt(value: unknown, runState: RunState, observedRunCompleted: boolean): RouteOutcomeReceipt | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, new Set(['schemaVersion', 'promptSha256', 'runCompleted', 'outputObserved', 'userOutcome', 'executedLevels']))) return null;
+  if (value.schemaVersion !== 'cortex.route-gate.outcome.v1') return null;
+  if (typeof value.promptSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.promptSha256) || value.promptSha256 !== runState.promptFingerprint) return null;
+  if (typeof value.runCompleted !== 'boolean' || value.runCompleted !== observedRunCompleted) return null;
+  if (typeof value.outputObserved !== 'boolean' || value.outputObserved !== runState.outputObserved) return null;
+  if (!['accepted', 'corrected', 'failed'].includes(String(value.userOutcome || ''))) return null;
+  if ((value.userOutcome === 'accepted' || value.userOutcome === 'corrected') && (!value.runCompleted || !value.outputObserved)) return null;
+  if (!Array.isArray(value.executedLevels) || value.executedLevels.length < 1 || value.executedLevels.length > 38) return null;
+  if (!value.executedLevels.every((level) => typeof level === 'number' && Number.isInteger(level) && ALLOWED_CORTEX_LEVELS.has(level))) return null;
+  const executedLevels = [...value.executedLevels] as number[];
+  if (new Set(executedLevels).size !== executedLevels.length) return null;
+  const recommended = new Set(runState.plan.recommendedLevels.map((level) => level.level));
+  if (!executedLevels.every((level) => recommended.has(level))) return null;
+  return {
+    schemaVersion: 'cortex.route-gate.outcome.v1',
+    promptSha256: value.promptSha256,
+    runCompleted: value.runCompleted,
+    outputObserved: value.outputObserved,
+    userOutcome: value.userOutcome as RouteOutcomeReceipt['userOutcome'],
+    executedLevels,
+  };
+}
+
+type ContinuityArtifact = {
+  text: string;
+  createdAt: number;
+  fingerprint: string;
+};
+
+type ContinuityState = {
+  latestUserPrompt: string;
+  artifacts: ContinuityArtifact[];
+  updatedAt: number;
+  compactionRisk: boolean;
 };
 
 function privateRetrievalShadowMarker(plan: RoutePlan): PrivateRetrievalShadowMarker | undefined {
@@ -251,15 +342,99 @@ function privateRetrievalShadowMarker(plan: RoutePlan): PrivateRetrievalShadowMa
 }
 
 function routePlanForCache(plan: RoutePlan): RoutePlan {
-  if (!plan.routingMarkers?.private_retrieval_shadow) return plan;
-  const routingMarkers = { ...plan.routingMarkers };
-  delete routingMarkers.private_retrieval_shadow;
-  return { ...plan, routingMarkers };
+  // The upstream explanation/markers can contain echoed query material.  A
+  // last-good cache needs only the selected level numbers, numeric scores, and
+  // bounded policy metadata. Names, reasons, methods, reasoning, markers, and
+  // checkpoints are deliberately excluded because they can echo prompt text.
+  return {
+    recommendedLevels: plan.recommendedLevels.map((level) => ({
+      level: level.level,
+      ...(typeof level.score === 'number' ? { score: level.score } : {}),
+      ...(level.alwaysOn === true ? { alwaysOn: true } : {}),
+      ...(level.origin ? { origin: level.origin } : {}),
+    })),
+    routingMethod: 'cached_route_plan',
+  };
+}
+
+function sha256Metadata(value: unknown): string {
+  return crypto.createHash('sha256').update(String(value ?? ''), 'utf8').digest('hex');
+}
+
+function safeErrorMetadata(error: unknown): { type: string; code?: string; status?: number; detailHash: string } {
+  const candidate = error as any;
+  const rawType = error instanceof Error ? error.name : typeof error;
+  const type = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawType) ? rawType : 'Error';
+  const rawCode = typeof candidate?.code === 'string' ? candidate.code : '';
+  const status = Number(candidate?.status);
+  return {
+    type,
+    ...(rawCode && /^[A-Z0-9_]{1,64}$/.test(rawCode) ? { code: rawCode } : {}),
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    detailHash: sha256Metadata(candidate?.message ?? error),
+  };
+}
+
+function safeErrorSummary(error: unknown): string {
+  const metadata = safeErrorMetadata(error);
+  return `type=${metadata.type}${metadata.code ? ` code=${metadata.code}` : ''}${metadata.status ? ` status=${metadata.status}` : ''} detail_hash=${metadata.detailHash}`;
+}
+
+function routePlanFromCache(plan: RoutePlan): RoutePlan {
+  const cached = routePlanForCache(plan);
+  return {
+    ...cached,
+    recommendedLevels: cached.recommendedLevels.map((level) => ({
+      ...level,
+      alwaysOn: level.alwaysOn === true,
+      // Local policy is re-applied by this gate and is not transformed into an
+      // upstream/cache decision merely because the recommendation was cached.
+      origin: level.origin === 'local_mandatory' || level.origin === 'local_governor'
+        ? level.origin
+        : 'cache' as const,
+    })),
+  };
 }
 
 function normalizeBaseUrl(value: unknown): string {
   const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:8888';
   return text.endsWith('/') ? text.slice(0, -1) : text;
+}
+function isLoopbackBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+    return ['http:', 'https:'].includes(url.protocol) && loopback && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+function explicitUnsignedDevelopmentMode(): string {
+  const configuredModes = [
+    ['OPENCLAW_ENV', process.env.OPENCLAW_ENV],
+    ['CORTEX_ENV', process.env.CORTEX_ENV],
+    ['NODE_ENV', process.env.NODE_ENV],
+  ]
+    .map(([name, value]) => [name, String(value ?? '').trim().toLowerCase()] as const)
+    .filter(([, value]) => value.length > 0);
+  if (configuredModes.length === 0) {
+    throw new Error('cortex-route-gate unsigned local development requires an explicit non-production runtime mode');
+  }
+  const aliases: Record<string, string> = { dev: 'development', prod: 'production' };
+  const canonicalMode = (value: string): string => aliases[value] || value;
+  const modes = new Set(configuredModes.map(([, value]) => canonicalMode(value)));
+  if (modes.size !== 1) {
+    throw new Error(`cortex-route-gate unsigned local development rejects conflicting runtime modes: ${configuredModes.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  const mode = [...modes][0];
+  if (['production', 'staging'].includes(mode)) {
+    throw new Error('cortex-route-gate unsigned local development is forbidden in production or staging mode');
+  }
+  if (!['development', 'test', 'local'].includes(mode)) {
+    throw new Error(`cortex-route-gate unsigned local development requires dev, development, test, or local mode; received ${mode}`);
+  }
+  return mode;
 }
 function normalizeWriteTokenHeader(value: unknown): string {
   if (value === undefined) return 'x-cortex-write-token';
@@ -329,15 +504,24 @@ function extractExplicitConstraintTerms(prompt: string): string[] {
   if (/\bmemory\b/.test(p) && /\b(not|other than|outside of|beyond|instead of|didn)\b/.test(p)) out.add('memory');
   return [...out].slice(0, 8);
 }
-function recentAnchorTerms(entries: PromptHistoryEntry[], limit: number): string[] {
+function opaqueTokenDigest(token: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(`cortex.route-gate.prompt-token.v1\n${token}`, 'utf8').digest('hex');
+}
+function opaquePromptFingerprint(text: string, secret: string): string {
+  const tokens = fingerprintText(text).split(' ').filter(Boolean);
+  return tokens.map((token) => opaqueTokenDigest(token, secret)).join(' ');
+}
+function recentAnchorTerms(entries: PromptHistoryEntry[], currentText: string, secret: string, limit: number): string[] {
   const counts = new Map<string, number>();
   for (const entry of entries.slice(-12)) {
-    for (const token of entry.tokens || []) counts.set(token, (counts.get(token) || 0) + 1);
+    for (const digest of entry.tokenDigests || []) counts.set(digest, (counts.get(digest) || 0) + 1);
   }
-  return [...counts.entries()]
-    .sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length) || a[0].localeCompare(b[0]))
+  return uniqueStrings(extractContentTokens(currentText, Math.max(limit * 4, 32)))
+    .map((token) => ({ token, count: counts.get(opaqueTokenDigest(token, secret)) || 0 }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => (b.count - a.count) || a.token.localeCompare(b.token))
     .slice(0, limit)
-    .map(([token]) => token);
+    .map((entry) => entry.token);
 }
 function flattenMessageText(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -375,21 +559,14 @@ function isInternalOracleSession(sessionKey: string): boolean {
 function shouldBypassRouteGate(sessionKey?: string): boolean {
   return isInternalOracleSession(String(sessionKey || ''));
 }
-function opaqueSessionIdentity(sessionKey: string, secret: string | null): string {
-  const key = String(sessionKey || '').trim();
-  if (!key) throw new Error('routing requires a non-empty trusted session identity');
-  if (!secret) throw new Error('routing requires a keyed session identity secret');
-  const digest = crypto.createHmac('sha256', secret).update(key, 'utf8').digest('hex');
-  return `openclaw-${digest}`;
-}
-function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
+function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, historySecret: string, eligible = true): CreativityProfile {
   const focus = intentText.trim();
   const requested = eligible && isCreativityPrompt(focus);
   const strictNovelty = requested && isStrictNoveltyPrompt(focus);
   const signals = detectCreativitySignals(focus);
   const explicitConstraints = extractExplicitConstraintTerms(focus);
   const currentTokens = new Set(extractContentTokens(focus, quarantineTermLimit));
-  const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, quarantineTermLimit) : [];
+  const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, focus, historySecret, quarantineTermLimit) : [];
   const overlap = requested ? rawAnchors.filter((token) => currentTokens.has(token)).slice(0, quarantineTermLimit) : [];
   const anchors = requested ? rawAnchors.filter((token) => !currentTokens.has(token)) : [];
   const quarantineTerms = requested
@@ -443,13 +620,13 @@ function auditCreativityOutput(output: string, creativity: CreativityProfile): C
     retryRecommended: !passed,
   };
 }
-function renderCreativityRetryBlock(audit?: CreativityAudit): string {
+function renderCreativityRetryBlock(audit?: CreativityRetryMetadata): string {
   if (!audit || !audit.retryRecommended) return '';
   return [
     'CORTEX_CREATIVITY_RETRY',
     'A previous creativity-targeted answer was judged too adjacent to recent context.',
     `audit_reasons: ${audit.reasons.join(', ') || 'none'}`,
-    `audit_overlap_terms: ${audit.overlapTerms.join(', ') || 'none'}`,
+    `audit_overlap_count: ${audit.overlapCount}`,
     'retry_contract:',
     '- Increase conceptual distance from recent context.',
     '- Avoid the prior overlapping anchor terms unless strictly necessary.',
@@ -465,19 +642,44 @@ function creativityOutputFingerprint(text: string): string {
   return normalizePrompt(text).replace(/\b\d+[.)]?\b/g, '#').trim();
 }
 function buildCreativityAutoRetryPrompt(audit: CreativityAudit): string {
-  const overlapTerms = audit.overlapTerms.join(', ') || 'none';
   const reasons = audit.reasons.join(', ') || 'none';
   return [
     'Regenerate the previous answer now.',
     'This retry happens before delivery so only the improved answer should be shown.',
     `Prior audit reasons: ${reasons}.`,
-    `Avoid these overlapping anchor terms unless absolutely necessary: ${overlapTerms}.`,
+    `Prior overlap count: ${audit.overlapTerms.length}. Avoid concepts that repeat the previous answer's recent anchors.`,
     'Requirements:',
     '- Increase conceptual distance from recent context.',
     '- Produce at least 3 candidate directions before narrowing.',
     '- Lead with a wild-card or orthogonal option before any adjacent option.',
     '- Do not apologize or explain the retry; just give the improved answer.',
   ].join('\n');
+}
+
+function storedCreativityRetry(audit: CreativityAudit, secret: string): CreativityRetryMetadata {
+  const overlapCanonical = [...audit.overlapTerms].sort().join('\n');
+  return {
+    auditedAt: audit.auditedAt,
+    passed: audit.passed,
+    overlapCount: audit.overlapTerms.length,
+    overlapDigest: crypto.createHmac('sha256', secret).update(`cortex.route-gate.creativity-overlap.v1\n${overlapCanonical}`, 'utf8').digest('hex'),
+    overlapRatio: audit.overlapRatio,
+    itemCount: audit.itemCount,
+    reasons: audit.reasons.filter((reason) => /^[a-z0-9_:-]{1,64}$/.test(reason)).slice(0, 16),
+    retryRecommended: audit.retryRecommended,
+  };
+}
+
+function isCreativityRetryMetadata(value: unknown): value is CreativityRetryMetadata {
+  if (!isRecord(value)) return false;
+  return isBoundedString(value.auditedAt, 64, false)
+    && typeof value.passed === 'boolean'
+    && Number.isInteger(value.overlapCount) && (value.overlapCount as number) >= 0 && (value.overlapCount as number) <= 128
+    && typeof value.overlapDigest === 'string' && /^[0-9a-f]{64}$/.test(value.overlapDigest)
+    && typeof value.overlapRatio === 'number' && Number.isFinite(value.overlapRatio)
+    && Number.isInteger(value.itemCount) && (value.itemCount as number) >= 0
+    && Array.isArray(value.reasons) && value.reasons.every((reason) => typeof reason === 'string' && /^[a-z0-9_:-]{1,64}$/.test(reason))
+    && typeof value.retryRecommended === 'boolean';
 }
 function fingerprintText(text: string): string {
   const normalized = normalizePrompt(text)
@@ -507,24 +709,46 @@ function similarity(a: string, b: string): number {
 }
 function uniqueLevels(levels: RouteLevel[]): RouteLevel[] {
   const out: RouteLevel[] = [];
-  const seen = new Set<number>();
+  const byLevel = new Map<number, RouteLevel>();
   for (const item of levels) {
     const level = Number(item?.level || 0);
-    if (!level || seen.has(level)) continue;
-    seen.add(level);
-    out.push({ level, name: item.name, reason: item.reason || item.method, method: item.method, score: item.score });
+    if (!level) continue;
+    const existing = byLevel.get(level);
+    if (existing) {
+      // A duplicate must never be able to erase mandatory provider policy.
+      if (item.alwaysOn === true) existing.alwaysOn = true;
+      continue;
+    }
+    const normalized = {
+      level,
+      name: item.name,
+      reason: item.reason || item.method,
+      method: item.method,
+      score: item.score,
+      alwaysOn: item.alwaysOn === true,
+      origin: item.origin,
+    } satisfies RouteLevel;
+    byLevel.set(level, normalized);
+    out.push(normalized);
   }
   return out;
 }
 
-function normalizeLiveLevels(levels: RouteLevel[]): RouteLevel[] {
+function normalizeLiveLevels(levels: LiveRouteLevel[]): RouteLevel[] {
   const mandatory: RouteLevel[] = [
-    { level: 24, name: 'Nexus', reason: 'mandatory upstream routing' },
-    { level: 5, name: 'Oracle', reason: 'baseline reasoning' },
+    { level: 24, name: 'Nexus', reason: 'mandatory local routing policy', alwaysOn: false, origin: 'local_mandatory' },
+    { level: 5, name: 'Oracle', reason: 'mandatory local reasoning policy', alwaysOn: false, origin: 'local_mandatory' },
   ];
-  const deduplicated = uniqueLevels(levels);
+  const deduplicated = uniqueLevels(levels.map(({ always_on: alwaysOn, ...level }) => ({
+    ...level,
+    alwaysOn: alwaysOn === true,
+    origin: 'provider' as const,
+  })));
   const byLevel = new Map(deduplicated.map((item) => [item.level, item]));
   const nonMandatory = deduplicated.filter((item) => item.level !== 24 && item.level !== 5);
+  // The live schema admits at most 64 entries. Reserve space for both local
+  // mandatory levels when the provider omitted them so the normalized plan
+  // remains valid without weakening the mandatory routing policy.
   return [byLevel.get(24) || mandatory[0], ...nonMandatory.slice(0, 62), byLevel.get(5) || mandatory[1]];
 }
 async function postJson(url: string, body: unknown, timeoutMs: number, maxResponseBytes = 1_048_576, writeHeaders: Record<string, string> = {}): Promise<any> {
@@ -543,18 +767,129 @@ async function postJson(url: string, body: unknown, timeoutMs: number, maxRespon
     if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
     const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     const text = new TextDecoder().decode(bytes);
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
-    return text ? JSON.parse(text) : {};
+    if (!res.ok) {
+      const upstreamError = new Error(`upstream HTTP ${res.status}; body_bytes=${size}; body_hash=${sha256Metadata(text)}`) as Error & { status?: number };
+      upstreamError.status = res.status;
+      throw upstreamError;
+    }
+    if (!text) return {};
+    try { return JSON.parse(text); } catch {
+      throw new Error(`invalid upstream JSON; body_bytes=${size}; body_hash=${sha256Metadata(text)}`);
+    }
   } finally { clearTimeout(t); }
 }
 function hasLevel(plan: RoutePlan, level: number): boolean { return plan.recommendedLevels.some((x) => x.level === level); }
 function classifyTask(prompt: string): string {
   const p = normalizePrompt(prompt);
-  if (/\b(code|implement|fix|refactor|test|repo|plugin|typescript|python|bug)\b/.test(p)) return 'coding';
+  if (/\b(code|implement|implementation|fix|repair|harden|hardening|patch|refactor|debug|deploy|deployment|test|verify|verification|repo|runtime|plugin|typescript|python|bug|regression|config|configuration)\b/.test(p)) return 'coding';
   if (/\b(research|source|evidence|compare|find out|current|news|browse|web)\b/.test(p)) return 'research';
   if (/\b(remember|memory|previous|prior|earlier|history|what did|decide|prefer)\b/.test(p)) return 'memory';
   if (/\b(design|architecture|plan|roadmap|system)\b/.test(p)) return 'design';
   return 'general';
+}
+
+function boundedText(value: string, maxChars: number): string {
+  const text = String(value || '').trim();
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n[bounded]`;
+}
+
+function visibleMessageText(message: unknown): string {
+  if (!isRecord(message)) return '';
+  const content = message.content;
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content.map((part) => {
+    if (typeof part === 'string') return part;
+    if (!isRecord(part)) return '';
+    return typeof part.text === 'string' ? part.text : '';
+  }).filter(Boolean).join('\n').trim();
+}
+
+function isInternalContextText(text: string): boolean {
+  return /BEGIN_OPENCLAW_INTERNAL_CONTEXT|OpenClaw runtime context for the immediately preceding user message|^CORTEX_(?:ROUTE_GATE|EXECUTION_GOVERNOR|SELF_MODEL)/m.test(text);
+}
+
+function recentVisibleRoleTexts(messages: unknown[], role: 'user' | 'assistant', limit = 6): string[] {
+  const found: string[] = [];
+  for (let index = messages.length - 1; index >= 0 && found.length < limit; index -= 1) {
+    const message = messages[index];
+    if (!isRecord(message) || message.role !== role) continue;
+    const text = visibleMessageText(message);
+    if (!text || isInternalContextText(text)) continue;
+    found.push(text);
+  }
+  return found;
+}
+
+function looksLikeReusableArtifact(text: string): boolean {
+  const value = String(text || '');
+  if (value.length < 180) return false;
+  const headingCount = (value.match(/(?:^|\n)(?:#{1,4}\s+|\*\*[^*\n]{2,80}\*\*)/g) || []).length;
+  return /\b(?:draft only|subject:|general (?:billing )?(?:report|update)|status update|report)\b/i.test(value) || headingCount >= 3;
+}
+
+function artifactRelevance(text: string, request: string): number {
+  const requested = new Set(extractContentTokens(request, 32));
+  const artifact = new Set(extractContentTokens(text, 64));
+  let score = 0;
+  for (const token of requested) if (artifact.has(token)) score += 2;
+  if (/\bgeneral\b/i.test(request) && /\bgeneral\b/i.test(text)) score += 8;
+  if (/\b(?:report|update)\b/i.test(request) && /\b(?:report|update)\b/i.test(text)) score += 6;
+  if (/\bdraft\b/i.test(request) && /\bdraft\b/i.test(text)) score += 4;
+  return score;
+}
+
+function selectRelevantArtifact(candidates: ContinuityArtifact[], request: string): string {
+  return candidates
+    .filter((item) => looksLikeReusableArtifact(item.text))
+    .map((item) => ({ ...item, score: artifactRelevance(item.text, request) }))
+    .sort((left, right) => (right.score - left.score) || (right.createdAt - left.createdAt))[0]?.text || '';
+}
+
+function requestRefersToPriorWork(text: string): boolean {
+  return /\b(?:add|also|continue|redo|re-do|revise|update|change|again|same|draft|report|those|that|this|it|do it)\b/i.test(text);
+}
+
+function renderActiveRequestLock(currentRequest: string, priorRequest: string, baseArtifact: string, compactionRisk: boolean): string {
+  const lines = [
+    'CORTEX_ACTIVE_REQUEST_LOCK',
+    'The current user request is the authoritative deliverable contract for this turn.',
+    `current_request:\n${boundedText(currentRequest, 4_000)}`,
+  ];
+  if (priorRequest) lines.push(`linked_prior_request:\n${boundedText(priorRequest, 2_000)}`);
+  if (baseArtifact) lines.push(`base_artifact_to_preserve_and_modify:\n${boundedText(baseArtifact, 8_000)}`);
+  if (compactionRisk) lines.push('compaction_warning: The last compaction was structurally noisy. Ignore stale pending asks and tool traces when they conflict with this lock.');
+  lines.push(
+    'completion_checks:',
+    '- Treat “add/update/re-do/revise” as additive unless the user explicitly requests replacement.',
+    '- Preserve the complete requested base artifact; do not return only the newest modification.',
+    '- Before finalizing, check every explicit clause in current_request and linked_prior_request.',
+    '- If the base artifact cannot be recovered, say so rather than silently narrowing scope.',
+  );
+  return lines.join('\n');
+}
+
+function inspectCompactionRisk(sessionFile: unknown): boolean {
+  if (typeof sessionFile !== 'string' || !sessionFile || !fs.existsSync(sessionFile)) return false;
+  try {
+    const stat = fs.statSync(sessionFile);
+    const maxBytes = 8 * 1024 * 1024;
+    const start = Math.max(0, stat.size - maxBytes);
+    const fd = fs.openSync(sessionFile, 'r');
+    const buffer = Buffer.alloc(stat.size - start);
+    try { fs.readSync(fd, buffer, 0, buffer.length, start); } finally { fs.closeSync(fd); }
+    const lines = buffer.toString('utf8').split('\n').slice(-2_000).reverse();
+    for (const line of lines) {
+      if (!line.includes('"type":"compaction"')) continue;
+      const item = JSON.parse(line);
+      const summary = String(item?.summary || '');
+      if (!summary) return true;
+      const toolNoise = (summary.match(/Tool result|Tool Failures|hard tool budget|toolCall/gi) || []).length;
+      const startsClean = /^(?:#|Conversation|Summary|The conversation|##)/i.test(summary.trim());
+      return summary.length > 60_000 || toolNoise > 12 || !startsClean;
+    }
+  } catch { return true; }
+  return false;
 }
 function loadJson<T>(targetPath: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as T; } catch { return fallback; }
@@ -854,9 +1189,11 @@ function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
 function loadStats(statsPath: string): RouteStats {
   try {
     const raw = JSON.parse(fs.readFileSync(statsPath, 'utf8')) as RouteStats;
-    if (raw && raw.version === 1) return raw;
+    // v1 learned from agent completion without output, user-outcome, or causal
+    // level-execution evidence. Never let that legacy signal steer routing.
+    if (raw && raw.version === 2) return raw;
   } catch {}
-  return { version: 1, updatedAt: nowIso(), byLevel: {}, byTask: {} };
+  return { version: 2, updatedAt: nowIso(), byLevel: {}, byTask: {} };
 }
 function updateStats(statsPath: string, mutate: (stats: RouteStats) => void) {
   withFileLock(statsPath, () => {
@@ -873,24 +1210,43 @@ function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): nu
   const taskAdj = task ? clamp((task.successes - task.failures) / Math.max(task.uses, 4), -0.1, 0.1) : 0;
   return clamp(base + histAdj + taskAdj, 0, 1);
 }
-function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxLevels: number, creativity?: CreativityProfile): RoutePlan {
-  const mandatory = new Set<number>([24, 5]);
-  if (taskClass === 'coding') { mandatory.add(4); mandatory.add(27); mandatory.add(34); }
-  if (taskClass === 'memory') mandatory.add(22);
-  if (creativity?.requested) { mandatory.add(13); mandatory.add(29); mandatory.add(32); mandatory.add(34); }
+function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxOptionalLevels: number, creativity?: CreativityProfile): RoutePlan {
+  const localMandatory = new Set<number>([24, 5]);
+  if (taskClass === 'coding') { localMandatory.add(4); localMandatory.add(27); localMandatory.add(34); }
+  if (taskClass === 'memory') localMandatory.add(22);
+  if (creativity?.requested) { localMandatory.add(13); localMandatory.add(29); localMandatory.add(32); localMandatory.add(34); }
   const withScores = uniqueLevels(plan.recommendedLevels).map((level) => {
     let score = scoreLevel(level, stats, taskClass);
     if (creativity?.requested && (level.level === 13 || level.level === 29 || level.level === 32)) score = clamp(score + 0.2, 0, 1);
     if (creativity?.strictNovelty && level.level === 34) score = clamp(score + 0.1, 0, 1);
     return { ...level, score };
   });
+  const isMandatory = (level: RouteLevel) => level.alwaysOn === true || level.origin === 'local_mandatory' || localMandatory.has(level.level);
   const sorted = withScores.sort((a, b) => {
-    const ma = mandatory.has(a.level) ? 1 : 0;
-    const mb = mandatory.has(b.level) ? 1 : 0;
+    const ma = isMandatory(a) ? 1 : 0;
+    const mb = isMandatory(b) ? 1 : 0;
     return (mb - ma) || ((b.score || 0) - (a.score || 0)) || (a.level - b.level);
   });
-  const chosen = sorted.filter((x, i) => i < maxLevels || mandatory.has(x.level));
-  return { ...plan, recommendedLevels: uniqueLevels(chosen) };
+  const mandatory = sorted.filter(isMandatory);
+  const optionalLimit = Math.max(0, Math.trunc(maxOptionalLevels));
+  const optional = sorted.filter((level) => !isMandatory(level)).slice(0, optionalLimit);
+  const chosen = uniqueLevels([...mandatory, ...optional]);
+  return {
+    ...plan,
+    recommendedLevels: chosen,
+    routingMarkers: {
+      ...(plan.routingMarkers || {}),
+      routeGateLevelPolicy: {
+        version: 'cortex.route-gate.level-policy.v1',
+        capScope: 'optional_only',
+        optionalLimit,
+        mandatoryCount: mandatory.length,
+        optionalSelected: optional.length,
+        totalSelected: chosen.length,
+        allMandatoryRetained: mandatory.every((level) => chosen.some((selected) => selected.level === level.level)),
+      },
+    },
+  };
 }
 
 function predictCapabilityUse(prompt: string, model: CapabilitySelfModel): { capability: string; usable: boolean; confidence: number; rationale: string }[] {
@@ -926,7 +1282,7 @@ function renderSelfModelBlock(model: CapabilitySelfModel, predicted: { capabilit
 function renderExecutionContract(plan: RoutePlan, prompt: string): string {
   const lines = [
     'Execution contract for this turn:',
-    '- Cortex-selected levels are operational instructions, not decorative metadata. Tool choice must follow them when a Cortex path exists.',
+    '- Routed recommendations and local policy are operational instructions, not proof that a level executed. Tool choice must follow them when a Cortex path exists.',
     '- Answer the user\'s actual request directly. Do not answer with meta-commentary about recursion, duplicate suppression, chain completions, stop conditions, or orchestration state.',
     '- If a prompt fragment or upstream trace mentions recursion control or deduplication, treat that as internal guidance only and do not repeat it to the user.',
   ];
@@ -945,14 +1301,13 @@ function renderExecutionContract(plan: RoutePlan, prompt: string): string {
   lines.push('- Do not let generic tool availability override Cortex-first routing unless the Cortex path is missing or broken and that failure is made explicit.');
   return lines.join('\n');
 }
-function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boolean, budget: { maxReasoningPasses: number; maxToolRounds: number }, creativity?: CreativityProfile): string {
+function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boolean, budget: { maxReasoningPasses: number }, creativity?: CreativityProfile, taskClassOverride?: string): string {
   const markers = duplicateRisk ? 'duplicate_chain_risk=true' : 'duplicate_chain_risk=false';
   return [
     'CORTEX_EXECUTION_GOVERNOR',
-    `task_class: ${classifyTask(prompt)}`,
+    `task_class: ${taskClassOverride || classifyTask(prompt)}`,
     `governor_markers: ${markers}${creativity?.requested ? ', creativity_mode=true' : ''}`,
     `reasoning_budget.max_passes: ${budget.maxReasoningPasses}`,
-    `reasoning_budget.max_tool_rounds: ${budget.maxToolRounds}`,
     'answer_contract:',
     '- Return a normal answer to the user\'s request.',
     '- Keep internal orchestration language out of the final reply.',
@@ -989,18 +1344,47 @@ function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
     '- Do not quietly collapse all buckets into adjacent ideas.',
   ].join('\n');
 }
-function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityAudit): string {
-  const levels = plan.recommendedLevels.map((x) => `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''}`).join('\n');
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityRetryMetadata, taskClassOverride?: string): string {
+  const renderedTaskClass = taskClassOverride || classifyTask(prompt);
+  const locallyMandatory = new Set<number>([24, 5]);
+  if (renderedTaskClass === 'coding') { locallyMandatory.add(4); locallyMandatory.add(27); locallyMandatory.add(34); }
+  if (renderedTaskClass === 'memory') locallyMandatory.add(22);
+  const locallyGoverned = new Set<number>();
+  if (creativity?.requested) {
+    for (const level of [13, 29, 32, 34]) locallyGoverned.add(level);
+  }
+  const levels = plan.recommendedLevels.map((x) => {
+    const origin = x.origin || 'unknown';
+    // `origin` records where the recommendation came from; `policy` records
+    // independent local/provider requirements. This preserves both truths when
+    // a provider-selected level is also required by local policy.
+    const policy = x.alwaysOn
+      ? 'provider_always_on'
+      : (origin === 'local_governor' || locallyGoverned.has(x.level))
+        ? 'local_governor'
+        : (origin === 'local_mandatory' || locallyMandatory.has(x.level))
+          ? 'local_mandatory'
+          : 'optional';
+    return `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''} [origin=${origin}; policy=${policy}; execution=not_observed]`;
+  }).join('\n');
   const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
-  const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3, maxToolRounds: classifyTask(prompt) === 'coding' ? 5 : 3 };
+  const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3 };
+  const cachedFallback = plan.routingMethod === 'cached_fallback';
+  const reuseMarker = plan.routingMarkers?.routeGateLivePlanReuse;
+  const reusedLivePlan = isRecord(reuseMarker) && reuseMarker.reused === true;
+  const rawLevelPolicy = plan.routingMarkers?.routeGateLevelPolicy;
+  const levelPolicy = isRecord(rawLevelPolicy) ? rawLevelPolicy : {};
   return [
     'CORTEX_ROUTE_GATE',
     `routing_method: ${plan.routingMethod || 'nexus_orchestration'}`,
-    'Before answering, apply the following Cortex-selected levels for this turn:',
+    `routing_provenance: ${cachedFallback ? 'authenticated_cache_plus_local_policy' : (reusedLivePlan ? 'principal_scoped_validated_live_plan_reuse_plus_local_policy' : 'live_provider_plus_local_policy')}`,
+    'execution_evidence: recommendations_only_not_observed_by_route_gate',
+    `level_cap: scope=${String(levelPolicy.capScope || 'optional_only')} optional_limit=${String(levelPolicy.optionalLimit ?? 'unknown')} mandatory_count=${String(levelPolicy.mandatoryCount ?? 'unknown')} all_mandatory_retained=${String(levelPolicy.allMandatoryRetained ?? 'unknown')}`,
+    'Before answering, apply the following routed recommendations and local policy for this turn:',
     levels || '- L24 Nexus\n- L5 Oracle',
     reasoning ? `routing_reasoning:\n${reasoning}` : '',
     renderExecutionContract(plan, prompt),
-    renderGovernorBlock(plan, prompt, duplicateRisk, budget, creativity),
+    renderGovernorBlock(plan, prompt, duplicateRisk, budget, creativity, renderedTaskClass),
     renderCreativityGovernorBlock(creativity || { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false }),
     renderCreativityRetryBlock(retryAudit),
     'Identity/architecture contract for this turn:',
@@ -1008,7 +1392,9 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
     '- OpenClaw is the mediation/runtime layer and should not override Cortex identity or intent.',
     '- If asked who you are, answer from Cortex identity first, not generic assistant/OpenClaw identity.',
     '- Preserve quality and naturalness; do not force a repetitive opener unless the prompt calls for identity clarification.',
-    'This routing decision was made upstream by Cortex and is mandatory context for this turn.'
+    cachedFallback
+      ? 'Live Cortex routing was unavailable. This authenticated cached recommendation plus local policy is degraded mandatory context; the route gate has not observed downstream level execution.'
+      : 'Live Cortex provider recommendations plus local policy are mandatory context for this turn; the route gate has not observed downstream level execution.'
   ].filter(Boolean).join('\n');
 }
 
@@ -1038,7 +1424,6 @@ export default function register(api: any) {
   const hasScopeCredentialId = scopeCredentialId.length > 0;
   const hasScopeHmacSecret = scopeHmacSecret.trim().length > 0;
   const allowUnsignedLocalDevelopment = cfg.allowUnsignedLocalDevelopment === true;
-  const preferConfiguredUserId = cfg.preferConfiguredUserId === true;
   // Tenant/workspace are instance configuration, while agent/user/channel and
   // session are per-callback identities. Local instance defaults remain valid.
   const tenantId = configuredTenantId || 'cortex-local';
@@ -1050,12 +1435,24 @@ export default function register(api: any) {
   if (hasScopeCredentialId && !boundedOpaqueId.test(scopeCredentialId)) {
     throw new Error('cortex-route-gate scopeCredentialId must be a bounded opaque identifier');
   }
-  if (!hasScopeCredentialId) {
-    if (!allowUnsignedLocalDevelopment) {
-      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
+  if (allowUnsignedLocalDevelopment) {
+    if (hasScopeCredentialId || writeToken) {
+      throw new Error('cortex-route-gate unsigned local development cannot be combined with production credentials');
     }
     if (tenantId !== 'cortex-local' || workspaceId !== 'default') {
       throw new Error('cortex-route-gate allowUnsignedLocalDevelopment is restricted to the cortex-local/default scope');
+    }
+    if (!isLoopbackBaseUrl(baseUrl)) {
+      throw new Error('cortex-route-gate unsigned local development requires a loopback Cortex baseUrl');
+    }
+    explicitUnsignedDevelopmentMode();
+    const warning = 'SECURITY WARNING: cortex-route-gate is using unsigned loopback-only local development mode';
+    if (typeof api.logger?.warn === 'function') api.logger.warn(warning);
+    else console.warn(warning);
+  }
+  if (!hasScopeCredentialId) {
+    if (!allowUnsignedLocalDevelopment) {
+      throw new Error('cortex-route-gate requires scopeCredentialId and scopeHmacSecret unless allowUnsignedLocalDevelopment is explicitly enabled');
     }
   }
   if (!writeToken && !allowUnsignedLocalDevelopment) {
@@ -1066,7 +1463,9 @@ export default function register(api: any) {
   const routeCacheHmacSecret = typeof cfg.routeCacheHmacSecret === 'string' && cfg.routeCacheHmacSecret.length > 0
     ? String(cfg.routeCacheHmacSecret)
     : null;
-  const maxLevels = asNumber(cfg.maxLevels, 10);
+  // Backward-compatible config key; the ceiling applies only to optional
+  // recommendations. Provider always-on and local mandatory levels are exempt.
+  const maxOptionalLevels = asNumber(cfg.maxLevels, 10);
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
@@ -1083,29 +1482,101 @@ export default function register(api: any) {
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
+  const continuityByKey = new Map<string, ContinuityState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
+  const recentLivePlansByPrincipal = new Map<string, Map<string, RecentLiveRoutePlan>>();
+  const livePlanReuseAgeMs = Math.min(maxCachedPlanAgeMs, 300_000);
+  // Exact duplicate suppression needs only the most recent bounded plan. Keep
+  // a small global LRU so provider-controlled response size cannot become an
+  // unbounded in-process cache.
+  const maxRecentPlansPerPrincipal = 1;
+  const maxRecentPlanPrincipals = 64;
+  const maxReusablePlanBytes = 65_536;
+
+  function livePlanFingerprint(prompt: string): string {
+    return crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
+  }
+
+  function reusableLivePlan(stateKey: string, promptFingerprint: string): RoutePlan | null {
+    const now = Date.now();
+    for (const [principalKey, plans] of recentLivePlansByPrincipal.entries()) {
+      for (const [fingerprint, entry] of plans.entries()) {
+        if (now - entry.savedAtMs > livePlanReuseAgeMs) plans.delete(fingerprint);
+      }
+      if (plans.size === 0) recentLivePlansByPrincipal.delete(principalKey);
+    }
+    const plans = recentLivePlansByPrincipal.get(stateKey);
+    const entry = plans?.get(promptFingerprint);
+    if (!entry) return null;
+    plans!.delete(promptFingerprint);
+    plans!.set(promptFingerprint, entry);
+    recentLivePlansByPrincipal.delete(stateKey);
+    recentLivePlansByPrincipal.set(stateKey, plans!);
+    return {
+      ...entry.plan,
+      recommendedLevels: entry.plan.recommendedLevels.map((level) => ({ ...level })),
+      workflowCheckpoint: undefined,
+      reasoning: [
+        'Reused a recent principal-scoped plan from a validated live Cortex response for an exact duplicate route fingerprint.',
+        ...(entry.plan.reasoning || []),
+      ],
+      routingMarkers: {
+        ...(entry.plan.routingMarkers || {}),
+        routeGateLivePlanReuse: {
+          version: 'cortex.route-gate.live-plan-reuse.v1',
+          reused: true,
+          ageMs: Math.max(0, now - entry.savedAtMs),
+          principalScoped: true,
+          source: 'validated_live_response',
+        },
+      },
+    };
+  }
+
+  function rememberReusableLivePlan(stateKey: string, promptFingerprint: string, plan: RoutePlan): void {
+    const reusable = routePlanForCache({ ...plan, workflowCheckpoint: undefined });
+    if (Buffer.byteLength(JSON.stringify(reusable), 'utf8') > maxReusablePlanBytes) {
+      // The newest validated response is not reusable, so an older plan must
+      // not remain eligible for this principal either.
+      recentLivePlansByPrincipal.delete(stateKey);
+      return;
+    }
+    let plans = recentLivePlansByPrincipal.get(stateKey);
+    if (!plans) {
+      plans = new Map<string, RecentLiveRoutePlan>();
+      recentLivePlansByPrincipal.set(stateKey, plans);
+    }
+    plans.delete(promptFingerprint);
+    plans.set(promptFingerprint, {
+      savedAtMs: Date.now(),
+      plan: {
+        ...reusable,
+        recommendedLevels: reusable.recommendedLevels.map((level) => ({ ...level })),
+      },
+    });
+    while (plans.size > maxRecentPlansPerPrincipal) plans.delete(plans.keys().next().value as string);
+    recentLivePlansByPrincipal.delete(stateKey);
+    recentLivePlansByPrincipal.set(stateKey, plans);
+    while (recentLivePlansByPrincipal.size > maxRecentPlanPrincipals) {
+      recentLivePlansByPrincipal.delete(recentLivePlansByPrincipal.keys().next().value as string);
+    }
+  }
 
   function principalState(ctx: any, rawSessionKey: string): { scope: Record<string, string>; sessionIdentity: string; statePaths: PrincipalStatePaths; stateKey: string } {
     if (!rawSessionKey.trim()) throw new Error('routing requires a non-empty trusted session identity from the callback');
-    const sessionIdentity = opaqueSessionIdentity(rawSessionKey, sessionIdentityHmacSecret);
-    const scope = {
-      tenant_id: tenantId,
-      workspace_id: workspaceId,
-      // Current OpenClaw prompt hooks do not always expose requesterSenderId.
-      // Fixed configured fallbacks are trusted deployment policy; callback
-      // identity still takes precedence whenever the runtime supplies it.
-      agent_id: String(ctx?.agentId || cfg.agentId || '').trim(),
-      user_id: String(
-        preferConfiguredUserId
-          ? (cfg.userId || ctx?.userId || ctx?.requesterSenderId)
-          : (ctx?.userId || ctx?.requesterSenderId || cfg.userId),
-      ).trim(),
-      channel_id: String(ctx?.channelId || ctx?.messageChannel || cfg.channelId || '').trim(),
-      session_id: sessionIdentity,
-    };
-    if (Object.values(scope).some((value) => !boundedOpaqueId.test(value))) {
-      throw new Error('routing requires a complete bounded trusted Cortex principal');
-    }
+    const scope = deriveCortexPrincipal(
+      {
+        tenantId,
+        workspaceId,
+        agentId: cfg.agentId,
+        userId: cfg.userId,
+        ownerSenderId: cfg.ownerSenderId,
+        channelId: cfg.channelId,
+        sessionIdentityHmacSecret,
+      },
+      ctx,
+    );
+    const sessionIdentity = scope.session_id;
     const canonicalScope = [scope.tenant_id, scope.workspace_id, scope.agent_id, scope.user_id, scope.channel_id, scope.session_id].join('\n');
     const scopeTag = crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.state.v1\n${canonicalScope}`, 'utf8').digest('hex');
     const root = path.join(stateDir, 'principals', scopeTag);
@@ -1178,25 +1649,76 @@ export default function register(api: any) {
         const stat = fs.statSync(filePath);
         if (stat.size <= oracleSessionResetBytes) continue;
         fs.mkdirSync(quarantineDir, { recursive: true });
-        const targetPath = path.join(quarantineDir, `${sessionName}.${Math.trunc(stat.mtimeMs)}.${stat.size}.jsonl`);
+        const sessionHash = crypto.createHmac('sha256', sessionIdentityHmacSecret)
+          .update(`cortex.route-gate.oracle-session.v1\n${sessionName}`, 'utf8').digest('hex');
+        const targetPath = path.join(quarantineDir, `${sessionHash}.${Math.trunc(stat.mtimeMs)}.${stat.size}.metadata.json`);
         if (fs.existsSync(targetPath)) continue;
-        fs.copyFileSync(filePath, targetPath, fs.constants.COPYFILE_EXCL);
-        const targetFd = fs.openSync(targetPath, 'r');
+        const targetFd = fs.openSync(targetPath, 'wx', 0o600);
+        fs.writeFileSync(targetFd, JSON.stringify({
+          schemaVersion: 'cortex.oracle-session-size-marker.v1',
+          sessionHash,
+          sizeBytes: stat.size,
+          modifiedAtMs: Math.trunc(stat.mtimeMs),
+        }), 'utf8');
         try { fs.fsyncSync(targetFd); } finally { fs.closeSync(targetFd); }
-        api.logger.warn?.(`cortex-route-gate: archived oversized oracle session without moving the active file ${entry.name} size=${stat.size}`);
+        api.logger.warn?.(`cortex-route-gate: recorded oversized oracle session session_hash=${sessionHash} size_bytes=${stat.size}`);
       }
     } catch (error) {
-      api.logger.warn?.(`cortex-route-gate: failed to quarantine oversized oracle sessions: ${String(error)}`);
+      api.logger.warn?.(`cortex-route-gate: failed to record oversized oracle session metadata ${safeErrorSummary(error)}`);
     }
   }
 
   archiveOversizedOracleSessions();
 
   function loadPromptHistory(promptHistoryPath: string): PromptHistoryEntry[] {
-    try {
-      const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
-      return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
-    } catch { return []; }
+    return updateJson(promptHistoryPath, [] as PromptHistoryEntry[], (history: any[]) => {
+      const sanitized: PromptHistoryEntry[] = [];
+      for (const item of Array.isArray(history) ? history.slice(-creativityHistorySize) : []) {
+        if (!isRecord(item)) continue;
+        const legacyTokens = Array.isArray(item.tokens) ? item.tokens.filter((token) => typeof token === 'string') : [];
+        const existingDigests = Array.isArray(item.tokenDigests)
+          ? item.tokenDigests.filter((digest) => typeof digest === 'string' && /^[0-9a-f]{64}$/.test(digest))
+          : [];
+        const tokenDigests = uniqueStrings([
+          ...existingDigests,
+          ...legacyTokens.map((token) => opaqueTokenDigest(token, sessionIdentityHmacSecret)),
+        ]).slice(0, creativityQuarantineTerms);
+        const rawFingerprint = typeof item.promptFingerprint === 'string' ? item.promptFingerprint : '';
+        sanitized.push({
+          createdAt: isBoundedString(item.createdAt, 64, false) ? item.createdAt : nowIso(),
+          promptFingerprint: /^[0-9a-f]{64}$/.test(rawFingerprint)
+            ? rawFingerprint
+            : crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.prompt.v1\n${rawFingerprint}`, 'utf8').digest('hex'),
+          taskClass: typeof item.taskClass === 'string' && /^[a-z0-9_-]{1,32}$/.test(item.taskClass) ? item.taskClass : 'unknown',
+          tokenDigests,
+        });
+      }
+      history.splice(0, history.length, ...sanitized);
+      return sanitized;
+    });
+  }
+  const creativityRetrySlot = 'active';
+  function takeCreativityRetry(retryPath: string): CreativityRetryMetadata | undefined {
+    return updateJson(retryPath, {} as Record<string, unknown>, (state) => {
+      let selected = isCreativityRetryMetadata(state[creativityRetrySlot]) ? state[creativityRetrySlot] as CreativityRetryMetadata : undefined;
+      if (!selected) {
+        for (const value of Object.values(state)) {
+          if (isCreativityRetryMetadata(value)) { selected = value; break; }
+          if (isRecord(value) && Array.isArray(value.overlapTerms)) {
+            selected = storedCreativityRetry(value as unknown as CreativityAudit, sessionIdentityHmacSecret);
+            break;
+          }
+        }
+      }
+      for (const key of Object.keys(state)) delete state[key];
+      return selected;
+    });
+  }
+  function storeCreativityRetry(retryPath: string, audit: CreativityAudit): void {
+    updateJson(retryPath, {} as Record<string, unknown>, (state) => {
+      for (const key of Object.keys(state)) delete state[key];
+      if (!audit.passed) state[creativityRetrySlot] = storedCreativityRetry(audit, sessionIdentityHmacSecret);
+    });
   }
   function updateCreativityMetrics(creativityMetricsPath: string, mutate: (metrics: any) => void) {
     updateJson(creativityMetricsPath, { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }, (metrics: any) => {
@@ -1237,12 +1759,15 @@ export default function register(api: any) {
     const { statePaths } = principal;
     const isolatedUserIntent = latestUserTurnText(messages);
     const intentText = isolatedUserIntent || tailIntentText(prompt);
-    let plan: RoutePlan | null = null;
-    try {
+    const fingerprint = opaquePromptFingerprint(prompt, sessionIdentityHmacSecret);
+    const reuseFingerprint = livePlanFingerprint(prompt);
+    let plan: RoutePlan | null = reusableLivePlan(principal.stateKey, reuseFingerprint);
+    const reusedLivePlan = Boolean(plan);
+    if (!plan) try {
       if (Buffer.byteLength(prompt, 'utf8') > maxRoutingPromptBytes) {
         throw new Error(`routing prompt exceeds ${maxRoutingPromptBytes} bytes`);
       }
-      const data = await postJson(
+      const response = await postJson(
         `${baseUrl}/nexus/orchestrate`,
         {
           query: prompt,
@@ -1252,10 +1777,25 @@ export default function register(api: any) {
         },
         timeoutMs,
         maxResponseBytes,
-        nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+        {
+          ...nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+          // Give Nexus one absolute budget shared by its semantic retries and
+          // nested provider call, with headroom before this fetch is aborted.
+          'x-cortex-deadline-ms': String(
+            Date.now() + Math.max(1, Math.floor(timeoutMs * 0.9)),
+          ),
+        },
       );
+      const data = normalizeLiveRoutePayload(response) as any;
       const recommended = liveRouteLevels(data);
       if (!recommended) throw new Error('invalid live route response schema');
+      if (data.routing_method === 'cached_fallback') throw new Error('live route response used a reserved routing method');
+      if (
+        isRecord(data.routing_markers)
+        && ['routeGateLivePlanReuse', 'routeGateLevelPolicy'].some((key) => Object.prototype.hasOwnProperty.call(data.routing_markers, key))
+      ) {
+        throw new Error('live route response used a reserved route-gate marker');
+      }
       const rawPlan: RoutePlan = {
         recommendedLevels: normalizeLiveLevels(recommended),
         routingMethod: data.routing_method,
@@ -1272,32 +1812,44 @@ export default function register(api: any) {
         workflowCheckpoint: rawPlan.workflowCheckpoint,
       };
       if (!isRoutePlan(plan)) throw new Error('invalid defaulted live route plan');
+      rememberReusableLivePlan(principal.stateKey, reuseFingerprint, plan);
       if (routeCacheHmacSecret) {
-        const cache = { savedAt: nowIso(), provenance: baseUrl, scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
+        const cache = { savedAt: nowIso(), provenance: sha256Metadata(baseUrl), scopeTag: statePaths.scopeTag, plan: routePlanForCache(plan) };
         const signedCache = { ...cache, tag: signRouteCache(cache, routeCacheHmacSecret) } satisfies LastGoodRoutePlan;
         try {
           saveJson(statePaths.lastGoodPlan, signedCache);
         } catch (error) {
-          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan: ${String(error)}`);
+          api.logger.warn?.(`cortex-route-gate: failed to persist last-good route plan ${safeErrorSummary(error)}`);
         }
       }
     } catch (error) {
-      const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
+      const message = `cortex-route-gate: routing failed ${safeErrorSummary(error)}`;
       api.logger.warn(message);
       const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(statePaths.lastGoodPlan, null);
       const savedAtMs = Date.parse(lastGoodPlan?.savedAt || '');
       const cachedAgeMs = Date.now() - savedAtMs;
-      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && lastGoodPlan.provenance === baseUrl && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
+      const validCache = !requireRouting && verifyRouteCache(lastGoodPlan, routeCacheHmacSecret) && [baseUrl, sha256Metadata(baseUrl)].includes(lastGoodPlan.provenance) && lastGoodPlan.scopeTag === statePaths.scopeTag && Number.isFinite(savedAtMs) && cachedAgeMs >= 0 && cachedAgeMs <= maxCachedPlanAgeMs;
       if (validCache && lastGoodPlan) {
         api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
-        const cachedPlan = routePlanForCache(lastGoodPlan.plan);
+        const sanitizedCachedPlan = routePlanForCache(lastGoodPlan.plan);
+        const cachedPlan = routePlanFromCache(sanitizedCachedPlan);
+        const sanitizedCache = {
+          savedAt: lastGoodPlan.savedAt,
+          provenance: sha256Metadata(baseUrl),
+          scopeTag: statePaths.scopeTag,
+          plan: sanitizedCachedPlan,
+        };
+        try {
+          saveJson(statePaths.lastGoodPlan, { ...sanitizedCache, tag: signRouteCache(sanitizedCache, routeCacheHmacSecret!) });
+        } catch (cacheError) {
+          api.logger.warn?.(`cortex-route-gate: failed to sanitize legacy route cache ${safeErrorSummary(cacheError)}`);
+        }
         plan = {
           ...cachedPlan,
           routingMethod: 'cached_fallback',
-          routingError: String(error),
+          routingError: safeErrorSummary(error),
           reasoning: [
-            `Cortex routing failed, using cached last-good route plan from ${lastGoodPlan.savedAt || 'unknown'}.`,
-            ...(cachedPlan.reasoning || []),
+            `Cortex routing failed; using authenticated cached routing metadata from ${lastGoodPlan.savedAt || 'unknown'}.`,
           ],
           routingMarkers: {
             ...(cachedPlan.routingMarkers || {}),
@@ -1309,31 +1861,38 @@ export default function register(api: any) {
           },
         };
       } else {
-        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled: ${String(error)}`);
-        throw new Error(`routing unavailable and no valid last-good route plan exists: ${String(error)}`);
+        if (requireRouting) throw new Error(`routing unavailable while requireRouting is enabled; ${safeErrorSummary(error)}`);
+        throw new Error(`routing unavailable and no valid last-good route plan exists; ${safeErrorSummary(error)}`);
       }
     }
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
-    const taskClass = classifyTask(intentText || prompt);
+    const recentIntent = recentVisibleRoleTexts(messages, 'user', 4).join('\n');
+    const taskClass = classifyTask(`${intentText || prompt}\n${recentIntent}`);
     const stats = loadStats(statePaths.stats);
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
     const predictedChecks = predictCapabilityUse(intentText || prompt, selfModel);
     const priorPromptHistory = loadPromptHistory(statePaths.promptHistory);
-    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
+    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, sessionIdentityHmacSecret, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
     let routedPlan = plan!;
     if (creativity.requested) {
       const creativeLevels: RouteLevel[] = [
-        { level: 13, name: 'Dreamer', reason: 'creativity_governor' },
-        { level: 29, name: 'Muse', reason: 'creativity_governor' },
-        { level: 32, name: 'Synthesist', reason: 'creativity_governor' },
-        { level: 34, name: 'Validator', reason: 'creativity_governor' },
+        { level: 13, name: 'Dreamer', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 29, name: 'Muse', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 32, name: 'Synthesist', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
+        { level: 34, name: 'Validator', reason: 'creativity_governor', alwaysOn: false, origin: 'local_governor' },
       ];
       creativity = { ...creativity, routeEnforced: !creativeLevels.every((level) => hasLevel(routedPlan, level.level)) };
       routedPlan = ensureLevels(routedPlan, creativeLevels);
     }
-    const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
-    const fingerprint = fingerprintText(prompt);
-    const duplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
+    const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxOptionalLevels, creativity);
+    const historicalDuplicateRisk = updateJson(statePaths.history, [] as string[], (history) => {
+      // Pre-hardening files held normalized prompt fragments. Rewrite every
+      // legacy entry to keyed token digests before comparison or retention.
+      for (let index = 0; index < history.length; index += 1) {
+        const candidate = String(history[index] || '');
+        const alreadyOpaque = candidate.split(' ').filter(Boolean).every((token) => /^[0-9a-f]{64}$/.test(token));
+        history[index] = alreadyOpaque ? candidate : opaquePromptFingerprint(candidate, sessionIdentityHmacSecret);
+      }
       const duplicate = history.some((x) => similarity(x, fingerprint) >= 0.9);
       history.push(fingerprint);
       const compact: string[] = [];
@@ -1345,8 +1904,14 @@ export default function register(api: any) {
       history.splice(0, history.length, ...compact.slice(-100));
       return duplicate;
     });
+    const duplicateRisk = reusedLivePlan || historicalDuplicateRisk;
     updateJson(statePaths.promptHistory, [] as PromptHistoryEntry[], (history) => {
-      history.push({ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) });
+      history.push({
+        createdAt: nowIso(),
+        promptFingerprint: crypto.createHmac('sha256', sessionIdentityHmacSecret).update(`cortex.route-gate.prompt.v1\n${fingerprint}`, 'utf8').digest('hex'),
+        taskClass,
+        tokenDigests: extractContentTokens(intentText || prompt, creativityQuarantineTerms).map((token) => opaqueTokenDigest(token, sessionIdentityHmacSecret)),
+      });
       history.splice(0, Math.max(0, history.length - creativityHistorySize));
     });
     return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey: principal.stateKey };
@@ -1356,32 +1921,38 @@ export default function register(api: any) {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const eventMessages = Array.isArray(event?.messages) ? event.messages : [];
     if (shouldBypassRouteGate(rawSessionKey)) {
       const bypassStateKey = stateKeyForContext(ctx);
       if (bypassStateKey) runStateByKey.delete(bypassStateKey);
-      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${rawSessionKey || 'unknown'}`);
+      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session_type=internal_oracle principal_hash=${bypassStateKey || sha256Metadata(rawSessionKey)}`);
       return;
     }
     let route;
     try {
-      route = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], rawSessionKey, ctx);
+      route = await getPlan(prompt, eventMessages, rawSessionKey, ctx);
     } catch (error) {
       if (requireRouting) throw error;
-      api.logger.warn?.(`cortex-route-gate: optional routing skipped: ${String(error)}`);
+      api.logger.warn?.(`cortex-route-gate: optional routing skipped ${safeErrorSummary(error)}`);
       return;
     }
     const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
+    const priorContinuity = stateKey ? continuityByKey.get(stateKey) : undefined;
+    const recentUsers = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'user', 6);
+    const currentIntent = intentText || prompt;
+    const priorRequest = recentUsers.find((item) => normalizePrompt(item) !== normalizePrompt(currentIntent)) || priorContinuity?.latestUserPrompt || '';
+    const messageArtifacts = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'assistant', 12)
+      .filter(looksLikeReusableArtifact)
+      .map((text, index) => ({ text: boundedText(text, 12_000), createdAt: Date.now() - index, fingerprint: fingerprintText(text) }));
+    const artifactCandidates = [...(priorContinuity?.artifacts || []), ...messageArtifacts];
+    const baseArtifact = requestRefersToPriorWork(currentIntent) ? selectRelevantArtifact(artifactCandidates, `${currentIntent}\n${priorRequest}`) : '';
     const retryAudit = stateKey && creativity.requested
-      ? updateJson(statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
-          const audit = state[rawSessionKey];
-          if (audit) delete state[rawSessionKey];
-          return audit;
-        })
+      ? takeCreativityRetry(statePaths.creativityRetry)
       : undefined;
     if (stateKey) {
       runStateByKey.set(stateKey, {
         prompt,
-        promptFingerprint: fingerprintText(prompt),
+        promptFingerprint: crypto.createHash('sha256').update(prompt, 'utf8').digest('hex'),
         plan,
         taskClass,
         startedAt: Date.now(),
@@ -1395,15 +1966,34 @@ export default function register(api: any) {
         creativityAudit: retryAudit,
         statePaths,
       });
+      const nextContinuity: ContinuityState = priorContinuity || { latestUserPrompt: '', artifacts: [], updatedAt: 0, compactionRisk: false };
+      nextContinuity.latestUserPrompt = boundedText(currentIntent, 4_000);
+      nextContinuity.updatedAt = Date.now();
+      continuityByKey.set(stateKey, nextContinuity);
+      for (const [key, value] of continuityByKey.entries()) {
+        if (Date.now() - value.updatedAt > 24 * 60 * 60 * 1000) continuityByKey.delete(key);
+      }
     }
     if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics(statePaths.creativityMetrics, (metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
-    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
+    api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded_count=${(selfModel.degraded || []).length} predicted_count=${predictedChecks.length} creativity=${creativity.requested} intent_chars=${intentText.length} intent_hash=${crypto.createHmac('sha256', sessionIdentityHmacSecret).update(intentText, 'utf8').digest('hex')}`);
+    const requestLock = renderActiveRequestLock(currentIntent, priorRequest, baseArtifact, Boolean(priorContinuity?.compactionRisk));
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}` };
+  });
+
+  api.on('after_compaction', async (event: any, ctx: any) => {
+    const stateKey = stateKeyForContext(ctx);
+    if (!stateKey) return;
+    const continuity = continuityByKey.get(stateKey) || { latestUserPrompt: '', artifacts: [], updatedAt: Date.now(), compactionRisk: false };
+    continuity.compactionRisk = inspectCompactionRisk(event?.sessionFile);
+    continuity.updatedAt = Date.now();
+    continuityByKey.set(stateKey, continuity);
+    if (continuity.compactionRisk) api.logger.warn?.(`cortex-route-gate: noisy compaction detected principal=${stateKey}; active-request lock will fail closed against stale scope`);
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
+    const toolName = String(event?.toolName || '');
     if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && !hasLevel(rs.plan, 2)) {
       rs.observedSignals.push('web_tool_without_l2');
     }
@@ -1424,20 +2014,43 @@ export default function register(api: any) {
   api.on('after_tool_call', async (event: any, ctx: any) => {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
-    rs.toolCalls.push({ toolName: String(event?.toolName || ''), ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined, error: event?.error ? String(event.error) : undefined });
+    const toolName = String(event?.toolName || '');
+    rs.toolCalls.push({ toolName, ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined });
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
   });
 
   api.on('tool_result_persist', (event: any) => {
-    const toolName = String(event?.toolName || '');
     const message = event?.message;
     if (!message || typeof message !== 'object') return;
     const content = (message as any).content;
-    const groundedPrefix = `GROUNDING NOTE: Tool output below is observed tool data for ${toolName || 'unknown tool'}. Distinguish raw output from later inference.\n`;
-    if (typeof content === 'string' && !content.startsWith('GROUNDING NOTE:')) {
-      return { message: { ...(message as any), content: groundedPrefix + content } };
+    const textParts = typeof content === 'string'
+      ? [content]
+      : Array.isArray(content)
+        ? content.filter((part) => isRecord(part) && typeof part.text === 'string').map((part: any) => part.text)
+        : [];
+    const byteCount = textParts.reduce((total, part) => total + Buffer.byteLength(part, 'utf8'), 0);
+    const contentHash = crypto.createHash('sha256');
+    for (const part of textParts) {
+      const bytes = Buffer.from(part, 'utf8');
+      const length = Buffer.allocUnsafe(8);
+      length.writeBigUInt64BE(BigInt(bytes.length));
+      contentHash.update(length).update(bytes);
     }
-    return;
+    const rawToolName = String(event?.toolName || '');
+    const toolName = /^[A-Za-z0-9_.:-]{1,128}$/.test(rawToolName) ? rawToolName : 'opaque_tool';
+    const budgetState = textParts.some((part) => /CORTEX_TOOL_BUDGET_ALREADY_EXHAUSTED/.test(part))
+      ? 'already_exhausted'
+      : textParts.some((part) => /CORTEX_TOOL_BUDGET_EXHAUSTED/.test(part)) ? 'exhausted' : 'none';
+    const metadata = {
+      schemaVersion: 'cortex.tool-result-metadata.v1',
+      toolName,
+      contentType: typeof content === 'string' ? 'text' : Array.isArray(content) ? 'parts' : typeof content,
+      textPartCount: textParts.length,
+      byteCount,
+      contentHash: contentHash.digest('hex'),
+      budgetState,
+    };
+    return { message: { role: 'tool', content: `CORTEX_TOOL_RESULT_METADATA ${JSON.stringify(metadata)}` } };
   });
 
   api.on('llm_output', async (event: any, ctx: any) => {
@@ -1447,6 +2060,15 @@ export default function register(api: any) {
     if (!rs) return;
     const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
     rs.outputObserved = Boolean(output.trim());
+    if (stateKey && output.trim()) {
+      const continuity = continuityByKey.get(stateKey) || { latestUserPrompt: rs.prompt, artifacts: [], updatedAt: Date.now(), compactionRisk: false };
+      if (looksLikeReusableArtifact(output)) {
+        const artifact = { text: boundedText(output, 12_000), createdAt: Date.now(), fingerprint: fingerprintText(output) };
+        continuity.artifacts = [artifact, ...continuity.artifacts.filter((item) => item.fingerprint !== artifact.fingerprint)].slice(0, 8);
+      }
+      continuity.updatedAt = Date.now();
+      continuityByKey.set(stateKey, continuity);
+    }
     if (!rs.creativity?.requested || !creativityAuditEnabled) return;
     cleanupPendingCreativitySuppressions();
     if (!output.trim()) return;
@@ -1461,13 +2083,10 @@ export default function register(api: any) {
       metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
       if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
     });
-    if (stateKey) updateJson(rs.statePaths.creativityRetry, {} as Record<string, CreativityAudit>, (state) => {
-      if (audit.passed) delete state[rawSessionKey];
-      else state[rawSessionKey] = audit;
-    });
+    if (stateKey) storeCreativityRetry(rs.statePaths.creativityRetry, audit);
     if (!audit.passed && stateKey) {
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
-      api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
+      api.logger.warn?.(`cortex-route-gate: creativity audit failed principal=${stateKey} reason_count=${audit.reasons.length} overlap_count=${audit.overlapTerms.length}`);
 
       const deliveryKeyRaw = extractDeliveryKeyFromSessionKey(rawSessionKey);
       const deliveryKey = deliveryKeyRaw ? scopedDeliveryKey(deliveryKeyRaw, stateKey) : undefined;
@@ -1476,8 +2095,6 @@ export default function register(api: any) {
           deliveryKey,
           expectedOutputFingerprint: creativityOutputFingerprint(output),
           createdAt: Date.now(),
-          retryPrompt: buildCreativityAutoRetryPrompt(audit),
-          sessionKey: stateKey,
         });
         updateCreativityMetrics(rs.statePaths.creativityMetrics, (metrics) => { metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1; });
         rs.observedSignals.push('creativity_retry_predelivery');
@@ -1510,21 +2127,28 @@ export default function register(api: any) {
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
-    const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
-    updateStats(rs.statePaths.stats, (stats) => {
-      const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
-      taskBucket.uses += 1;
-      if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
-      stats.byTask[rs.taskClass] = taskBucket;
-      for (const level of rs.plan.recommendedLevels) {
-        const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
-        bucket.uses += 1;
-        if (success) bucket.successes += 1; else bucket.failures += 1;
-        bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
-        bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
-        stats.byLevel[String(level.level)] = bucket;
-      }
-    });
+    const runCompleted = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
+    // `agent_end.success` only means the runtime stopped normally. It does not
+    // prove that an answer was observed, accepted, or caused by any recommended
+    // level. Only trusted callback metadata with all four signals may train.
+    const outcomeReceipt = verifiedRouteOutcomeReceipt(event?.cortexRouteOutcomeReceipt, rs, runCompleted);
+    if (outcomeReceipt) {
+      const success = outcomeReceipt.userOutcome === 'accepted';
+      updateStats(rs.statePaths.stats, (stats) => {
+        const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
+        taskBucket.uses += 1;
+        if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
+        stats.byTask[rs.taskClass] = taskBucket;
+        for (const level of outcomeReceipt.executedLevels) {
+          const bucket = stats.byLevel[String(level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
+          bucket.uses += 1;
+          if (success) bucket.successes += 1; else bucket.failures += 1;
+          bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
+          bucket.lastReason = `verified_outcome_receipt:${outcomeReceipt.userOutcome}`;
+          stats.byLevel[String(level)] = bucket;
+        }
+      });
+    }
     if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
       const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
       if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
@@ -1562,8 +2186,10 @@ export default function register(api: any) {
             candidateContentExposed: false,
             baselineMemorySearchAttempted: memoryCalls.length > 0,
             baselineMemorySearchSucceeded: memoryCalls.some((call) => call.ok),
-            baselineRunSucceeded: success,
+            baselineRunCompleted: runCompleted,
+            baselineRunSucceeded: runCompleted && rs.outputObserved,
             outputObserved: rs.outputObserved,
+            outcomeReceiptObserved: Boolean(outcomeReceipt),
             qualityCompared: false,
             qualityComparisonReason: 'shadow_candidate_content_unavailable_to_answer_path',
           });
@@ -1571,7 +2197,7 @@ export default function register(api: any) {
         });
       } catch (error) {
         // Shadow telemetry must never fail or delay completion of the real run.
-        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed: ${String(error)}`);
+        api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed ${safeErrorSummary(error)}`);
       }
     }
     runStateByKey.delete(stateKey);

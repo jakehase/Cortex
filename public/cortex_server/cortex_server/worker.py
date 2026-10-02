@@ -7,12 +7,20 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime
+from typing import Any, Mapping
 
-from celery import Celery
+from celery import Celery, Task
+from celery.exceptions import Reject
 
 # Import native modules for direct execution
+from cortex_server.internal_addressing import internal_url
+from cortex_server.modules.action_capabilities import (
+    DELEGATED_ACTION_CAPABILITY_HEADER,
+    assert_action_authorized,
+    authorize_deferred_action,
+)
 from cortex_server.modules.ghost import Ghost
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import configured_internal_memory_headers
 from cortex_server.modules.ouroboros import Ouroboros
 
 
@@ -21,6 +29,53 @@ app = Celery(
     broker=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
     backend=os.getenv("CORTEX_REDIS_URL", "redis://localhost:6379/0"),
 )
+
+
+class DelegatedActionTask(Task):
+    """Celery task base that consumes exact delegated authority at the worker."""
+
+    abstract = True
+    consumes_delegated_action_capability = True
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        # The v1 deferred proof binds the positional argument vector.  Refuse
+        # keyword arguments until the signed contract binds them too.
+        if kwargs:
+            raise Reject(
+                "delegated action keyword arguments are unsupported",
+                requeue=False,
+            )
+        headers = getattr(self.request, "headers", None)
+        capability = (
+            headers.get(DELEGATED_ACTION_CAPABILITY_HEADER)
+            if isinstance(headers, Mapping)
+            else None
+        )
+        authorization = authorize_deferred_action(
+            capability if isinstance(capability, Mapping) else {},
+            task=str(self.name or ""),
+            args=list(args),
+        )
+        if authorization is None:
+            raise Reject("delegated action capability denied", requeue=False)
+        assert_action_authorized(authorization)
+        return super().__call__(*args, **kwargs)
+
+
+def task_consumes_delegated_action_capability(
+    task_name: str,
+    *,
+    celery: Any = None,
+) -> bool:
+    """Return whether the registered target enforces worker-side consumption."""
+
+    selected_app = celery if celery is not None else app
+    tasks = getattr(selected_app, "tasks", {})
+    task = tasks.get(str(task_name or "")) if isinstance(tasks, Mapping) else None
+    return bool(
+        task is not None
+        and getattr(task, "consumes_delegated_action_capability", False) is True
+    )
 
 
 def _cortex_write_headers() -> dict[str, str]:
@@ -65,14 +120,14 @@ def long_running_research(topic: str) -> str:
     return path
 
 
-@app.task(name="cortex_tasks.add")
+@app.task(name="cortex_tasks.add", base=DelegatedActionTask)
 def add(x, y):
     """Simple add task for testing."""
     return x + y
 
 
-@app.task(name="cortex_tasks.process_swarm")
-def process_swarm(goal: str, context: str | None = None) -> dict:
+@app.task(bind=True, name="cortex_tasks.process_swarm")
+def process_swarm(self, goal: str, context: str | None = None) -> dict:
     """Process a swarm orchestration task using native modules.
     
     Uses Ghost for web search, makes local API calls for Oracle/Librarian.
@@ -81,9 +136,9 @@ def process_swarm(goal: str, context: str | None = None) -> dict:
     import uuid
     import json
 
-    ORACLE_URL = "http://localhost:8888/oracle/chat"
-    QUEUE_URL = "http://localhost:8888/queue/schedule"
-    LIBRARIAN_EMBED = "http://localhost:8888/librarian/embed"
+    ORACLE_URL = internal_url("/oracle/chat")
+    QUEUE_URL = internal_url("/queue/schedule")
+    LIBRARIAN_EMBED = internal_url("/librarian/embed")
 
     context_text = context
     novelty_mode = "standard"
@@ -159,11 +214,16 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             f"Summarize: {goal}"
         ]
 
+    # Celery preserves the task id across redelivery.  Deriving child admission
+    # keys from it prevents a retried parent from duplicating its three child
+    # tasks.  Direct/eager invocations without an id retain a unique fallback.
+    master_plan_id = str(getattr(self.request, "id", "") or uuid.uuid4())
     task_ids = []
     for i, task in enumerate(sub_tasks[:3], 1):
         queue_payload = {
             "task": "cortex_tasks.long_running_research",
-            "args": [f"Swarm Task {i}: {task}"]
+            "args": [f"Swarm Task {i}: {task}"],
+            "idempotency_key": f"swarm:{master_plan_id}:{i}",
         }
         try:
             queue_resp = requests.post(QUEUE_URL, json=queue_payload, headers=_cortex_write_headers(), timeout=10)
@@ -172,8 +232,6 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
                 task_ids.append(task_id)
         except:
             task_ids.append(f"failed-{uuid.uuid4()}")
-
-    master_plan_id = str(uuid.uuid4())
 
     novelty_summary = None
     if isinstance(novel_plan, dict):
@@ -202,10 +260,15 @@ Break the user's goal into exactly 3 distinct, single-sentence sub-tasks. Format
             "novelty_summary": novelty_summary,
         }
     }
-    librarian_payload.update(authenticated_memory_scope_fields())
-
     try:
-        requests.post(LIBRARIAN_EMBED, json=librarian_payload, headers=_cortex_write_headers(), timeout=10)
+        memory_headers = configured_internal_memory_headers()
+        if memory_headers is not None:
+            requests.post(
+                LIBRARIAN_EMBED,
+                json=librarian_payload,
+                headers={**_cortex_write_headers(), **memory_headers},
+                timeout=10,
+            )
     except:
         pass
 

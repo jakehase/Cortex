@@ -1,14 +1,14 @@
 {
   "schemaVersion": "openclaw.aios.adapter.default.v1",
-  "enabled": true,
-  "mode": "always_on_internal_aios_language_status_recovery_handoff_provider_read_compute",
-  "promotedAt": "2026-07-11T23:03:33.442Z",
+  "enabled": false,
+  "mode": "inactive_unqualified_template",
+  "promotedAt": null,
   "adapter": "openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows",
-  "defaultArtifactRoot": "/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332",
-  "rootPointerFile": "/root/clawd/artifacts/ai-os/dogfood/latest-adapter-root.json",
-  "lastRootFile": "/root/clawd/.last_aios_adapter_root",
-  "status": "green",
-  "promotionReportPath": "/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332/reports/recovery-report.json",
+  "defaultArtifactRoot": null,
+  "rootPointerFile": null,
+  "lastRootFile": null,
+  "status": "unqualified_template",
+  "promotionReportPath": null,
   "policy": {
     "defaultUses": [
       "status",
@@ -30,7 +30,10 @@
       "implementation-brief"
     ],
     "providerOutputBoundary": "internal-artifact-only",
-    "externalWritesExposed": false,
+    "externalWritesExposed": true,
+    "externalTransportEffect": "network-post",
+    "providerResultStorageExternalWrites": false,
+    "remoteSideEffects": "not_observable",
     "replacesCortexOpenClawRouting": false,
     "replacesChatControlPlane": false,
     "requiresExplicitApprovalFor": [
@@ -39,5 +42,5 @@
       "default_runtime_replacement"
     ]
   },
-  "truthBoundary": "AIOS v1 is frozen and the adapter is default-on for internal status/recovery/handoff plus three capability-gated provider read/compute workflows whose outputs remain internal artifacts. Language expansion requires execution evidence and explicit approval. It does not replace Cortex/OpenClaw routing, expose user-visible/external writes, or promote failed benchmark output."
+  "truthBoundary": "This checked-in file is an inactive policy template, not current operational evidence. Promotion atomically replaces the active default only after fresh smoke, process-completion, supported verifier-contract replay, claim binding, recovery, and explicit operator approval are green. Provider calls perform external network POST writes; returned results remain internal artifacts and remote side effects are not observable here. Local executable hashes detect version drift but are not cryptographic principal authentication."
 }

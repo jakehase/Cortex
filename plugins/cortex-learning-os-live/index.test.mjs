@@ -24,6 +24,7 @@ import {
   TRANSFER_ENTRY_SCHEMA,
   atomicWriteSignedTransferRegistry,
   initializeTransferRegistry,
+  validateTransferEntry,
 } from './transfer-registry.mjs';
 
 function lesson(overrides = {}) {
@@ -332,6 +333,71 @@ test('active-default transfer injects nothing when the signed registry has no qu
     assert.equal(telemetry.records.at(-1).outcome, 'no_match');
     assert.equal(telemetry.records.at(-1).answerInfluence, false);
     assert.ok(telemetry.records.at(-1).reasonCodes.includes('no-active-qualified-entry'));
+
+    await invoke(setup, {
+      query,
+      configOverrides: {
+        transferRegistryPath: transfer.registryPath,
+        transferRegistryHmacSecretPath: transfer.secretPath,
+        transferTelemetryPath: transfer.telemetryPath,
+        transferMode: 'shadow',
+      },
+    });
+    const shadowTelemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    assert.equal(shadowTelemetry.records.at(-1).outcome, 'no_match');
+    assert.ok(shadowTelemetry.records.at(-1).reasonCodes.includes('no-active-qualified-entry'));
+  } finally {
+    fs.rmSync(setup.root, { recursive: true, force: true });
+  }
+});
+
+test('operator-direct entries never influence answers, including grounded coding prompts', async () => {
+  const setup = setupRegistry({ lessons: [] });
+  const operatorEntry = transferEntry({
+    entryId: 'operator-direct-full-spectrum-test',
+    profileId: 'number-fractions',
+    conceptIds: ['number-fractions'],
+    matcherId: 'phd-math-number-fractions-v1',
+    qualificationState: 'operator_enabled',
+    activationBasis: 'operator_direct',
+    artifactManifestDigest: null,
+    evidenceDigest: null,
+    profileDigest: null,
+  });
+  assert.equal(validateTransferEntry(operatorEntry).ok, false);
+  assert.equal(validateTransferEntry({ ...operatorEntry, enabled: false }).ok, true);
+  const transfer = setupTransferRegistry(setup.root, [{ ...operatorEntry, enabled: false }]);
+  const configOverrides = {
+    transferRegistryPath: transfer.registryPath,
+    transferRegistryHmacSecretPath: transfer.secretPath,
+    transferTelemetryPath: transfer.telemetryPath,
+  };
+  try {
+    const coding = await invoke(setup, {
+      query: 'Implement exact fraction normalization with rational arithmetic in TypeScript.',
+      configOverrides,
+    });
+    assert.equal(coding.context, '');
+    let telemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    let record = telemetry.records.at(-1);
+    assert.ok(record.profileIds.includes('number-fractions'));
+    assert.ok(record.matcherIds.includes('phd-math-number-fractions-v1'));
+    assert.ok(record.reasonCodes.includes('no-active-qualified-entry'));
+    assert.equal(record.answerInfluence, false);
+
+    const pureMath = await invoke(setup, {
+      query: 'Explain number-fractions in mathematics.',
+      configOverrides,
+    });
+    assert.equal(pureMath.context, '');
+    telemetry = JSON.parse(fs.readFileSync(transfer.telemetryPath, 'utf8'));
+    record = telemetry.records.at(-1);
+    assert.ok(record.profileIds.includes('number-fractions'));
+    assert.ok(record.matcherIds.includes('phd-math-number-fractions-v1'));
+    assert.ok(record.negativeGateCodes.includes('software-context-required'));
+    assert.ok(record.reasonCodes.includes('software-context-required'));
+    assert.equal(record.answerInfluence, false);
+    assert.equal(telemetry.records.some((row) => row.answerInfluence === true), false);
   } finally {
     fs.rmSync(setup.root, { recursive: true, force: true });
   }

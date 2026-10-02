@@ -17,6 +17,7 @@ import {
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(root, "apps", "aios-cli.mjs");
+const verifierCli = path.join(root, "apps", "aios-verifier.mjs");
 const defaultPolicy = path.join(root, "kernel", "policy", "provider-read-compute.json");
 
 function parseArgs(tokens) {
@@ -61,6 +62,15 @@ function runCli(args, { expectFailure = false } = {}) {
   return { status: execution.status, output };
 }
 
+function runVerifier(args) {
+  const execution = spawnSync(process.execPath, [verifierCli, ...args], { cwd: root, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  const output = parseJsonOutput(execution.stdout || execution.stderr);
+  if (execution.status !== 0 || output?.ok !== true) {
+    throw new Error(`AIOS verifier failed (${execution.status}): ${JSON.stringify(output)}`);
+  }
+  return output;
+}
+
 function providerReceipt(runPacket, operation) {
   const row = (runPacket?.syscallResults ?? []).find((entry) => entry.op === `provider.${operation}` && entry.ok === true);
   if (!row?.output?.resultPath) throw new Error(`Missing provider.${operation} result receipt.`);
@@ -100,7 +110,14 @@ export function executeProviderWorkflow(options = {}) {
     provider: options.provider ?? "cortex",
     model: options.model ?? "tinyllama",
     policyPath,
-    boundary: { outputBoundary: "internal-artifact-only", externalWrites: false, runtimeReplacement: false },
+    boundary: {
+      outputBoundary: "internal-artifact-only",
+      externalWrites: true,
+      externalTransportEffect: "network-post",
+      resultStorageExternalWrites: false,
+      remoteSideEffects: "not_observable",
+      runtimeReplacement: false,
+    },
     phases: ["read", "compute", "recovery-reuse", "policy-denial", "verify", "claim"],
   };
   fs.writeFileSync(path.join(artifactRoot, "workflow-contract.json"), `${JSON.stringify(contract, null, 2)}\n`);
@@ -140,12 +157,13 @@ export function executeProviderWorkflow(options = {}) {
   const checks = [
     { id: "read-http-200", ok: readReceipt.responseStatus === 200 },
     { id: "compute-http-200", ok: computeReceipt.responseStatus === 200 },
-    { id: "read-internal-artifact", ok: readReceipt.outputBoundary === "internal-artifact-only" && readReceipt.externalWrites === false && fs.existsSync(readReceipt.resultPath) },
-    { id: "compute-internal-artifact", ok: computeReceipt.outputBoundary === "internal-artifact-only" && computeReceipt.externalWrites === false && fs.existsSync(computeReceipt.resultPath) },
+    { id: "read-internal-artifact", ok: readReceipt.outputBoundary === "internal-artifact-only" && readReceipt.resultStorageExternalWrites === false && fs.existsSync(readReceipt.resultPath) },
+    { id: "compute-internal-artifact", ok: computeReceipt.outputBoundary === "internal-artifact-only" && computeReceipt.resultStorageExternalWrites === false && fs.existsSync(computeReceipt.resultPath) },
     { id: "retrieval-fed-synthesis", ok: readArtifact.response.body != null && fs.readFileSync(computeSourcePath, "utf8").includes(stableHash(readArtifact.response.body)) },
     { id: "restart-safe-reuse", ok: recoveryRun.restartSafety?.status === "completed_record_reused" },
     { id: "provider-write-denied", ok: denial.status !== 0 && denialCodes.includes("AIOS_CANONICAL_EXTERNAL_EFFECT_BLOCKED") },
-    { id: "no-external-writes", ok: readArtifact.boundary.externalWrites === false && computeArtifact.boundary.externalWrites === false },
+    { id: "external-posts-reported", ok: [readReceipt, computeReceipt].every((receipt) => receipt.externalWrites === true && receipt.externalTransportEffect === "network-post") },
+    { id: "remote-effects-not-overclaimed", ok: [readArtifact, computeArtifact].every((artifact) => artifact.boundary.remoteSideEffects === "not_observable") },
   ];
   const verifier = {
     schemaVersion: "aios.provider-workflow.verifier.v1",
@@ -160,11 +178,16 @@ export function executeProviderWorkflow(options = {}) {
     },
     boundary: contract.boundary,
   };
-  fs.mkdirSync(path.join(computeRoot, "packets"), { recursive: true });
-  const verifierPath = path.join(computeRoot, "packets", "verifier-evidence.packet.json");
-  fs.writeFileSync(verifierPath, `${JSON.stringify(verifier, null, 2)}\n`);
+  fs.mkdirSync(path.join(computeRoot, "reports"), { recursive: true });
+  const workflowCheckPath = path.join(computeRoot, "reports", "workflow-checks.json");
+  fs.writeFileSync(workflowCheckPath, `${JSON.stringify(verifier, null, 2)}\n`);
   if (!verifier.ok) throw new Error(`Workflow verifier failed: ${JSON.stringify(checks.filter((check) => !check.ok))}`);
-  const claim = runCli(["claim", computeCompile.jobPaths[0], "--artifact-root", computeRoot]).output;
+  const trustedVerifier = runVerifier([
+    "--job", computeCompile.jobPaths[0],
+    "--artifact-root", computeRoot,
+    "--provider-policy", policyPath,
+  ]);
+  const claim = runCli(["claim", computeCompile.jobPaths[0], "--artifact-root", computeRoot, "--provider-policy", policyPath]).output;
 
   const completedAt = new Date().toISOString();
   const result = {
@@ -184,8 +207,13 @@ export function executeProviderWorkflow(options = {}) {
     recovery: { status: recoveryRun.restartSafety?.status ?? null, processId: recoveryRun.processId },
     policyDenial: { observed: denial.status !== 0, exitCode: denial.status, diagnosticCodes: denialCodes },
     boundary: contract.boundary,
-    verifier: { path: verifierPath, checks },
-    claim: { path: claim.claimPath, subject: claim.subject },
+    verifier: { path: trustedVerifier.verifierPath, workflowCheckPath, checks, binding: trustedVerifier.binding },
+    claim: {
+      path: claim.claimPath,
+      subject: claim.subject,
+      scope: claim.claimScope,
+      workflowChecksBoundSeparately: workflowCheckPath,
+    },
     friction: options.frictionCode ? [{ code: options.frictionCode, detail: String(options.frictionDetail ?? "") }] : [],
     metrics: {
       providerCalls: 2,

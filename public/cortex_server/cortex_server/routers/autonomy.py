@@ -14,31 +14,41 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
 import json
 import concurrent.futures
+import hashlib
 import os
 import threading
 import time
 import urllib.error
 import urllib.request
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 from cortex_server.middleware.event_ledger_middleware import (
     EVENT_LEDGER_PATH,
     get_event_health,
     get_recent_events,
 )
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import (
+    MemoryScopeAuthError,
+    configured_internal_memory_headers,
+)
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    assert_action_authorized,
+    require_action_capability,
+)
 
 router = APIRouter()
 
 AUTONOMY_STATE_PATH = os.getenv("CORTEX_AUTONOMY_STATE_PATH", "/app/config/autonomy_state.json")
 DECISION_LOG_PATH = os.getenv("CORTEX_DECISION_LOG_PATH", "/app/logs/cortex_decisions.jsonl")
-DEFAULT_LOCAL_BASE_URL = os.getenv("CORTEX_LOCAL_BASE_URL", "http://127.0.0.1:8888").rstrip("/")
+DEFAULT_LOCAL_BASE_URL = CORTEX_INTERNAL_BASE_URL
 
 _state_lock = threading.RLock()
 
@@ -91,6 +101,14 @@ class ImmuneTriggerRequest(BaseModel):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _path_metadata(field: str, value: str) -> Dict[str, Any]:
+    encoded = os.fsencode(os.path.abspath(value))
+    return {
+        field: "[REDACTED]",
+        f"{field}_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
 
 
 def _dedupe_str_list(values: Optional[List[str]], max_items: int = 16) -> List[str]:
@@ -242,12 +260,17 @@ def _get_local_json(path: str, timeout_s: float = 5.0) -> Dict[str, Any]:
         return json.loads(raw) if raw else {}
 
 
-def _post_local_json(path: str, payload: Dict[str, Any], timeout_s: float = 8.0) -> Dict[str, Any]:
+def _post_local_json(
+    path: str,
+    payload: Dict[str, Any],
+    timeout_s: float = 8.0,
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     url = f"{DEFAULT_LOCAL_BASE_URL}{path}"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **dict(headers or {})},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout_s) as r:
@@ -257,19 +280,43 @@ def _post_local_json(path: str, payload: Dict[str, Any], timeout_s: float = 8.0)
 
 def _persist_l22(content: str, tags: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
-        return _post_local_json(
+        memory_headers = configured_internal_memory_headers()
+        if memory_headers is None:
+            return {
+                "status": "unavailable",
+                "reason": "configured_internal_memory_principal_unavailable",
+            }
+        upstream = _post_local_json(
             "/l22/store",
             {
                 "type": "autonomy_memory",
                 "content": content,
                 "tags": _dedupe_str_list(tags or []),
                 "metadata": metadata or {},
-                **authenticated_memory_scope_fields(),
             },
             timeout_s=6.0,
+            headers=memory_headers,
         )
+        status = str(upstream.get("status") or "stored").strip().lower()
+        if status not in {"stored", "success", "ok", "created", "accepted"}:
+            status = "completed"
+        result: Dict[str, Any] = {
+            "status": status,
+            "success": bool(upstream.get("success", True)),
+        }
+        record_id = upstream.get("id") or upstream.get("record_id") or upstream.get("memory_id")
+        if record_id is not None:
+            encoded_id = str(record_id).encode("utf-8", errors="replace")
+            result["record_id"] = "[REDACTED]"
+            result["record_id_sha256"] = hashlib.sha256(encoded_id).hexdigest()
+        return result
+    except MemoryScopeAuthError:
+        return {
+            "status": "unavailable",
+            "reason": "internal_memory_authorization_unavailable",
+        }
     except Exception as exc:
-        return {"status": "failed", "error": str(exc)}
+        return {"status": "failed", "error": type(exc).__name__}
 
 
 # ---------------------------------------------------------------------------
@@ -469,9 +516,9 @@ async def autonomy_status():
             "one_adaptation_loop": bool(adaptation.get("nightly_reflection_enabled", True)),
         },
         "event_health_10m": event_health,
-        "state_path": AUTONOMY_STATE_PATH,
-        "ledger_path": EVENT_LEDGER_PATH,
-        "decision_log_path": DECISION_LOG_PATH,
+        **_path_metadata("state_path", AUTONOMY_STATE_PATH),
+        **_path_metadata("ledger_path", EVENT_LEDGER_PATH),
+        **_path_metadata("decision_log_path", DECISION_LOG_PATH),
     }
 
 
@@ -487,7 +534,11 @@ async def get_objectives():
 
 
 @router.put("/objectives")
-async def update_objectives(update: ObjectivesUpdate):
+async def update_objectives(
+    update: ObjectivesUpdate,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
     obj = state.get("one_will") or {}
 
@@ -517,7 +568,11 @@ async def get_personality_contract():
 
 
 @router.put("/personality")
-async def update_personality_contract(update: PersonalityUpdate):
+async def update_personality_contract(
+    update: PersonalityUpdate,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
     pc = state.get("personality_contract") or {}
 
@@ -548,12 +603,16 @@ async def autonomy_events(seconds: int = 3600, limit: int = 200):
         "window_seconds": int(seconds),
         "total": len(events),
         "events": events,
-        "ledger_path": EVENT_LEDGER_PATH,
+        **_path_metadata("ledger_path", EVENT_LEDGER_PATH),
     }
 
 
 @router.post("/decision")
-async def add_decision(decision: DecisionCreate):
+async def add_decision(
+    decision: DecisionCreate,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
 
     entry = {
@@ -583,7 +642,7 @@ async def add_decision(decision: DecisionCreate):
     return {
         "success": True,
         "logged": entry,
-        "decision_log_path": DECISION_LOG_PATH,
+        **_path_metadata("decision_log_path", DECISION_LOG_PATH),
         "l22": l22_result,
     }
 
@@ -595,12 +654,16 @@ async def decision_log(limit: int = 50):
         "success": True,
         "total": len(rows),
         "entries": rows,
-        "decision_log_path": DECISION_LOG_PATH,
+        **_path_metadata("decision_log_path", DECISION_LOG_PATH),
     }
 
 
 @router.post("/reflection/nightly")
-async def run_nightly_reflection(req: ReflectionRequest):
+async def run_nightly_reflection(
+    req: ReflectionRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
     report = _build_reflection(req.window_hours)
 
@@ -639,7 +702,11 @@ async def run_nightly_reflection(req: ReflectionRequest):
 
 
 @router.post("/adaptation/weekly")
-async def run_weekly_adaptation(req: WeeklyAdaptationRequest):
+async def run_weekly_adaptation(
+    req: WeeklyAdaptationRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
     plan = _build_weekly_adaptation(req.window_days)
 
@@ -674,18 +741,16 @@ async def run_weekly_adaptation(req: WeeklyAdaptationRequest):
 
 @router.get("/immune/status")
 async def immune_status():
-    state = _load_state()
     report = await run_in_threadpool(_immune_checks)
-
-    state.setdefault("immune_system", {})["last_check"] = _now_iso()
-    state["immune_system"]["last_check_result"] = report
-    _save_state(state)
-
     return {"success": True, "immune": report}
 
 
 @router.post("/immune/trigger")
-async def immune_trigger(req: ImmuneTriggerRequest):
+async def immune_trigger(
+    req: ImmuneTriggerRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
+    assert_action_authorized(authorization)
     state = _load_state()
     report = await run_in_threadpool(_immune_checks)
 

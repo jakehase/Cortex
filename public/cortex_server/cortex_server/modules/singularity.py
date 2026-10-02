@@ -122,7 +122,7 @@ class Singularity:
                 # Sleep for 1 hour (3600 seconds)
                 time.sleep(3600)
             except Exception as e:
-                print(f"Evolution scheduler error: {e}")
+                print(f"Evolution scheduler error ({type(e).__name__})")
                 time.sleep(3600)
     
     def stop_evolution_scheduler(self):
@@ -213,7 +213,7 @@ class Singularity:
             opportunities.extend(stress_opps)
             
         except Exception as e:
-            print(f"Error detecting evolution opportunities: {e}")
+            print(f"Error detecting evolution opportunities ({type(e).__name__})")
         
         return opportunities
     

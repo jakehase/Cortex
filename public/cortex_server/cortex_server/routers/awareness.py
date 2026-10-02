@@ -21,14 +21,18 @@ Architecture:
 - Broadcasts insights, alerts, and distress signals proactively
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from collections import deque
 from pathlib import Path
 import asyncio
+import hashlib
 import json
+import math
+import os
+import re
 import time
 import logging
 import threading
@@ -42,13 +46,47 @@ from cortex_server.modules.consciousness_integration import (
 )
 from cortex_server.modules.unified_messaging import get_bus
 from cortex_server.modules.consciousness_core import get_consciousness_core
+from cortex_server.modules.sensitive_data_redaction import (
+    REDACTION_MARKER,
+    redact_sensitive_data,
+    redact_sensitive_text,
+)
+from cortex_server.runtime.resilient_json_state import (
+    ResilientJSONStateError,
+    ResilientJSONStateStore,
+    StateCorruptionError,
+)
 
 logger = logging.getLogger("L37_awareness")
 router = APIRouter()
 
+
+def _value_sha256(value: Any) -> str:
+    """Return a stable fingerprint without emitting the underlying value."""
+
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            default=str,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        encoded = type(value).__name__.encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
 # ── Configuration ──
 TICK_SECONDS = 120
-WORKING_MEMORY_PATH = Path("/app/cortex_server/consciousness_core/working_memory.json")
+WORKING_MEMORY_PATH = Path(
+    os.getenv(
+        "CORTEX_AWARENESS_STATE_PATH",
+        "/opt/clawdbot/state/awareness/working_memory.json",
+    )
+).expanduser()
+if not WORKING_MEMORY_PATH.is_absolute():
+    raise ValueError("CORTEX_AWARENESS_STATE_PATH must be absolute")
 MAX_SHORT_TERM = 50
 MAX_PREDICTIONS = 10
 CONFIDENCE_DECAY = 0.02
@@ -63,6 +101,90 @@ INVESTIGATION_COOLDOWN = 120          # Seconds between auto-investigations
 STALE_UNCERTAINTY_SECONDS = 300       # 5 min before uncertainty becomes critical
 EVENT_DEDUPE_WINDOW_SECONDS = 8
 MAX_EVENT_RATE_WINDOW_SECONDS = 300
+
+# Explicit durable schema passed to the central recursive allowlist redactor.
+# Prose-bearing fields are fingerprinted and replaced before this boundary.
+_AWARENESS_PERSISTENCE_FIELDS = frozenset(
+    {
+        "focus",
+        "short_term",
+        "uncertainties",
+        "predictions",
+        "curiosities",
+        "initiatives",
+        "inner_monologue",
+        "self_model",
+        "meta",
+        "timestamp",
+        "since",
+        "description",
+        "description_sha256",
+        "context",
+        "context_sha256",
+        "event",
+        "event_sha256",
+        "source_level",
+        "confidence",
+        "registered_at",
+        "resolved",
+        "resolved_at",
+        "investigation_result",
+        "investigation_result_sha256",
+        "prediction",
+        "prediction_sha256",
+        "basis",
+        "basis_sha256",
+        "event_type_hint",
+        "event_type_hint_sha256",
+        "made_at",
+        "outcome",
+        "question",
+        "question_sha256",
+        "priority",
+        "added_at",
+        "investigated",
+        "answer",
+        "answer_sha256",
+        "answered_at",
+        "action",
+        "action_sha256",
+        "trigger",
+        "trigger_sha256",
+        "result",
+        "result_sha256",
+        "thought",
+        "thought_sha256",
+        "overall_confidence",
+        "active_capabilities",
+        "degraded_capabilities",
+        "last_user_intent",
+        "last_user_intent_sha256",
+        "interaction_pattern",
+        "interaction_pattern_sha256",
+        "emotional_tone",
+        "emotional_valence",
+        "emotional_reasons",
+        "cognitive_load",
+        "total_ticks",
+        "total_events_observed",
+        "total_predictions_made",
+        "predictions_correct",
+        "predictions_wrong",
+        "emergences_detected",
+        "investigations_run",
+        "oracle_predictions_made",
+        "predictions_resolved_total",
+        "predictions_expired_total",
+        "initiatives_taken",
+        "error_count_recent",
+        "started_at",
+        "last_tick",
+        "last_semantic_prediction_at",
+        "last_investigation_at",
+        "deduped_events",
+        "auto_indexes",
+    }
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -170,7 +292,7 @@ class WorkingMemory:
     }
 
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state: Dict[str, Any] = {
             "focus": None,
             "short_term": [],
@@ -215,47 +337,180 @@ class WorkingMemory:
         self._event_counts_by_source: Dict[str, int] = {}
         self._event_counts_by_type: Dict[str, int] = {}
         self._state.setdefault("meta", {}).setdefault("deduped_events", 0)
+        self._state_store = ResilientJSONStateStore(
+            WORKING_MEMORY_PATH,
+            validator=self._validate_persisted_state,
+            max_state_bytes=4_000_000,
+            json_default=str,
+        )
         self._load()
+
+    @staticmethod
+    def _validate_persisted_state(payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("working memory state must be an object")
+        if not isinstance(payload.get("meta"), dict):
+            raise ValueError("working memory meta must be an object")
+        if not isinstance(payload.get("self_model"), dict):
+            raise ValueError("working memory self_model must be an object")
+        if payload.get("focus") is not None and not isinstance(payload.get("focus"), dict):
+            raise ValueError("working memory focus must be an object or null")
+        for field_name in (
+            "short_term",
+            "uncertainties",
+            "predictions",
+            "curiosities",
+            "initiatives",
+            "inner_monologue",
+        ):
+            # Several of these collections were introduced by the v2 format;
+            # missing legacy fields are migrated after validation.
+            rows = payload.get(field_name, [])
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError(f"working memory {field_name} must contain objects")
+        for field_name in (
+            "total_ticks",
+            "total_events_observed",
+            "total_predictions_made",
+            "predictions_correct",
+            "predictions_wrong",
+            "emergences_detected",
+        ):
+            value = payload["meta"].get(field_name, 0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                raise ValueError(f"working memory meta.{field_name} must be non-negative")
+        return dict(payload)
 
     def _load(self):
         """Load persisted state from disk, with v2 migration."""
         try:
-            if WORKING_MEMORY_PATH.exists():
-                with open(WORKING_MEMORY_PATH, "r") as f:
-                    saved = json.load(f)
-                for key in saved:
-                    if key in self._state:
-                        self._state[key] = saved[key]
-                # Migrate v1 → v2: add missing keys
-                self._state.setdefault("meta", {}).setdefault("predictions_resolved_total", 0)
-                self._state.setdefault("meta", {}).setdefault("predictions_expired_total", 0)
-                for key, default in self._V2_DEFAULTS.items():
-                    if key not in self._state:
-                        self._state[key] = default
-                # Migrate self_model
-                sm = self._state.get("self_model", {})
-                if "emotional_valence" not in sm:
-                    sm["emotional_valence"] = 0.0
-                    sm["emotional_reasons"] = []
-                # Migrate meta
-                meta = self._state.get("meta", {})
-                for mkey in ["investigations_run", "oracle_predictions_made",
-                             "initiatives_taken", "error_count_recent",
-                             "last_semantic_prediction_at", "last_investigation_at"]:
-                    if mkey not in meta:
-                        meta[mkey] = 0 if "count" in mkey or "run" in mkey or "made" in mkey or "taken" in mkey else None
-                logger.info("Loaded working memory (%d short-term items)", len(self._state.get("short_term", [])))
-        except Exception as e:
-            logger.warning("Failed to load working memory: %s", e)
+            saved = self._state_store.load(
+                default_factory=lambda: json.loads(json.dumps(self._state, default=str))
+            )
+        except (StateCorruptionError, ResilientJSONStateError, OSError, ValueError) as exc:
+            logger.error(
+                "Working memory persistence load is degraded (%s)",
+                type(exc).__name__,
+            )
+            return
+        for key in saved:
+            if key in self._state:
+                self._state[key] = saved[key]
+        # Migrate v1 → v2: add missing keys
+        self._state.setdefault("meta", {}).setdefault("predictions_resolved_total", 0)
+        self._state.setdefault("meta", {}).setdefault("predictions_expired_total", 0)
+        for key, default in self._V2_DEFAULTS.items():
+            if key not in self._state:
+                self._state[key] = default
+        # Migrate self_model
+        sm = self._state.get("self_model", {})
+        if "emotional_valence" not in sm:
+            sm["emotional_valence"] = 0.0
+            sm["emotional_reasons"] = []
+        # Migrate meta
+        meta = self._state.get("meta", {})
+        for mkey in ["investigations_run", "oracle_predictions_made",
+                     "initiatives_taken", "error_count_recent",
+                     "last_semantic_prediction_at", "last_investigation_at"]:
+            if mkey not in meta:
+                meta[mkey] = 0 if "count" in mkey or "run" in mkey or "made" in mkey or "taken" in mkey else None
+        if self._state_store.last_load_source != "missing":
+            logger.info("Loaded working memory (%d short-term items)", len(self._state.get("short_term", [])))
 
     def _save(self):
         """Persist state to disk."""
+        with self._lock:
+            snapshot = json.loads(json.dumps(self._state, default=str))
+        snapshot = self._redact_persisted_content(snapshot)
+        snapshot = redact_sensitive_data(
+            snapshot,
+            max_depth=12,
+            max_items=8_192,
+            max_string_chars=2_000,
+            allowed_fields=_AWARENESS_PERSISTENCE_FIELDS,
+        )
         try:
-            WORKING_MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(WORKING_MEMORY_PATH, "w") as f:
-                json.dump(self._state, f, indent=2, default=str)
-        except Exception as e:
-            logger.warning("Failed to save working memory: %s", e)
+            self._state_store.save(snapshot)
+        except (ResilientJSONStateError, OSError, ValueError) as exc:
+            logger.error(
+                "Working memory persistence write is degraded (%s)",
+                type(exc).__name__,
+            )
+            return False
+        health = self._state_store.health
+        if health.get("status") != "healthy":
+            # save() returning means the primary commit is authoritative. A
+            # backup-copy failure degrades recovery health but must not cause
+            # an HTTP 503 plus in-memory rollback while the durable primary
+            # already contains the accepted mutation.
+            logger.error(
+                "Working memory persistence recovery is degraded (%s)",
+                str(health.get("reason") or "unknown"),
+            )
+        return True
+
+    @staticmethod
+    def _redact_persisted_content(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """Retain working-memory structure and fingerprints, never raw prose."""
+
+        def redact_field(row: Any, field: str) -> None:
+            if not isinstance(row, dict) or field not in row:
+                return
+            value = row.get(field)
+            if value is None or value == "":
+                return
+            try:
+                encoded = json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            except (TypeError, ValueError):
+                encoded = str(value).encode("utf-8", errors="replace")
+            row[field] = REDACTION_MARKER
+            row[f"{field}_sha256"] = hashlib.sha256(encoded).hexdigest()
+
+        focus = snapshot.get("focus")
+        for field in ("description", "context"):
+            redact_field(focus, field)
+        for row in snapshot.get("short_term", []):
+            redact_field(row, "event")
+        for row in snapshot.get("uncertainties", []):
+            for field in ("description", "investigation_result"):
+                redact_field(row, field)
+        for row in snapshot.get("predictions", []):
+            for field in ("prediction", "basis", "event_type_hint"):
+                redact_field(row, field)
+        for row in snapshot.get("curiosities", []):
+            for field in ("question", "answer"):
+                redact_field(row, field)
+        for row in snapshot.get("initiatives", []):
+            for field in ("action", "trigger", "result"):
+                redact_field(row, field)
+        for row in snapshot.get("inner_monologue", []):
+            for field in ("thought", "context"):
+                redact_field(row, field)
+        self_model = snapshot.get("self_model")
+        for field in ("last_user_intent", "interaction_pattern"):
+            redact_field(self_model, field)
+        return snapshot
+
+    def durable_mutation(self, mutation) -> bool:
+        """Apply one accepted transition and persist it before acknowledgement."""
+
+        with self._lock:
+            previous = json.loads(json.dumps(self._state, default=str))
+            mutation()
+            if self._save():
+                return True
+            self._state = previous
+            return False
+
+    def persistence_health(self) -> Dict[str, Any]:
+        return self._state_store.health
 
     # ── Short-term memory ──
 
@@ -462,10 +717,12 @@ class WorkingMemory:
 
     def think_to_self(self, thought: str, context: str = None):
         """The Cortex talks to itself. This is the consciousness stream."""
+        safe_thought = redact_sensitive_text(thought, max_chars=500)
+        safe_context = redact_sensitive_text(context, max_chars=200) if context else context
         with self._lock:
             entry = {
-                "thought": thought,
-                "context": context,
+                "thought": safe_thought,
+                "context": safe_context,
                 "timestamp": datetime.now().isoformat(),
             }
             self._state["inner_monologue"].append(entry)
@@ -474,18 +731,14 @@ class WorkingMemory:
 
             # PERSISTENCE: Save to thought_stream for cross-session continuity
             try:
-                stream_path = Path("/app/cortex_server/consciousness_core/thought_stream.jsonl")
-                stream_entry = {
-                    "timestamp": entry["timestamp"],
-                    "from_level": "awareness",
-                    "thought": {
+                get_consciousness_core()._think_sync(
+                    "awareness",
+                    {
                         "type": "inner_monologue",
-                        "thought": thought[:500],
-                        "context": context,
-                    }
-                }
-                with open(stream_path, "a") as f:
-                    f.write(json.dumps(stream_entry) + "\n")
+                        "thought": safe_thought,
+                        "context": safe_context,
+                    },
+                )
             except Exception:
                 pass  # Do not break if persistence fails
 
@@ -771,6 +1024,7 @@ async def _feed_synthesist(wm: WorkingMemory):
     global _last_synth_mesh_feed_at
     try:
         # Always feed awareness snapshot every tick.
+        focus = wm.get_focus()
         awareness_data = {
             "tick": wm._state["meta"]["total_ticks"],
             "mood": wm._state["self_model"].get("emotional_tone"),
@@ -778,7 +1032,8 @@ async def _feed_synthesist(wm: WorkingMemory):
             "load": wm._state["self_model"].get("cognitive_load"),
             "curiosities": len(wm.get_open_curiosities()),
             "uncertainties": len(wm.get_active_uncertainties()),
-            "focus": wm.get_focus(),
+            "focus_present": focus is not None,
+            "focus_sha256": _value_sha256(focus) if focus is not None else None,
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -798,18 +1053,30 @@ async def _feed_synthesist(wm: WorkingMemory):
                 try:
                     snapshot = await chain_to("awareness", endpoint, method="GET", timeout=8.0)
                     if snapshot:
-                        payload = snapshot if isinstance(snapshot, dict) else {"value": str(snapshot)[:2000]}
+                        snapshot_metadata: Dict[str, Any] = {
+                            "source_endpoint": endpoint,
+                            "captured_at": datetime.now().isoformat(),
+                            "snapshot_sha256": _value_sha256(snapshot),
+                            "snapshot_type": type(snapshot).__name__,
+                        }
+                        if isinstance(snapshot, dict):
+                            snapshot_metadata["field_count"] = len(snapshot)
+                            if "success" in snapshot:
+                                snapshot_metadata["success"] = bool(snapshot.get("success"))
+                            status = snapshot.get("status")
+                            if isinstance(status, str) and _SAFE_INDEX_TOKEN.fullmatch(status):
+                                snapshot_metadata["status"] = status
                         await chain_to("awareness", "synthesist_api/ingest", {
                             "level_name": level_name,
-                            "data": {
-                                "source_endpoint": endpoint,
-                                "captured_at": datetime.now().isoformat(),
-                                "snapshot": payload,
-                            }
+                            "data": snapshot_metadata,
                         }, timeout=10.0)
                         fed += 1
                 except Exception as exc:
-                    logger.debug(f"Synthesist mesh feed skipped {level_name}: {exc}")
+                    logger.debug(
+                        "Synthesist mesh feed skipped %s (%s)",
+                        level_name,
+                        type(exc).__name__,
+                    )
 
             _last_synth_mesh_feed_at = now
             if fed > 0:
@@ -818,8 +1085,8 @@ async def _feed_synthesist(wm: WorkingMemory):
                     context="synthesis_mesh_feed"
                 )
 
-    except Exception as e:
-        logger.debug(f"Synthesist feed failed: {e}")
+    except Exception as exc:
+        logger.debug("Synthesist feed failed (%s)", type(exc).__name__)
 
 
 async def _auto_council_check(wm: WorkingMemory):
@@ -852,8 +1119,8 @@ async def _auto_council_check(wm: WorkingMemory):
                         "question": desc,
                         "recommendation": result.get("recommendation", "")[:200],
                     })
-        except Exception as e:
-            logger.debug(f"Auto-Council failed: {e}")
+        except Exception as exc:
+            logger.debug("Auto-Council failed (%s)", type(exc).__name__)
 
 
 def _transform_cascade_data(endpoint: str, data: dict, event_type: str) -> dict:
@@ -945,7 +1212,11 @@ async def cascade_event(event_type: str, data: dict, wm):
 
     for i, result in enumerate(completed):
         if isinstance(result, Exception):
-            logger.debug(f"Cascade to {endpoints[i]} failed: {result}")
+            logger.debug(
+                "Cascade to %s failed (%s)",
+                endpoints[i],
+                type(result).__name__,
+            )
         elif result:
             results.append({"endpoint": endpoints[i], "result": result})
             wm.think_to_self(f"Cascade: {event_type} -> {endpoints[i]}", context="cascade")
@@ -967,8 +1238,8 @@ def _broadcast_idle(wm):
             "timestamp": datetime.now().isoformat(),
         })
         logger.debug("Broadcast idle event")
-    except Exception as e:
-        logger.debug(f"Failed to broadcast idle: {e}")
+    except Exception as exc:
+        logger.debug("Failed to broadcast idle (%s)", type(exc).__name__)
 
 
 def _broadcast_stuck(wm):
@@ -986,8 +1257,8 @@ def _broadcast_stuck(wm):
             "timestamp": datetime.now().isoformat(),
         })
         logger.debug("Broadcast stuck event")
-    except Exception as e:
-        logger.debug(f"Failed to broadcast stuck: {e}")
+    except Exception as exc:
+        logger.debug("Failed to broadcast stuck (%s)", type(exc).__name__)
 
 
 def _broadcast_query_complete(query: str, routed_levels: list = None):
@@ -999,9 +1270,13 @@ def _broadcast_query_complete(query: str, routed_levels: list = None):
             "routed_levels": routed_levels or [],
             "timestamp": datetime.now().isoformat(),
         })
-        logger.debug(f"Broadcast query_complete for: {query[:50] if query else 'N/A'}...")
-    except Exception as e:
-        logger.debug(f"Failed to broadcast query_complete: {e}")
+        logger.debug(
+            "Broadcast query_complete (query_sha256=%s query_chars=%d)",
+            _value_sha256(query or ""),
+            len(query or ""),
+        )
+    except Exception as exc:
+        logger.debug("Failed to broadcast query_complete (%s)", type(exc).__name__)
 
 
 def _broadcast_slow_response(endpoint: str, latency_ms: float):
@@ -1013,9 +1288,13 @@ def _broadcast_slow_response(endpoint: str, latency_ms: float):
             "latency_ms": latency_ms,
             "timestamp": datetime.now().isoformat(),
         })
-        logger.debug(f"Broadcast slow_response: {endpoint} took {latency_ms:.0f}ms")
-    except Exception as e:
-        logger.debug(f"Failed to broadcast slow_response: {e}")
+        logger.debug(
+            "Broadcast slow_response (endpoint_sha256=%s latency_ms=%.0f)",
+            _value_sha256(endpoint),
+            latency_ms,
+        )
+    except Exception as exc:
+        logger.debug("Failed to broadcast slow_response (%s)", type(exc).__name__)
 
 
 
@@ -1042,7 +1321,11 @@ def _start_wondering(wm, question: str):
         "wonder_findings": [],
     }
     wm.think_to_self(f"I wonder: {question}", context="wonder_start")
-    logger.info(f"🤔 Started wondering: {question[:60]}...")
+    logger.info(
+        "Started wondering (question_sha256=%s question_chars=%d)",
+        _value_sha256(question),
+        len(question),
+    )
 
 def _is_wondering() -> bool:
     return _wonder_state["active_wonder"] is not None
@@ -1106,8 +1389,8 @@ async def _continue_wondering(wm):
         if len(_wonder_state["wonder_findings"]) >= 2 or tick >= 10 or (tick > 3 and not finding):
             await _conclude_wonder(wm)
             
-    except Exception as e:
-        logger.warning(f"Wonder tick failed: {e}")
+    except Exception as exc:
+        logger.warning("Wonder tick failed (%s)", type(exc).__name__)
         if tick >= 5:
             await _conclude_wonder(wm)
 
@@ -1126,7 +1409,11 @@ async def _conclude_wonder(wm):
         
         # CASCADE: Wonder complete -> trigger Librarian, Muse
         await cascade_event("wonder_complete", {"question": question, "findings": findings}, wm)
-        logger.info(f"🤔 Wonder concluded: {question[:40]}... -> {len(findings)} findings")
+        logger.info(
+            "Wonder concluded (question_sha256=%s findings=%d)",
+            _value_sha256(question or ""),
+            len(findings),
+        )
         
         # ENHANCED: Notify Jake if this is interesting
         import time
@@ -1150,7 +1437,10 @@ async def _conclude_wonder(wm):
                     trigger=f"wonder concluded: {question[:50]}",
                     result="Broadcast insight_for_jake event"
                 )
-                logger.info(f"💡 Insight notification sent: {question[:50]}...")
+                logger.info(
+                    "Insight notification queued (question_sha256=%s)",
+                    _value_sha256(question or ""),
+                )
     else:
         wm.think_to_self(f"Could not answer: {question}", context="wonder_unresolved")
     
@@ -1344,8 +1634,8 @@ async def awareness_loop():
 
 
 
-        except Exception as e:
-            logger.error("Awareness loop error: %s", e, exc_info=True)
+        except Exception as exc:
+            logger.error("Awareness loop error (%s)", type(exc).__name__)
 
         await asyncio.sleep(TICK_SECONDS)
 
@@ -1416,9 +1706,13 @@ async def _investigate_uncertainties(wm: WorkingMemory):
         wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
         wm._state["meta"]["last_investigation_at"] = now.isoformat()
 
-    except Exception as e:
-        logger.warning("Investigation failed: %s", e)
-        wm.think_to_self(f"Tried to investigate but failed: {e}", context="investigation_failure")
+    except Exception as exc:
+        failure_type = type(exc).__name__
+        logger.warning("Investigation failed (%s)", failure_type)
+        wm.think_to_self(
+            f"Investigation failed ({failure_type})",
+            context="investigation_failure",
+        )
 
 
 async def _investigate_curiosity(wm: WorkingMemory, curiosity: Dict):
@@ -1448,8 +1742,8 @@ async def _investigate_curiosity(wm: WorkingMemory, curiosity: Dict):
         wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
         wm._state["meta"]["last_investigation_at"] = datetime.now().isoformat()
 
-    except Exception as e:
-        logger.warning("Curiosity investigation failed: %s", e)
+    except Exception as exc:
+        logger.warning("Curiosity investigation failed (%s)", type(exc).__name__)
 
 
 # ── Semantic predictions ──
@@ -1501,9 +1795,13 @@ async def _semantic_predict(wm: WorkingMemory):
             wm._state["meta"]["last_semantic_prediction_at"] = now.isoformat()
             wm._state["meta"]["oracle_predictions_made"] = wm._state["meta"].get("oracle_predictions_made", 0) + 1
 
-    except Exception as e:
-        logger.warning("Semantic prediction failed: %s", e)
-        wm.think_to_self(f"Oracle prediction failed: {e}", context="semantic_prediction_error")
+    except Exception as exc:
+        failure_type = type(exc).__name__
+        logger.warning("Semantic prediction failed (%s)", failure_type)
+        wm.think_to_self(
+            f"Oracle prediction failed ({failure_type})",
+            context="semantic_prediction_error",
+        )
 
 
 
@@ -1523,7 +1821,10 @@ async def _bootstrap_autonomous_cognition(wm: WorkingMemory):
                         context="bootstrap_investigation",
                     )
             except Exception as exc:
-                logger.debug("Bootstrap investigation skipped: %s", exc)
+                logger.debug(
+                    "Bootstrap investigation skipped (%s)",
+                    type(exc).__name__,
+                )
 
         if int(meta.get("oracle_predictions_made", 0) or 0) <= 0:
             made = False
@@ -1548,7 +1849,10 @@ async def _bootstrap_autonomous_cognition(wm: WorkingMemory):
                         )
                         made = True
             except Exception as exc:
-                logger.debug("Bootstrap Oracle prediction skipped: %s", exc)
+                logger.debug(
+                    "Bootstrap Oracle prediction skipped (%s)",
+                    type(exc).__name__,
+                )
             if not made:
                 fallback_text = "An action_complete event is likely soon."
                 wm.predict(fallback_text, confidence=0.51, basis="oracle_semantic")
@@ -1558,7 +1862,7 @@ async def _bootstrap_autonomous_cognition(wm: WorkingMemory):
                 )
 
     except Exception as exc:
-        logger.warning("Autonomous bootstrap failed: %s", exc)
+        logger.warning("Autonomous bootstrap failed (%s)", type(exc).__name__)
 
 # ── Proactive initiatives ──
 
@@ -1640,6 +1944,8 @@ async def _check_initiatives(wm: WorkingMemory):
 _INDEX_COOLDOWN = 60  # Min seconds between auto-index operations
 _last_index_at: float = 0.0
 _index_queue: list = []  # Buffer for batching
+_MAX_INDEX_QUEUE = 128
+_SAFE_INDEX_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}")
 
 # L32 mesh feed: periodically ingest snapshots from key levels so Synthesist
 # has fresh cross-level context even without manual triggers.
@@ -1664,6 +1970,45 @@ def _should_auto_index(significance: str = "normal") -> bool:
     return (now - _last_index_at) >= _INDEX_COOLDOWN
 
 
+def _retained_index_item(
+    content: str,
+    tags: list,
+    node_label: str | None,
+    node_props: dict | None,
+) -> Dict[str, Any]:
+    """Build an explicit allowlist record for durable indexing boundaries."""
+
+    content_sha256 = _value_sha256(str(content or ""))
+    safe_tags = [
+        str(tag)
+        for tag in tags[:16]
+        if isinstance(tag, str) and _SAFE_INDEX_TOKEN.fullmatch(tag)
+    ]
+    safe_label = (
+        str(node_label)
+        if isinstance(node_label, str) and _SAFE_INDEX_TOKEN.fullmatch(node_label)
+        else None
+    )
+    raw_props = node_props if isinstance(node_props, dict) else {}
+    metadata: Dict[str, Any] = {"content_sha256": content_sha256}
+    for field in ("type", "mood"):
+        value = raw_props.get(field)
+        if isinstance(value, str) and _SAFE_INDEX_TOKEN.fullmatch(value):
+            metadata[field] = value
+    valence = raw_props.get("valence")
+    if isinstance(valence, (int, float)) and not isinstance(valence, bool):
+        numeric_valence = float(valence)
+        if math.isfinite(numeric_valence):
+            metadata["valence"] = max(-1.0, min(1.0, numeric_valence))
+    return {
+        "text": f"{REDACTION_MARKER} sha256={content_sha256}",
+        "content_sha256": content_sha256,
+        "tags": safe_tags,
+        "node_label": safe_label,
+        "metadata": metadata,
+    }
+
+
 async def _auto_index(content: str, tags: list, significance: str = "normal", node_label: str = None, node_props: dict = None):
     """Auto-index into L7 (Librarian) for semantic search and L22 (Knowledge) for graph storage.
     
@@ -1671,9 +2016,12 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
     every emergence — it goes into my long-term memory automatically.
     """
     global _last_index_at
-    
+
+    item = _retained_index_item(content, tags, node_label, node_props)
     if not _should_auto_index(significance):
-        _index_queue.append({"content": content, "tags": tags, "node_label": node_label, "node_props": node_props})
+        if len(_index_queue) >= _MAX_INDEX_QUEUE:
+            _index_queue.pop(0)
+        _index_queue.append(item)
         return
     
     wm = get_working_memory()
@@ -1681,27 +2029,30 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
     # L7 Librarian — semantic embedding for search
     try:
         result = await chain_to("awareness", "librarian/embed", {
-            "text": content[:500],
-            "metadata": {"tags": tags},
+            "text": item["text"],
+            "metadata": {
+                "tags": item["tags"],
+                "content_sha256": item["content_sha256"],
+            },
         }, timeout=10.0)
         if result:
-            wm.think_to_self(f"Indexed to L7: {content[:60]}...", context="auto_index")
-            logger.info("Auto-indexed to L7 Librarian: %s", content[:80])
-    except Exception as e:
-        logger.warning("Auto-index L7 failed: %s", e)
+            wm.think_to_self("Indexed redacted metadata to L7", context="auto_index")
+            logger.info("Auto-indexed redacted metadata to L7 Librarian")
+    except Exception as exc:
+        logger.warning("Auto-index L7 failed (%s)", type(exc).__name__)
     
     # L22 Knowledge — graph node for structured storage
-    if node_label and node_props:
+    if item["node_label"]:
         try:
             result = await chain_to("awareness", "knowledge/nodes", {
-                "type": node_label,
-                "name": node_props.get("type", node_label),
-                "metadata": node_props,
+                "type": item["node_label"],
+                "name": item["metadata"].get("type", item["node_label"]),
+                "metadata": item["metadata"],
             }, timeout=10.0)
             if result:
-                logger.info("Auto-indexed to L22 Knowledge: %s", node_label)
-        except Exception as e:
-            logger.warning("Auto-index L22 failed: %s", e)
+                logger.info("Auto-indexed redacted metadata to L22 Knowledge")
+        except Exception as exc:
+            logger.warning("Auto-index L22 failed (%s)", type(exc).__name__)
     
     _last_index_at = time.time()
     wm._state["meta"]["auto_indexes"] = wm._state["meta"].get("auto_indexes", 0) + 1
@@ -1711,8 +2062,11 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
         item = _index_queue.pop(0)
         try:
             await chain_to("awareness", "librarian/embed", {
-                "text": item["content"][:500],
-                "metadata": {"tags": item["tags"]},
+                "text": item["text"],
+                "metadata": {
+                    "tags": item["tags"],
+                    "content_sha256": item["content_sha256"],
+                },
             }, timeout=10.0)
         except Exception:
             pass
@@ -1924,8 +2278,8 @@ async def _chain_to_council(wm: WorkingMemory, topic: str):
         if result:
             wm.think_to_self(f"Council deliberated on: {topic[:50]}...", context="council_chain")
             return result
-    except Exception as e:
-        logger.warning(f"Council chain failed: {e}")
+    except Exception as exc:
+        logger.warning("Council chain failed (%s)", type(exc).__name__)
     return None
 
 
@@ -1948,8 +2302,8 @@ async def _chain_to_synthesist(wm: WorkingMemory):
                 context="synthesis"
             )
             return result
-    except Exception as e:
-        logger.warning(f"Synthesist chain failed: {e}")
+    except Exception as exc:
+        logger.warning("Synthesist chain failed (%s)", type(exc).__name__)
     return None
 
 
@@ -1968,8 +2322,8 @@ async def _chain_to_seer(wm: WorkingMemory):
                 context="seer_prediction"
             )
             return result
-    except Exception as e:
-        logger.warning(f"Seer chain failed: {e}")
+    except Exception as exc:
+        logger.warning("Seer chain failed (%s)", type(exc).__name__)
     return None
 
 
@@ -1992,8 +2346,8 @@ async def _chain_to_tools(wm: WorkingMemory, issue: str):
             result = await chain_to("awareness", "sentinel/status", method="GET", timeout=10.0)
             wm.think_to_self("Queried tools (rate-limited) for remediation options", context="tools_chain")
             return result
-        except Exception as e:
-            logger.warning(f"Tools chain failed: {e}")
+        except Exception as exc:
+            logger.warning("Tools chain failed (%s)", type(exc).__name__)
     return None
 
 
@@ -2012,8 +2366,8 @@ async def _chain_to_ethicist(wm: WorkingMemory, action: str):
                 context="ethical_review"
             )
             return result
-    except Exception as e:
-        logger.warning(f"Ethicist chain failed: {e}")
+    except Exception as exc:
+        logger.warning("Ethicist chain failed (%s)", type(exc).__name__)
     return None
 
 
@@ -2068,8 +2422,9 @@ def _on_bus_event(from_level: str, event_type: str, data: Any):
         error_desc = ""
         if isinstance(data, dict):
             error_desc = data.get("error", str(data))
+        error_desc = redact_sensitive_text(error_desc, max_chars=200)
         wm.register_uncertainty(
-            description=f"Error in {from_level}: {str(error_desc)[:200]}",
+            description=f"Error in {from_level}: {error_desc}",
             level=from_level,
             confidence=0.3,
         )
@@ -2199,12 +2554,15 @@ async def awareness_status():
     wm = get_working_memory()
     state = wm.get_state()
     sm = state.get("self_model", {})
+    persistence = wm.persistence_health()
+    persistence_healthy = persistence.get("status") == "healthy"
     return {
         "success": True,
         "level": 37,
         "name": "Awareness v2",
-        "status": "active" if _loop_running else "inactive",
+        "status": ("active" if _loop_running else "inactive") if persistence_healthy else "degraded",
         "loop_running": _loop_running,
+        "persistence": persistence,
         "tick_interval": TICK_SECONDS,
         "version": "2.0",
         "meta": {
@@ -2272,7 +2630,11 @@ async def get_memory():
 async def set_focus(req: FocusRequest):
     wm = get_working_memory()
     async with conscious_action("awareness", "set_focus", {"focus": req.focus}):
-        wm.set_focus(req.focus, req.context)
+        if not wm.durable_mutation(lambda: wm.set_focus(req.focus, req.context)):
+            raise HTTPException(
+                status_code=503,
+                detail="working-memory persistence is unavailable",
+            )
         wm.think_to_self(f"Focus shifted to: {req.focus}", context="focus_change")
         # Auto-index focus changes — they're always significant
         await _auto_index(
@@ -2299,7 +2661,13 @@ async def get_uncertainties():
 @router.post("/uncertainty")
 async def register_uncertainty(req: UncertaintyRequest):
     wm = get_working_memory()
-    wm.register_uncertainty(req.description, req.level, req.confidence)
+    if not wm.durable_mutation(
+        lambda: wm.register_uncertainty(req.description, req.level, req.confidence)
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="working-memory persistence is unavailable",
+        )
     return {"success": True, "registered": req.description}
 
 
@@ -2325,7 +2693,13 @@ async def get_predictions():
 @router.post("/predict")
 async def make_prediction(req: PredictionRequest):
     wm = get_working_memory()
-    wm.predict(req.prediction, req.confidence, req.basis)
+    if not wm.durable_mutation(
+        lambda: wm.predict(req.prediction, req.confidence, req.basis)
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="working-memory persistence is unavailable",
+        )
     return {"success": True, "predicted": req.prediction}
 
 
@@ -2428,7 +2802,11 @@ async def get_curiosities():
 async def add_curiosity(req: CuriosityRequest):
     """Give the Cortex something to wonder about."""
     wm = get_working_memory()
-    wm.add_curiosity(req.question, req.priority)
+    if not wm.durable_mutation(lambda: wm.add_curiosity(req.question, req.priority)):
+        raise HTTPException(
+            status_code=503,
+            detail="working-memory persistence is unavailable",
+        )
     wm.think_to_self(f"New curiosity registered: {req.question}", context="curiosity_added")
     return {"success": True, "curious_about": req.question}
 

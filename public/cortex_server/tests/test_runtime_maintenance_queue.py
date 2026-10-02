@@ -639,11 +639,15 @@ def test_runtime_maintenance_intake_claim_and_follow_up(tmp_path, monkeypatch):
     queue_status = asyncio.run(orchestrator.get_runtime_maintenance_queue())["queue"]
 
     assert tick_two["watchdog"]["action_count"] >= 1
-    assert queue_item["projection"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    outbound_update = queue_item["projection"]["follow_through"]["outbound_update"]
+    assert outbound_update["delivery_status"] == "failed"
+    assert outbound_update["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
     assert queue_status["session_counts"][queue_item["projection"]["session_plane"]["status"]] >= 1
     assert len(follow_ups) == 1
-    assert len(sent) == 1
-    assert "Fix WhatsApp intake bridge" in sent[0]["message"]
+    assert follow_ups[0].delivery_status == "failed"
+    assert follow_ups[0].last_error == "diplomat_delivery_requires_delegated_action_capability"
+    assert len(sent) == 0
+    assert "Fix WhatsApp intake bridge" in follow_ups[0].message
 
 
 

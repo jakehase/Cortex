@@ -1,4 +1,5 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { assertOwnerBoundFallbackIdentity, captureTrustedPrincipalContext, deriveCortexKnowledgePrincipal } from '../cortex-principal-identity.mjs';
 
 function resolveConfig(cfg) {
   const rootEntry = cfg?.plugins?.entries?.['cortex-memory-bridge'];
@@ -16,8 +17,9 @@ function resolveConfig(cfg) {
     sessionIdentityHmacSecret: typeof pluginCfg.sessionIdentityHmacSecret === 'string' ? pluginCfg.sessionIdentityHmacSecret : '',
     tenantId: typeof pluginCfg.tenantId === 'string' ? pluginCfg.tenantId.trim() : 'cortex-local',
     workspaceId: typeof pluginCfg.workspaceId === 'string' ? pluginCfg.workspaceId.trim() : 'default',
+    agentId: typeof pluginCfg.agentId === 'string' && pluginCfg.agentId.trim() ? pluginCfg.agentId.trim() : 'main',
+    ownerSenderId: typeof pluginCfg.ownerSenderId === 'string' ? pluginCfg.ownerSenderId.trim() : '',
     userId: typeof pluginCfg.userId === 'string' && pluginCfg.userId.trim() ? pluginCfg.userId.trim() : 'local-user',
-    preferConfiguredUserId: pluginCfg.preferConfiguredUserId === true,
     channelId: typeof pluginCfg.channelId === 'string' && pluginCfg.channelId.trim() ? pluginCfg.channelId.trim() : 'local-channel',
     sessionId: typeof pluginCfg.sessionId === 'string' && pluginCfg.sessionId.trim() ? pluginCfg.sessionId.trim() : 'global-session',
     timeoutMs: Number(pluginCfg.timeoutMs || 12000),
@@ -35,6 +37,59 @@ function resolveConfig(cfg) {
     corroborationBoost: Number(pluginCfg.corroborationBoost ?? 0.08),
     hardQueryCandidateCount: Number(pluginCfg.hardQueryCandidateCount ?? 12),
   };
+}
+
+function isLoopbackBaseUrl(value) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+    return ['http:', 'https:'].includes(url.protocol) && loopback && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function explicitUnsignedDevelopmentMode() {
+  const configuredModes = [
+    ['OPENCLAW_ENV', process.env.OPENCLAW_ENV],
+    ['CORTEX_ENV', process.env.CORTEX_ENV],
+    ['NODE_ENV', process.env.NODE_ENV],
+  ]
+    .map(([name, value]) => [name, String(value ?? '').trim().toLowerCase()])
+    .filter(([, value]) => value.length > 0);
+  if (configuredModes.length === 0) {
+    throw new Error('Cortex memory manager unsigned local development requires an explicit non-production runtime mode');
+  }
+
+  const canonicalMode = (value) => ({ dev: 'development', prod: 'production' }[value] || value);
+  const modes = new Set(configuredModes.map(([, value]) => canonicalMode(value)));
+  if (modes.size !== 1) {
+    throw new Error(`Cortex memory manager unsigned local development rejects conflicting runtime modes: ${configuredModes.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  const mode = [...modes][0];
+  if (['production', 'staging'].includes(mode)) {
+    throw new Error('Cortex memory manager unsigned local development is forbidden in production or staging mode');
+  }
+  if (!['development', 'test', 'local'].includes(mode)) {
+    throw new Error(`Cortex memory manager unsigned local development requires dev, development, test, or local mode; received ${mode}`);
+  }
+  return mode;
+}
+
+function validateUnsignedLocalDevelopment(rcfg, warn) {
+  if (rcfg.allowUnsignedLocalDevelopment !== true) return;
+  if (String(rcfg.scopeCredentialId || '').trim() || String(rcfg.scopeHmacSecret || '').trim() || String(rcfg.writeToken || '').trim()) {
+    throw new Error('Cortex memory manager unsigned local development cannot be combined with production credentials');
+  }
+  if (rcfg.tenantId !== 'cortex-local' || rcfg.workspaceId !== 'default') {
+    throw new Error('Cortex memory manager unsigned local development is restricted to cortex-local/default');
+  }
+  if (!isLoopbackBaseUrl(rcfg.baseUrl)) {
+    throw new Error('Cortex memory manager unsigned local development requires a loopback Cortex baseUrl');
+  }
+  const mode = explicitUnsignedDevelopmentMode();
+  warn?.(`SECURITY WARNING: Cortex memory manager is using unsigned loopback-only local development mode (${mode})`);
 }
 
 function normalizeQuery(text) { return String(text || '').trim().toLowerCase(); }
@@ -398,6 +453,18 @@ function retryableError(error) {
   const msg = String(error?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
+function safeFailureMetadata(error) {
+  const rawType = error instanceof Error ? error.name : typeof error;
+  const type = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawType) ? rawType : 'Error';
+  const rawCode = typeof error?.code === 'string' ? error.code : '';
+  const status = Number(error?.status);
+  return {
+    type,
+    ...(rawCode && /^[A-Z0-9_]{1,64}$/.test(rawCode) ? { code: rawCode } : {}),
+    ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    detailHash: createHash('sha256').update(String(error?.message ?? error ?? ''), 'utf8').digest('hex'),
+  };
+}
 async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250, maxResponseBytes = 1_048_576, writeHeaders = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
@@ -414,8 +481,15 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
       if (reader) while (true) { const { done, value } = await reader.read(); if (done) break; size += value.byteLength; if (size > maxResponseBytes) { try { void reader.cancel().catch(() => {}); } catch {} throw new Error(`response exceeds ${maxResponseBytes} bytes`); } chunks.push(value); }
       const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       const text = new TextDecoder().decode(bytes);
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${text.slice(0, 300)}`);
-      return text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        const upstreamError = new Error(`upstream HTTP ${res.status}; body_bytes=${size}; body_hash=${createHash('sha256').update(text, 'utf8').digest('hex')}`);
+        upstreamError.status = res.status;
+        throw upstreamError;
+      }
+      if (!text) return {};
+      try { return JSON.parse(text); } catch {
+        throw new Error(`invalid upstream JSON; body_bytes=${size}; body_hash=${createHash('sha256').update(text, 'utf8').digest('hex')}`);
+      }
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
@@ -427,33 +501,10 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
   throw lastError || new Error('unknown cortex memory manager error');
 }
 
-function scopedIdentity(rcfg, agentId, opts = {}) {
-  const rawSession = String(opts.sessionKey || opts.sessionId || rcfg.sessionId || '').trim();
-  if (!rcfg.sessionIdentityHmacSecret) throw new Error('sessionIdentityHmacSecret is required for canonical Cortex session identity');
-  const sessionDigest = createHmac('sha256', rcfg.sessionIdentityHmacSecret).update(rawSession, 'utf8').digest('hex');
-  const scope = {
-    tenant_id: String(opts.tenantId || rcfg.tenantId || '').trim(),
-    workspace_id: String(opts.workspaceId || rcfg.workspaceId || '').trim(),
-    agent_id: String(opts.agentId || agentId || '').trim(),
-    user_id: String(rcfg.preferConfiguredUserId === true ? (rcfg.userId || opts.userId) : (opts.userId || rcfg.userId) || '').trim(),
-    channel_id: String(opts.channelId || rcfg.channelId || '').trim(),
-    session_id: `openclaw-${sessionDigest}`,
-  };
-  if (Object.values(scope).some((value) => !value)) {
-    throw new Error('every Cortex principal scope dimension is required');
-  }
-  return scope;
-}
-
-function requireTrustedPrincipalContext(context, fallbackAgentId) {
-  const trusted = Object.freeze({
-    sessionKey: String(context?.sessionKey || context?.sessionId || '').trim(),
-    userId: String(context?.userId || context?.requesterSenderId || '').trim(),
-    channelId: String(context?.channelId || context?.messageChannel || '').trim(),
-    agentId: String(context?.agentId || fallbackAgentId || '').trim(),
-  });
-  const missing = Object.entries(trusted).filter(([, value]) => !value).map(([field]) => field);
-  if (missing.length) throw new Error(`Cortex memory manager requires trusted invocation context: missing ${missing.join(', ')}`);
+function requireTrustedPrincipalContext(context, fallback) {
+  const trusted = captureTrustedPrincipalContext(context, fallback);
+  if (!trusted.sessionKey) throw new Error('Cortex memory manager requires trusted invocation context: missing sessionKey');
+  if (trusted.senderConflict) throw new Error('Cortex memory manager requires an unambiguous trusted sender');
   return trusted;
 }
 
@@ -505,30 +556,48 @@ function memoryScopeFields(rcfg, scope) {
 
 function unavailableSearchReason(response) {
   if (!response || typeof response !== 'object') return 'invalid search response';
-  if (response.disabled === true || response.available === false) return String(response.error || response.warning || 'search backend unavailable');
-  if (typeof response.error === 'string' && response.error.trim()) return response.error.trim();
+  if (response.disabled === true || response.available === false) return 'search backend unavailable';
+  if (typeof response.error === 'string' && response.error.trim()) return 'search backend reported an error';
   const mode = String(response.search_mode ?? response.mode ?? '').trim().toLowerCase();
-  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return String(response.warning || `search mode ${mode}`);
+  if (['disabled', 'error', 'failed', 'none', 'unavailable'].includes(mode)) return `search mode ${mode}`;
   return null;
 }
 
 export class CortexMemorySearchManager {
   constructor(params) {
     this.cfg = params.cfg;
-    this.invocationContext = requireTrustedPrincipalContext(params.invocationContext || params, params.agentId);
-    this.agentId = this.invocationContext.agentId;
     this.rcfg = resolveConfig(params.cfg);
+    validateUnsignedLocalDevelopment(
+      this.rcfg,
+      params.logger?.warn ? params.logger.warn.bind(params.logger) : console.warn,
+    );
+    const invocationContext = params.invocationContext || params;
+    assertOwnerBoundFallbackIdentity(this.rcfg, invocationContext);
+    this.invocationContext = requireTrustedPrincipalContext(
+      invocationContext,
+      {
+        agentId: params.agentId || this.rcfg.agentId,
+        // Only an explicit ownerSenderId is a configured sender binding.  The
+        // configured userId remains a safe fixed user fallback, but is not
+        // relabeled as callback sender evidence.
+        senderId: this.rcfg.ownerSenderId,
+        userId: this.rcfg.userId,
+        channelId: this.rcfg.channelId,
+      },
+    );
+    this.agentId = this.invocationContext.agentId;
   }
   static async create(params) { return new CortexMemorySearchManager(params); }
   async search(query, opts = {}) {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const scope = scopedIdentity(this.rcfg, this.agentId, this.invocationContext);
+    const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
     const headers = scopedHeaders(this.rcfg, scope);
     const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
       query,
       n_results: fetchCount,
+      ...(opts.filters && typeof opts.filters === 'object' ? { filters: opts.filters } : {}),
       scope,
       ...memoryScopeFields(this.rcfg, scope),
     }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, headers);
@@ -542,21 +611,55 @@ export class CortexMemorySearchManager {
     return results;
   }
   async readFile(params) {
-    return { path: String(params?.relPath || ''), text: '' };
+    const path = String(params?.relPath || '');
+    const match = /^cortex:([A-Za-z0-9][A-Za-z0-9._:@/-]{0,255})$/.exec(path);
+    if (!match) throw new Error('memory_get requires an exact cortex: record path returned by memory_search');
+    const from = params?.from ?? 1;
+    const lines = params?.lines ?? 100;
+    if (!Number.isSafeInteger(from) || from < 1 || !Number.isSafeInteger(lines) || lines < 1 || lines > 200) {
+      throw new Error('memory_get requires a positive integer from and 1–200 lines');
+    }
+    const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
+    const result = await postJson(`${this.rcfg.baseUrl}/librarian/record`, {
+      id: match[1], from_line: from, lines, scope, ...memoryScopeFields(this.rcfg, scope),
+    }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs,
+    this.rcfg.maxResponseBytes, scopedHeaders(this.rcfg, scope));
+    const returnedLineCount = typeof result?.text === 'string' && result.text.length > 0
+      ? result.text.split(/\r?\n/).length
+      : 0;
+    const mustBeTruncatedByWindow = Number.isSafeInteger(result?.totalLines)
+      && (from - 1 + lines) < result.totalLines;
+    if (result?.id !== match[1] || result?.path !== path || typeof result?.text !== 'string' ||
+        result.text.length > 65_536 || returnedLineCount > lines ||
+        result?.from !== from || !Number.isSafeInteger(result?.totalLines) || result.totalLines < 0 ||
+        typeof result?.truncated !== 'boolean' || (mustBeTruncatedByWindow && result.truncated !== true)) {
+      throw new Error('Cortex record response did not match the requested record/window');
+    }
+    return { path, text: result.text, from, totalLines: result.totalLines, truncated: result.truncated };
   }
   status() {
     return {
-      backend: 'builtin',
+      backend: /** @type {'builtin'} */ ('builtin'),
       provider: 'cortex-http',
       model: 'semantic-http',
       files: 0,
       chunks: 0,
-      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, scoped: true, modes: ['fast', 'reconcile', 'investigate-lite'] }
+      custom: {
+        searchMode: 'semantic',
+        bridge: 'cortex-memory-bridge',
+        baseUrl: this.rcfg.baseUrl,
+        scoped: true,
+        health: 'unverified',
+        availability: 'probe-required',
+        semanticFreshness: 'unverified',
+        countsVerified: false,
+        modes: ['fast', 'reconcile', 'investigate-lite'],
+      }
     };
   }
   async probeSearchAvailability() {
     try {
-      const scope = scopedIdentity(this.rcfg, this.agentId, this.invocationContext);
+      const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
       const headers = scopedHeaders(this.rcfg, scope);
       const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
         query: 'cortex memory backend availability probe',
@@ -565,13 +668,43 @@ export class CortexMemorySearchManager {
         ...memoryScopeFields(this.rcfg, scope),
       }, this.rcfg.timeoutMs, 0, this.rcfg.retryBackoffMs, this.rcfg.maxResponseBytes, headers);
       const unavailable = unavailableSearchReason(response);
-      return unavailable ? { ok: false, error: unavailable } : { ok: true };
+      if (unavailable) return { ok: false, error: unavailable, semanticVerified: false };
+      const results = Array.isArray(response?.results) ? response.results : [];
+      if (results.length > 0) {
+        const mode = String(response?.search_mode ?? response?.mode ?? '').trim().toLowerCase();
+        const semanticVerified = response?.degraded !== true
+          && !String(response?.warning ?? '').trim()
+          && ['semantic', 'hybrid', 'semantic_hybrid'].includes(mode);
+        return {
+          ok: true,
+          evidence: semanticVerified ? 'semantic_result' : 'usable_nonsemantic_result',
+          semanticVerified,
+        };
+      }
+      if (response?.available === true) {
+        return { ok: true, evidence: 'explicit_backend_availability', semanticVerified: false };
+      }
+      return {
+        ok: false,
+        error: 'search response lacks explicit availability evidence',
+        semanticVerified: false,
+      };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, error: 'cortex_memory_search_failed', failure: safeFailureMetadata(error) };
     }
   }
-  async probeEmbeddingAvailability() { return this.probeSearchAvailability(); }
-  async probeVectorAvailability() { return (await this.probeSearchAvailability()).ok; }
+  async probeEmbeddingAvailability() {
+    const availability = await this.probeSearchAvailability();
+    if (availability.ok !== true || availability.semanticVerified === true) return availability;
+    return {
+      ...availability,
+      ok: false,
+      error: 'semantic search not verified',
+    };
+  }
+  async probeVectorAvailability() {
+    return (await this.probeSearchAvailability()).semanticVerified === true;
+  }
   async close() {}
 }
 

@@ -5,12 +5,14 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter
 
+from cortex_server.internal_addressing import internal_url
+
 router = APIRouter()
 
 
 async def _safe_get(client: httpx.AsyncClient, path: str) -> Dict[str, Any]:
     try:
-        r = await client.get(f"http://127.0.0.1:8888{path}", timeout=4.5)
+        r = await client.get(internal_url(path), timeout=4.5)
         return {"ok": r.status_code == 200, "status": r.status_code, "body": (r.json() if r.content else {})}
     except Exception as e:
         return {"ok": False, "status": 0, "error": f"{type(e).__name__}:{e}"}

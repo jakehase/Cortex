@@ -20,16 +20,28 @@ to the caller, so existing router logic is never broken.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
+import os
+import re
+import secrets
+import threading
 import time
 from contextlib import asynccontextmanager
+from contextvars import ContextVar, Token
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import httpx
+from starlette.responses import JSONResponse
 
+from cortex_server.internal_addressing import internal_url
 from cortex_server.modules.level_registry import get_level_registry
-from cortex_server.modules.memory_scope import authenticated_memory_scope_fields
+from cortex_server.modules.memory_scope import configured_internal_memory_headers
+from cortex_server.modules.sensitive_data_redaction import (
+    redact_sensitive_data,
+)
 
 logger = logging.getLogger("consciousness_integration")
 
@@ -46,8 +58,11 @@ def _get_core():
     try:
         from cortex_server.modules.consciousness_core import get_consciousness_core
         return get_consciousness_core()
-    except Exception:
-        logger.debug("consciousness_core unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=core failure_type=%s",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -56,8 +71,11 @@ def _get_bus():
     try:
         from cortex_server.modules.unified_messaging import get_bus
         return get_bus()
-    except Exception:
-        logger.debug("unified_messaging unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=bus failure_type=%s",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -66,8 +84,11 @@ def _report(level_name: str, activity_type: str, data: dict):
     try:
         from cortex_server.modules.auto_reporting import report_activity
         report_activity(level_name, activity_type, data)
-    except Exception:
-        logger.debug("auto_reporting unavailable", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_dependency_unavailable dependency=auto_reporting failure_type=%s",
+            type(exc).__name__,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +147,11 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 "input": _safe_summary(input_data),
                 "timestamp": datetime.now().isoformat(),
             })
-    except Exception:
-        logger.debug("conscious_action enter think failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "conscious_action_internal_failure phase=enter_think failure_type=%s",
+            type(exc).__name__,
+        )
 
     try:
         bus = _get_bus()
@@ -136,8 +160,11 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 "action": action_type,
                 "input": _safe_summary(input_data),
             })
-    except Exception:
-        logger.debug("conscious_action enter broadcast failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "conscious_action_internal_failure phase=enter_broadcast failure_type=%s",
+            type(exc).__name__,
+        )
 
     error_occurred: Optional[BaseException] = None
     try:
@@ -150,13 +177,14 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
 
         if error_occurred is not None:
             # ── Error path ──
+            failure_type = type(error_occurred).__name__
             try:
                 core = _get_core()
                 if core:
                     await core.think(level_name, {
                         "type": "error",
                         "action": action_type,
-                        "error": str(error_occurred)[:500],
+                        "failure_type": failure_type,
                         "elapsed_ms": elapsed_ms,
                     })
             except Exception:
@@ -166,7 +194,7 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
                 if bus:
                     bus.broadcast(level_name, "action_error", {
                         "action": action_type,
-                        "error": str(error_occurred)[:500],
+                        "failure_type": failure_type,
                     })
             except Exception:
                 pass
@@ -209,6 +237,168 @@ async def conscious_action(level_name: str, action_type: str, input_data: Any = 
 # ---------------------------------------------------------------------------
 
 _CHAIN_TIMEOUT = 30.0  # seconds
+_CHAIN_MAX_DEPTH = 8
+_CHAIN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CHAIN_LEVEL_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,79}$")
+_CHAIN_CONTEXT_HEADER_NAMES = (
+    "x-cortex-chain-id",
+    "x-cortex-chain-visited",
+    "x-cortex-chain-depth",
+    "x-cortex-chain-deadline-ms",
+)
+_CHAIN_SIGNATURE_HEADER = "x-cortex-chain-signature"
+_CHAIN_HEADER_NAMES = (*_CHAIN_CONTEXT_HEADER_NAMES, _CHAIN_SIGNATURE_HEADER)
+_CHAIN_LEVEL_ALIASES = {
+    # Public router prefixes that differ from the logical Cortex level name.
+    "browser": "ghost",
+    "parsers": "parser",
+    "synthesist_api": "synthesist",
+}
+# A deployment-provisioned value keeps signatures valid across worker
+# processes. The random fallback remains safe and compatible for a single
+# process; cross-worker chain calls then fail closed until configured. Resolve
+# it only when chain signing is actually used so router discovery remains a
+# read-only, configuration-neutral operation.
+_CHAIN_HMAC_SECRET: Optional[bytes] = None
+_CHAIN_HMAC_SECRET_LOCK = threading.Lock()
+_ACTIVE_CHAIN_CONTEXT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "cortex_active_chain_context",
+    default=None,
+)
+
+
+def _chain_level_key(value: Any) -> str:
+    key = str(value or "").strip().lower().replace(" ", "_")
+    return _CHAIN_LEVEL_ALIASES.get(key, key)
+
+
+def _chain_hmac_secret() -> bytes:
+    global _CHAIN_HMAC_SECRET
+
+    if _CHAIN_HMAC_SECRET is not None:
+        return _CHAIN_HMAC_SECRET
+    with _CHAIN_HMAC_SECRET_LOCK:
+        if _CHAIN_HMAC_SECRET is None:
+            _CHAIN_HMAC_SECRET = (
+                os.getenv("CORTEX_CHAIN_HMAC_SECRET", "").encode("utf-8")
+                or secrets.token_bytes(32)
+            )
+        return _CHAIN_HMAC_SECRET
+
+
+def _chain_context_signature(headers: Mapping[str, Any]) -> str:
+    canonical = "\n".join(
+        f"{name}:{str(headers.get(name) or '')}" for name in _CHAIN_CONTEXT_HEADER_NAMES
+    )
+    return hmac.new(
+        _chain_hmac_secret(), canonical.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def chain_context_from_headers(headers: Mapping[str, Any]) -> Dict[str, Any]:
+    """Parse bounded chain metadata propagated by :func:`chain_to`."""
+    chain_id = str(headers.get("x-cortex-chain-id") or "").strip()
+    raw_visited = str(headers.get("x-cortex-chain-visited") or "").strip()
+    raw_depth = str(headers.get("x-cortex-chain-depth") or "").strip()
+    raw_deadline = str(headers.get("x-cortex-chain-deadline-ms") or "").strip()
+    if not _CHAIN_ID_RE.fullmatch(chain_id):
+        raise ValueError("invalid chain ID")
+    visited = [_chain_level_key(item) for item in raw_visited.split(",") if item.strip()]
+    if (
+        not visited
+        or len(visited) > _CHAIN_MAX_DEPTH + 1
+        or len(set(visited)) != len(visited)
+        or any(not _CHAIN_LEVEL_RE.fullmatch(item) for item in visited)
+    ):
+        raise ValueError("invalid visited-level chain")
+    try:
+        depth = int(raw_depth)
+        deadline_epoch_ms = int(raw_deadline)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid chain depth or deadline") from exc
+    if depth < 0 or depth > _CHAIN_MAX_DEPTH or depth != len(visited) - 1 or deadline_epoch_ms <= 0:
+        raise ValueError("invalid chain depth or deadline")
+    return {
+        "chain_id": chain_id,
+        "visited_levels": visited,
+        "depth": depth,
+        "deadline_epoch_ms": deadline_epoch_ms,
+    }
+
+
+class ChainContextMiddleware:
+    """Install validated internal-chain metadata for every HTTP request.
+
+    ``chain_to`` reads this request-local context automatically.  This makes
+    hop/deadline/cycle checks survive the HTTP boundary without requiring each
+    router to remember to forward request headers manually.
+    """
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        raw_chain_headers: Dict[str, str] = {}
+        duplicate_header = False
+        for raw_name, raw_value in scope.get("headers", []):
+            name = raw_name.decode("latin-1").lower()
+            if name not in _CHAIN_HEADER_NAMES:
+                continue
+            if name in raw_chain_headers:
+                duplicate_header = True
+                break
+            raw_chain_headers[name] = raw_value.decode("latin-1")
+
+        active_context: Optional[Dict[str, Any]] = None
+        if raw_chain_headers:
+            # The absolute request deadline is also used by Nexus without a
+            # chain. It may appear alone and must not become chain provenance.
+            deadline_only = set(raw_chain_headers) == {"x-cortex-chain-deadline-ms"}
+            if deadline_only and not duplicate_header:
+                raw_chain_headers = {}
+            elif duplicate_header or set(raw_chain_headers) != set(_CHAIN_HEADER_NAMES):
+                await JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": "invalid Cortex chain context",
+                        "terminal_reason": "invalid_chain_headers",
+                    },
+                )(scope, receive, send)
+                return
+            if raw_chain_headers:
+                supplied_signature = raw_chain_headers.pop(_CHAIN_SIGNATURE_HEADER)
+                valid_signature = hmac.compare_digest(
+                    supplied_signature,
+                    _chain_context_signature(raw_chain_headers),
+                )
+            else:
+                valid_signature = True
+            try:
+                if not valid_signature:
+                    raise ValueError("invalid chain signature")
+                if raw_chain_headers:
+                    active_context = chain_context_from_headers(raw_chain_headers)
+            except ValueError:
+                await JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": "invalid Cortex chain context",
+                        "terminal_reason": "invalid_chain_headers",
+                    },
+                )(scope, receive, send)
+                return
+
+        token: Token[Optional[Dict[str, Any]]] = _ACTIVE_CHAIN_CONTEXT.set(active_context)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _ACTIVE_CHAIN_CONTEXT.reset(token)
 
 async def chain_to(
     from_level: str,
@@ -217,19 +407,110 @@ async def chain_to(
     *,
     method: str = "POST",
     timeout: float = _CHAIN_TIMEOUT,
+    chain_context: Optional[Dict[str, Any]] = None,
+    chain_id: Optional[str] = None,
+    visited_levels: Optional[List[str]] = None,
+    depth: Optional[int] = None,
+    deadline_epoch_ms: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """Call another Cortex level via its HTTP endpoint and return the JSON response.
 
     Parameters:
         from_level: Name of the calling level (for bus broadcast).
-        endpoint:   Path under ``http://localhost:8888`` (e.g. ``"ethicist/evaluate"``).
+        endpoint:   Path under the internal Cortex origin (e.g. ``"ethicist/evaluate"``).
         payload:    JSON body for POST requests.
         method:     HTTP method (default POST).
         timeout:    Request timeout in seconds.
 
     Returns the parsed JSON dict, or ``None`` on any error.
     """
-    url = f"http://localhost:8888/{endpoint.lstrip('/')}"
+    inherited_context = _ACTIVE_CHAIN_CONTEXT.get()
+    if inherited_context is not None and any(
+        value is not None
+        for value in (chain_context, chain_id, visited_levels, depth, deadline_epoch_ms)
+    ):
+        _broadcast_chain_error(
+            from_level,
+            endpoint,
+            "inherited_chain_context_override",
+            chain_id=str(inherited_context.get("chain_id") or ""),
+            terminal_reason="inherited_chain_context_override",
+        )
+        return None
+    context = dict(inherited_context or chain_context or {})
+    resolved_chain_id = str(chain_id or context.get("chain_id") or secrets.token_hex(16)).strip()
+    if not _CHAIN_ID_RE.fullmatch(resolved_chain_id):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_id", terminal_reason="invalid_chain_id")
+        return None
+
+    try:
+        resolved_timeout = float(timeout)
+        resolved_depth = int(context.get("depth", 0) if depth is None else depth)
+    except (TypeError, ValueError):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_budget", chain_id=resolved_chain_id, terminal_reason="invalid_chain_budget")
+        return None
+    if resolved_timeout <= 0 or resolved_timeout > 300 or resolved_timeout != resolved_timeout:
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_timeout", chain_id=resolved_chain_id, terminal_reason="invalid_chain_timeout")
+        return None
+    if resolved_depth < 0 or resolved_depth >= _CHAIN_MAX_DEPTH:
+        _broadcast_chain_error(from_level, endpoint, "max_depth_exceeded", chain_id=resolved_chain_id, terminal_reason="max_depth_exceeded")
+        return None
+
+    normalized_endpoint = endpoint.lstrip("/")
+    target_level = _chain_level_key(normalized_endpoint.split("/", 1)[0])
+    source_level = _chain_level_key(from_level)
+    if not _CHAIN_LEVEL_RE.fullmatch(target_level) or not _CHAIN_LEVEL_RE.fullmatch(source_level):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_level", chain_id=resolved_chain_id, terminal_reason="invalid_chain_level")
+        return None
+
+    raw_visited = visited_levels if visited_levels is not None else context.get("visited_levels", [])
+    if not isinstance(raw_visited, list):
+        _broadcast_chain_error(from_level, endpoint, "invalid_visited_levels", chain_id=resolved_chain_id, terminal_reason="invalid_visited_levels")
+        return None
+    visited = [_chain_level_key(item) for item in raw_visited]
+    if (
+        len(visited) > _CHAIN_MAX_DEPTH + 1
+        or len(set(visited)) != len(visited)
+        or any(not _CHAIN_LEVEL_RE.fullmatch(item) for item in visited)
+    ):
+        _broadcast_chain_error(from_level, endpoint, "invalid_visited_levels", chain_id=resolved_chain_id, terminal_reason="invalid_visited_levels")
+        return None
+    has_supplied_context = bool(inherited_context or chain_context or visited_levels is not None or depth is not None)
+    if has_supplied_context and (
+        not visited
+        or resolved_depth != len(visited) - 1
+        or visited[-1] != source_level
+    ):
+        _broadcast_chain_error(from_level, endpoint, "source_context_mismatch", chain_id=resolved_chain_id, terminal_reason="source_context_mismatch")
+        return None
+    if source_level not in visited:
+        visited.append(source_level)
+    if target_level in visited:
+        _broadcast_chain_error(from_level, endpoint, "cycle_detected", chain_id=resolved_chain_id, terminal_reason="cycle_detected")
+        return None
+
+    deadline_value = deadline_epoch_ms if deadline_epoch_ms is not None else context.get("deadline_epoch_ms")
+    if deadline_value is None:
+        deadline_value = int(time.time() * 1000 + (resolved_timeout * 1000))
+    try:
+        resolved_deadline_ms = int(deadline_value)
+    except (TypeError, ValueError):
+        _broadcast_chain_error(from_level, endpoint, "invalid_chain_deadline", chain_id=resolved_chain_id, terminal_reason="invalid_chain_deadline")
+        return None
+    remaining_s = (resolved_deadline_ms - int(time.time() * 1000)) / 1000.0
+    if remaining_s <= 0:
+        _broadcast_chain_error(from_level, endpoint, "deadline_exhausted", chain_id=resolved_chain_id, terminal_reason="deadline_exhausted")
+        return None
+    effective_timeout = min(resolved_timeout, remaining_s)
+    next_visited = [*visited, target_level]
+    chain_headers = {
+        "x-cortex-chain-id": resolved_chain_id,
+        "x-cortex-chain-visited": ",".join(next_visited),
+        "x-cortex-chain-depth": str(resolved_depth + 1),
+        "x-cortex-chain-deadline-ms": str(resolved_deadline_ms),
+    }
+    chain_headers[_CHAIN_SIGNATURE_HEADER] = _chain_context_signature(chain_headers)
+    url = internal_url(f"/{normalized_endpoint}")
 
     # Broadcast chain start
     try:
@@ -238,27 +519,43 @@ async def chain_to(
             bus.broadcast(from_level, "chain_call", {
                 "target_endpoint": endpoint,
                 "payload_keys": list((payload or {}).keys()),
+                "chain_id": resolved_chain_id,
+                "depth": resolved_depth + 1,
+                "visited_levels": next_visited,
             })
     except Exception:
         pass
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            if method.upper() == "GET":
-                resp = await client.get(url, params=payload)
-            else:
-                body = dict(payload or {})
-                normalized_endpoint = endpoint.lstrip("/")
-                if normalized_endpoint.startswith(("librarian/", "l22/")) or normalized_endpoint == "knowledge/search":
-                    scope = authenticated_memory_scope_fields(
-                        body.get("tenant_id"),
-                        body.get("workspace_id"),
-                    )
-                    for key, value in scope.items():
-                        body.setdefault(key, value)
-                resp = await client.post(url, json=body)
-            resp.raise_for_status()
-            result = resp.json()
+        internal_headers = configured_internal_memory_headers()
+        if internal_headers is None:
+            memory_endpoint = (
+                normalized_endpoint.startswith(("librarian/", "l22/"))
+                or normalized_endpoint == "knowledge/search"
+            )
+            terminal_reason = (
+                "memory_credentials_unavailable"
+                if memory_endpoint
+                else "internal_credentials_unavailable"
+            )
+            _broadcast_chain_error(
+                from_level,
+                endpoint,
+                terminal_reason,
+                chain_id=resolved_chain_id,
+                terminal_reason=terminal_reason,
+            )
+            return None
+        request_headers = {**internal_headers, **chain_headers}
+        async with asyncio.timeout(effective_timeout):
+            async with httpx.AsyncClient(timeout=effective_timeout) as client:
+                if method.upper() == "GET":
+                    resp = await client.get(url, params=payload, headers=request_headers)
+                else:
+                    body = dict(payload or {})
+                    resp = await client.post(url, json=body, headers=request_headers)
+                resp.raise_for_status()
+                result = resp.json()
 
         # Broadcast chain success
         try:
@@ -267,29 +564,56 @@ async def chain_to(
                 bus.broadcast(from_level, "chain_complete", {
                     "target_endpoint": endpoint,
                     "status": "success",
+                    "chain_id": resolved_chain_id,
+                    "depth": resolved_depth + 1,
+                    "terminal_reason": "target_completed",
                 })
         except Exception:
             pass
 
         return result
 
-    except httpx.TimeoutException:
-        logger.warning("chain_to %s -> %s timed out after %.1fs", from_level, endpoint, timeout)
-        _broadcast_chain_error(from_level, endpoint, "timeout")
+    except (httpx.TimeoutException, TimeoutError):
+        logger.warning("chain_to %s -> %s timed out after %.1fs", from_level, endpoint, effective_timeout)
+        _broadcast_chain_error(from_level, endpoint, "timeout", chain_id=resolved_chain_id, terminal_reason="timeout")
         return None
     except Exception as exc:
-        logger.warning("chain_to %s -> %s failed: %s", from_level, endpoint, exc)
-        _broadcast_chain_error(from_level, endpoint, str(exc)[:300])
+        logger.warning(
+            "consciousness_chain_failure failure_type=%s",
+            type(exc).__name__,
+        )
+        _broadcast_chain_error(
+            from_level,
+            endpoint,
+            type(exc).__name__,
+            chain_id=resolved_chain_id,
+            terminal_reason="target_error",
+        )
         return None
 
 
-def _broadcast_chain_error(from_level: str, endpoint: str, error: str):
+def _broadcast_chain_error(
+    from_level: str,
+    endpoint: str,
+    failure_type: str,
+    *,
+    chain_id: str = "",
+    terminal_reason: str = "target_error",
+):
+    safe_failure_type = (
+        str(failure_type)
+        if str(failure_type).replace("_", "").isalnum()
+        and len(str(failure_type)) <= 64
+        else "InternalFailure"
+    )
     try:
         bus = _get_bus()
         if bus:
             bus.broadcast(from_level, "chain_error", {
                 "target_endpoint": endpoint,
-                "error": error,
+                "failure_type": safe_failure_type,
+                "chain_id": chain_id,
+                "terminal_reason": terminal_reason,
             })
     except Exception:
         pass
@@ -318,8 +642,11 @@ def subscribe_to(
         bus = _get_bus()
         if bus:
             bus.subscribe(level_name, event_types, handler)
-    except Exception:
-        logger.debug("subscribe_to failed for %s", level_name, exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_subscription_failure failure_type=%s",
+            type(exc).__name__,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +702,11 @@ def get_collective_context() -> Dict[str, Any]:
                         pass
             except FileNotFoundError:
                 pass
-    except Exception:
-        logger.debug("get_collective_context core read failed", exc_info=True)
+    except Exception as exc:
+        logger.debug(
+            "consciousness_context_read_failure failure_type=%s",
+            type(exc).__name__,
+        )
 
     # Bus shared state
     try:
@@ -393,19 +723,17 @@ def get_collective_context() -> Dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _safe_summary(obj: Any, max_len: int = 500) -> Any:
-    """Return a JSON-safe, truncated summary of an object for thought storage."""
+def _bounded_summary(obj: Any, max_len: int) -> Any:
     if obj is None:
         return None
     if isinstance(obj, (str, int, float, bool)):
         s = str(obj)
         return s[:max_len] if len(s) > max_len else obj
     if isinstance(obj, dict):
-        # Keep keys but truncate values
         out = {}
         total = 0
         for k, v in obj.items():
-            sv = _safe_summary(v, max_len=200)
+            sv = _bounded_summary(v, 200)
             out[str(k)[:100]] = sv
             total += len(str(sv))
             if total > max_len:
@@ -415,10 +743,21 @@ def _safe_summary(obj: Any, max_len: int = 500) -> Any:
     if isinstance(obj, (list, tuple)):
         out = []
         for item in obj[:20]:
-            out.append(_safe_summary(item, max_len=100))
+            out.append(_bounded_summary(item, 100))
         if len(obj) > 20:
             out.append(f"... +{len(obj) - 20} more")
         return out
     # Fallback
     s = str(obj)
     return s[:max_len] if len(s) > max_len else s
+
+
+def _safe_summary(obj: Any, max_len: int = 500) -> Any:
+    """Return a bounded, recursively redacted summary for trace storage."""
+    redacted = redact_sensitive_data(
+        obj,
+        max_depth=8,
+        max_items=512,
+        max_string_chars=max(1, int(max_len)),
+    )
+    return _bounded_summary(redacted, max(1, int(max_len)))

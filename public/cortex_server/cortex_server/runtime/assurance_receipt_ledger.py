@@ -610,3 +610,56 @@ def release_assurance_receipt(
     finally:
         if connection is not None:
             connection.close()
+
+
+def delete_assurance_receipts_matching_scope(
+    state_path: Path,
+    *,
+    required_scope: Mapping[str, Any],
+) -> int:
+    """Hard-delete every receipt whose scope contains the required principal.
+
+    Authorization/request-boundary fields may vary across writes, so deletion
+    deliberately matches a strict subset of the decoded scope rather than one
+    scope digest.  Invalid durable rows fail the deletion closed.
+    """
+
+    required = {str(key): str(value) for key, value in required_scope.items()}
+    if not required or any(not key or not value for key, value in required.items()):
+        raise ValueError("required_scope must contain bounded non-empty principal fields")
+    connection: Optional[sqlite3.Connection] = None
+    try:
+        with _LEDGER_LOCK:
+            connection = _connect(Path(state_path))
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT scope_digest, jti, scope_json FROM assurance_receipt_ledger"
+            ).fetchall()
+            matched: list[tuple[str, str]] = []
+            for row in rows:
+                try:
+                    scope = json.loads(str(row["scope_json"]))
+                except json.JSONDecodeError as exc:
+                    raise AssuranceReceiptLedgerUnavailable(
+                        "assurance_receipt_scope_is_corrupt"
+                    ) from exc
+                if not isinstance(scope, dict):
+                    raise AssuranceReceiptLedgerUnavailable(
+                        "assurance_receipt_scope_is_corrupt"
+                    )
+                if all(str(scope.get(key) or "") == value for key, value in required.items()):
+                    matched.append((str(row["scope_digest"]), str(row["jti"])))
+            for scope_digest, jti in matched:
+                connection.execute(
+                    "DELETE FROM assurance_receipt_ledger WHERE scope_digest = ? AND jti = ?",
+                    (scope_digest, jti),
+                )
+            connection.commit()
+            return len(matched)
+    except Exception:
+        if connection is not None and connection.in_transaction:
+            connection.rollback()
+        raise
+    finally:
+        if connection is not None:
+            connection.close()

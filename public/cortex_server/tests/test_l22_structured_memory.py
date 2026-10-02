@@ -1,13 +1,221 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import sqlite3
 import threading
+import time
+from types import SimpleNamespace
+import uuid
 
 import pytest
 from fastapi import HTTPException
 
+# Router import constructs its persistence client, so keep collection-time state
+# inside the writable test sandbox rather than an operator path.
+os.environ.setdefault("CORTEX_CHROMA_DIR", "/tmp/cortex-l22-structured-tests-chroma")
+
 from cortex_server.routers import l22, librarian
+from cortex_server.modules.bounded_health_probe import SingleFlightHealthProbe
+
+
+class _OperationCollection:
+    """Small Chroma-shaped store for durable-operation interleaving tests."""
+
+    def __init__(self):
+        self.rows = {}
+        self.add_calls = 0
+
+    @staticmethod
+    def _matches(metadata, where):
+        if not where:
+            return True
+        if "$and" in where:
+            return all(_OperationCollection._matches(metadata, item) for item in where["$and"])
+        return all(
+            metadata.get(key) == (value.get("$eq") if isinstance(value, dict) else value)
+            for key, value in where.items()
+        )
+
+    def add(self, *, ids, documents, metadatas):
+        self.add_calls += 1
+        for memory_id, document, metadata in zip(ids, documents, metadatas):
+            self.rows[str(memory_id)] = {
+                "document": str(document),
+                "metadata": dict(metadata),
+            }
+
+    def get(
+        self,
+        *,
+        ids=None,
+        where=None,
+        where_document=None,
+        limit=None,
+        offset=0,
+        include=None,
+        **_kwargs,
+    ):
+        selected = list(ids) if ids is not None else sorted(self.rows)
+        selected = [
+            memory_id
+            for memory_id in selected
+            if memory_id in self.rows
+            and self._matches(self.rows[memory_id]["metadata"], where)
+            and (
+                not where_document
+                or str(where_document.get("$contains") or "")
+                in self.rows[memory_id]["document"]
+            )
+        ]
+        selected = selected[max(0, int(offset or 0)) :]
+        if limit is not None:
+            selected = selected[: max(0, int(limit))]
+        return {
+            "ids": selected,
+            "documents": [self.rows[memory_id]["document"] for memory_id in selected],
+            "metadatas": [self.rows[memory_id]["metadata"] for memory_id in selected],
+        }
+
+    def update(self, *, ids, metadatas):
+        for memory_id, metadata in zip(ids, metadatas):
+            self.rows[str(memory_id)]["metadata"] = dict(metadata)
+
+    def delete(self, *, ids):
+        for memory_id in ids:
+            self.rows.pop(str(memory_id), None)
+
+
+def _configure_operation_stores(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "CORTEX_L22_STRUCTURED_DB", str(tmp_path / "l22-structured.sqlite3")
+    )
+    monkeypatch.setenv(
+        "CORTEX_L22_MEMORY_OPERATION_DB", str(tmp_path / "l22-operations.sqlite3")
+    )
+    monkeypatch.setenv(
+        "CORTEX_FACT_SUPERSESSION_JOURNAL_DIR", str(tmp_path / "fact-journal")
+    )
+    monkeypatch.setenv(
+        "CORTEX_FACT_SUPERSESSION_LOCK_PATH", str(tmp_path / "fact.lock")
+    )
+    monkeypatch.setattr(librarian, "_FALLBACK_LOG_PATH", tmp_path / "fallback.jsonl")
+    collection = _OperationCollection()
+    monkeypatch.setattr(l22, "collection", collection)
+    monkeypatch.setattr(librarian, "collection", collection)
+    return collection
+
+
+def _operation_principal(name="owner"):
+    return SimpleNamespace(
+        tenant_id="tenant-operations",
+        storage_workspace_id=f"workspace-{name}",
+        memory_principal_key=f"principal:{name}",
+        credential_id=f"credential-{name}",
+    )
+
+
+def _operation_id(principal, key):
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"cortex:l22:{principal.tenant_id}:"
+            f"{principal.storage_workspace_id}:{key}",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_l22_status_is_off_loop_and_bounds_both_stores(monkeypatch):
+    principal = SimpleNamespace(
+        memory_principal_key="l22-health-principal",
+        codec_session_key="l22-health-codec-session",
+        tenant_id="tenant-health",
+        storage_workspace_id="workspace-health",
+    )
+    collection_calls = []
+    structured_calls = []
+    worker_threads = []
+
+    class RecordingCollection:
+        def get(self, **kwargs):
+            worker_threads.append(threading.current_thread().name)
+            collection_calls.append(kwargs)
+            return {
+                "metadatas": [
+                    {"memory_principal_key": principal.memory_principal_key}
+                    for _ in range(3)
+                ]
+            }
+
+    def structured_records(**kwargs):
+        structured_calls.append(kwargs)
+        return [{"id": "one"}, {"id": "two"}]
+
+    monkeypatch.setattr(l22, "collection", RecordingCollection())
+    monkeypatch.setattr(l22, "list_structured_memory_records", structured_records)
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+    monkeypatch.setattr(l22, "_L22_HEALTH_PRINCIPAL_SCAN_MAX_ROWS", 2)
+    monkeypatch.setattr(l22, "_L22_HEALTH_STRUCTURED_MAX_ROWS", 3)
+    monkeypatch.setattr(
+        l22,
+        "_L22_STATUS_PROBE",
+        SingleFlightHealthProbe("l22-status-bounds-test"),
+    )
+
+    result = await l22.l22_status(object())
+
+    assert result["success"] is True, (
+        result,
+        collection_calls,
+        structured_calls,
+        worker_threads,
+    )
+    assert result["memory_count"] == 2
+    assert result["memory_count_is_lower_bound"] is True
+    assert result["memory_scan_limit"] == 2
+    assert result["structured_memory_count"] == 2
+    assert result["structured_memory_scan_limit"] == 3
+    assert collection_calls[0]["limit"] == 3
+    assert structured_calls[0]["limit"] == 3
+    assert len(worker_threads) == 1
+    assert worker_threads[0].startswith("cortex-health-probe")
+
+
+@pytest.mark.asyncio
+async def test_agg_f059_l22_status_timeout_remains_single_flight(monkeypatch):
+    principal = SimpleNamespace(memory_principal_key="l22-slow-principal")
+    release = threading.Event()
+    calls = []
+
+    def slow_payload(_principal):
+        calls.append(threading.current_thread().name)
+        release.wait(timeout=0.25)
+        return {"success": True, "status": "active"}
+
+    monkeypatch.setattr(l22, "memory_principal_for_request", lambda _request: principal)
+    monkeypatch.setattr(l22, "_l22_status_payload", slow_payload)
+    monkeypatch.setattr(l22, "_memory_scope_auth_ready", lambda: True)
+    monkeypatch.setattr(
+        l22,
+        "_L22_STATUS_PROBE",
+        SingleFlightHealthProbe("l22-status-timeout-test"),
+    )
+    monkeypatch.setenv("CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS", "0.03")
+
+    started = time.perf_counter()
+    first = await l22.l22_status(object())
+    second = await l22.l22_status(object())
+    elapsed = time.perf_counter() - started
+    release.set()
+    await asyncio.sleep(0.03)
+
+    assert first["probe_status"] == "timeout"
+    assert second["probe_status"] == "timeout"
+    assert elapsed < 0.15
+    assert len(calls) == 1
+    assert calls[0].startswith("cortex-health-probe")
 
 
 def test_structured_l22_memory_round_trip_and_delete(monkeypatch, tmp_path):
@@ -142,6 +350,916 @@ def test_l22_idempotency_is_durable_scoped_and_rejects_payload_reuse(monkeypatch
             **scope,
         )
     assert exc_info.value.status_code == 409
+
+
+def test_semantic_l22_rejects_byte_amplification_before_hash_or_publish(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(tmp_path / "bounded.sqlite3"))
+    monkeypatch.setenv("CORTEX_L22_MAX_CONTENT_BYTES", "8")
+    monkeypatch.setattr(
+        l22,
+        "sha256",
+        lambda *_args, **_kwargs: pytest.fail("rejected request reached hashing"),
+    )
+    monkeypatch.setattr(
+        l22,
+        "_add_memory_with_supersession",
+        lambda *_args, **_kwargs: pytest.fail("rejected request reached publication"),
+    )
+
+    with pytest.raises(HTTPException) as content_error:
+        l22.store_memory_record(content="x" * 9)
+    assert content_error.value.status_code == 413
+
+    with pytest.raises(HTTPException) as metadata_error:
+        l22.store_memory_record(content="ok", metadata={"value": "x" * 20_000})
+    assert metadata_error.value.status_code == 422
+
+    with pytest.raises(HTTPException) as key_error:
+        l22.store_memory_record(content="ok", idempotency_key="é" * 129)
+    assert key_error.value.status_code == 422
+
+
+def test_l22_idempotency_ledger_prunes_scoped_count_bytes_and_age_with_replay_fallback(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "idempotency-retention.sqlite3"
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(db_path))
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "2")
+    rows = {}
+    published = []
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {"ids": found, "metadatas": [rows[row_id] for row_id in found]}
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        published.append(memory_id)
+        rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+    scope = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+
+    results = [
+        l22.store_memory_record(
+            content=f"decision {index}",
+            idempotency_key=f"key-{index}",
+            **scope,
+        )
+        for index in range(3)
+    ]
+    l22.store_memory_record(
+        content="other workspace",
+        idempotency_key="other-key",
+        tenant_id="tenant-a",
+        workspace_id="workspace-b",
+    )
+
+    connection = l22._structured_memory_connection()
+    try:
+        retained_a = connection.execute(
+            "SELECT idempotency_key FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ? ORDER BY idempotency_key",
+            ("tenant-a", "workspace-a"),
+        ).fetchall()
+        retained_b = connection.execute(
+            "SELECT idempotency_key FROM memory_idempotency "
+            "WHERE tenant_id = ? AND workspace_id = ?",
+            ("tenant-a", "workspace-b"),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert [row[0] for row in retained_a] == ["key-1", "key-2"]
+    assert [row[0] for row in retained_b] == ["other-key"]
+
+    replay = l22.store_memory_record(
+        content="decision 0",
+        idempotency_key="key-0",
+        **scope,
+    )
+    assert replay["id"] == results[0]["id"]
+    assert replay["idempotent_replay"] is True
+    assert published.count(results[0]["id"]) == 1
+
+    connection = l22._structured_memory_connection()
+    try:
+        connection.execute(
+            "UPDATE memory_idempotency SET created_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
+            ("tenant-a", "workspace-a", "key-2"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_TTL_SECONDS", "1")
+    assert l22._prune_memory_idempotency_ledger() >= 1
+
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "10")
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_BYTES", "1")
+    l22._prune_memory_idempotency_ledger()
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM memory_idempotency").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    monkeypatch.setenv(
+        "CORTEX_L22_IDEMPOTENCY_MAX_BYTES", str(l22._L22_IDEMPOTENCY_MAX_BYTES)
+    )
+    restart_replay = l22.store_memory_record(
+        content="decision 0",
+        idempotency_key="key-0",
+        **scope,
+    )
+    assert restart_replay["id"] == results[0]["id"]
+    assert restart_replay["idempotent_replay"] is True
+    assert published.count(results[0]["id"]) == 1
+    with pytest.raises(HTTPException) as conflict:
+        l22.store_memory_record(
+            content="changed decision",
+            idempotency_key="key-0",
+            **scope,
+        )
+    assert conflict.value.status_code == 409
+
+    monkeypatch.setenv(
+        "CORTEX_L22_IDEMPOTENCY_MAX_BYTES", str(l22._L22_IDEMPOTENCY_MAX_BYTES)
+    )
+    connection = l22._structured_memory_connection()
+    try:
+        connection.execute(
+            "INSERT INTO memory_idempotency VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "legacy-tenant",
+                "legacy-workspace",
+                "legacy-key",
+                "f" * 64,
+                json.dumps({"id": "non-deterministic-legacy-id"}),
+                "2000-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(RuntimeError, match="require migration"):
+        l22._prune_memory_idempotency_ledger()
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency WHERE tenant_id = ?",
+            ("legacy-tenant",),
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_l22_idempotency_write_fails_closed_when_active_row_cannot_fit(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "CORTEX_L22_STRUCTURED_DB", str(tmp_path / "idempotency-too-small.sqlite3")
+    )
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_BYTES", "1")
+    durable_rows = {}
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in durable_rows]
+            return {
+                "ids": found,
+                "metadatas": [durable_rows[row_id] for row_id in found],
+            }
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        durable_rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+
+    with pytest.raises(RuntimeError, match="cannot retain the active replay row"):
+        l22.store_memory_record(
+            content="bounded decision",
+            idempotency_key="active-key",
+            tenant_id="tenant-a",
+            workspace_id="workspace-a",
+        )
+
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_l22_idempotency_retention_refuses_eviction_without_durable_fallback(
+    monkeypatch, tmp_path
+):
+    db_path = tmp_path / "idempotency-missing-fallback.sqlite3"
+    monkeypatch.setenv("CORTEX_L22_STRUCTURED_DB", str(db_path))
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "2")
+    rows = {}
+    published = []
+
+    class Collection:
+        def get(self, ids, include):
+            found = [row_id for row_id in ids if row_id in rows]
+            return {
+                "ids": found,
+                "metadatas": [rows[row_id] for row_id in found],
+            }
+
+    def add_record(memory_id, _text, metadata, **_scope):
+        published.append(memory_id)
+        rows[memory_id] = dict(metadata)
+
+    monkeypatch.setattr(l22, "collection", Collection())
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", add_record)
+    scope = {"tenant_id": "tenant-a", "workspace_id": "workspace-a"}
+    first = l22.store_memory_record(
+        content="original decision",
+        idempotency_key="key-0",
+        **scope,
+    )
+    l22.store_memory_record(
+        content="newer decision",
+        idempotency_key="key-1",
+        **scope,
+    )
+    rows.pop(first["id"])
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "1")
+
+    with pytest.raises(RuntimeError, match="durable replay fallback"):
+        l22._prune_memory_idempotency_ledger()
+
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
+    with pytest.raises(HTTPException) as missing_physical_replay:
+        l22.store_memory_record(
+            content="original decision",
+            idempotency_key="key-0",
+            **scope,
+        )
+    assert missing_physical_replay.value.status_code == 503
+    assert "operation authority unavailable" in str(
+        missing_physical_replay.value.detail
+    )
+    with pytest.raises(HTTPException) as conflict:
+        l22.store_memory_record(
+            content="changed decision",
+            idempotency_key="key-0",
+            **scope,
+        )
+    assert conflict.value.status_code == 409
+    assert published.count(first["id"]) == 1
+
+    # A fresh operation reaches the bounded replay cache. The missing physical
+    # fallback for key-0 must still make pruning fail atomically: the permanent
+    # operation authority is not a substitute for the stored replay result.
+    published_before = list(published)
+    with pytest.raises(RuntimeError, match="durable replay fallback"):
+        l22.store_memory_record(
+            content="third decision",
+            idempotency_key="key-2",
+            **scope,
+        )
+    assert published == published_before
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
+    assert published.count(first["id"]) == 1
+
+
+def test_l22_cancel_before_store_is_scoped_durable_and_replay_idempotent(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    owner = _operation_principal()
+    selected_principal = {"value": owner}
+    monkeypatch.setattr(
+        l22,
+        "_route_memory_principal",
+        lambda _request, _http_request: selected_principal["value"],
+    )
+    key = "delete-before-arrival"
+    expected_id = _operation_id(owner, key)
+    request = l22.L22StoreOperationRequest(
+        idempotency_key=key,
+        expected_id=expected_id,
+        fact_key="owner-file:synthetic:0",
+        operation_generation=1,
+    )
+
+    unknown = asyncio.run(l22.l22_store_status(request))
+    assert unknown == {
+        "known": False,
+        "status": "unknown",
+        "id": expected_id,
+        "operation_generation": 1,
+        "visibility_fenced": False,
+        "projection_status": "unknown",
+    }
+    cancelled = asyncio.run(l22.l22_cancel_store(request))
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["visibility_fenced"] is True
+    assert cancelled["projection_status"] == "complete"
+    markers_before = [
+        row
+        for row in librarian._quota_fallback_rows()
+        if row.get("kind") == "id_supersession"
+    ]
+    assert len(markers_before) == 1
+    assert markers_before[0]["memory_principal_key"] == owner.memory_principal_key
+
+    repeated = asyncio.run(l22.l22_cancel_store(request))
+    assert repeated["projection_status"] == "complete"
+    assert len([
+        row
+        for row in librarian._quota_fallback_rows()
+        if row.get("kind") == "id_supersession"
+    ]) == 1
+
+    with pytest.raises(HTTPException) as late_store:
+        l22.store_memory_record(
+            content="late deleted source payload",
+            metadata={
+                "fact_key": "owner-file:synthetic:0",
+                "memory_principal_key": owner.memory_principal_key,
+            },
+            tenant_id=owner.tenant_id,
+            workspace_id=owner.storage_workspace_id,
+            idempotency_key=key,
+            operation_generation=1,
+        )
+    assert late_store.value.status_code == 409
+    assert collection.rows == {}
+
+    foreign = _operation_principal("foreign")
+    selected_principal["value"] = foreign
+    with pytest.raises(HTTPException) as guessed_owner_operation:
+        asyncio.run(l22.l22_store_status(request))
+    assert guessed_owner_operation.value.status_code == 403
+    foreign_request = l22.L22StoreOperationRequest(
+        idempotency_key=key,
+        expected_id=_operation_id(foreign, key),
+        fact_key="owner-file:synthetic:0",
+        operation_generation=1,
+    )
+    assert asyncio.run(l22.l22_store_status(foreign_request))["status"] == "unknown"
+    selected_principal["value"] = owner
+    assert asyncio.run(l22.l22_store_status(request))["status"] == "cancelled"
+
+
+def test_l22_inflight_publication_serializes_cancel_then_retires_both_stores(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    principal = _operation_principal()
+    monkeypatch.setattr(
+        l22,
+        "_route_memory_principal",
+        lambda _request, _http_request: principal,
+    )
+    publication_started = threading.Event()
+    release_publication = threading.Event()
+    cancel_attempted = threading.Event()
+
+    def blocked_publish(memory_id, text, metadata, **_scope):
+        publication_started.set()
+        if not release_publication.wait(timeout=5):
+            pytest.fail("synthetic publication was never released")
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+
+    original_cancel = l22._cancel_memory_store_operation
+
+    def observed_cancel(identity, *, reason):
+        cancel_attempted.set()
+        return original_cancel(identity, reason=reason)
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", blocked_publish)
+    monkeypatch.setattr(l22, "_cancel_memory_store_operation", observed_cancel)
+    key = "inflight-cancel-race"
+    fact_key = "owner-file:inflight:0"
+    expected_id = _operation_id(principal, key)
+    store_kwargs = {
+        "content": "inflight synthetic fact",
+        "metadata": {
+            "fact_key": fact_key,
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "idempotency_key": key,
+        "operation_generation": 1,
+    }
+    request = l22.L22StoreOperationRequest(
+        idempotency_key=key,
+        expected_id=expected_id,
+        fact_key=fact_key,
+        operation_generation=1,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        store_future = executor.submit(l22.store_memory_record, **store_kwargs)
+        assert publication_started.wait(timeout=2)
+        pending = asyncio.run(l22.l22_store_status(request))
+        assert pending["status"] == "prepared"
+        assert pending["visibility_fenced"] is False
+        assert expected_id not in collection.rows
+
+        cancel_future = executor.submit(
+            lambda: asyncio.run(l22.l22_cancel_store(request))
+        )
+        assert cancel_attempted.wait(timeout=2)
+        assert cancel_future.done() is False
+        release_publication.set()
+        stored = store_future.result(timeout=5)
+        cancelled = cancel_future.result(timeout=5)
+
+    assert stored["id"] == expected_id
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["projection_status"] == "complete"
+    assert collection.add_calls == 1
+    assert collection.rows[expected_id]["metadata"]["memory_status"] == "superseded"
+    assert librarian._memory_visible_for_query(
+        "", collection.rows[expected_id]["metadata"]
+    ) is False
+    assert asyncio.run(l22.l22_store_status(request))["status"] == "cancelled"
+
+
+def test_l22_timeout_unknown_row_is_hidden_then_exact_replay_commits_once(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    principal = _operation_principal()
+    monkeypatch.setattr(
+        l22,
+        "_route_memory_principal",
+        lambda _request, _http_request: principal,
+    )
+    key = "response-timeout"
+    expected_id = _operation_id(principal, key)
+    publication_calls = []
+
+    def publish_then_timeout(memory_id, text, metadata, **_scope):
+        publication_calls.append(memory_id)
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+        raise TimeoutError("synthetic response timeout after durable publication")
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish_then_timeout)
+    store_kwargs = {
+        "content": "timeout unknown durable fact",
+        "metadata": {
+            "fact_key": "owner-file:timeout:0",
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "idempotency_key": key,
+        "operation_generation": 1,
+    }
+    with pytest.raises(TimeoutError, match="response timeout"):
+        l22.store_memory_record(**store_kwargs)
+
+    request = l22.L22StoreOperationRequest(
+        idempotency_key=key,
+        expected_id=expected_id,
+        fact_key="owner-file:timeout:0",
+        operation_generation=1,
+    )
+    pending = asyncio.run(l22.l22_store_status(request))
+    assert pending["status"] == "prepared"
+    assert pending["visibility_fenced"] is False
+    assert pending["projection_status"] == "not_required"
+    assert librarian._memory_visible_for_query(
+        "", collection.rows[expected_id]["metadata"]
+    ) is False
+
+    replay = l22.store_memory_record(**store_kwargs)
+    assert replay["id"] == expected_id
+    assert replay["idempotent_replay"] is True
+    assert publication_calls == [expected_id]
+    committed = asyncio.run(l22.l22_store_status(request))
+    assert committed["status"] == "committed"
+    assert committed["visibility_fenced"] is True
+    assert committed["projection_status"] == "not_required"
+    assert librarian._memory_visible_for_query(
+        "", collection.rows[expected_id]["metadata"]
+    ) is True
+
+
+def test_l22_process_death_replay_adopts_prior_writer_quota_without_duplicate(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    principal = _operation_principal()
+    writer = {
+        "value": {
+            "token": "writer-before-crash",
+            "pid": 101,
+            "start_ticks": "1001",
+            "boot_id": "boot-test",
+        }
+    }
+    monkeypatch.setattr(l22, "_quota_writer_identity", lambda: dict(writer["value"]))
+
+    class ProcessDeath(BaseException):
+        pass
+
+    key = "process-death-after-publication"
+    expected_id = _operation_id(principal, key)
+    first_call = {"value": True}
+
+    def publish_then_die(memory_id, text, metadata, **_scope):
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+        if first_call["value"]:
+            first_call["value"] = False
+            raise ProcessDeath("synthetic process death")
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish_then_die)
+    store_kwargs = {
+        "content": "crash replay durable fact",
+        "metadata": {
+            "fact_key": "owner-file:crash:0",
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "idempotency_key": key,
+        "operation_generation": 1,
+    }
+    with pytest.raises(ProcessDeath):
+        l22.store_memory_record(**store_kwargs)
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT status FROM l22_quota_records WHERE memory_id = ?",
+            (expected_id,),
+        ).fetchone()[0] == "reserved"
+    finally:
+        connection.close()
+
+    writer["value"] = {
+        "token": "writer-after-restart",
+        "pid": 202,
+        "start_ticks": "2002",
+        "boot_id": "boot-test",
+    }
+    replay = l22.store_memory_record(**store_kwargs)
+    assert replay["id"] == expected_id
+    assert replay["idempotent_replay"] is True
+    assert collection.add_calls == 1
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT status FROM l22_quota_records WHERE memory_id = ?",
+            (expected_id,),
+        ).fetchone()[0] == "committed"
+    finally:
+        connection.close()
+
+
+def test_l22_process_death_after_replay_cache_commit_recovers_prepared_operation(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    principal = _operation_principal()
+
+    def publish(memory_id, text, metadata, **_scope):
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+
+    class ProcessDeath(BaseException):
+        pass
+
+    original_finalize = l22._finalize_memory_quota
+    die_once = {"value": True}
+
+    def finalize_then_die(memory_id, *, require_owner=True):
+        if die_once["value"]:
+            die_once["value"] = False
+            raise ProcessDeath("synthetic death after replay cache commit")
+        return original_finalize(memory_id, require_owner=require_owner)
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish)
+    monkeypatch.setattr(l22, "_finalize_memory_quota", finalize_then_die)
+    key = "death-after-replay-cache"
+    expected_id = _operation_id(principal, key)
+    store_kwargs = {
+        "content": "cache committed before process death",
+        "metadata": {
+            "fact_key": "owner-file:cache-crash:0",
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.storage_workspace_id,
+        "idempotency_key": key,
+        "operation_generation": 1,
+    }
+    with pytest.raises(ProcessDeath):
+        l22.store_memory_record(**store_kwargs)
+
+    identity = l22._memory_store_operation_identity(
+        tenant=principal.tenant_id,
+        workspace=principal.storage_workspace_id,
+        memory_principal_key=principal.memory_principal_key,
+        idempotency_key=key,
+        memory_id=expected_id,
+        request_hash=l22.prepare_memory_store_request(**store_kwargs)["request_hash"],
+        fact_key="owner-file:cache-crash:0",
+        generation=1,
+    )
+    assert l22._get_memory_store_operation(identity)["status"] == "prepared"
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency WHERE idempotency_key = ?",
+            (key,),
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+    replay = l22.store_memory_record(**store_kwargs)
+    assert replay["id"] == expected_id
+    assert replay["idempotent_replay"] is True
+    assert collection.add_calls == 1
+    assert l22._get_memory_store_operation(identity)["status"] == "committed"
+
+
+@pytest.mark.parametrize(
+    "failure_point",
+    ["before_quota_admission", "before_fallback_tombstone", "before_journal_cleanup"],
+)
+def test_l22_cancelled_cross_store_retirement_replays_every_crash_edge_and_new_generation(
+    monkeypatch, tmp_path, failure_point
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    principal = _operation_principal()
+
+    def publish(memory_id, text, metadata, **_scope):
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish)
+    old_key = "generation-one"
+    fact_key = "owner-file:generation:0"
+    stored = l22.store_memory_record(
+        content="generation one content",
+        metadata={
+            "fact_key": fact_key,
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        idempotency_key=old_key,
+        operation_generation=1,
+    )
+    librarian._persist_fallback_memory(
+        stored["id"],
+        "generation one content",
+        stored["metadata"],
+        reason="synthetic mirrored fallback",
+        mode="test",
+    )
+    identity = l22._memory_store_operation_identity(
+        tenant=principal.tenant_id,
+        workspace=principal.storage_workspace_id,
+        memory_principal_key=principal.memory_principal_key,
+        idempotency_key=old_key,
+        memory_id=stored["id"],
+        fact_key=fact_key,
+        generation=1,
+    )
+    cancellation = l22._cancel_memory_store_operation(
+        identity, reason="owner_source_deleted_or_revoked"
+    )
+    assert cancellation["status"] == "cancelled"
+    assert cancellation["projection_status"] == "pending"
+    assert librarian._memory_visible_for_query("", stored["metadata"]) is False
+
+    if failure_point == "before_quota_admission":
+        original = librarian._recover_retirement_journal_with_quota_locked
+
+        def fail_once(*_args, **_kwargs):
+            raise RuntimeError("crash before quota admission")
+
+        monkeypatch.setattr(
+            librarian, "_recover_retirement_journal_with_quota_locked", fail_once
+        )
+    elif failure_point == "before_fallback_tombstone":
+        original = librarian._append_fallback_id_tombstone
+
+        def fail_once(*_args, **_kwargs):
+            raise RuntimeError("crash before fallback tombstone")
+
+        monkeypatch.setattr(librarian, "_append_fallback_id_tombstone", fail_once)
+    else:
+        original = librarian._remove_fact_supersession_journal
+
+        def fail_once(*_args, **_kwargs):
+            raise RuntimeError("crash before journal cleanup")
+
+        monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", fail_once)
+
+    with pytest.raises(Exception, match="memory retirement|crash before"):
+        l22._project_cancelled_memory_store_operation(
+            identity,
+            reason="owner_source_deleted_or_revoked",
+            credential_id=principal.credential_id,
+        )
+    journal_dir = tmp_path / "fact-journal"
+    assert len(list(journal_dir.glob("*.json"))) == 1
+    operation = l22._get_memory_store_operation(identity)
+    assert operation["status"] == "cancelled"
+    assert operation["projection_status"] == "pending"
+    assert librarian._memory_visible_for_query(
+        "", collection.rows[stored["id"]]["metadata"]
+    ) is False
+
+    if failure_point == "before_quota_admission":
+        monkeypatch.setattr(
+            librarian, "_recover_retirement_journal_with_quota_locked", original
+        )
+    elif failure_point == "before_fallback_tombstone":
+        monkeypatch.setattr(librarian, "_append_fallback_id_tombstone", original)
+    else:
+        monkeypatch.setattr(librarian, "_remove_fact_supersession_journal", original)
+
+    completed = l22._project_cancelled_memory_store_operation(
+        identity,
+        reason="owner_source_deleted_or_revoked",
+        credential_id=principal.credential_id,
+    )
+    assert completed["projection_status"] == "complete"
+    assert list(journal_dir.glob("*.json")) == []
+    assert collection.rows[stored["id"]]["metadata"]["memory_status"] == "superseded"
+    assert librarian._read_fallback_rows(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        memory_principal_key=principal.memory_principal_key,
+    ) == []
+    historical = librarian._read_fallback_rows(
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        memory_principal_key=principal.memory_principal_key,
+        include_historical=True,
+    )
+    assert [row["id"] for row in historical] == [stored["id"]]
+    assert historical[0]["metadata"]["memory_status"] == "superseded"
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM structured_memory "
+            "WHERE memory_type = 'quota_side_effect'"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+    new_key = "generation-two"
+    replacement = l22.store_memory_record(
+        content="generation one content",
+        metadata={
+            "fact_key": fact_key,
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        idempotency_key=new_key,
+        operation_generation=2,
+    )
+    assert replacement["id"] != stored["id"]
+    assert librarian._memory_visible_for_query("", replacement["metadata"]) is True
+    assert l22._get_memory_store_operation(identity)["status"] == "cancelled"
+
+
+def test_l22_cancelled_generation_cache_evicts_without_reopening_replay(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "1")
+    principal = _operation_principal()
+    monkeypatch.setattr(
+        l22,
+        "_route_memory_principal",
+        lambda _request, _http_request: principal,
+    )
+
+    def publish(memory_id, text, metadata, **_scope):
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish)
+    fact_key = "owner-file:bounded-generation:0"
+    first_key = "bounded-generation-one"
+    first = l22.store_memory_record(
+        content="bounded generation content",
+        metadata={
+            "fact_key": fact_key,
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        idempotency_key=first_key,
+        operation_generation=1,
+    )
+    cancel_request = l22.L22StoreOperationRequest(
+        idempotency_key=first_key,
+        expected_id=first["id"],
+        fact_key=fact_key,
+        operation_generation=1,
+    )
+    cancelled = asyncio.run(l22.l22_cancel_store(cancel_request))
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["projection_status"] == "complete"
+
+    second_key = "bounded-generation-two"
+    second = l22.store_memory_record(
+        content="bounded generation content",
+        metadata={
+            "fact_key": fact_key,
+            "memory_principal_key": principal.memory_principal_key,
+        },
+        tenant_id=principal.tenant_id,
+        workspace_id=principal.storage_workspace_id,
+        idempotency_key=second_key,
+        operation_generation=2,
+    )
+    assert second["id"] != first["id"]
+    assert librarian._memory_visible_for_query("", second["metadata"]) is True
+    connection = l22._structured_memory_connection()
+    try:
+        assert [
+            row[0]
+            for row in connection.execute(
+                "SELECT idempotency_key FROM memory_idempotency"
+            ).fetchall()
+        ] == [second_key]
+    finally:
+        connection.close()
+
+    with pytest.raises(HTTPException) as cancelled_replay:
+        l22.store_memory_record(
+            content="bounded generation content",
+            metadata={
+                "fact_key": fact_key,
+                "memory_principal_key": principal.memory_principal_key,
+            },
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+            idempotency_key=first_key,
+            operation_generation=1,
+        )
+    assert cancelled_replay.value.status_code == 409
+    assert "durably cancelled" in str(cancelled_replay.value.detail)
+
+
+def test_l22_retention_rejects_wrong_principal_operation_contract_atomically(
+    monkeypatch, tmp_path
+):
+    collection = _configure_operation_stores(monkeypatch, tmp_path)
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "2")
+    principal = _operation_principal()
+
+    def publish(memory_id, text, metadata, **_scope):
+        collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
+
+    monkeypatch.setattr(l22, "_add_memory_with_supersession", publish)
+    stored = [
+        l22.store_memory_record(
+            content=f"principal-bound decision {index}",
+            metadata={"memory_principal_key": principal.memory_principal_key},
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+            idempotency_key=f"principal-key-{index}",
+        )
+        for index in range(2)
+    ]
+    collection.rows[stored[0]["id"]]["metadata"]["memory_principal_key"] = (
+        "principal:foreign"
+    )
+    monkeypatch.setenv("CORTEX_L22_IDEMPOTENCY_MAX_RECORDS", "1")
+
+    with pytest.raises(RuntimeError, match="durable replay fallback"):
+        l22._prune_memory_idempotency_ledger()
+    connection = l22._structured_memory_connection()
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM memory_idempotency"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
 
 
 def test_l22_quota_serializes_workspace_and_global_durable_admission(monkeypatch, tmp_path):

@@ -213,8 +213,16 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
     assert delivery_status["loop_state"]["conversation_ownership"]["conversation_id"] == "chat:canary:delivery"
     assert roadmap_status["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
     assert delivery_status["loop_state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
-    assert roadmap_status["state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
-    assert delivery_status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    roadmap_outbound = roadmap_status["state"]["follow_through"]["outbound_update"]
+    delivery_outbound = delivery_status["loop_state"]["follow_through"]["outbound_update"]
+    assert roadmap_outbound["delivery_status"] == "failed"
+    assert delivery_outbound["delivery_status"] == "failed"
+    assert roadmap_outbound["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
+    assert delivery_outbound["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
     assert roadmap_status["process"]["workflow"]["metadata"]["roadmap_follow_up_due_at"] is not None
     assert delivery_status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
-    assert len(sent) == 3
+    held_follow_ups = stores["follow_up_store"].list()
+    assert len(held_follow_ups) == 3
+    assert all(row.delivery_status == "failed" for row in held_follow_ups)
+    assert all(row.last_error == "diplomat_delivery_requires_delegated_action_capability" for row in held_follow_ups)
+    assert len(sent) == 0

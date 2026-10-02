@@ -222,11 +222,14 @@ def test_runtime_tick_watchdog_dispatches_roadmap_follow_up_once(tmp_path, monke
     follow_ups = stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="roadmap")
 
     assert tick["watchdog"]["action_count"] >= 1
-    assert status["state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
-    assert len(sent) == 1
+    outbound_update = status["state"]["follow_through"]["outbound_update"]
+    assert outbound_update["delivery_status"] == "failed"
+    assert outbound_update["last_error"] == "diplomat_delivery_requires_delegated_action_capability"
+    assert len(sent) == 0
     assert len(follow_ups) == 1
-    assert follow_ups[0].delivery_status == "sent"
-    assert "runtime_roadmap_route" in sent[0]["message"]
+    assert follow_ups[0].delivery_status == "failed"
+    assert follow_ups[0].last_error == "diplomat_delivery_requires_delegated_action_capability"
+    assert "runtime_roadmap_route" in follow_ups[0].message
 
     second_tick = asyncio.run(
         orchestrator.tick_runtime(
@@ -238,7 +241,7 @@ def test_runtime_tick_watchdog_dispatches_roadmap_follow_up_once(tmp_path, monke
         )
     )
     assert second_tick["success"] is True
-    assert len(sent) == 1
+    assert len(sent) == 0
     assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="roadmap")) == 1
 
 

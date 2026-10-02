@@ -32,16 +32,6 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
-  return value;
-}
-
-function digest(value) {
-  return sha256(JSON.stringify(stable(value)));
-}
-
 function loadSignedRegistryEnvelopeForMigration(registryPath, secret) {
   const stat = fs.lstatSync(registryPath);
   if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0
@@ -144,11 +134,11 @@ function contextFor(concept) {
     verificationOracle: oracle.slice(0, 500),
     complexityRisk: complexityRisk.slice(0, 500),
     numericalRisk: numericalRisk.slice(0, 500),
-    truthBoundary: 'Operator-configured 264-concept retrieval guidance; verify the task result and do not infer retained mastery or PhD equivalence.',
+    truthBoundary: 'Inactive operator proposal only. It is not independently qualified and cannot influence production answers.',
   };
 }
 
-export function buildOperatorEntries({ now, allowedAgentIds, sourceDigest, planDigest }) {
+export function buildOperatorEntries({ now, allowedAgentIds }) {
   const activatedAt = new Date(now);
   if (!Number.isFinite(activatedAt.getTime())) throw new Error('invalid --now');
   const expiresAt = new Date(activatedAt.getTime() + 3653 * 24 * 60 * 60 * 1000).toISOString();
@@ -162,13 +152,13 @@ export function buildOperatorEntries({ now, allowedAgentIds, sourceDigest, planD
       profileVersion: '1.0.0',
       conceptIds: [concept.conceptId],
       matcherId,
-      enabled: true,
+      enabled: false,
       qualificationState: 'operator_enabled',
       activationBasis: 'operator_direct',
       qualificationRunId: 'operator-direct-full-spectrum-20260808',
-      artifactManifestDigest: sourceDigest,
-      evidenceDigest: planDigest,
-      profileDigest: digest({ concept, context, matcherId }),
+      artifactManifestDigest: null,
+      evidenceDigest: null,
+      profileDigest: null,
       qualifiedAt: activatedAt.toISOString(),
       expiresAt,
       allowedAgentIds,
@@ -188,21 +178,24 @@ export function installOperatorEntries({ registryPath, secretPath, agentId = 'ma
   if (!fs.existsSync(registryPath)) initializeTransferRegistry({ registryPath, secretPath, now });
   const secret = readTransferRegistrySecret(secretPath);
   const current = loadSignedRegistryEnvelopeForMigration(registryPath, secret);
-  const entries = buildOperatorEntries({ now, allowedAgentIds: [agentId], sourceDigest, planDigest });
-  const replaced = new Set(entries.map((entry) => entry.profileId));
+  const proposals = buildOperatorEntries({ now, allowedAgentIds: [agentId] });
   const independentEntries = current.entries.filter((entry) => entry.activationBasis !== 'operator_direct');
-  const incompatibleIndependent = independentEntries.filter((entry) => !replaced.has(entry.profileId));
-  if (incompatibleIndependent.length) {
-    throw new Error(`refusing to discard incompatible independently qualified profiles: ${incompatibleIndependent.map((entry) => entry.profileId).join(', ')}`);
-  }
-  const preserved = independentEntries.filter((entry) => replaced.has(entry.profileId));
+  const independentContracts = new Set(
+    independentEntries.map((entry) => `${entry.profileId}\u0000${entry.matcherId}`),
+  );
+  const entries = proposals.filter(
+    (entry) => !independentContracts.has(`${entry.profileId}\u0000${entry.matcherId}`),
+  );
   const replacedLegacyOperatorCount = current.entries.length - independentEntries.length;
+  if (independentEntries.length + entries.length > 320) {
+    throw new Error('refusing operator proposal migration above the signed registry entry limit');
+  }
   const next = {
     schemaVersion: current.schemaVersion,
     revision: current.revision + 1,
     updatedAt: now,
-    enabled: true,
-    entries: [...preserved, ...entries].sort((left, right) => left.profileId.localeCompare(right.profileId)),
+    enabled: current.enabled,
+    entries: [...independentEntries, ...entries].sort((left, right) => left.profileId.localeCompare(right.profileId)),
   };
   const signed = atomicWriteSignedTransferRegistry(registryPath, next, secret);
   return {
@@ -213,6 +206,13 @@ export function installOperatorEntries({ registryPath, secretPath, agentId = 'ma
     catalogSourceDigest: CATALOG.source.sha256,
     installedProfileCount: entries.length,
     installedProfileIds: entries.map((entry) => entry.profileId).sort(),
+    preservedIndependentProfileCount: independentEntries.length,
+    skippedProposalProfileIds: proposals
+      .filter((entry) => independentContracts.has(`${entry.profileId}\u0000${entry.matcherId}`))
+      .map((entry) => entry.profileId)
+      .sort(),
+    installedProposalProductionEligibleCount: 0,
+    preservedEnabledIndependentCount: independentEntries.filter((entry) => entry.enabled).length,
     replacedLegacyOperatorCount,
     sourceDigest,
     planDigest,

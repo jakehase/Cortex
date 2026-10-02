@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import fcntl
 import threading
 import hashlib
@@ -18,6 +17,10 @@ from cortex_server.runtime.runtime_delivery_quota import (
     assert_process_count,
     assert_runtime_delivery_capacity,
     runtime_delivery_quota_transaction,
+)
+from cortex_server.runtime.resilient_json_state import (
+    ResilientJSONStateStore,
+    StateCorruptionError,
 )
 
 
@@ -195,6 +198,23 @@ class MaintenanceQueueStore:
         self._lock_depth = 0
         self._guarded_dispatches: set[tuple[str, str]] = set()
         self.delivery_root = Path(delivery_root) if delivery_root is not None else None
+        self._state_store = ResilientJSONStateStore(
+            self.path,
+            validator=self._validate_state_payload,
+            max_state_bytes=self.max_state_bytes,
+        )
+
+    def _validate_state_payload(self, payload: Any) -> JsonDict:
+        if not isinstance(payload, dict):
+            raise ValueError("maintenance queue state must be an object")
+        items = payload.get("items", [])
+        if not isinstance(items, list):
+            raise ValueError("maintenance queue items must be a list")
+        if len(items) > self.max_items:
+            raise ValueError("maintenance queue item count exceeds limit")
+        if any(not isinstance(item, dict) for item in items):
+            raise ValueError("maintenance queue items must be objects")
+        return _state_dump(_state_validate(payload))
 
     @contextmanager
     def _lock(self):
@@ -206,9 +226,7 @@ class MaintenanceQueueStore:
                 finally:
                     self._lock_depth -= 1
                 return
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.with_suffix(self.path.suffix + ".lock").open("a+b") as handle:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            with self._state_store._exclusive():
                 self._lock_depth = 1
                 try:
                     yield
@@ -241,22 +259,32 @@ class MaintenanceQueueStore:
 
     def _load_state(self) -> MaintenanceQueueState:
         with self._lock():
-            if not self.path.exists():
-                return MaintenanceQueueState()
-            with self.path.open("rb") as handle:
-                raw = handle.read(self.max_state_bytes + 1)
-            if len(raw) > self.max_state_bytes:
-                raise ValueError("maintenance queue state exceeds size limit")
-            payload = json.loads(raw.decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("maintenance queue state must be an object")
-            items = payload.get("items", [])
-            if not isinstance(items, list):
-                raise ValueError("maintenance queue items must be a list")
-            if len(items) > self.max_items:
-                raise ValueError("maintenance queue item count exceeds limit")
-            if any(not isinstance(item, dict) for item in items):
-                raise ValueError("maintenance queue items must be objects")
+            try:
+                payload = self._state_store._load_locked(
+                    default_factory=lambda: _state_dump(MaintenanceQueueState())
+                )
+            except StateCorruptionError as exc:
+                # Keep the public validation contract useful without exposing
+                # file paths or silently replacing the malformed evidence.
+                cause: Optional[BaseException] = exc
+                messages = []
+                while cause is not None and len(messages) < 8:
+                    messages.append(str(cause))
+                    cause = cause.__cause__ or cause.__context__
+                details = " ".join(messages)
+                if "state exceeds" in details and "byte limit" in details:
+                    message = "maintenance queue state exceeds size limit"
+                elif "item count exceeds limit" in details:
+                    message = "maintenance queue item count exceeds limit"
+                elif "state must be an object" in details:
+                    message = "maintenance queue state must be an object"
+                elif "items must be a list" in details:
+                    message = "maintenance queue items must be a list"
+                elif "items must be objects" in details:
+                    message = "maintenance queue items must be objects"
+                else:
+                    message = "maintenance queue state requires recovery"
+                raise ValueError(message) from exc
             return _state_validate(payload)
 
     def _write_state(self, state: MaintenanceQueueState) -> None:
@@ -268,27 +296,29 @@ class MaintenanceQueueStore:
             if len(active) > self.max_items:
                 raise ValueError("active maintenance queue exceeds item limit")
             state.items = active + terminal[: self.max_items - len(active)]
-        encoded = (json.dumps(_state_dump(state), sort_keys=True, indent=2) + "\n").encode("utf-8")
+        def encode() -> bytes:
+            return (
+                json.dumps(
+                    _state_dump(state),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    indent=2,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+
+        encoded = encode()
         while len(encoded) > self.max_state_bytes:
             terminal = [row for row in state.items if row.status not in {"pending", "active"}]
             if not terminal:
                 raise ValueError("active maintenance queue state exceeds size limit")
             oldest = min(terminal, key=lambda row: (row.last_transition_at, row.item_id))
             state.items.remove(oldest)
-            encoded = (json.dumps(_state_dump(state), sort_keys=True, indent=2) + "\n").encode("utf-8")
-        def commit() -> None:
-            tmp = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
-            try:
-                with tmp.open("xb") as handle:
-                    handle.write(encoded); handle.flush(); os.fsync(handle.fileno())
-                os.replace(tmp, self.path)
-                directory = os.open(self.path.parent, os.O_RDONLY)
-                try: os.fsync(directory)
-                finally: os.close(directory)
-            finally:
-                if tmp.exists(): tmp.unlink()
+            encoded = encode()
+        self._validate_state_payload(_state_dump(state))
         if self.delivery_root is None:
-            commit()
+            self._state_store._save_encoded_locked(encoded)
         else:
             with runtime_delivery_quota_transaction(self.delivery_root):
                 process_ids = sorted({row.process_id for row in state.items})
@@ -302,7 +332,10 @@ class MaintenanceQueueStore:
                     additional_bytes=len(encoded),
                     replacing=self.path,
                 )
-                commit()
+                self._state_store._save_encoded_locked(encoded)
+
+    def persistence_health(self) -> JsonDict:
+        return self._state_store.health
 
     def get_state(self) -> MaintenanceQueueState:
         return self._load_state()

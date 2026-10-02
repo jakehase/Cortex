@@ -48,12 +48,33 @@ class ParserService:
         try:
             self.pdf_parser = PDFParser(PDFParserConfig())
         except Exception as exc:
-            logger.exception("PDF parser initialization failed")
-            self.pdf_parser_error = str(exc)
+            logger.error("PDF parser initialization failed (%s)", type(exc).__name__)
+            self.pdf_parser_error = type(exc).__name__
         self.js_parser = JSParser(JSParserConfig())
-        self.graph = Graph()
+        # Application/schema construction must not create or migrate the
+        # persistent graph.  Parsing remains eager, but graph storage is a
+        # runtime dependency resolved by the first graph operation.
+        self._graph = None
+        self._graph_lock = threading.Lock()
         self._worker_slots = threading.BoundedSemaphore(self.MAX_WORKERS)
         self._worker_tasks = set()
+
+    @property
+    def graph(self) -> Graph:
+        graph = getattr(self, "_graph", None)
+        if graph is not None:
+            return graph
+        lock = getattr(self, "_graph_lock", None)
+        if lock is None:
+            lock = self._graph_lock = threading.Lock()
+        with lock:
+            if self._graph is None:
+                self._graph = Graph()
+            return self._graph
+
+    @graph.setter
+    def graph(self, value: Graph) -> None:
+        self._graph = value
 
     def _safe_path(self, value: str, *, directory: bool = False) -> Path:
         path = Path(value).expanduser().resolve(strict=True)
@@ -256,7 +277,7 @@ class ParserService:
     def _public_pdf_error(detail: str) -> str:
         if re.fullmatch(r"PDF(?: text)? exceeds \d+ (?:byte|page) limit", detail or ""):
             return detail
-        logger.error("PDF parser reported internal failure: %s", detail)
+        logger.error("PDF parser reported an internal failure")
         return "PDF parsing failed"
 
     def _cap_response_collections(
@@ -371,8 +392,8 @@ class ParserService:
             result = await self._parse_snapshot(self.pdf_parser, raw, path, deadline)
         except asyncio.TimeoutError:
             raise
-        except Exception:
-            logger.exception("PDF parser failed")
+        except Exception as exc:
+            logger.error("PDF parser failed (%s)", type(exc).__name__)
             return {"error": "PDF parsing failed"}
         
         if result.error:
@@ -479,8 +500,11 @@ class ParserService:
                                 limited = True
                                 break
                             entries.append(entry)
-                except OSError:
-                    logger.exception("Unable to enumerate directory %s", current)
+                except OSError as exc:
+                    logger.error(
+                        "Unable to enumerate parser directory (%s)",
+                        type(exc).__name__,
+                    )
                     continue
                 if limited:
                     break
@@ -590,9 +614,12 @@ class ParserService:
             except asyncio.TimeoutError:
                 results["errors"].append("Directory parsing limit exceeded")
                 break
-            except Exception:
+            except Exception as exc:
                 identifier = file_path.relative_to(path).as_posix()
-                logger.exception("Failed to parse directory file %s", file_path)
+                logger.error(
+                    "Failed to parse directory file (%s)",
+                    type(exc).__name__,
+                )
                 results["errors"].append(f"{identifier}: File parsing failed")
 
         if discovery_limited and "Directory parsing limit exceeded" not in results["errors"]:

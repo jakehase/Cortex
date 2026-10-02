@@ -58,13 +58,13 @@ async def test_loopback_browser_write_requires_token_for_untrusted_context(heade
         {"origin": "https://console.example", "sec-fetch-site": "same-site"},
     ],
 )
-async def test_loopback_non_browser_and_allowed_browser_writes_remain_compatible(headers):
+async def test_loopback_address_never_replaces_transport_authentication(headers):
     transport = httpx.ASGITransport(app=_write_app(), client=("::1", 43101))
     async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
         response = await client.post("/bodyless-write", headers=headers)
 
-    assert response.status_code == 200
-    assert response.json() == {"mutated": True}
+    assert response.status_code == 403
+    assert response.json()["error"] == "write authorization required"
 
 
 @pytest.mark.asyncio

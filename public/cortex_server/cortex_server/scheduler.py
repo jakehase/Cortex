@@ -7,7 +7,24 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
-from cortex_server.worker import app as celery_app
+from cortex_server.construction import (
+    construction_config,
+    read_only_construction,
+    runtime_construction_active,
+)
+
+with read_only_construction(not runtime_construction_active()):
+    from cortex_server.worker import (
+        app as celery_app,
+        task_consumes_delegated_action_capability,
+    )
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    DELEGATED_ACTION_CAPABILITY_HEADER,
+    assert_action_authorized,
+    authorize_deferred_action,
+    mint_worker_action_capability,
+)
 
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -17,7 +34,6 @@ import hashlib
 import json
 import os
 import tempfile
-import threading
 import uuid
 
 # Initialize scheduler
@@ -26,26 +42,112 @@ _scheduler_was_shutdown = False
 _scheduler_loop = None
 _scheduler_shutdown_pending = False
 _scheduler_lock = threading.Lock()
+_scheduler_rehydration_report: Dict[str, Any] = {
+    "status": "not_started",
+    "rehydrated": [],
+    "error": None,
+}
+_JOB_SPEC_VERSION = 1
+_MAX_JOB_POLICY_BYTES = 4 * 1024 * 1024
 
-_configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+_configured_state_dir = construction_config("CORTEX_SCHEDULER_STATE_DIR")
 _STATE_DIR = Path(_configured_state_dir or "/app/config/state")
-try:
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-except OSError:
-    if _configured_state_dir:
-        raise
-    _STATE_DIR = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
-    _STATE_DIR.mkdir(parents=True, exist_ok=True)
-
-_TRIGGER_LEDGER_PATH = _STATE_DIR / "l8_cron_trigger_events.jsonl"
-_NOTARY_LEDGER_PATH = _STATE_DIR / "l8_cron_notary_packets.jsonl"
-_JOB_POLICY_PATH = _STATE_DIR / "l8_cron_job_policies.json"
-_NOVELTY_STATS_PATH = _STATE_DIR / "l8_cron_novelty_stats.json"
+_TRIGGER_LEDGER_FILENAME = "l8_cron_trigger_events.jsonl"
+_NOTARY_LEDGER_FILENAME = "l8_cron_notary_packets.jsonl"
+_JOB_POLICY_FILENAME = "l8_cron_job_policies.json"
+_NOVELTY_STATS_FILENAME = "l8_cron_novelty_stats.json"
+_TRIGGER_LEDGER_PATH = _STATE_DIR / _TRIGGER_LEDGER_FILENAME
+_NOTARY_LEDGER_PATH = _STATE_DIR / _NOTARY_LEDGER_FILENAME
+_JOB_POLICY_PATH = _STATE_DIR / _JOB_POLICY_FILENAME
+_NOVELTY_STATS_PATH = _STATE_DIR / _NOVELTY_STATS_FILENAME
+_MANAGED_STATE_DIRS = {_STATE_DIR}
+_STATE_DIR_READY = False
+_STATE_DIR_LOCK = threading.Lock()
 
 _TRIGGER_LEDGER_LOCK = threading.Lock()
 _NOTARY_LEDGER_LOCK = threading.Lock()
 _POLICY_LOCK = threading.Lock()
 _NOVELTY_LOCK = threading.Lock()
+
+
+def _set_state_dir(path: Path) -> None:
+    global _STATE_DIR, _TRIGGER_LEDGER_PATH, _NOTARY_LEDGER_PATH
+    global _JOB_POLICY_PATH, _NOVELTY_STATS_PATH
+
+    managed_dirs = set(_MANAGED_STATE_DIRS)
+    rebind_trigger = (
+        _TRIGGER_LEDGER_PATH.name == _TRIGGER_LEDGER_FILENAME
+        and _TRIGGER_LEDGER_PATH.parent in managed_dirs
+    )
+    rebind_notary = (
+        _NOTARY_LEDGER_PATH.name == _NOTARY_LEDGER_FILENAME
+        and _NOTARY_LEDGER_PATH.parent in managed_dirs
+    )
+    rebind_policy = (
+        _JOB_POLICY_PATH.name == _JOB_POLICY_FILENAME
+        and _JOB_POLICY_PATH.parent in managed_dirs
+    )
+    rebind_novelty = (
+        _NOVELTY_STATS_PATH.name == _NOVELTY_STATS_FILENAME
+        and _NOVELTY_STATS_PATH.parent in managed_dirs
+    )
+    _STATE_DIR = path
+    _MANAGED_STATE_DIRS.add(path)
+    if rebind_trigger:
+        _TRIGGER_LEDGER_PATH = path / _TRIGGER_LEDGER_FILENAME
+    if rebind_notary:
+        _NOTARY_LEDGER_PATH = path / _NOTARY_LEDGER_FILENAME
+    if rebind_policy:
+        _JOB_POLICY_PATH = path / _JOB_POLICY_FILENAME
+    if rebind_novelty:
+        _NOVELTY_STATS_PATH = path / _NOVELTY_STATS_FILENAME
+
+
+def _activate_runtime_configuration() -> None:
+    """Capture runtime configuration without creating persistent state."""
+
+    global _configured_state_dir
+    if _STATE_DIR_READY:
+        return
+    _configured_state_dir = os.getenv("CORTEX_SCHEDULER_STATE_DIR")
+    _set_state_dir(Path(_configured_state_dir or "/app/config/state"))
+
+
+def _ensure_state_dir() -> Path:
+    """Resolve and create scheduler state only at an explicit runtime boundary."""
+
+    global _STATE_DIR_READY
+    if _STATE_DIR_READY:
+        return _STATE_DIR
+    with _STATE_DIR_LOCK:
+        if _STATE_DIR_READY:
+            return _STATE_DIR
+        _activate_runtime_configuration()
+        target = _STATE_DIR
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            if _configured_state_dir:
+                raise
+            target = Path(tempfile.gettempdir()) / "cortex-scheduler-state"
+            target.mkdir(parents=True, exist_ok=True)
+            _set_state_dir(target)
+        _STATE_DIR_READY = True
+        return _STATE_DIR
+
+
+def _resolve_state_path(path: Path) -> Path:
+    """Rebase module-managed paths while preserving explicit path overrides."""
+
+    managed_filenames = {
+        _TRIGGER_LEDGER_FILENAME,
+        _NOTARY_LEDGER_FILENAME,
+        _JOB_POLICY_FILENAME,
+        _NOVELTY_STATS_FILENAME,
+    }
+    if path.name not in managed_filenames or path.parent not in _MANAGED_STATE_DIRS:
+        return path
+    return _ensure_state_dir() / path.name
 
 
 def _utc_now() -> datetime:
@@ -68,6 +170,27 @@ def _sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _opaque_identifier(field: str, value: Any) -> Dict[str, Any]:
+    """Represent a caller-controlled identifier without retaining its value."""
+    if value is None:
+        return {
+            field: None,
+            f"{field}_sha256": None,
+            f"{field}_bytes": 0,
+        }
+    encoded = str(value).encode("utf-8", errors="replace")
+    return {
+        field: "[REDACTED]",
+        f"{field}_sha256": hashlib.sha256(encoded).hexdigest(),
+        f"{field}_bytes": len(encoded),
+    }
+
+
+def _scheduler_source(value: Any) -> str:
+    source = str(value or "").strip()
+    return source if source in {"scheduled", "manual_api", "internal"} else "unknown"
+
+
 def _parse_iso_ts(value: Any) -> Optional[datetime]:
     if not isinstance(value, str):
         return None
@@ -81,6 +204,7 @@ def _parse_iso_ts(value: Any) -> Optional[datetime]:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    path = _resolve_state_path(path)
     if not path.exists():
         return default
     try:
@@ -90,12 +214,25 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    path = _resolve_state_path(path)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(_safe_json_dumps(payload), encoding="utf-8")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(_safe_json_dumps(payload))
+        handle.flush()
+        os.fsync(handle.fileno())
     tmp.replace(path)
+    directory_fd = os.open(
+        path.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _append_jsonl(path: Path, lock: threading.Lock, event: Dict[str, Any]) -> None:
+    path = _resolve_state_path(path)
     try:
         line = _safe_json_dumps(event)
     except Exception:
@@ -123,6 +260,26 @@ def _build_cron_trigger(cron_expr: str) -> CronTrigger:
         day_of_week=day_of_week,
         timezone=timezone.utc,
     )
+
+
+def _validated_job_args(args: Any, *, context: str) -> List[Any]:
+    if not isinstance(args, list) or len(args) > 1024:
+        raise ValueError(f"{context} has invalid args")
+    try:
+        encoded = json.dumps(
+            args,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{context} args must be strict JSON values") from exc
+    if len(encoded) > 1_048_576:
+        raise ValueError(f"{context} args are too large")
+    # Persist and schedule the same canonical JSON value, so a restart cannot
+    # silently change task inputs (for example, datetime -> string).
+    return json.loads(encoded.decode("utf-8"))
 
 
 def _estimate_runs_for_hours(cron_expr: str, window_hours: int = 24, cap: int = 50000) -> int:
@@ -225,8 +382,8 @@ def simulate_cadence_twin(
         except Exception as exc:
             scenarios.append(
                 {
-                    "cron": cron_expr,
-                    "error": str(exc),
+                    **_opaque_identifier("cron", cron_expr),
+                    "error": type(exc).__name__,
                     "is_primary": cron_expr == primary_cron,
                 }
             )
@@ -248,8 +405,20 @@ def simulate_cadence_twin(
 
 
 def _load_job_policies() -> Dict[str, Any]:
-    data = _read_json(_JOB_POLICY_PATH, default={})
-    return data if isinstance(data, dict) else {}
+    policy_path = _resolve_state_path(_JOB_POLICY_PATH)
+    if not policy_path.exists():
+        return {}
+    try:
+        if policy_path.stat().st_size > _MAX_JOB_POLICY_BYTES:
+            raise RuntimeError("persisted scheduler policy store exceeds size limit")
+        data = json.loads(policy_path.read_text(encoding="utf-8"))
+    except RuntimeError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid persisted scheduler policy store: {exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("persisted scheduler policies must be a JSON object")
+    return data
 
 
 def _save_job_policies(data: Dict[str, Any]) -> None:
@@ -537,18 +706,18 @@ def _build_notary_packet(
         "packet_id": f"notary-{uuid.uuid4().hex[:12]}",
         "ts": ts,
         "level": 8,
-        "task": task,
-        "source": source,
-        "job_id": job_id,
-        "job_name": job_name,
+        **_opaque_identifier("task", task),
+        "source": _scheduler_source(source),
+        **_opaque_identifier("job_id", job_id),
+        **_opaque_identifier("job_name", job_name),
         "status": status,
-        "task_id": task_id,
-        "error": error,
+        **_opaque_identifier("task_id", task_id),
+        **_opaque_identifier("error", error),
         "latency_ms": max(0, int(latency_ms)),
         "input_hash": input_hash,
         "evidence": [
-            str(_TRIGGER_LEDGER_PATH),
-            str(_NOTARY_LEDGER_PATH),
+            "cron_trigger_ledger",
+            "cron_notary_ledger",
         ],
         "voi": voi,
         "escrow": escrow,
@@ -556,15 +725,29 @@ def _build_notary_packet(
         "notary_version": "l8.notary.v1",
     }
 
-    signature_raw = _safe_json_dumps({k: packet.get(k) for k in [
-        "packet_id", "ts", "task", "source", "job_id", "status", "task_id", "input_hash", "latency_ms"
-    ]})
+    signature_raw = _safe_json_dumps(
+        {
+            key: packet.get(key)
+            for key in [
+                "packet_id",
+                "ts",
+                "task_sha256",
+                "source",
+                "job_id_sha256",
+                "status",
+                "task_id_sha256",
+                "input_hash",
+                "latency_ms",
+            ]
+        }
+    )
     packet["signature"] = _sha256_hex(signature_raw)
     return packet
 
 
 def get_notary_packets(hours: int = 24, limit: int = 100) -> List[Dict[str, Any]]:
-    if not _NOTARY_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_NOTARY_LEDGER_PATH)
+    if not ledger_path.exists():
         return []
 
     h = max(1, min(int(hours), 24 * 30))
@@ -572,7 +755,7 @@ def get_notary_packets(hours: int = 24, limit: int = 100) -> List[Dict[str, Any]
     cutoff = _utc_now() - timedelta(hours=h)
 
     out: deque = deque(maxlen=cap)
-    with _NOTARY_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -597,6 +780,8 @@ def trigger_celery_task(
     job_id: Optional[str] = None,
     job_name: Optional[str] = None,
     policy_override: Optional[Dict[str, Any]] = None,
+    submission_id: Optional[str] = None,
+    action_authorization: Optional[ActionAuthorization] = None,
 ):
     """Send task to Celery and return async_result id.
 
@@ -619,12 +804,12 @@ def trigger_celery_task(
 
     base_event = {
         "ts": _utc_now_iso(),
-        "task": task_name,
-        "source": source,
-        "job_id": job_id,
-        "job_name": job_name,
+        **_opaque_identifier("task", task_name),
+        "source": _scheduler_source(source),
+        **_opaque_identifier("job_id", job_id),
+        **_opaque_identifier("job_name", job_name),
         "args_count": len(args),
-        "kwargs_keys": sorted(list(kwargs.keys()))[:20],
+        "kwargs_count": len(kwargs),
     }
 
     apply_policy = bool(policy) and source in {"scheduled", "manual_api"}
@@ -698,15 +883,128 @@ def trigger_celery_task(
         "sample": None,
     }
 
-    try:
-        async_result = celery_app.send_task(task_name, args=args, kwargs=kwargs)
-        task_id = async_result.id
-        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+    scheduled = source == "scheduled"
+    sink_authorization: Optional[ActionAuthorization]
+    if scheduled:
+        sink_authorization = None
+    else:
+        # A caller-chosen source or policy object never creates authority.
+        assert_action_authorized(action_authorization)
+        sink_authorization = action_authorization
 
+    worker_hold_reason = None
+    if kwargs:
+        worker_hold_reason = "worker_capability_does_not_bind_keyword_arguments"
+    elif not task_consumes_delegated_action_capability(
+        task_name,
+        celery=celery_app,
+    ):
+        worker_hold_reason = "worker_does_not_consume_delegated_capability"
+    if worker_hold_reason is not None:
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+        event = {
+            **base_event,
+            "status": "held_worker_action_authorization",
+            "authorization_reason": worker_hold_reason,
+            "latency_ms": latency_ms,
+        }
+        _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+        packet = _build_notary_packet(
+            task=task_name,
+            args=args,
+            kwargs=kwargs,
+            source=source,
+            job_id=job_id,
+            job_name=job_name,
+            status="held_worker_action_authorization",
+            latency_ms=latency_ms,
+            voi=voi,
+            escrow=escrow,
+            novelty=novelty,
+        )
+        _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+        return None
+
+    if scheduled:
+        delegated_action = policy.get("action_capability")
+        sink_authorization = authorize_deferred_action(
+            delegated_action if isinstance(delegated_action, dict) else {},
+            task=task_name,
+            args=args,
+        )
+        if sink_authorization is None:
+            latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+            event = {
+                **base_event,
+                "status": "held_action_authorization",
+                "authorization_reason": "delegated_capability_denied",
+                "latency_ms": latency_ms,
+            }
+            _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+            packet = _build_notary_packet(
+                task=task_name,
+                args=args,
+                kwargs=kwargs,
+                source=source,
+                job_id=job_id,
+                job_name=job_name,
+                status="held_action_authorization",
+                latency_ms=latency_ms,
+            )
+            _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+            return None
+
+    try:
+        worker_capability = mint_worker_action_capability(
+            sink_authorization,  # type: ignore[arg-type]
+            task=task_name,
+            args=args,
+        )
+    except ValueError:
+        if not scheduled:
+            raise
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+        event = {
+            **base_event,
+            "status": "held_worker_action_authorization",
+            "authorization_reason": "worker_capability_runtime_unavailable",
+            "latency_ms": latency_ms,
+        }
+        _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
+        packet = _build_notary_packet(
+            task=task_name,
+            args=args,
+            kwargs=kwargs,
+            source=source,
+            job_id=job_id,
+            job_name=job_name,
+            status="held_worker_action_authorization",
+            latency_ms=latency_ms,
+            voi=voi,
+            escrow=escrow,
+            novelty=novelty,
+        )
+        _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
+        return None
+
+    try:
+        async_result = celery_app.send_task(
+            task_name,
+            args=args,
+            kwargs=kwargs,
+            headers={
+                DELEGATED_ACTION_CAPABILITY_HEADER: worker_capability,
+            },
+            **({"task_id": submission_id} if submission_id else {}),
+        )
+        task_id = str(getattr(async_result, "id", "") or submission_id or "")
+        if not task_id:
+            raise RuntimeError("Celery submission returned no task identifier")
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
         event = {
             **base_event,
             "status": "triggered",
-            "task_id": task_id,
+            **_opaque_identifier("task_id", task_id),
             "voi": voi,
             "escrow": escrow,
             "novelty": novelty,
@@ -733,23 +1031,20 @@ def trigger_celery_task(
         )
         _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, packet)
         return task_id
-
     except Exception as exc:
         latency_ms = int((_utc_now() - started).total_seconds() * 1000)
         event = {
             **base_event,
             "status": "error",
-            "error": str(exc),
+            **_opaque_identifier("error", str(exc)),
             "voi": voi,
             "escrow": escrow,
             "novelty": novelty,
             "latency_ms": latency_ms,
         }
         _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, event)
-
         if apply_policy and novelty.get("enabled") and job_id:
             _update_novelty_stats(job_id, novelty.get("mode", "exploit"), "error")
-
         packet = _build_notary_packet(
             task=task_name,
             args=args,
@@ -775,36 +1070,198 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
     """
     if args is None:
         args = []
+    if not isinstance(job_name, str) or not job_name or len(job_name) > 128:
+        raise ValueError("job_name must contain 1 to 128 characters")
+    if task not in celery_app.tasks:
+        raise ValueError(f"Unknown task: {task}")
+    args = _validated_job_args(args, context=f"cron job {job_name!r}")
 
     minute, hour, day, month, day_of_week = _cron_parts(cron)
 
     policy_row = dict(policy or {})
-    policy_row.setdefault("job_name", job_name)
-    policy_row.setdefault("task", task)
-    policy_row.setdefault("cron", cron)
+    policy_row["job_name"] = job_name
+    policy_row["task"] = task
+    policy_row["cron"] = cron
+    policy_row["spec_version"] = _JOB_SPEC_VERSION
+    policy_row["args"] = list(args)
 
-    job = scheduler.add_job(
-        trigger_celery_task,
-        trigger="cron",
-        id=job_name,
-        name=job_name,
-        args=[task, args, {}],
-        kwargs={"source": "scheduled", "job_id": job_name, "job_name": job_name},
-        minute=minute,
-        hour=hour,
-        day=day,
-        month=month,
-        day_of_week=day_of_week,
-        replace_existing=True,
-    )
+    # Persist before touching the live scheduler. A failed durable write must
+    # never leave a volatile job (or replacement) that restart recovery cannot
+    # reproduce. If the scheduler rejects the already-persisted row, restore
+    # the previous durable policy before surfacing the failure.
+    with _POLICY_LOCK:
+        all_policies = _load_job_policies()
+        previous_policy = all_policies.get(job_name)
+        all_policies[job_name] = {
+            **policy_row,
+            "updated_at": _utc_now_iso(),
+        }
+        _save_job_policies(all_policies)
+        try:
+            job = scheduler.add_job(
+                trigger_celery_task,
+                trigger="cron",
+                id=job_name,
+                name=job_name,
+                args=[task, args, {}],
+                kwargs={
+                    "source": "scheduled",
+                    "job_id": job_name,
+                    "job_name": job_name,
+                },
+                minute=minute,
+                hour=hour,
+                day=day,
+                month=month,
+                day_of_week=day_of_week,
+                replace_existing=True,
+            )
+        except BaseException:
+            if previous_policy is None:
+                all_policies.pop(job_name, None)
+            else:
+                all_policies[job_name] = previous_policy
+            _save_job_policies(all_policies)
+            raise
 
-    register_job_policy(job.id, policy_row)
     return job.id
+
+
+def _validated_rehydration_rows() -> List[Dict[str, Any]]:
+    """Load and validate every persisted job before mutating the scheduler."""
+    policy_path = _resolve_state_path(_JOB_POLICY_PATH)
+    if not policy_path.exists():
+        return []
+    try:
+        if policy_path.stat().st_size > _MAX_JOB_POLICY_BYTES:
+            raise RuntimeError("persisted scheduler policy store exceeds size limit")
+        raw = json.loads(policy_path.read_text(encoding="utf-8"))
+    except RuntimeError:
+        raise
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid persisted scheduler policy store: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise RuntimeError("persisted scheduler policies must be a JSON object")
+
+    validated: List[Dict[str, Any]] = []
+    for job_id, policy in sorted(raw.items()):
+        if not isinstance(job_id, str) or not job_id or len(job_id) > 128:
+            raise RuntimeError("persisted scheduler job id is invalid")
+        if not isinstance(policy, dict):
+            raise RuntimeError(f"persisted scheduler policy {job_id!r} must be an object")
+        job_name = policy.get("job_name")
+        task = policy.get("task")
+        cron = policy.get("cron")
+        if "spec_version" not in policy:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} is a legacy row missing spec_version"
+            )
+        if policy.get("spec_version") != _JOB_SPEC_VERSION:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} has unsupported spec_version"
+            )
+        if "args" not in policy:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} is missing explicit args"
+            )
+        args = policy["args"]
+        if job_name != job_id:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} has mismatched job_name"
+            )
+        if not isinstance(task, str) or task not in celery_app.tasks:
+            raise RuntimeError(
+                f"persisted scheduler policy {job_id!r} references an unknown task"
+            )
+        if not isinstance(cron, str):
+            raise RuntimeError(f"persisted scheduler policy {job_id!r} has invalid cron")
+        minute, hour, day, month, day_of_week = _cron_parts(cron)
+        # CronTrigger performs semantic range/expression validation.
+        _build_cron_trigger(cron)
+        try:
+            args = _validated_job_args(
+                args,
+                context=f"persisted scheduler policy {job_id!r}",
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                str(exc)
+            ) from exc
+        validated.append(
+            {
+                "job_id": job_id,
+                "job_name": job_name,
+                "task": task,
+                "args": args,
+                "minute": minute,
+                "hour": hour,
+                "day": day,
+                "month": month,
+                "day_of_week": day_of_week,
+            }
+        )
+    return validated
+
+
+def _rehydrate_scheduler_jobs() -> Dict[str, Any]:
+    rows = _validated_rehydration_rows()
+    for row in rows:
+        scheduler.add_job(
+            trigger_celery_task,
+            trigger="cron",
+            id=row["job_id"],
+            name=row["job_name"],
+            args=[row["task"], row["args"], {}],
+            kwargs={
+                "source": "scheduled",
+                "job_id": row["job_id"],
+                "job_name": row["job_name"],
+            },
+            minute=row["minute"],
+            hour=row["hour"],
+            day=row["day"],
+            month=row["month"],
+            day_of_week=row["day_of_week"],
+            replace_existing=True,
+        )
+    return {
+        "status": "ready",
+        "rehydrated": [row["job_id"] for row in rows],
+        "error": None,
+    }
+
+
+def _scheduler_rehydration_error(exc: BaseException) -> str:
+    """Return bounded structural failure telemetry without persisted values."""
+
+    message = str(exc)
+    safe_reasons = (
+        "policy store exceeds size limit",
+        "invalid persisted scheduler policy store",
+        "policies must be a JSON object",
+        "job id is invalid",
+        "policy row must be an object",
+        "legacy row missing spec_version",
+        "unsupported spec_version",
+        "missing explicit args",
+        "mismatched job_name",
+        "references an unknown task",
+        "invalid cron",
+    )
+    reason = next(
+        (candidate for candidate in safe_reasons if candidate in message),
+        "scheduler rehydration failed",
+    )
+    failure_type = type(exc).__name__
+    if not failure_type.isidentifier():
+        failure_type = "Exception"
+    return f"{failure_type[:64]}: {reason}"
 
 
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
-    global scheduler, _scheduler_was_shutdown, _scheduler_loop
+    global scheduler, _scheduler_was_shutdown, _scheduler_loop, _scheduler_rehydration_report
+    _ensure_state_dir()
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -818,8 +1275,29 @@ def start_scheduler():
             scheduler = AsyncIOScheduler(**({"event_loop": loop} if loop is not None else {}))
             _scheduler_was_shutdown = False
         if not scheduler.running:
-            scheduler.start()
+            try:
+                _scheduler_rehydration_report = _rehydrate_scheduler_jobs()
+                scheduler.start()
+            except Exception as exc:
+                _scheduler_rehydration_report = {
+                    "status": "failed",
+                    "rehydrated": [],
+                    "error": _scheduler_rehydration_error(exc),
+                }
+                raise
         _scheduler_loop = loop
+
+
+def get_scheduler_rehydration_status() -> Dict[str, Any]:
+    """Expose restart recovery truth without leaking mutable internal state."""
+    with _scheduler_lock:
+        return {
+            "status": _scheduler_rehydration_report.get("status", "not_started"),
+            "rehydrated": list(_scheduler_rehydration_report.get("rehydrated") or []),
+            "error": _scheduler_rehydration_report.get("error"),
+            "scheduler_running": bool(scheduler.running),
+            "job_spec_version": _JOB_SPEC_VERSION,
+        }
 
 
 async def stop_scheduler() -> None:
@@ -881,16 +1359,31 @@ def get_scheduled_jobs():
 
 def remove_job(job_id: str) -> bool:
     """Remove a scheduled job by id. Returns False if missing."""
-    try:
-        scheduler.remove_job(job_id)
-        remove_job_policy(job_id)
-        return True
-    except JobLookupError:
-        return False
+    # Delete the restart authority first. A failed durable write must leave the
+    # live job untouched; otherwise it would silently reappear after restart.
+    with _POLICY_LOCK:
+        all_policies = _load_job_policies()
+        previous_policy = all_policies.pop(job_id, None)
+        if previous_policy is not None:
+            _save_job_policies(all_policies)
+        try:
+            scheduler.remove_job(job_id)
+            return True
+        except JobLookupError:
+            # A persisted-only row is still a real scheduled policy. Removing
+            # it is a successful delete even if this process had not rehydrated
+            # the corresponding live job.
+            return previous_policy is not None
+        except BaseException:
+            if previous_policy is not None:
+                all_policies[job_id] = previous_policy
+                _save_job_policies(all_policies)
+            raise
 
 
 def get_trigger_events(hours: Optional[int] = 24, limit: int = 500) -> List[Dict[str, Any]]:
-    if not _TRIGGER_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_TRIGGER_LEDGER_PATH)
+    if not ledger_path.exists():
         return []
 
     cap = max(1, min(int(limit), 5000))
@@ -899,7 +1392,7 @@ def get_trigger_events(hours: Optional[int] = 24, limit: int = 500) -> List[Dict
     if hours is not None:
         cutoff = _utc_now() - timedelta(hours=max(1, int(hours)))
 
-    with _TRIGGER_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -928,7 +1421,7 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
     held_escrow = [e for e in events if e.get("status") == "held_escrow"]
 
     source_counts = Counter((e.get("source") or "unknown") for e in triggered)
-    task_counts = Counter((e.get("task") or "unknown") for e in triggered)
+    task_counts = Counter((e.get("task_sha256") or "unknown") for e in triggered)
 
     last_trigger_at = None
     if triggered:
@@ -942,13 +1435,17 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
         "skipped_voi_count": len(skipped_voi),
         "held_escrow_count": len(held_escrow),
         "by_source": dict(source_counts),
-        "top_tasks": [{"task": task, "count": count} for task, count in task_counts.most_common(10)],
+        "top_tasks": [
+            {"task_sha256": task_digest, "count": count}
+            for task_digest, count in task_counts.most_common(10)
+        ],
         "last_trigger_at": last_trigger_at,
     }
 
 
 def get_trigger_totals() -> Dict[str, Any]:
-    if not _TRIGGER_LEDGER_PATH.exists():
+    ledger_path = _resolve_state_path(_TRIGGER_LEDGER_PATH)
+    if not ledger_path.exists():
         return {
             "total_events": 0,
             "total_triggered": 0,
@@ -965,7 +1462,7 @@ def get_trigger_totals() -> Dict[str, Any]:
     total_held_escrow = 0
     last_trigger_at = None
 
-    with _TRIGGER_LEDGER_PATH.open("r", encoding="utf-8", errors="ignore") as f:
+    with ledger_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if not line:

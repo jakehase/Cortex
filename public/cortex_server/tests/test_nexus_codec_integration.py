@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 import httpx
 import pytest
@@ -6,6 +7,7 @@ from fastapi import FastAPI
 
 import cortex_server.modules.codec_policy as codec_policy
 import cortex_server.modules.cortex_codec as codec_module
+from cortex_server.modules import async_offload
 import cortex_server.routers.nexus as nexus
 import cortex_server.routers.oracle as oracle
 from cortex_server.middleware.hud_middleware import HUDMiddleware
@@ -15,14 +17,19 @@ from cortex_server.modules.cortex_codec import update_codec_state_for_session
 class _ASGIClient:
     """Synchronous facade over HTTPX's supported ASGI transport."""
 
-    def __init__(self, app, *, raise_server_exceptions=True):
+    def __init__(self, app, *, raise_server_exceptions=True, headers=None):
         self.app = app
         self.raise_server_exceptions = raise_server_exceptions
+        self.headers = httpx.Headers(headers or {})
 
     def request(self, method, path, **kwargs):
         async def send():
             transport = httpx.ASGITransport(app=self.app, raise_app_exceptions=self.raise_server_exceptions)
-            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://test",
+                headers=self.headers,
+            ) as client:
                 return await client.request(method, path, **kwargs)
 
         return asyncio.run(send())
@@ -34,8 +41,21 @@ class _ASGIClient:
         return self.request("POST", path, **kwargs)
 
 
-def TestClient(app, *, raise_server_exceptions=True):
-    return _ASGIClient(app, raise_server_exceptions=raise_server_exceptions)
+def TestClient(app, *, raise_server_exceptions=True, headers=None):
+    return _ASGIClient(
+        app,
+        raise_server_exceptions=raise_server_exceptions,
+        headers=headers,
+    )
+
+
+def _seed_principal_codec_state(auth, events):
+    return update_codec_state_for_session(
+        auth.principal.codec_session_key,
+        events,
+        tenant_id=auth.principal.tenant_id,
+        workspace_id=auth.principal.storage_workspace_id,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -54,21 +74,25 @@ def _isolate_nexus_runtime_state(tmp_path, monkeypatch):
     monkeypatch.setattr(nexus, "run_in_threadpool", run_inline)
 
 
-def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
+def test_nexus_orchestrate_surfaces_codec_context(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "nexus-codec-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [{"text": "Build the Cortex Codec and keep [Cortex] at the start of replies.", "metadata": {"project": "Cortex Codec"}}],
     )
 
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/orchestrate",
@@ -85,19 +109,112 @@ def test_nexus_orchestrate_surfaces_codec_context(monkeypatch):
     assert "Cortex Codec" in body["codec_context"]["summary"] or body["codec_context"]["packet"]
 
 
-def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_calls(monkeypatch):
+@pytest.mark.asyncio
+async def test_nexus_slow_provider_times_out_without_blocking_event_loop(
+    monkeypatch,
+    configured_memory_principal,
+):
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_provider(_query, **_kwargs):
+        entered.set()
+        release.wait(timeout=2)
+        return {
+            "confidence": 0.0,
+            "levels": [],
+            "reasoning": "late provider result",
+            "method": "stub",
+        }
+
+    monkeypatch.setattr(nexus, "analyze_intent_with_oracle", slow_provider)
+    monkeypatch.setattr(
+        nexus,
+        "gather_live_evidence",
+        lambda *_args, **_kwargs: {
+            "required": False,
+            "mode": "not_required",
+            "evidence_count": 0,
+            "degraded": False,
+        },
+    )
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+
+    real_remaining_seconds = nexus.remaining_seconds
+
+    def focused_deadline(deadline, *, ceiling):
+        if ceiling == 10.0:
+            return 0.03
+        return real_remaining_seconds(deadline, ceiling=ceiling)
+
+    monkeypatch.setattr(nexus, "remaining_seconds", focused_deadline)
+
+    session_key = "nexus-slow-provider-timeout"
+    auth = configured_memory_principal(session_key)
+    app = FastAPI()
+    app.include_router(nexus.router, prefix="/nexus")
+
+    try:
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers=auth.headers,
+        ) as client:
+            response_task = asyncio.create_task(
+                client.post(
+                    "/nexus/orchestrate",
+                    json={},
+                    params={"query": "Design a complex multi-stage migration plan."},
+                    headers={"x-session-id": session_key},
+                )
+            )
+            for _ in range(200):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            assert entered.is_set()
+
+            # This timer must continue to run while the synchronous provider is
+            # retained in a worker after the endpoint deadline expires.
+            await asyncio.wait_for(asyncio.sleep(0.01), timeout=0.03)
+            response = await asyncio.wait_for(response_task, timeout=1)
+
+        assert response.status_code == 504
+        assert "nexus.semantic_analysis" in response.text
+        status = async_offload.blocking_operation_status()
+        assert "nexus.semantic_analysis" in status["detached_operations"]
+    finally:
+        release.set()
+
+    for _ in range(100):
+        if "nexus.semantic_analysis" not in async_offload.blocking_operation_status()[
+            "operations"
+        ]:
+            break
+        await asyncio.sleep(0.01)
+    assert "nexus.semantic_analysis" not in async_offload.blocking_operation_status()[
+        "operations"
+    ]
+
+
+def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_calls(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "nexus-codec-recovery-probe"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [{"text": "Recovery canary codeword cedar-lantern-7291.", "tags": ["recovery", "canary"]}],
     )
 
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     response = client.post(
         "/nexus/orchestrate",
@@ -113,22 +230,26 @@ def test_nexus_orchestrate_codec_probe_exposes_hydrated_packet_without_semantic_
     assert "cedar-lantern-7291" in body["codec_context"]["packet"] or "cedar-lantern-7291" in body["codec_context"]["summary"]
 
 
-def test_nexus_orchestrate_records_codec_execution_artifact(monkeypatch):
+def test_nexus_orchestrate_records_codec_execution_artifact(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False})
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", lambda **kwargs: {"recorded": True, "variant": "referents_plus_codec", "source": "execution_flow", "execution_metrics": {"confidence": 0.91}})
 
     session_key = "nexus-codec-execution-success"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [{"text": "Build the Cortex Codec and keep [Cortex] at the start of replies.", "metadata": {"project": "Cortex Codec"}}],
     )
 
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/orchestrate",
@@ -199,7 +320,10 @@ def test_codec_execution_outcome_shapes_confidence_from_transaction(monkeypatch)
 
 
 
-def test_nexus_orchestrate_failure_records_codec_execution_failure(monkeypatch):
+def test_nexus_orchestrate_failure_records_codec_execution_failure(
+    monkeypatch,
+    configured_memory_principal,
+):
     captured = {}
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: (_ for _ in ()).throw(RuntimeError("semantic failure")))
     monkeypatch.setattr(nexus, "_observe_codec_execution_outcome", lambda **kwargs: captured.update(kwargs) or {"recorded": True})
@@ -207,21 +331,27 @@ def test_nexus_orchestrate_failure_records_codec_execution_failure(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    session_key = "nexus-codec-execution-failure"
+    auth = configured_memory_principal(session_key)
+    client = TestClient(app, headers=auth.headers)
 
-    r = client.post("/nexus/orchestrate", json={}, params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": "nexus-codec-execution-failure"})
+    r = client.post("/nexus/orchestrate", json={}, params={"query": "How should we wire Codec into the real path?"}, headers={"x-session-id": session_key})
     assert r.status_code == 500
     assert captured["explicit_success"] is False
     assert captured["note"].startswith("nexus_orchestrate_exception:")
 
 
 
-def test_nexus_codec_status_endpoint_exposes_debug_view(monkeypatch):
+def test_nexus_codec_status_endpoint_exposes_debug_view(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "nexus-codec-status-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Build the Cortex Codec visibility endpoint with savings stats.", "metadata": {"project": "Cortex Codec"}},
@@ -231,7 +361,7 @@ def test_nexus_codec_status_endpoint_exposes_debug_view(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.get("/nexus/codec/status", headers={"x-session-id": session_key})
     assert r.status_code == 200
@@ -247,21 +377,23 @@ def test_nexus_codec_status_endpoint_exposes_debug_view(monkeypatch):
     assert "persisted_snapshots" in body["codec"]
 
 
-def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(monkeypatch):
+def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     session_key = "codec-events-endpoint-test"
-    scope = {
-        "tenant_id": "cortex-local",
-        "workspace_id": "default",
-        "agent_id": "codec-test-agent",
-        "user_id": "codec-test-user",
-        "channel_id": "codec-test-channel",
-        "session_id": session_key,
-    }
+    auth = configured_memory_principal(
+        session_key,
+        agent_id="codec-test-agent",
+        user_id="codec-test-user",
+        channel_id="codec-test-channel",
+    )
+    scope = auth.scope
 
     app = FastAPI()
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     response = client.post("/nexus/codec/events", json={
         "session_key": session_key,
@@ -280,12 +412,16 @@ def test_nexus_codec_events_endpoint_validates_and_writes_low_latency_state(monk
     assert invalid.status_code == 400
 
 
-def test_nexus_codec_benchmark_endpoint_exposes_comparison_view(monkeypatch):
+def test_nexus_codec_benchmark_endpoint_exposes_comparison_view(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "nexus-codec-benchmark-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Build the Cortex Codec benchmark endpoint.", "metadata": {"project": "Cortex Codec"}},
@@ -296,7 +432,7 @@ def test_nexus_codec_benchmark_endpoint_exposes_comparison_view(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.get(
         "/nexus/codec/benchmark",
@@ -314,14 +450,18 @@ def test_nexus_codec_benchmark_endpoint_exposes_comparison_view(monkeypatch):
     assert body["codec"]["benchmark"]["acceptance_gates"]["summary"]["required_total"] >= 2
 
 
-def test_nexus_codec_evaluate_endpoint_exposes_variants(monkeypatch):
+def test_nexus_codec_evaluate_endpoint_exposes_variants(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(codec_policy, "load_state", lambda: {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None})
     monkeypatch.setattr(codec_policy, "save_state", lambda state: None)
 
     session_key = "nexus-codec-evaluate-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Build the Cortex Codec evaluation hooks.", "metadata": {"project": "Cortex Codec"}},
@@ -332,7 +472,7 @@ def test_nexus_codec_evaluate_endpoint_exposes_variants(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",
@@ -350,7 +490,10 @@ def test_nexus_codec_evaluate_endpoint_exposes_variants(monkeypatch):
     assert body["codec"]["evaluation"]["acceptance_gates"]["summary"]["required_total"] >= 3
 
 
-def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(monkeypatch):
+def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -359,8 +502,9 @@ def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(monkeypatch):
     monkeypatch.setattr(oracle, "_best_effort_answer", lambda prompt, system=None, priority=None, depth_mode=None: (f"OUT::{prompt[:24]}", "fake-model", "test-hook"))
 
     session_key = "nexus-codec-evaluate-oracle-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Build the Cortex Codec evaluation hooks.", "metadata": {"project": "Cortex Codec"}},
@@ -370,7 +514,7 @@ def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",
@@ -388,7 +532,10 @@ def test_nexus_codec_evaluate_endpoint_can_run_oracle_variants(monkeypatch):
         assert variant["oracle_output"].startswith("OUT::")
 
 
-def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(monkeypatch):
+def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -403,8 +550,9 @@ def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(monkeypatch):
     monkeypatch.setattr(oracle, "_best_effort_answer", _fake_best_effort)
 
     session_key = "nexus-codec-evaluate-judge-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Build the Cortex Codec judge hooks.", "metadata": {"project": "Cortex Codec"}},
@@ -414,7 +562,7 @@ def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(monkeypatch):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",
@@ -428,7 +576,11 @@ def test_nexus_codec_evaluate_endpoint_can_oracle_judge_variants(monkeypatch):
     assert body["codec"]["evaluation"]["oracle_judge"]["winner"] == "referents_plus_codec"
 
 
-def test_nexus_codec_evaluate_persists_history_and_returns_trends(monkeypatch, tmp_path):
+def test_nexus_codec_evaluate_persists_history_and_returns_trends(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
@@ -436,8 +588,9 @@ def test_nexus_codec_evaluate_persists_history_and_returns_trends(monkeypatch, t
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-history-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need side-by-side prompt variants for A/B comparison.", "metadata": {"project": "Cortex Codec"}},
@@ -447,7 +600,7 @@ def test_nexus_codec_evaluate_persists_history_and_returns_trends(monkeypatch, t
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r1 = client.post(
         "/nexus/codec/evaluate",
@@ -492,7 +645,11 @@ def test_nexus_codec_evaluate_persists_history_and_returns_trends(monkeypatch, t
     assert body["codec"]["evaluation"]["history"]["recommendations"]["bucket_policies"]
 
 
-def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monkeypatch, tmp_path):
+def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     monkeypatch.setattr(nexus, "_CODEC_REPLAY_REPORTS_PATH", tmp_path / "codec_replay_reports.jsonl")
@@ -501,8 +658,9 @@ def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monke
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-corpus-replay-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need side-by-side prompt variants for A/B comparison.", "metadata": {"project": "Cortex Codec"}},
@@ -512,7 +670,7 @@ def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monke
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(2):
         r = client.post(
@@ -558,15 +716,19 @@ def test_nexus_codec_corpus_replay_endpoint_returns_report_and_can_persist(monke
     assert reexecute_body["codec"]["true_reexecution"]["summary"]["reexecuted_runs"] >= 1
 
 
-def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkeypatch):
+def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-policy-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need side-by-side prompt variants for A/B comparison.", "metadata": {"project": "Cortex Codec"}},
@@ -576,7 +738,7 @@ def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkey
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",
@@ -599,7 +761,10 @@ def test_nexus_codec_evaluate_records_policy_learning_and_policy_endpoint(monkey
 
 
 @pytest.mark.asyncio
-async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
+async def test_nexus_outcome_feedback_updates_codec_policy(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -609,7 +774,12 @@ async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-codec-feedback")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         r = await client.post(
             "/nexus/outcome/feedback",
             json={
@@ -625,7 +795,10 @@ async def test_nexus_outcome_feedback_updates_codec_policy(monkeypatch):
     assert state["last_observation"] is None
 
 
-def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(monkeypatch):
+def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0}, "archetypes": {}, "last_observation": None}
     monkeypatch.setattr(codec_policy, "load_state", lambda: state)
@@ -634,7 +807,8 @@ def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(monkeypat
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    auth = configured_memory_principal("nexus-codec-outcome")
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/outcome",
@@ -652,7 +826,11 @@ def test_nexus_codec_outcome_endpoint_requires_server_observed_receipt(monkeypat
     assert state["totals"]["evaluations"] == 0
 
 
-def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypatch, tmp_path):
+def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     state = {"version": "cortex.codec.policy.v1", "enabled": True, "last_updated": "", "totals": {"evaluations": 0, "codec_wins": 0, "non_codec_wins": 0, "codec_weighted_wins": 0.0, "non_codec_weighted_wins": 0.0, "autotune_updates": 0}, "archetypes": {}, "last_observation": None}
@@ -660,8 +838,9 @@ def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypa
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-autotune-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need side-by-side prompt variants for A/B comparison.", "metadata": {"project": "Cortex Codec"}},
@@ -671,7 +850,7 @@ def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypa
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(3):
         r = client.post(
@@ -687,7 +866,11 @@ def test_nexus_codec_evaluate_returns_autotune_and_updates_query_policy(monkeypa
     assert state["totals"]["autotune_updates"] >= 3
 
 
-def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
+def test_nexus_codec_evaluate_advances_rollup_autotune(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(codec_module, "_ROLLUP_AUTOTUNE_STATE_PATH", tmp_path / "rollup_policy.json")
     monkeypatch.setattr(codec_module, "_ROLLUP_AUTOTUNE_STATE", None)
@@ -697,8 +880,9 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-rollup-autotune-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need side-by-side prompt variants for A/B comparison.", "metadata": {"project": "Cortex Codec"}},
@@ -708,7 +892,7 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(3):
         r = client.post(
@@ -721,13 +905,16 @@ def test_nexus_codec_evaluate_advances_rollup_autotune(monkeypatch, tmp_path):
     body = r.json()
     assert body["codec"]["evaluation"]["rollup_autotune"]["recorded"] is True
     assert body["codec"]["evaluation"]["rollup_autotune"]["runs"] >= 3
-    principal, _ = nexus._authenticated_nexus_principal(None)
-    policies = nexus._adaptive_policies_for_scope(principal.storage_metadata)
+    policies = nexus._adaptive_policies_for_scope(auth.principal.storage_metadata)
     scoped_rollup = nexus._scoped_codec_rollup_call(policies, codec_module._codec_rollup_policy)
     assert scoped_rollup["autotune"]["runs"] >= 3
 
 
-def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypatch, tmp_path):
+def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(codec_module, "_ROLLUP_AUTOTUNE_STATE_PATH", tmp_path / "rollup_policy.json")
     monkeypatch.setattr(codec_module, "_ROLLUP_AUTOTUNE_STATE", None)
@@ -737,8 +924,9 @@ def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypat
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-rollup-archetype-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need architecture tradeoff memory handling.", "metadata": {"project": "Cortex Codec"}},
@@ -748,7 +936,7 @@ def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypat
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(3):
         r = client.post(
@@ -763,7 +951,11 @@ def test_nexus_codec_evaluate_surfaces_archetype_rollup_autotune_scope(monkeypat
     assert body["codec"]["evaluation"]["rollup_autotune"]["autotune"]["archetype"]
 
 
-def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, tmp_path):
+def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     monkeypatch.setattr(nexus, "_CODEC_REPLAY_REPORTS_PATH", tmp_path / "codec_replay_reports.jsonl")
@@ -774,8 +966,9 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-replay-diff-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need replay diff + promotion coverage.", "metadata": {"project": "Cortex Codec"}},
@@ -785,7 +978,7 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(2):
         r = client.post(
@@ -863,7 +1056,11 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     scheduler = client.post("/nexus/codec/corpus-replay/scheduler")
     assert scheduler.status_code == 200
     scheduler_body = scheduler.json()
-    assert scheduler_body["codec"]["scheduler"]["started"] is True
+    scheduler_policy = scheduler_body["codec"]["scheduler"]
+    assert scheduler_policy["enabled"] is False
+    assert scheduler_policy["automatic_execution"] is False
+    assert scheduler_policy["authenticated_tick_required"] is True
+    assert "cross-principal replay is disabled" in scheduler_policy["reason"]
 
     tick = client.post(
         "/nexus/codec/corpus-replay/scheduler/tick",
@@ -885,7 +1082,11 @@ def test_nexus_codec_corpus_replay_diff_promote_and_plan_endpoints(monkeypatch, 
     )
 
 
-def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path):
+def test_nexus_codec_corpus_replay_live_reexecute_endpoint(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     from cortex_server.routers import oracle as oracle_router
 
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
@@ -897,8 +1098,9 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
     monkeypatch.setattr(oracle_router, "call_openclaw_local", lambda prompt, system=None, **_kwargs: f"LIVE::{prompt[:24]}")
 
     session_key = "nexus-codec-live-reexecute-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Jake prefers replies to begin with [Cortex].", "tags": ["preference"]},
             {"text": "Need live replay execution coverage.", "metadata": {"project": "Cortex Codec"}},
@@ -908,7 +1110,7 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",
@@ -956,7 +1158,11 @@ def test_nexus_codec_corpus_replay_live_reexecute_endpoint(monkeypatch, tmp_path
     assert report_body["codec"]["live_reexecution_reports"]["count"] >= 1
 
 
-def test_nexus_codec_corpus_governance_endpoints(monkeypatch, tmp_path):
+def test_nexus_codec_corpus_governance_endpoints(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     monkeypatch.setattr(nexus, "_CODEC_REPLAY_REPORTS_PATH", tmp_path / "codec_replay_reports.jsonl")
@@ -966,8 +1172,9 @@ def test_nexus_codec_corpus_governance_endpoints(monkeypatch, tmp_path):
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-governance-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Need corpus governance coverage.", "metadata": {"project": "Cortex Codec"}},
         ],
@@ -976,7 +1183,7 @@ def test_nexus_codec_corpus_governance_endpoints(monkeypatch, tmp_path):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     for _ in range(2):
         r = client.post(
@@ -1011,7 +1218,11 @@ def test_nexus_codec_corpus_governance_endpoints(monkeypatch, tmp_path):
     assert retention_body["codec"]["retention"]["keep_count"] >= 1
 
 
-def test_nexus_codec_corpus_replay_export_endpoint(monkeypatch, tmp_path):
+def test_nexus_codec_corpus_replay_export_endpoint(
+    monkeypatch,
+    tmp_path,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
     monkeypatch.setattr(nexus, "_CODEC_EVAL_HISTORY_PATH", tmp_path / "codec_eval_history.jsonl")
     monkeypatch.setattr(nexus, "_CODEC_CORPUS_EXPORTS_PATH", tmp_path / "codec_corpus_exports.jsonl")
@@ -1020,8 +1231,9 @@ def test_nexus_codec_corpus_replay_export_endpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(codec_policy, "save_state", lambda new_state: state.update(new_state))
 
     session_key = "nexus-codec-export-test"
-    update_codec_state_for_session(
-        session_key,
+    auth = configured_memory_principal(session_key)
+    _seed_principal_codec_state(
+        auth,
         [
             {"text": "Need benchmark corpus export coverage.", "metadata": {"project": "Cortex Codec"}},
         ],
@@ -1030,7 +1242,7 @@ def test_nexus_codec_corpus_replay_export_endpoint(monkeypatch, tmp_path):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     r = client.post(
         "/nexus/codec/evaluate",

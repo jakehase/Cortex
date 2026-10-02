@@ -7,9 +7,19 @@
     "type": "object",
     "additionalProperties": false,
     "anyOf": [
-      { "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"] },
+      {
+        "required": ["sessionIdentityHmacSecret", "scopeCredentialId", "scopeHmacSecret", "writeToken"],
+        "properties": { "allowUnsignedLocalDevelopment": { "const": false } }
+      },
       {
         "required": ["sessionIdentityHmacSecret", "allowUnsignedLocalDevelopment"],
+        "not": {
+          "anyOf": [
+            { "required": ["scopeCredentialId"] },
+            { "required": ["scopeHmacSecret"] },
+            { "required": ["writeToken"] }
+          ]
+        },
         "properties": {
           "allowUnsignedLocalDevelopment": { "const": true },
           "tenantId": { "const": "cortex-local" },
@@ -29,7 +39,8 @@
       "workspaceId": { "type": "string", "minLength": 1 },
       "agentId": { "type": "string", "minLength": 1 },
       "userId": { "type": "string", "minLength": 1 },
-      "preferConfiguredUserId": { "type": "boolean" },
+      "ownerSenderId": { "type": "string", "minLength": 1, "description": "Explicit WhatsApp owner sender for searchable knowledge only; absent never implies owner." },
+      "preferConfiguredUserId": { "type": "boolean", "deprecated": true, "description": "Deprecated compatibility no-op. Trusted callback identity remains authoritative; configured userId is fallback-only." },
       "channelId": { "type": "string", "minLength": 1 },
       "scopeCredentialId": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$" },
       "scopeHmacSecret": { "type": "string", "minLength": 1, "pattern": "\\S" },
@@ -43,6 +54,8 @@
       "creativityGovernorEnabled": { "type": "boolean" },
       "creativityHistorySize": { "type": "number", "minimum": 4, "maximum": 100 },
       "creativityQuarantineTerms": { "type": "number", "minimum": 2, "maximum": 20 },
+      "creativityAuditEnabled": { "type": "boolean", "default": true },
+      "creativityAuditOverlapThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.34 },
       "privateRetrievalShadowTelemetryEnabled": { "type": "boolean" },
       "privateRetrievalShadowTelemetryMaxRecords": { "type": "number", "minimum": 10, "maximum": 10000 },
       "oracleSessionQuarantineEnabled": { "type": "boolean" },
@@ -62,7 +75,7 @@
     "workspaceId": { "label": "Cortex workspace ID", "advanced": true },
     "agentId": { "label": "Fallback Cortex agent ID", "advanced": true },
     "userId": { "label": "Fallback Cortex user ID", "advanced": true },
-    "preferConfiguredUserId": { "label": "Use configured user ID as deployment principal", "advanced": true },
+    "preferConfiguredUserId": { "label": "Deprecated configured-user preference (ignored)", "advanced": true, "help": "Accepted only for configuration compatibility. Trusted callback user identity always wins; configured userId is used only when the callback omits user identity." },
     "channelId": { "label": "Fallback Cortex channel ID", "advanced": true },
     "scopeCredentialId": { "label": "Memory scope credential ID", "advanced": true },
     "scopeHmacSecret": { "label": "Credential-specific scope HMAC secret", "sensitive": true, "advanced": true },
@@ -72,7 +85,7 @@
     "maxCachedPlanAgeMs": { "label": "Maximum cached plan age (ms)", "advanced": true },
     "maxResponseBytes": { "label": "Maximum routing response size (bytes)", "advanced": true },
     "maxRoutingPromptBytes": { "label": "Maximum routing prompt size (bytes)", "advanced": true },
-    "maxLevels": { "label": "Max routed levels", "advanced": true },
+    "maxLevels": { "label": "Max optional routed levels", "advanced": true, "help": "Caps optional recommendations only. Provider always-on and local mandatory levels are always retained." },
     "creativityGovernorEnabled": { "label": "Enable creativity governor", "advanced": true },
     "creativityHistorySize": { "label": "Creativity prompt history size", "advanced": true },
     "creativityQuarantineTerms": { "label": "Creativity quarantine term limit", "advanced": true },

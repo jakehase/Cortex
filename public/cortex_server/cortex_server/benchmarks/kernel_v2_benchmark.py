@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -53,12 +53,20 @@ class _AliveDisabled:
 
 
 class BenchmarkHarness:
-    def __init__(self, corpus: JsonDict):
+    def __init__(
+        self,
+        corpus: JsonDict,
+        *,
+        memory_scope_headers: Optional[Mapping[str, str]] = None,
+    ):
         self.corpus = corpus
         self.app = FastAPI()
         self.app.add_middleware(HUDMiddleware)
         self._install_routes()
-        self.client = TestClient(self.app)
+        self.client = TestClient(
+            self.app,
+            headers=dict(memory_scope_headers or {}),
+        )
         self._patches = []
 
     def _install_routes(self) -> None:
@@ -112,7 +120,7 @@ class BenchmarkHarness:
     def _warmup(self) -> None:
         warmups = [
             ("POST", "/oracle/chat", None, None, {"prompt": "What is the capital of Texas?", "priority": "normal"}),
-            ("POST", "/nexus/orchestrate", None, {"x-session-id": "benchmark-warmup-nexus"}, {"query": "What is the capital of Texas?"}),
+            ("POST", "/nexus/orchestrate", None, None, {"query": "What is the capital of Texas?"}),
             ("POST", "/meta_conductor/orchestrate", None, None, {"query": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.", "target_levels": [33, 34]}),
         ]
         for method, path, params, headers, payload in warmups:
@@ -449,12 +457,21 @@ def _drift_summary(results: Iterable[CaseResult]) -> JsonDict:
     }
 
 
-def run_suite(corpus_path: str | Path, *, iterations: int = 1, case_ids: Optional[Iterable[str]] = None) -> JsonDict:
+def run_suite(
+    corpus_path: str | Path,
+    *,
+    iterations: int = 1,
+    case_ids: Optional[Iterable[str]] = None,
+    memory_scope_headers: Optional[Mapping[str, str]] = None,
+) -> JsonDict:
     corpus = load_corpus(corpus_path)
     allowed = set(case_ids or [])
     cases = [case for case in (corpus.get("cases") or []) if not allowed or str(case.get("id")) in allowed]
     results: List[CaseResult] = []
-    with BenchmarkHarness(corpus) as harness:
+    with BenchmarkHarness(
+        corpus,
+        memory_scope_headers=memory_scope_headers,
+    ) as harness:
         for iteration in range(1, max(1, int(iterations)) + 1):
             cortex_kernel_v2.reset_state()
             for case in cases:

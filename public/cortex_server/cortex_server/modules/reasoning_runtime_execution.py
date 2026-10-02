@@ -11,6 +11,7 @@ import httpx
 
 from cortex_server.modules.reasoning_failures import enrich_failure
 from cortex_server.modules.reasoning_planner import dependency_failures, render_plan_templates
+from cortex_server.modules.reasoning_retry_policy import retry_settings
 from cortex_server.modules.reasoning_safety import evaluate_step_permission
 from cortex_server.modules.runtime_constraint_compiler import compile_runtime_constraint_settings
 from cortex_server.modules.verification_contracts import evaluate_contracts
@@ -46,12 +47,23 @@ def effective_step_timeout(step: JsonDict, workflow_metadata: Optional[JsonDict]
     policy_timeout = policy_settings.get("step_timeout_seconds")
     timeout_s = step.get("timeout_seconds")
     chosen = timeout_s if timeout_s is not None else policy_timeout
-    if chosen is None:
-        return step_timeout_max_s
-    try:
-        return min(step_timeout_max_s, max(0.1, float(chosen)))
-    except Exception:
-        return step_timeout_max_s
+    timeout = step_timeout_max_s
+    if chosen is not None:
+        try:
+            timeout = min(step_timeout_max_s, max(0.1, float(chosen)))
+        except Exception:
+            timeout = step_timeout_max_s
+
+    # execute_step_with_retry sets this private, per-attempt value immediately
+    # before the call.  Unlike authored timeout metadata it may legitimately be
+    # below the normal 100 ms floor because a workflow deadline is authoritative.
+    remaining = step.get("_remaining_workflow_budget_seconds")
+    if remaining is not None:
+        try:
+            timeout = min(timeout, max(0.0, float(remaining)))
+        except Exception:
+            pass
+    return timeout
 
 
 
@@ -275,29 +287,7 @@ def cancelled_step_result(step: JsonDict, *, step_index: int, reason: str) -> Js
 
 def step_retry_settings(step: JsonDict, workflow_metadata: Optional[JsonDict]) -> JsonDict:
     policy_settings = workflow_policy_settings(workflow_metadata)
-    metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
-    failure_mode = str(step.get("failure_mode") or "continue")
-    default_attempts = int(policy_settings.get("retry_max_attempts", 1 if failure_mode != "retry" else 2) or 1)
-    max_attempts = int(metadata.get("max_attempts", metadata.get("retry_max_attempts", default_attempts)) or default_attempts)
-    backoff = float(metadata.get("retry_backoff_seconds", policy_settings.get("retry_backoff_seconds", 0.0)) or 0.0)
-    retry_on_timeout = bool(metadata.get("retry_on_timeout", policy_settings.get("retry_on_timeout", True)))
-    retry_on_status_codes = [
-        int(x)
-        for x in (metadata.get("retry_on_status_codes", policy_settings.get("retry_on_status_codes", [])) or [])
-        if str(x).strip()
-    ]
-    retry_on_error_types = [
-        str(x).lower()
-        for x in (metadata.get("retry_on_error_types", policy_settings.get("retry_on_error_types", [])) or [])
-        if str(x).strip()
-    ]
-    return {
-        "max_attempts": max(1, max_attempts),
-        "retry_backoff_seconds": max(0.0, backoff),
-        "retry_on_timeout": retry_on_timeout,
-        "retry_on_status_codes": retry_on_status_codes,
-        "retry_on_error_types": retry_on_error_types,
-    }
+    return retry_settings(step, policy_settings)
 
 
 
@@ -354,7 +344,6 @@ async def execute_single_step(
     validate_endpoint_fn(step.get("endpoint", ""))
 
     belief_context = step_belief_context_fn(step, workflow_metadata)
-    safety = evaluate_step_permission(step, workflow_metadata=workflow_metadata or {})
     compact_belief_context = {
         "task_id": belief_context.get("task_id"),
         "selected_ids": belief_context.get("selected_ids"),
@@ -373,7 +362,13 @@ async def execute_single_step(
         "embodiment": embodiment_summary,
     }
 
-    if not bool(safety.get("allow")):
+    # Approval digests bind the payload that will actually reach the sink, not
+    # an authored template that can resolve to a different recipient/target.
+    try:
+        resolved_payload = render_plan_templates(payload, results_by_node)
+        if resolved_payload not in (None, {}) and not payload_size_ok_fn(resolved_payload):
+            raise ValueError("payload too large")
+    except Exception as exc:  # noqa: BLE001
         return {
             "step": step_index,
             "node_id": step_id,
@@ -383,14 +378,39 @@ async def execute_single_step(
             "request": request_view,
             "status_code": None,
             "response": None,
-            "error": f"safety_block:{safety.get('reason')}",
+            "error": str(exc)[:300],
             "policy": policy_settings,
             "belief_context": compact_belief_context,
-            "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
             **phase_runtime_summaries,
         }
+    resolved_step = dict(step)
+    resolved_step["payload"] = resolved_payload
+    safety = evaluate_step_permission(resolved_step, workflow_metadata=workflow_metadata or {})
+    request_view = {"payload": resolved_payload, "headers": redact_headers_fn(headers), "timeout_s": step_timeout}
+
+    def safety_block_result(decision: JsonDict) -> JsonDict:
+        return {
+            "step": step_index,
+            "node_id": step_id,
+            "title": step.get("title") or step_id,
+            "endpoint": step["endpoint"],
+            "method": method,
+            "request": request_view,
+            "status_code": None,
+            "response": None,
+            "error": f"safety_block:{decision.get('reason')}",
+            "policy": policy_settings,
+            "belief_context": compact_belief_context,
+            "safety": decision,
+            "elapsed_ms": 0.0,
+            "success": False,
+            **phase_runtime_summaries,
+        }
+
+    if not bool(safety.get("allow")):
+        return safety_block_result(safety)
 
     blocked_by = dependency_failures(step, results_by_node)
     if blocked_by:
@@ -438,7 +458,7 @@ async def execute_single_step(
     pre_verification = evaluate_contracts(
         contracts,
         stage="pre",
-        step=step,
+        step=resolved_step,
         workflow_metadata=workflow_metadata or {},
         results_by_node=results_by_node,
     )
@@ -463,11 +483,20 @@ async def execute_single_step(
             **phase_runtime_summaries,
         }
 
+    # One-use approvals are consumed atomically only after dependencies and
+    # preconditions pass, immediately before the sensitive HTTP sink.
+    if bool(safety.get("approval_required")):
+        consumed_safety = evaluate_step_permission(
+            resolved_step,
+            workflow_metadata=workflow_metadata or {},
+            consume_approval=True,
+        )
+        if not bool(consumed_safety.get("allow")):
+            return safety_block_result(consumed_safety)
+        safety = consumed_safety
+
     t0 = time.monotonic()
     try:
-        resolved_payload = render_plan_templates(payload, results_by_node)
-        if resolved_payload not in (None, {}) and not payload_size_ok_fn(resolved_payload):
-            raise ValueError("payload too large")
         if method == "GET":
             resp = await client.get(url, params=resolved_payload, headers=headers, timeout=step_timeout)
         else:
@@ -498,7 +527,7 @@ async def execute_single_step(
         post_verification = evaluate_contracts(
             contracts,
             stage="post",
-            step=step,
+            step=resolved_step,
             workflow_metadata=workflow_metadata or {},
             results_by_node=results_by_node,
             response=result,
@@ -571,10 +600,34 @@ def workflow_deadline_at(workflow_metadata: Optional[JsonDict], *, started_at: O
 
 
 
-def deadline_exceeded(deadline_at: Optional[datetime]) -> bool:
+def remaining_deadline_seconds(deadline_at: Optional[datetime]) -> Optional[float]:
     if deadline_at is None:
-        return False
-    return datetime.now(timezone.utc) >= deadline_at
+        return None
+    normalized = deadline_at
+    if normalized.tzinfo is None:
+        normalized = normalized.replace(tzinfo=timezone.utc)
+    return max(
+        0.0,
+        (normalized.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds(),
+    )
+
+
+
+def deadline_exceeded(deadline_at: Optional[datetime]) -> bool:
+    remaining = remaining_deadline_seconds(deadline_at)
+    return remaining is not None and remaining <= 0.0
+
+
+
+def _step_with_remaining_deadline(
+    step: JsonDict, deadline_at: Optional[datetime]
+) -> JsonDict:
+    remaining = remaining_deadline_seconds(deadline_at)
+    if remaining is None:
+        return step
+    bounded = dict(step)
+    bounded["_remaining_workflow_budget_seconds"] = remaining
+    return bounded
 
 
 
@@ -658,22 +711,36 @@ async def execute_step_with_retry(
     retry_settings = step_retry_settings(step, workflow_metadata)
     max_attempts = int(retry_settings.get("max_attempts", 1) or 1)
     backoff = float(retry_settings.get("retry_backoff_seconds", 0.0) or 0.0)
+    max_cumulative_backoff = float(
+        retry_settings.get("max_cumulative_retry_backoff_seconds", 0.0) or 0.0
+    )
     attempts = 0
+    cumulative_backoff = 0.0
     last_result: Optional[JsonDict] = None
+
+    def deadline_outcome() -> JsonDict:
+        outcome = deadline_result(
+            step,
+            step_index=step_index,
+            deadline_at=deadline_at,
+            redact_headers_fn=redact_headers_fn,
+        )
+        outcome["policy"] = workflow_policy_settings(workflow_metadata)
+        outcome["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
+        outcome["attempts"] = attempts
+        outcome["max_attempts"] = max_attempts
+        outcome["retry_count"] = max(0, attempts)
+        outcome["cumulative_retry_backoff_seconds"] = cumulative_backoff
+        return outcome
 
     while attempts < max_attempts:
         if deadline_exceeded(deadline_at):
-            result = deadline_result(step, step_index=step_index, deadline_at=deadline_at, redact_headers_fn=redact_headers_fn)
-            result["policy"] = workflow_policy_settings(workflow_metadata)
-            result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
-            result["attempts"] = attempts
-            result["max_attempts"] = max_attempts
-            result["retry_count"] = max(0, attempts)
-            return result
+            return deadline_outcome()
         attempts += 1
+        attempt_step = _step_with_remaining_deadline(step, deadline_at)
         result = await execute_single_step_fn(
             client,
-            step,
+            attempt_step,
             step_index=step_index,
             results_by_node=results_by_node,
             workflow_metadata=workflow_metadata,
@@ -708,6 +775,7 @@ async def execute_step_with_retry(
         result["attempts"] = attempts
         result["max_attempts"] = max_attempts
         result["retry_backoff_seconds"] = backoff
+        result["cumulative_retry_backoff_seconds"] = cumulative_backoff
         if bool(result.get("success")):
             result["retry_count"] = max(0, attempts - 1)
             return result
@@ -726,14 +794,25 @@ async def execute_step_with_retry(
             return result
         last_result = result
         if backoff > 0:
-            if deadline_exceeded(deadline_at):
+            remaining = remaining_deadline_seconds(deadline_at)
+            if remaining is not None and remaining <= 0.0:
+                return deadline_outcome()
+            sleep_for = backoff if remaining is None else min(backoff, remaining)
+            cumulative_remaining = max(0.0, max_cumulative_backoff - cumulative_backoff)
+            sleep_for = min(sleep_for, cumulative_remaining)
+            if sleep_for <= 0.0:
                 break
-            await asyncio.sleep(backoff)
+            deadline_truncated = remaining is not None and sleep_for < backoff
+            await asyncio.sleep(sleep_for)
+            cumulative_backoff += sleep_for
+            if deadline_truncated:
+                return deadline_outcome()
 
     final = dict(last_result or deadline_result(step, step_index=step_index, deadline_at=deadline_at, redact_headers_fn=redact_headers_fn))
     final["attempts"] = attempts
     final["max_attempts"] = max_attempts
     final["retry_count"] = max(0, attempts - 1)
+    final["cumulative_retry_backoff_seconds"] = cumulative_backoff
     return final
 
 
@@ -857,6 +936,7 @@ __all__ = [
     "execute_single_step",
     "execute_step_with_retry",
     "execute_workflow",
+    "remaining_deadline_seconds",
     "retry_result_matches_policy",
     "runtime_homeostasis_summary",
     "runtime_routing_summary",

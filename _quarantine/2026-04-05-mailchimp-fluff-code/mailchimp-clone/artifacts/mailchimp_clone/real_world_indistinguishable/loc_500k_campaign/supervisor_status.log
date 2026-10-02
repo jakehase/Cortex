@@ -1,9 +1,0 @@
-{
-  "ok": false,
-  "status": "red",
-  "locMet": true,
-  "total": 609700,
-  "matrixStatus": "partial",
-  "validationGreen": true
-}
-Command failed: /usr/bin/node scripts/loc-500k-supervisor.mjs

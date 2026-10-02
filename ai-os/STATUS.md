@@ -15,8 +15,8 @@
 - Canonical identifiers: language `aios.language.v1`; grammar `job-block-v1`; compiler `aios.language.compiler.canonical.v1`; adapter `openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows`; provider policy `aios.provider-read-compute-policy.v1`; freeze policy `aios.language.freeze-policy.v1`.
 - Approved provider operations: `provider.read` and `provider.compute`, currently allowlisted to Cortex `/knowledge/search` and `/oracle/chat`; outputs are retained as `aios.provider-result.v1` artifacts.
 - Latest verified artifact: `/root/clawd/ai-os/artifacts/provider-read-compute-adoption-20260711T2227Z/validation-summary.json`.
-- Default-on proof: `/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332`.
-- Latest local validation: full `npm test` passed—contracts 7/7, language adoption 10/10, governance 7/7, product health 269 syntax / 262 imports, operator completion claim allowed. Live Cortex provider workflows produced internal-only artifacts; default status/recovery are green.
+- Historical default-on proof (not current readiness): `/root/clawd/ai-os/artifacts/openclaw-dogfood/v1-freeze-provider-workflows-final-20260711230332`.
+- Historical local validation recorded a green suite and provider workflow run. Current readiness must be derived from fresh, exact job/run/tenant/policy-bound verifier evidence; the checked-in default template is disabled.
 - Local workflow dogfood: `/root/clawd/ai-os/artifacts/provider-workflow-dogfood/batch-20260711T225838Z`; 20/20 green executions across `research-synthesis`, `contradiction-review`, and `implementation-brief`, each with live provider read/compute, restart-safe reuse, controlled provider-write denial, verifier evidence, and allowed bounded claim.
 - Independent Hetzner qualification: `/home/jake/clawd-remote/ai-os/artifacts/provider-workflow-dogfood/remote-batch-final-20260711T2306Z`; exact 294-file source mirror, full suite green, separate 20/20 provider-fixture executions green, adapter workflow green.
 - v1.1 evidence result on both execution sets: `keep_v1_frozen`; 20 successful runs, three workflows, zero recurring friction candidates, no automatic language change permitted.
@@ -25,7 +25,7 @@
 ## Active blockers
 
 - No blocker for canonical internal workflows or capability-gated provider read/compute.
-- User-visible/external writes, arbitrary provider handoff, runtime replacement, and full product parity remain gated/not claimed.
+- Provider read/compute performs external network POST writes and retains returned results internally; remote side effects are not observable. User-visible result publication, arbitrary provider handoff, runtime replacement, and full product parity remain gated/not claimed.
 - Future heavy runs still require explicit execution-plane placement and artifact truth checks.
 
 ## Next actions
@@ -44,10 +44,10 @@
 
 Allowed claim:
 
-- Canonical AIOS v1 is default-on for bounded internal workflows and capability-gated provider read/compute whose outputs remain internal artifacts, with local, live-Cortex, and independent Hetzner proof.
+- Canonical AIOS v1 can be promoted for bounded internal workflows only after current smoke, process-completion freshness, supported verifier-contract replay, bound claim, recovery, and explicit operator approval gates pass. Historical local/live-Cortex/Hetzner artifacts are qualification history, not current readiness.
 
 Not allowed:
 
 - AI OS replaces Cortex/OpenClaw routing or the chat/control-plane brain.
-- AI OS can perform user-visible or external writes without separate explicit approval.
+- AI OS can publish provider results or perform application-level external mutations without separate explicit approval; provider POST transport itself is always reported as an external write.
 - AI OS is full product parity or a complete operating system.

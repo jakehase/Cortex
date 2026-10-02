@@ -1,16 +1,74 @@
 import asyncio
 import json
 import os
+import secrets
 import subprocess
 import threading
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
-from cortex_server.models.requests import FFMPEGConvertRequest
+from cortex_server.modules.execution_capabilities import authorize_execution_action
 from cortex_server.routers import tools as tools_router
 from cortex_server.services.tool_service import ToolService
 from cortex_server.tools import docker_wrapper, ffmpeg_wrapper, git_wrapper
+
+
+HARDENED_GIT_PREFIX = [
+    "git",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.fsmonitor=false",
+    "-c", "credential.helper=",
+    "-c", "core.pager=cat",
+    "-c", "commit.gpgSign=false",
+    "-c", "tag.gpgSign=false",
+    "-c", "diff.external=",
+]
+HARDENED_DOCKER_RUN_PREFIX = [
+    "docker", "run",
+    "--pull=never",
+    "--network=none",
+    "--read-only",
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges",
+    "--pids-limit=128",
+    "--memory=512m",
+    "--cpus=1",
+    "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
+    "--label", "com.cortex.execution.managed=true",
+]
+
+
+def _configure_execution(monkeypatch, root, action):
+    token = secrets.token_urlsafe(32)
+    monkeypatch.setenv("CORTEX_EXECUTION_ALLOWED_ACTIONS", action)
+    monkeypatch.setenv("CORTEX_EXECUTION_ALLOWED_ROOTS", str(root))
+    monkeypatch.setenv("CORTEX_EXECUTION_CAPABILITY_TOKEN", token)
+    monkeypatch.setenv(
+        "CORTEX_EXECUTION_CAPABILITY_HEADER", "x-cortex-execution-capability"
+    )
+    return token
+
+
+def _execution_grant(monkeypatch, root, action, request_path):
+    token = _configure_execution(monkeypatch, root, action)
+    return authorize_execution_action(action, token, request_path=request_path)
+
+
+def _execution_request(path, token, method="POST"):
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "headers": [(b"x-cortex-execution-capability", token.encode("utf-8"))],
+            "query_string": b"",
+            "server": ("127.0.0.1", 8000),
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+        }
+    )
 
 
 class Completed:
@@ -182,9 +240,22 @@ def test_git_uses_option_terminators_and_preserves_success_contract(monkeypatch,
     monkeypatch.setattr(subprocess, "Popen", fake_run)
     result = repo(tmp_path).pull(remote="origin", branch="main", rebase=True)
 
-    assert calls[0][0] == ["git", "pull", "--rebase", "--", "origin", "main"]
+    assert calls[0][0] == [
+        *HARDENED_GIT_PREFIX,
+        "pull", "--rebase", "--", "origin", "main",
+    ]
     assert calls[0][1]["stdout"] is subprocess.PIPE
     assert calls[0][1]["stderr"] is subprocess.PIPE
+    assert calls[0][1]["env"] == {
+        "PATH": os.getenv("PATH", "/usr/bin:/bin"),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "HOME": "/nonexistent",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/bin/false",
+    }
     assert result.model_dump() == {"success": True, "stdout": "updated", "stderr": "", "returncode": 0}
 
 
@@ -199,7 +270,7 @@ def test_git_checkout_passes_validated_branch_as_branch_operand(monkeypatch, tmp
     git_repo = repo(tmp_path)
     result = git_repo.checkout("feature")
 
-    assert calls == [["git", "checkout", "feature"]]
+    assert calls == [[*HARDENED_GIT_PREFIX, "checkout", "feature"]]
     assert result.success is True
 
     with pytest.raises(git_wrapper.GitError, match="Invalid Git branch"):
@@ -608,7 +679,10 @@ async def test_docker_run_accepts_supported_bind_modes(monkeypatch, tmp_path, co
 
     await manager.run(docker_wrapper.ContainerConfig(image="alpine", volumes={str(host): container_path}))
 
-    assert calls == [["docker", "run", "-d", "-v", f"{host.resolve()}:{expected}", "--", "alpine"]]
+    assert calls == [[
+        *HARDENED_DOCKER_RUN_PREFIX,
+        "-d", "-v", f"{host.resolve()}:{expected}", "--", "alpine",
+    ]]
 
 
 @pytest.mark.asyncio
@@ -660,7 +734,7 @@ async def test_docker_run_without_bind_mounts_works_without_configured_roots(mon
 
     await manager.run(docker_wrapper.ContainerConfig(image="alpine:3"))
 
-    assert calls == [["docker", "run", "-d", "--", "alpine:3"]]
+    assert calls == [[*HARDENED_DOCKER_RUN_PREFIX, "-d", "--", "alpine:3"]]
 
 
 @pytest.mark.parametrize("target", ["outside", "symlink"])
@@ -752,7 +826,10 @@ async def test_docker_run_normalizes_environment_and_places_image_after_terminat
 
     container = await manager.run(docker_wrapper.ContainerConfig(image="alpine:3", env={"Z": "2", "A": "1"}, command=["echo", "ok"]))
 
-    assert calls[0] == ["docker", "run", "-d", "-e", "A=1", "-e", "Z=2", "--", "alpine:3", "echo", "ok"]
+    assert calls[0] == [
+        *HARDENED_DOCKER_RUN_PREFIX,
+        "-d", "-e", "A=1", "-e", "Z=2", "--", "alpine:3", "echo", "ok",
+    ]
     assert container.id == "abc123"
 
 
@@ -1389,14 +1466,19 @@ async def test_ffmpeg_extract_audio_keeps_added_options_before_output(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_service_redacts_internal_tool_failure(monkeypatch):
-    service = ToolService()
+async def test_service_redacts_internal_tool_failure(monkeypatch, tmp_path):
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    target = root / "repo"
+    grant = _execution_grant(
+        monkeypatch, root, "tools.git.init", "/tools/git/init"
+    )
 
-    async def explode(**kwargs):
+    async def explode(*args, **kwargs):
         raise RuntimeError("password=hunter2 at /home/private/input.mov")
 
-    monkeypatch.setattr(service.ffmpeg, "convert", explode)
-    result = await service.ffmpeg_convert(FFMPEGConvertRequest(input_path="in", output_path="out"))
+    monkeypatch.setattr("cortex_server.services.tool_service.run_git_async", explode)
+    result = await ToolService().git_init(str(target), grant=grant)
     assert result == {"success": False, "error": "Tool operation failed"}
     assert "hunter2" not in repr(result)
 
@@ -1413,111 +1495,200 @@ def test_api_translates_failure_to_redacted_non_200_without_retry_encouragement(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("endpoint", "service_method", "args"),
+    ("endpoint", "service_method", "args", "action", "path", "method", "executable"),
     [
-        (tools_router.git_status, "git_status", ("repo",)),
-        (tools_router.git_log, "git_log", ("repo", 10)),
-        (tools_router.git_init, "git_init", ("repo",)),
-        (tools_router.git_add, "git_add", ("repo", ".")),
-        (tools_router.git_commit, "git_commit", ("repo", "message")),
-        (tools_router.docker_list, "docker_list", (False,)),
-        (tools_router.docker_stop, "docker_stop", ("container",)),
-        (tools_router.docker_pull, "docker_pull", ("image", "latest")),
+        pytest.param(
+            tools_router.git_status, "git_status", ("repo",),
+            "tools.git.status", "/tools/git/status", "GET", True,
+            id="git_status-git_status-args0",
+        ),
+        pytest.param(
+            tools_router.git_log, "git_log", ("repo", 10),
+            "tools.git.log", "/tools/git/log", "GET", True,
+            id="git_log-git_log-args1",
+        ),
+        pytest.param(
+            tools_router.git_init, "git_init", ("repo",),
+            "tools.git.init", "/tools/git/init", "POST", True,
+            id="git_init-git_init-args2",
+        ),
+        pytest.param(
+            tools_router.git_add, "git_add", ("repo", "."),
+            "tools.git.add", "/tools/git/add", "POST", False,
+            id="git_add-git_add-args3",
+        ),
+        pytest.param(
+            tools_router.git_commit, "git_commit", ("repo", "message"),
+            "tools.git.commit", "/tools/git/commit", "POST", True,
+            id="git_commit-git_commit-args4",
+        ),
+        pytest.param(
+            tools_router.docker_list, "docker_list", (False,),
+            "tools.docker.list", "/tools/docker/containers", "GET", True,
+            id="docker_list-docker_list-args5",
+        ),
+        pytest.param(
+            tools_router.docker_stop, "docker_stop", ("container",),
+            "tools.docker.stop", "/tools/docker/stop/container", "POST", True,
+            id="docker_stop-docker_stop-args6",
+        ),
+        pytest.param(
+            tools_router.docker_pull, "docker_pull", ("image", "latest"),
+            "tools.docker.pull", "/tools/docker/pull", "POST", False,
+            id="docker_pull-docker_pull-args7",
+        ),
     ],
 )
 async def test_plain_tool_endpoints_translate_failed_results_to_sanitized_non_200(
-    monkeypatch, endpoint, service_method, args
+    monkeypatch, tmp_path, endpoint, service_method, args, action, path, method, executable
 ):
+    called = False
+
     async def fail(*args, **kwargs):
+        nonlocal called
+        called = True
+        assert kwargs["grant"].action == action
+        assert kwargs["grant"].request_path == path
         return {"success": False, "error": "/secret token=abc"}
 
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    token = _configure_execution(monkeypatch, root, action)
+    request = _execution_request(path, token, method)
     monkeypatch.setattr(tools_router, "extract_trace_context", lambda *a, **k: {})
     monkeypatch.setattr(tools_router.service, service_method, fail)
     with pytest.raises(HTTPException) as raised:
-        await endpoint(*args, http_request=object())
-    assert raised.value.status_code == 500
-    assert raised.value.detail == "Tool operation failed"
+        await endpoint(*args, http_request=request)
+    if executable:
+        assert raised.value.status_code == 500
+        assert raised.value.detail == "Tool operation failed"
+        assert called is True
+    else:
+        assert raised.value.status_code == 503
+        assert raised.value.detail["error"] == "execution_isolation_unavailable"
+        assert raised.value.detail["action"] == action
+        assert called is False
 
 
 @pytest.mark.asyncio
-async def test_ffprobe_info_translates_failed_result_to_redacted_non_200(monkeypatch):
+async def test_ffprobe_info_translates_failed_result_to_redacted_non_200(monkeypatch, tmp_path):
+    called = False
+
     async def fail(*args, **kwargs):
+        nonlocal called
+        called = True
         return {"success": False, "error": "/secret/media.mov token=abc"}
 
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    action = "tools.ffmpeg.info"
+    token = _configure_execution(monkeypatch, root, action)
     monkeypatch.setattr(tools_router, "extract_trace_context", lambda *a, **k: {})
     monkeypatch.setattr(tools_router.service, "ffmpeg_info", fail)
     with pytest.raises(HTTPException) as raised:
-        await tools_router.ffmpeg_info("media.mov", http_request=object())
-    assert raised.value.status_code == 500
-    assert raised.value.detail == "Tool operation failed"
+        await tools_router.ffmpeg_info(
+            "media.mov",
+            http_request=_execution_request("/tools/ffmpeg/info", token, "GET"),
+        )
+    assert raised.value.status_code == 503
+    assert raised.value.detail["error"] == "execution_isolation_unavailable"
+    assert raised.value.detail["action"] == action
+    assert called is False
 
 
 @pytest.mark.asyncio
-async def test_ffprobe_info_preserves_successful_service_payload(monkeypatch):
+async def test_ffprobe_info_preserves_successful_service_payload(monkeypatch, tmp_path):
     payload = {"success": True, "format": {"duration": "1.25"}, "streams": [{"codec_name": "h264"}]}
+    called = False
 
     async def succeed(*args, **kwargs):
+        nonlocal called
+        called = True
         return payload
 
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    action = "tools.ffmpeg.info"
+    token = _configure_execution(monkeypatch, root, action)
     monkeypatch.setattr(tools_router, "extract_trace_context", lambda *a, **k: {})
     monkeypatch.setattr(tools_router.service, "ffmpeg_info", succeed)
-    response = await tools_router.ffmpeg_info("media.mov", http_request=object())
-    assert response == {"success": True, "data": payload, "error": None}
+    with pytest.raises(HTTPException) as raised:
+        await tools_router.ffmpeg_info(
+            "media.mov",
+            http_request=_execution_request("/tools/ffmpeg/info", token, "GET"),
+        )
+    assert raised.value.status_code == 503
+    assert raised.value.detail["error"] == "execution_isolation_unavailable"
+    assert raised.value.detail["action"] == action
+    assert called is False
 
 
-def test_git_init_and_status_probes_reuse_async_bounded_runner(monkeypatch):
+def test_git_init_and_status_probes_reuse_async_bounded_runner(monkeypatch, tmp_path):
     calls = []
 
-    async def bounded(cmd, cwd=None, timeout=60):
-        calls.append((cmd, timeout))
+    async def bounded(cmd, cwd=None, timeout=60, env=None):
+        calls.append((cmd, cwd, timeout, env))
         return git_wrapper.GitResult(success=True, stdout="value", stderr="", returncode=0)
 
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    target = root / "repo"
+    grant = _execution_grant(
+        monkeypatch, root, "tools.git.init", "/tools/git/init"
+    )
     monkeypatch.setattr("cortex_server.services.tool_service.run_git_async", bounded)
-    result = asyncio.run(ToolService().git_init("repo"))
+    result = asyncio.run(ToolService().git_init(str(target), grant=grant))
     assert result == {"success": True, "stdout": "value", "stderr": ""}
-    assert calls == [(["git", "init", "--", "repo"], 60)]
+    assert calls == [
+        ([*HARDENED_GIT_PREFIX, "init", "--", str(target)], None, 60, git_wrapper.GitRepo._environment())
+    ]
 
     calls.clear()
-    monkeypatch.setattr(tools_router, "run_git_async", bounded)
     status = asyncio.run(tools_router.tools_status())
-    assert status["git_identity"] == {"user_name": "value", "user_email": "value", "configured": True}
-    assert calls == [
-        (["git", "config", "--global", "user.name"], 5),
-        (["git", "config", "--global", "user.email"], 5),
-    ]
+    assert status["git_identity"] == {
+        "inspected": False,
+        "reason": "requires an explicit execution capability",
+    }
+    assert calls == []
 
 
 def test_git_identity_probes_reuse_async_bounded_runner(monkeypatch):
     calls = []
 
-    async def bounded(cmd, cwd=None, timeout=60):
-        calls.append((cmd, timeout))
-        value = "" if "-C" in cmd else "global-value"
-        return git_wrapper.GitResult(success=bool(value), stdout=value, stderr="", returncode=0 if value else 1)
+    async def bounded(cmd, cwd=None, timeout=60, env=None):
+        calls.append((cmd, cwd, timeout, env))
+        value = "local-name" if cmd[-1] == "user.name" else "local@example.test"
+        return git_wrapper.GitResult(success=True, stdout=value, stderr="", returncode=0)
 
     monkeypatch.setattr("cortex_server.services.tool_service.run_git_async", bounded)
     assert asyncio.run(ToolService()._git_identity_configured("repo")) == (True, "")
     assert calls == [
-        (["git", "-C", "repo", "config", "user.name"], 5),
-        (["git", "-C", "repo", "config", "user.email"], 5),
-        (["git", "config", "--global", "user.name"], 5),
-        (["git", "config", "--global", "user.email"], 5),
+        ([*HARDENED_GIT_PREFIX, "-C", "repo", "config", "--local", "user.name"], None, 5, git_wrapper.GitRepo._environment()),
+        ([*HARDENED_GIT_PREFIX, "-C", "repo", "config", "--local", "user.email"], None, 5, git_wrapper.GitRepo._environment()),
     ]
 
 
 @pytest.mark.asyncio
-async def test_git_service_command_yields_to_event_loop(monkeypatch):
+async def test_git_service_command_yields_to_event_loop(monkeypatch, tmp_path):
     entered = asyncio.Event()
     release = asyncio.Event()
+    calls = []
 
-    async def bounded(cmd, cwd=None, timeout=60):
+    async def bounded(cmd, cwd=None, timeout=60, env=None):
+        calls.append((cmd, cwd, timeout, env))
         entered.set()
         await release.wait()
         return git_wrapper.GitResult(success=True, stdout="initialized", stderr="", returncode=0)
 
+    root = tmp_path / "execution-root"
+    root.mkdir()
+    target = root / "repo"
+    grant = _execution_grant(
+        monkeypatch, root, "tools.git.init", "/tools/git/init"
+    )
     monkeypatch.setattr("cortex_server.services.tool_service.run_git_async", bounded)
     monkeypatch.setattr(ToolService, "_trace_finish", lambda *a, **k: None)
-    task = asyncio.create_task(ToolService().git_init("repo"))
+    task = asyncio.create_task(ToolService().git_init(str(target), grant=grant))
     await entered.wait()
     ticked = False
 
@@ -1530,3 +1701,6 @@ async def test_git_service_command_yields_to_event_loop(monkeypatch):
     assert ticked and not task.done()
     release.set()
     assert await task == {"success": True, "stdout": "initialized", "stderr": ""}
+    assert calls == [
+        ([*HARDENED_GIT_PREFIX, "init", "--", str(target)], None, 60, git_wrapper.GitRepo._environment())
+    ]

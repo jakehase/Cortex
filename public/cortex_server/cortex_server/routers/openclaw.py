@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
 from cortex_server.modules.level_registry import get_level_registry
 
 router = APIRouter()
@@ -37,7 +38,7 @@ def _registered_level_count() -> int:
 
 
 def _cortex_api_url() -> str:
-    return os.getenv("CORTEX_PUBLIC_API_URL") or os.getenv("CORTEX_API_URL") or "http://127.0.0.1:8000"
+    return os.getenv("CORTEX_PUBLIC_API_URL") or os.getenv("CORTEX_API_URL") or CORTEX_INTERNAL_BASE_URL
 
 
 REGISTERED_LEVEL_COUNT = _registered_level_count()

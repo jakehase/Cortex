@@ -2,36 +2,82 @@
 Knowledge Graph Router - API endpoints for graph operations.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import Annotated, Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
+import hashlib
 import json
 import os
+import sqlite3
+import stat
+import subprocess
 import tempfile
 from cortex_server.models.requests import (
     GraphQueryRequest, GraphNodeCreateRequest, GraphEdgeCreateRequest,
     GraphQueryResponse, GraphNodeResponse, GraphEdgeResponse
 )
 from cortex_server.services.knowledge_service import KnowledgeService
+from cortex_server.services.codebase_snapshot import (
+    SNAPSHOT_ALGORITHM,
+    codebase_source_snapshot,
+)
 from cortex_server.routers.librarian import (
     DEFAULT_TENANT_ID,
     DEFAULT_WORKSPACE_ID,
     MemoryPrincipalScope,
+    MemorySearchFilterRequest,
     MemoryScopeId,
     _authenticated_memory_principal_scope,
     collection,
+    parse_memory_search_filters,
     robust_search,
 )
 from cortex_server.knowledge.graph import NodeType, EdgeType
 from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms
+from cortex_server.modules.bounded_health_probe import (
+    HealthProbeBusy,
+    HealthProbeTimedOut,
+    SingleFlightHealthProbe,
+    bounded_principal_metadata_probe,
+)
+from cortex_server.modules.memory_scope import (
+    AuthenticatedMemoryPrincipal,
+    memory_principal_for_request,
+    principal_memory_where,
+    require_authenticated_memory_principal,
+    scoped_memory_metadata,
+)
+from cortex_server.runtime.memory_governance import (
+    MemoryFilterError,
+    MemoryGovernanceError,
+)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 service = KnowledgeService()
 
 _DEFAULT_DURABLE_MEMORY_ROOTS = [Path("/root/clawd/memory")]
 _DEFAULT_CODEBASE_INDEX_ROOT = Path("/root/clawd/artifacts/cortex-codebase-memory")
+_DEFAULT_CODEBASE_SOURCE_ROOT = Path("/root/clawd")
+_DEFAULT_CODEBASE_INDEX_MAX_AGE_SECONDS = 24 * 60 * 60
+_MAX_CODEBASE_INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+_CODEBASE_INDEX_SCHEMA_VERSION = "cortex.codebase-index-artifact.v3"
+_CODEBASE_INDEXER_VERSION = "cortex-structural-indexer.v3"
+_MAX_CANONICAL_MANIFEST_FILES = 512
+_MAX_CANONICAL_MANIFEST_FILE_BYTES = 8 * 1024 * 1024
+_MAX_DURABLE_MEMORY_INVENTORY_ENTRIES = 10_000
+_LEGACY_MEMORY_STORE_PATHS = [
+    Path("/app/cortex_server/knowledge/auto_memory.jsonl"),
+    Path("/app/cortex_server/chroma_db/librarian_fallback.jsonl"),
+    Path("/root/cortex_server/chroma_db"),
+]
+
+HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+HEALTH_PRINCIPAL_SCAN_MAX_ROWS = 256
+
+_KNOWLEDGE_STATUS_PROBE = SingleFlightHealthProbe("knowledge-status")
+_KNOWLEDGE_MEMORY_HEALTH_PROBE = SingleFlightHealthProbe("knowledge-memory-health")
 
 BoundedKnowledgeText = Annotated[str, Field(max_length=16_384)]
 
@@ -43,6 +89,29 @@ MAX_GRAPH_METADATA_DEPTH = 8
 MAX_GRAPH_METADATA_NODES = 1_000
 MAX_GRAPH_METADATA_STRING = 16_384
 MAX_GRAPH_METADATA_KEY = 256
+
+
+def _bounded_float_setting(
+    name: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return min(maximum, max(minimum, value))
+
+
+def _health_probe_timeout_seconds() -> float:
+    return _bounded_float_setting(
+        "CORTEX_HEALTH_PROBE_TIMEOUT_SECONDS",
+        HEALTH_PROBE_TIMEOUT_SECONDS,
+        minimum=0.01,
+        maximum=10.0,
+    )
 
 
 def _validate_graph_metadata(value: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,6 +184,7 @@ class BoundedGraphEdgeCreateRequest(GraphEdgeCreateRequest):
 class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., max_length=16_384)
     n_results: int = Field(5, ge=1, le=100)
+    filters: Optional[MemorySearchFilterRequest] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -170,6 +240,42 @@ class ImpactRequest(BaseModel):
     scope_signature: Optional[str] = Field(None, max_length=256)
 
 
+_IMPORT_DEFAULT_TENANT_ID = DEFAULT_TENANT_ID
+_IMPORT_DEFAULT_WORKSPACE_ID = DEFAULT_WORKSPACE_ID
+
+
+def _activate_runtime_configuration() -> None:
+    """Refresh copied Librarian scope defaults without replacing this router."""
+
+    global DEFAULT_TENANT_ID, DEFAULT_WORKSPACE_ID
+    from cortex_server.routers import librarian
+
+    if DEFAULT_TENANT_ID == _IMPORT_DEFAULT_TENANT_ID:
+        DEFAULT_TENANT_ID = librarian.DEFAULT_TENANT_ID
+    if DEFAULT_WORKSPACE_ID == _IMPORT_DEFAULT_WORKSPACE_ID:
+        DEFAULT_WORKSPACE_ID = librarian.DEFAULT_WORKSPACE_ID
+    for model in (
+        BoundedGraphNodeCreateRequest,
+        BoundedGraphEdgeCreateRequest,
+        KnowledgeSearchRequest,
+        BoundedGraphQueryRequest,
+        StructuralSearchRequest,
+        PriorArtGateRequest,
+        ImpactRequest,
+    ):
+        defaults_changed = False
+        for field_name, activated_default, import_default in (
+            ("tenant_id", DEFAULT_TENANT_ID, _IMPORT_DEFAULT_TENANT_ID),
+            ("workspace_id", DEFAULT_WORKSPACE_ID, _IMPORT_DEFAULT_WORKSPACE_ID),
+        ):
+            field = model.model_fields[field_name]
+            if field.default == import_default:
+                field.default = activated_default
+                defaults_changed = True
+        if defaults_changed:
+            model.model_rebuild(force=True)
+
+
 def _graph_principal(request):
     return _authenticated_memory_principal_scope(
         request.tenant_id,
@@ -178,6 +284,17 @@ def _graph_principal(request):
         scope=request.scope,
         scope_credential_id=request.scope_credential_id,
     )
+
+
+def _route_principal(
+    request: Any,
+    http_request: Optional[Request],
+) -> AuthenticatedMemoryPrincipal:
+    """Use dependency-authenticated headers on HTTP routes, with direct-call compatibility."""
+
+    if http_request is not None:
+        return memory_principal_for_request(http_request)
+    return _graph_principal(request)
 
 
 def _node_to_dict(node) -> Optional[Dict[str, Any]]:
@@ -204,6 +321,149 @@ def _neighbor_to_dict(entry: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _graph_principal_key(principal: AuthenticatedMemoryPrincipal) -> str:
+    return principal.isolation_key("knowledge-graph")
+
+
+def _graph_metadata_matches(value: object, principal: AuthenticatedMemoryPrincipal) -> bool:
+    return isinstance(value, dict) and str(value.get("knowledge_principal_key") or "") == _graph_principal_key(principal)
+
+
+def _scoped_graph_metadata(
+    principal: AuthenticatedMemoryPrincipal,
+    metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        **scoped_memory_metadata(principal, metadata),
+        "knowledge_principal_key": _graph_principal_key(principal),
+    }
+
+
+def _scoped_graph_id(
+    principal: AuthenticatedMemoryPrincipal,
+    kind: str,
+    external_id: object,
+) -> str:
+    return principal.scoped_resource_id(f"knowledge-{kind}", external_id)
+
+
+def _principal_graph_nodes(
+    principal: AuthenticatedMemoryPrincipal,
+    *,
+    node_type: Optional[NodeType] = None,
+    name_pattern: Optional[str] = None,
+    limit: int = 100,
+) -> List[Any]:
+    requested = max(1, min(int(limit or 100), 1000))
+    return service.graph.query(
+        node_type=node_type,
+        name_pattern=name_pattern,
+        limit=requested,
+        tenant_id=principal.tenant_id,
+        storage_workspace_id=principal.storage_workspace_id,
+    )
+
+
+def _principal_graph_neighbors(
+    principal: AuthenticatedMemoryPrincipal,
+    node_id: str,
+    *,
+    edge_type: Optional[EdgeType] = None,
+    direction: str = "out",
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    return service.graph.get_neighbors(
+        node_id,
+        edge_type=edge_type,
+        direction=direction,
+        limit=limit,
+        tenant_id=principal.tenant_id,
+        storage_workspace_id=principal.storage_workspace_id,
+    )
+
+
+def _principal_semantic_memory_probe(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    """Return bounded reachability/count evidence for one authenticated principal."""
+
+    return bounded_principal_metadata_probe(
+        collection,
+        where=principal_memory_where(principal),
+        principal_key=principal.memory_principal_key,
+        max_rows=HEALTH_PRINCIPAL_SCAN_MAX_ROWS,
+    )
+
+
+def _principal_semantic_memory_count(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Optional[int]:
+    """Compatibility accessor over the bounded health probe."""
+
+    probe = _principal_semantic_memory_probe(principal)
+    return int(probe["count"]) if probe.get("available") else None
+
+
+def _principal_memory_health_payload(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    """Return bounded principal-local health without scanning shared stores."""
+
+    semantic_probe = _principal_semantic_memory_probe(principal)
+    semantic_count = semantic_probe.get("count")
+    semantic = {
+        "ok": bool(semantic_probe.get("available")),
+        "status": "available" if semantic_probe.get("available") else "unavailable",
+        "count": semantic_count,
+        "countIsLowerBound": bool(semantic_probe.get("countIsLowerBound")),
+        "scanLimit": semantic_probe.get("scanLimit"),
+        "principalScoped": True,
+    }
+    if semantic_probe.get("error"):
+        semantic["error"] = semantic_probe["error"]
+    try:
+        from cortex_server.modules.cortex_codec import get_codec_debug_view
+
+        debug = get_codec_debug_view(
+            principal.codec_session_key,
+            query="memory health",
+            max_chars=420,
+            history_limit=3,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+        )
+        codec = {
+            "ok": bool(debug.get("enabled")) and bool(debug.get("durable_enabled")),
+            "availableForSession": bool(debug.get("available")),
+            "durableEnabled": bool(debug.get("durable_enabled")),
+            "snapshotCount": int((debug.get("persisted_snapshots") or {}).get("count", 0) or 0),
+            "sourceEventCount": int(debug.get("source_event_count", 0) or 0),
+            "principalScoped": True,
+        }
+    except Exception:
+        codec = {
+            "ok": False,
+            "availableForSession": False,
+            "principalScoped": True,
+            "status": "unavailable",
+        }
+
+    ok = bool(semantic["ok"] and codec["ok"])
+    return {
+        "success": ok,
+        "ok": ok,
+        "status": "principal_scoped" if ok else "principal_scoped_degraded",
+        "generatedAt": _utc_now().isoformat(),
+        "components": {"semanticMemory": semantic, "codec": codec},
+        "aggregateDetails": "withheld",
+        "truthBoundary": (
+            "This authenticated compatibility view reports only the caller's semantic-memory "
+            "namespace and server-derived Codec session. System-wide health requires a separate "
+            "operator-authorized control-plane surface."
+        ),
+    }
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -222,6 +482,193 @@ def _age_seconds(path: Path) -> Optional[float]:
         return None
 
 
+def _parse_utc_timestamp(value: Any) -> Optional[datetime]:
+    try:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return None
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _sha256_file_snapshot(
+    path: Path,
+    *,
+    max_bytes: Optional[int] = None,
+    require_single_link: bool = False,
+) -> Dict[str, Any]:
+    """Hash one stable regular-file descriptor and return its bound metadata."""
+
+    if path.is_symlink():
+        raise ValueError("digest target must be a regular non-symlink file")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("digest target must be a regular non-symlink file")
+        if require_single_link and before.st_nlink != 1:
+            raise ValueError("digest target must have exactly one filesystem link")
+        if max_bytes is not None and before.st_size > max_bytes:
+            raise ValueError(f"digest target exceeds {max_bytes} bytes")
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise ValueError(f"digest target exceeds {max_bytes} bytes")
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        identity = lambda value: (
+            value.st_dev,
+            value.st_ino,
+            value.st_mode,
+            value.st_nlink,
+            value.st_size,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+        )
+        if identity(before) != identity(after) or total != before.st_size:
+            raise RuntimeError("digest target changed while hashing")
+        return {
+            "sha256": digest.hexdigest(),
+            "sizeBytes": int(before.st_size),
+            "modifiedAt": datetime.fromtimestamp(
+                before.st_mtime, timezone.utc
+            ).isoformat(),
+            "mode": oct(stat.S_IMODE(before.st_mode)),
+        }
+    finally:
+        os.close(descriptor)
+
+
+def _sha256_file(path: Path, *, max_bytes: Optional[int] = None) -> str:
+    return str(_sha256_file_snapshot(path, max_bytes=max_bytes)["sha256"])
+
+
+def _codebase_source_root() -> Path:
+    configured = os.getenv("CORTEX_CODEBASE_SOURCE_REPO", "").strip()
+    return Path(configured).expanduser().resolve() if configured else _DEFAULT_CODEBASE_SOURCE_ROOT.resolve()
+
+
+def _codebase_index_max_age_seconds() -> int:
+    configured = os.getenv("CORTEX_CODEBASE_INDEX_MAX_AGE_SECONDS", "").strip()
+    if len(configured) > 12:
+        return _DEFAULT_CODEBASE_INDEX_MAX_AGE_SECONDS
+    try:
+        value = int(configured) if configured else _DEFAULT_CODEBASE_INDEX_MAX_AGE_SECONDS
+    except ValueError:
+        return _DEFAULT_CODEBASE_INDEX_MAX_AGE_SECONDS
+    if value <= 0:
+        return _DEFAULT_CODEBASE_INDEX_MAX_AGE_SECONDS
+    return min(value, _MAX_CODEBASE_INDEX_MAX_AGE_SECONDS)
+
+
+def _git_source_identity(root: Path) -> Dict[str, Any]:
+    identity: Dict[str, Any] = {
+        "sourceRepo": str(root),
+        "sourceCommit": None,
+        "sourceTreeDigest": None,
+        "sourceClean": False,
+    }
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        ).stdout.strip()
+        tree = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD^{tree}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        ).stdout.strip()
+        status = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=normal",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        ).stdout
+        if len(commit) != 40 or len(tree) != 40:
+            raise ValueError("git returned a non-SHA-1 identity")
+        identity.update(
+            sourceCommit=commit,
+            sourceTreeDigest=tree,
+            sourceClean=not bool(status.strip()),
+        )
+    except Exception as exc:
+        identity["error"] = f"{type(exc).__name__}: {exc}"
+    return identity
+
+
+def _serving_graph_path() -> Optional[Path]:
+    try:
+        storage = getattr(service.graph, "storage", service.graph)
+        configured = str(getattr(storage, "db_path", "") or "").strip()
+        return Path(configured).expanduser().resolve() if configured else None
+    except Exception:
+        return None
+
+
+def _serving_graph_database_counts(path: Path) -> Dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("serving graph must be a regular non-symlink file")
+    connection = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro&immutable=1",
+        uri=True,
+    )
+    try:
+        schema = {
+            str(name): str(kind)
+            for name, kind in connection.execute(
+                "SELECT name, type FROM sqlite_master "
+                "WHERE name IN ('nodes', 'edges')"
+            )
+        }
+        if schema != {"nodes": "table", "edges": "table"}:
+            raise RuntimeError("serving graph is missing its required SQLite schema")
+        return {
+            "nodeCount": int(
+                connection.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            ),
+            "edgeCount": int(
+                connection.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+            ),
+        }
+    except sqlite3.Error as exc:
+        raise RuntimeError("serving graph is not a readable SQLite graph") from exc
+    finally:
+        connection.close()
+
+
+def _serving_graph_runtime_counts() -> Dict[str, int]:
+    stats = service.graph.stats()
+    return {
+        "nodeCount": int(stats.get("nodeCount", 0) or 0),
+        "edgeCount": int(stats.get("edgeCount", 0) or 0),
+    }
+
+
 def _latest_index_artifact(root: Path = _DEFAULT_CODEBASE_INDEX_ROOT) -> Optional[Path]:
     if not root.exists():
         return None
@@ -237,6 +684,164 @@ def _latest_index_artifact(root: Path = _DEFAULT_CODEBASE_INDEX_ROOT) -> Optiona
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _semantic_retention_canary_health() -> Dict[str, Any]:
+    """Verify retrieval of a pre-written completion-survival canary.
+
+    This probe is deliberately read-only. A canary writer must store a record
+    through the real capture/promotion path; the health probe never manufactures
+    evidence of its own health.
+    """
+
+    contract = {
+        "memory_health_canary": True,
+        "memory_health_canary_kind": "completion_survival",
+        "requiredMetadata": [
+            "memory_health_canary_query",
+            "memory_health_canary_token",
+        ],
+    }
+    try:
+        data = collection.get(
+            where={"memory_health_canary": True},
+            limit=8,
+            include=["documents", "metadatas"],
+        )
+    except Exception as exc:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "probe_error",
+            "contract": contract,
+            "error": str(exc),
+        }
+
+    ids = data.get("ids") or []
+    documents = data.get("documents") or []
+    metadatas = data.get("metadatas") or []
+    candidates = []
+    for index, record_id in enumerate(ids):
+        metadata = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        if str(metadata.get("memory_status") or "active").lower() != "active":
+            continue
+        if str(metadata.get("memory_health_canary_kind") or "") != "completion_survival":
+            continue
+        candidates.append(
+            {
+                "id": str(record_id),
+                "document": str(documents[index] if index < len(documents) else ""),
+                "metadata": metadata,
+            }
+        )
+    if not candidates:
+        return {
+            "configured": False,
+            "verified": False,
+            "status": "not_configured",
+            "contract": contract,
+            "reason": "no active completion-survival canary is present",
+        }
+
+    candidates.sort(
+        key=lambda row: str(row["metadata"].get("recorded_at") or ""),
+        reverse=True,
+    )
+    canary = candidates[0]
+    metadata = canary["metadata"]
+    query = str(metadata.get("memory_health_canary_query") or "").strip()
+    token = str(metadata.get("memory_health_canary_token") or "").strip()
+    canary_id = str(metadata.get("memory_health_canary_id") or canary["id"])
+    tenant_id = str(metadata.get("tenant_id") or DEFAULT_TENANT_ID)
+    workspace_id = str(
+        metadata.get("storage_workspace_id")
+        or metadata.get("workspace_id")
+        or DEFAULT_WORKSPACE_ID
+    )
+    principal_key = str(metadata.get("memory_principal_key") or "").strip() or None
+    contract_valid = (
+        bool(query)
+        and len(query.encode("utf-8")) <= 4096
+        and bool(token)
+        and len(token.encode("utf-8")) <= 1024
+        and token in canary["document"]
+        and len(canary_id.encode("utf-8")) <= 512
+        and len(tenant_id.encode("utf-8")) <= 256
+        and len(workspace_id.encode("utf-8")) <= 256
+        and (principal_key is None or len(principal_key.encode("utf-8")) <= 512)
+    )
+    if not contract_valid:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "invalid_contract",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "reason": (
+                "canary query/token/scope metadata is invalid, out of bounds, "
+                "or the token is absent from the stored document"
+            ),
+        }
+
+    try:
+        result = robust_search(
+            query,
+            n_results=5,
+            allow_fallback=False,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            memory_principal_key=principal_key,
+        )
+    except Exception as exc:
+        return {
+            "configured": True,
+            "verified": False,
+            "status": "search_error",
+            "contract": contract,
+            "canaryId": canary_id,
+            "recordedAt": metadata.get("recorded_at"),
+            "error": str(exc),
+        }
+
+    search_mode = str(result.get("search_mode") or "unknown")
+    degraded = bool(result.get("degraded", False))
+    warning = result.get("warning")
+    semantic_path = (
+        search_mode in {"semantic", "semantic_hybrid"}
+        and not degraded
+        and not warning
+    )
+    matched_id = None
+    for row in result.get("results", []) or []:
+        row_metadata = (
+            row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        )
+        row_canary_id = str(
+            row_metadata.get("memory_health_canary_id") or row.get("id") or ""
+        )
+        if row_canary_id == canary_id and token in str(row.get("text") or ""):
+            matched_id = str(row.get("id") or row_canary_id)
+            break
+    verified = bool(semantic_path and matched_id)
+    return {
+        "configured": True,
+        "verified": verified,
+        "status": "passed" if verified else "failed",
+        "contract": contract,
+        "canaryId": canary_id,
+        "recordedAt": metadata.get("recorded_at"),
+        "searchMode": search_mode,
+        "semanticPath": semantic_path,
+        "degraded": degraded,
+        "warning": warning,
+        "matchedId": matched_id,
+        "resultCount": len(result.get("results", []) or []),
+    }
+
+
 def _semantic_memory_health() -> Dict[str, Any]:
     count = None
     search_mode = "unknown"
@@ -246,16 +851,34 @@ def _semantic_memory_health() -> Dict[str, Any]:
     try:
         count = int(collection.count())
     except Exception as exc:
-        return {"ok": False, "count": None, "error": str(exc)}
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": None,
+            "error": str(exc),
+        }
     try:
         result = robust_search("Cortex memory health", n_results=1, allow_fallback=True)
         search_mode = result.get("search_mode", "semantic")
         degraded = bool(result.get("degraded", False))
         warning = result.get("warning")
         result_count = len(result.get("results", []) or [])
-        search_ok = search_mode != "error"
+        # This generic query proves availability only. The pre-written canary
+        # below is the fail-closed semantic-quality and retention gate.
+        search_ok = search_mode != "error" and result_count > 0
     except Exception as exc:
-        return {"ok": False, "count": count, "searchMode": "error", "error": str(exc)}
+        return {
+            "ok": False,
+            "availabilityOk": False,
+            "retentionVerified": False,
+            "retentionStatus": "not_tested",
+            "count": count,
+            "searchMode": "error",
+            "error": str(exc),
+        }
     lifecycle = {"active": 0, "superseded": 0, "tombstoned": 0, "historical": 0}
     try:
         data = collection.get(include=["metadatas"])
@@ -265,8 +888,21 @@ def _semantic_memory_health() -> Dict[str, Any]:
             lifecycle[status] = lifecycle.get(status, 0) + 1
     except Exception:
         lifecycle = {}
+    retention_probe = _semantic_retention_canary_health()
+    availability_ok = bool(count > 0 and search_ok)
+    retention_verified = bool(retention_probe.get("verified"))
+    ok = availability_ok and retention_verified
     return {
-        "ok": count > 0 and search_ok,
+        "ok": ok,
+        "status": (
+            "healthy"
+            if ok
+            else ("retention_unverified" if availability_ok else "degraded")
+        ),
+        "availabilityOk": availability_ok,
+        "retentionVerified": retention_verified,
+        "retentionStatus": retention_probe.get("status"),
+        "retentionProbe": retention_probe,
         "count": count,
         "searchOk": search_ok,
         "searchMode": search_mode,
@@ -335,56 +971,401 @@ def _durable_file_memory_health() -> Dict[str, Any]:
     project_file_count = 0
     latest_path = None
     latest_mtime = 0.0
+    scan_errors = []
+    visited_entries = 0
+
+    def record_error(path: Path, exc: object) -> None:
+        if len(scan_errors) < 20:
+            detail = (
+                f"{type(exc).__name__}: {exc}"
+                if isinstance(exc, BaseException)
+                else str(exc)
+            )
+            scan_errors.append({"path": str(path), "error": detail})
+
     for root in _DEFAULT_DURABLE_MEMORY_ROOTS:
-        exists = root.exists()
-        roots.append({"path": str(root), "exists": exists})
+        try:
+            root_metadata = root.lstat()
+            exists = True
+        except FileNotFoundError:
+            root_metadata = None
+            exists = False
+        except Exception as exc:
+            root_metadata = None
+            exists = False
+            record_error(root, exc)
+        root_is_directory = bool(
+            root_metadata
+            and stat.S_ISDIR(root_metadata.st_mode)
+            and not stat.S_ISLNK(root_metadata.st_mode)
+        )
+        root_row = {
+            "path": str(root),
+            "configured": True,
+            "available": exists,
+            "readable": bool(root_is_directory and os.access(root, os.R_OK)),
+            "symlink": bool(root_metadata and stat.S_ISLNK(root_metadata.st_mode)),
+        }
+        roots.append(root_row)
         if not exists:
             continue
-        try:
-            for path in root.rglob("*"):
-                if not path.is_file() or path.suffix.lower() not in {".md", ".txt"}:
+        if not root_is_directory:
+            record_error(root, "durable memory root is not a regular non-symlink directory")
+            continue
+        directories = [root]
+        while directories:
+            current = directories.pop()
+            try:
+                with os.scandir(current) as scan:
+                    entries = sorted(scan, key=lambda entry: entry.name)
+            except Exception as exc:
+                record_error(current, exc)
+                continue
+            children = []
+            for entry in entries:
+                visited_entries += 1
+                candidate = current / entry.name
+                if visited_entries > _MAX_DURABLE_MEMORY_INVENTORY_ENTRIES:
+                    record_error(
+                        candidate,
+                        "durable memory inventory exceeds the visited-entry limit",
+                    )
+                    directories.clear()
+                    break
+                try:
+                    metadata = entry.stat(follow_symlinks=False)
+                except Exception as exc:
+                    record_error(candidate, exc)
                     continue
-                if any(part in {".git", "node_modules", "__pycache__"} for part in path.parts):
+                if stat.S_ISLNK(metadata.st_mode):
+                    record_error(candidate, "durable memory inventory does not follow symlinks")
+                    continue
+                if stat.S_ISDIR(metadata.st_mode):
+                    if entry.name not in {".git", "node_modules", "__pycache__"}:
+                        children.append(candidate)
+                    continue
+                if candidate.suffix.lower() not in {".md", ".txt"}:
+                    continue
+                if not stat.S_ISREG(metadata.st_mode):
+                    record_error(candidate, "durable memory entry is not a regular file")
+                    continue
+                try:
+                    descriptor = os.open(
+                        candidate,
+                        os.O_RDONLY
+                        | getattr(os, "O_CLOEXEC", 0)
+                        | getattr(os, "O_NOFOLLOW", 0),
+                    )
+                    try:
+                        opened = os.fstat(descriptor)
+                        if (
+                            not stat.S_ISREG(opened.st_mode)
+                            or (opened.st_dev, opened.st_ino)
+                            != (metadata.st_dev, metadata.st_ino)
+                        ):
+                            raise RuntimeError("durable memory entry changed while opening")
+                    finally:
+                        os.close(descriptor)
+                except Exception as exc:
+                    record_error(candidate, exc)
                     continue
                 file_count += 1
-                if "projects" in path.parts:
+                if "projects" in candidate.relative_to(root).parts:
                     project_file_count += 1
-                try:
-                    mtime = path.stat().st_mtime
-                    if mtime > latest_mtime:
-                        latest_mtime = mtime
-                        latest_path = path
-                except Exception:
-                    pass
-        except Exception:
-            continue
+                if metadata.st_mtime > latest_mtime:
+                    latest_mtime = metadata.st_mtime
+                    latest_path = candidate
+            directories.extend(reversed(children))
+    configured = bool(_DEFAULT_DURABLE_MEMORY_ROOTS)
+    available = any(bool(root.get("available")) for root in roots)
+    inventory_verified = (
+        available
+        and all(
+            bool(root.get("readable"))
+            for root in roots
+            if root.get("available")
+        )
+        and not scan_errors
+        and file_count > 0
+    )
     return {
-        "ok": file_count > 0,
+        "ok": inventory_verified,
+        "configured": configured,
+        "available": available,
+        "verified": inventory_verified,
+        "verificationScope": "readable_file_inventory_only",
         "roots": roots,
         "fileCount": file_count,
         "projectFileCount": project_file_count,
+        "visitedEntryCount": visited_entries,
+        "maxVisitedEntries": _MAX_DURABLE_MEMORY_INVENTORY_ENTRIES,
         "latestPath": str(latest_path) if latest_path else None,
         "latestModifiedAt": _iso_from_mtime(latest_path) if latest_path else "",
+        "scanErrors": scan_errors,
+        "semanticFreshnessVerified": False,
+        "retentionPolicyVerified": False,
+        "permissionPolicyVerified": False,
+        "truthBoundary": (
+            "Verified means the configured roots were readable and yielded a complete file "
+            "inventory. It does not certify semantic freshness, retention, or a permission policy."
+        ),
     }
+
+
+def _canonical_manifest_entry(
+    *,
+    path: Path,
+    display_path: str,
+    authority: str,
+    containment_root: Path,
+) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {
+        "path": display_path,
+        "authority": authority,
+        "available": False,
+        "verified": False,
+        "sha256": None,
+        "modifiedAt": None,
+        "sizeBytes": None,
+        "mode": None,
+    }
+    display = Path(display_path)
+    if display.is_absolute() or ".." in display.parts:
+        entry["error"] = "canonical manifest path is not workspace-relative"
+        return entry
+    try:
+        lexical_root = containment_root.expanduser().absolute()
+        lexical_path = path.expanduser().absolute()
+        relative = lexical_path.relative_to(lexical_root)
+        current = Path(lexical_root.anchor)
+        for part in lexical_root.parts[1:]:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("canonical containment root has a symlink ancestor")
+        current = lexical_root
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("canonical path has a symlink ancestor")
+        resolved_root = lexical_root.resolve(strict=True)
+        resolved_path = lexical_path.resolve(strict=True)
+        resolved_path.relative_to(resolved_root)
+        snapshot = _sha256_file_snapshot(
+            path,
+            max_bytes=_MAX_CANONICAL_MANIFEST_FILE_BYTES,
+            require_single_link=True,
+        )
+        entry.update(
+            available=True,
+            sizeBytes=snapshot["sizeBytes"],
+            modifiedAt=snapshot["modifiedAt"],
+            mode=snapshot["mode"],
+            sha256=snapshot["sha256"],
+        )
+        entry["verified"] = True
+    except Exception as exc:
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+    return entry
+
+
+def _memory_governance_canary() -> Dict[str, Any]:
+    """Replay precedence and recovery state transitions without durable writes."""
+
+    try:
+        from cortex_server.routers.librarian import (
+            _merge_ranked_rows,
+            _supersession_recovery_metadata,
+        )
+
+        rows = [
+            {
+                "id": "canary-live-source",
+                "text": "current governance canary value",
+                "distance": 0.3,
+                "metadata": {
+                    "source": "live_source_of_record",
+                    "memory_status": "active",
+                },
+            },
+            {
+                "id": "canary-canonical-current",
+                "text": "current governance canary value",
+                "distance": 0.2,
+                "metadata": {
+                    "source": "canonical_project_file",
+                    "canonical_project_memory": True,
+                    "canonical_priority_score": 1.0,
+                    "memory_status": "active",
+                },
+            },
+            {
+                "id": "canary-explicit-correction",
+                "text": "current governance canary value",
+                "distance": 0.05,
+                "metadata": {
+                    "source": "semantic_history",
+                    "correction_memory": True,
+                    "memory_status": "active",
+                },
+            },
+            {
+                "id": "canary-curated-conflict",
+                "text": "current governance canary value",
+                "distance": 0.01,
+                "metadata": {
+                    "source": "semantic_history",
+                    "quality": "curated",
+                    "memory_status": "active",
+                },
+            },
+            {
+                "id": "canary-superseded",
+                "text": "current governance canary obsolete value",
+                "distance": 0.0,
+                "metadata": {
+                    "source": "canonical_project_file",
+                    "canonical_project_memory": True,
+                    "memory_status": "superseded",
+                },
+            },
+        ]
+        current = _merge_ranked_rows(
+            "current governance canary value", [], rows, n_results=10
+        )
+        historical = _merge_ranked_rows(
+            "historical governance canary value", [], rows, n_results=10
+        )
+        current_ids = [str(row.get("id")) for row in current]
+        historical_ids = [str(row.get("id")) for row in historical]
+        precedence_verified = (
+            current_ids[:4]
+            == [
+                "canary-live-source",
+                "canary-canonical-current",
+                "canary-explicit-correction",
+                "canary-curated-conflict",
+            ]
+            and "canary-superseded" not in current_ids
+            and "canary-superseded" in historical_ids
+        )
+
+        original = {"fact_key": "governance-canary", "memory_status": "active"}
+        pending = _supersession_recovery_metadata(original, stage="pending")
+        recovered = _supersession_recovery_metadata(pending, stage="active")
+        invalid_stage_rejected = False
+        try:
+            _supersession_recovery_metadata(original, stage="invalid")
+        except ValueError:
+            invalid_stage_rejected = True
+        recovery_verified = (
+            original == {"fact_key": "governance-canary", "memory_status": "active"}
+            and pending.get("memory_status") == "tombstoned"
+            and pending.get("tombstoned") is True
+            and pending.get("supersession_pending") is True
+            and recovered.get("memory_status") == "active"
+            and "tombstoned" not in recovered
+            and "supersession_pending" not in recovered
+            and invalid_stage_rejected
+        )
+        return {
+            "ok": precedence_verified and recovery_verified,
+            "precedenceConflictVerified": precedence_verified,
+            "recoveryTransitionVerified": recovery_verified,
+            "durableWritesPerformed": False,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "precedenceConflictVerified": False,
+            "recoveryTransitionVerified": False,
+            "durableWritesPerformed": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _memory_governance_health() -> Dict[str, Any]:
     try:
-        from cortex_server.routers.librarian import _canonical_project_registry
-        registry = _canonical_project_registry()
-        missing = [str(row.get("path")) for row in registry if not Path(row.get("path")).exists()]
+        from cortex_server.routers.librarian import (
+            _CANONICAL_PROJECT_INDEX,
+            _canonical_project_registry_with_diagnostics,
+        )
+
+        registry, mapping_errors = _canonical_project_registry_with_diagnostics()
+        truncated = len(registry) > _MAX_CANONICAL_MANIFEST_FILES
+        bounded_registry = registry[:_MAX_CANONICAL_MANIFEST_FILES]
+        index_root = (
+            _CANONICAL_PROJECT_INDEX.parents[2]
+            if len(_CANONICAL_PROJECT_INDEX.parents) >= 3
+            else _CANONICAL_PROJECT_INDEX.parent
+        )
+        try:
+            index_display = str(_CANONICAL_PROJECT_INDEX.relative_to(index_root))
+        except ValueError:
+            index_display = _CANONICAL_PROJECT_INDEX.name
+        manifest = [
+            _canonical_manifest_entry(
+                path=_CANONICAL_PROJECT_INDEX,
+                display_path=index_display,
+                authority="canonical_registry",
+                containment_root=index_root,
+            )
+        ]
+        manifest.extend(
+            _canonical_manifest_entry(
+                path=Path(row.get("path")),
+                display_path=str(row.get("rel_path") or ""),
+                authority="canonical_project_file",
+                containment_root=index_root,
+            )
+            for row in bounded_registry
+        )
+        missing = [entry["path"] for entry in manifest if not entry["available"]]
+        configured = True
+        available = configured and not missing and not truncated and not mapping_errors
+        manifest_verified = available and all(
+            bool(entry.get("verified")) for entry in manifest
+        )
+        canary = _memory_governance_canary()
+        verified = manifest_verified and bool(canary.get("ok"))
         return {
-            "ok": bool(registry) and not missing,
-            "schemaVersion": "cortex.memory.governance.v1",
-            "precedence": ["live_source_of_record", "canonical_project_file", "explicit_correction", "curated_memory", "semantic_history"],
-            "canonicalIndex": "/root/clawd/memory/projects/INDEX.md",
+            "ok": verified,
+            "configured": configured,
+            "available": available,
+            "verified": verified,
+            "schemaVersion": "cortex.memory.governance.v2",
+            "precedence": [
+                "live_source_of_record",
+                "canonical_project_file",
+                "explicit_correction",
+                "curated_memory",
+                "semantic_history",
+            ],
+            "canonicalIndex": str(_CANONICAL_PROJECT_INDEX),
             "canonicalMappingCount": len(registry),
+            "canonicalMappingErrors": mapping_errors,
+            "canonicalMappingParseVerified": not mapping_errors,
+            "canonicalManifest": manifest,
+            "canonicalManifestTruncated": truncated,
+            "canonicalManifestVerified": manifest_verified,
             "missingCanonicalFiles": missing,
-            "supersessionFiltering": True,
-            "historicalRecall": True,
+            "governanceCanary": canary,
+            "supersessionFiltering": bool(canary.get("precedenceConflictVerified")),
+            "historicalRecall": bool(canary.get("precedenceConflictVerified")),
+            "recoveryTransition": bool(canary.get("recoveryTransitionVerified")),
+            "truthBoundary": (
+                "Verified binds the configured canonical registry to readable file hashes and "
+                "replays production precedence and recovery-state logic in memory. It does not "
+                "claim that every fact in those files is semantically current."
+            ),
         }
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        return {
+            "ok": False,
+            "configured": False,
+            "available": False,
+            "verified": False,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _openclaw_memory_bridge_health() -> Dict[str, Any]:
@@ -432,11 +1413,11 @@ def _structured_memory_health() -> Dict[str, Any]:
 def _runtime_offloaded_memory_health() -> Dict[str, Any]:
     root = Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery")) / "memory"
     try:
-        files = [path for path in root.rglob("*") if path.is_file()] if root.exists() else []
+        from cortex_server.runtime.offloaded_memory import RuntimeMemoryStore
+
+        health = RuntimeMemoryStore(root, delivery_root=root.parent).retention_health()
         return {
-            "ok": root.exists(),
-            "path": str(root),
-            "fileCount": len(files),
+            **health,
             "authority": "non_authoritative_runtime_notes",
             "authoritativeRuntimeState": "snapshots_shared_state_and_process_journal",
         }
@@ -445,13 +1426,53 @@ def _runtime_offloaded_memory_health() -> Dict[str, Any]:
 
 
 def _legacy_memory_store_health() -> Dict[str, Any]:
-    paths = [Path("/app/cortex_server/knowledge/auto_memory.jsonl"), Path("/app/cortex_server/chroma_db/librarian_fallback.jsonl"), Path("/root/cortex_server/chroma_db")]
-    stores = [{"path": str(path), "exists": path.exists(), "sizeBytes": path.stat().st_size if path.is_file() else None} for path in paths]
+    stores = []
+    inventory_errors = []
+    for path in _LEGACY_MEMORY_STORE_PATHS:
+        try:
+            try:
+                metadata = path.lstat()
+                present = True
+            except FileNotFoundError:
+                metadata = None
+                present = False
+            stores.append({
+                "path": str(path),
+                "exists": present,
+                "symlink": bool(metadata and stat.S_ISLNK(metadata.st_mode)),
+                "regularFile": bool(metadata and stat.S_ISREG(metadata.st_mode)),
+                "sizeBytes": (
+                    int(metadata.st_size)
+                    if metadata and stat.S_ISREG(metadata.st_mode)
+                    else None
+                ),
+                "authoritative": False,
+            })
+        except Exception as exc:
+            inventory_errors.append({
+                "path": str(path),
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+    existing = [store["path"] for store in stores if store.get("exists")]
+    available = not inventory_errors
+    verified = available and not existing
     return {
-        "ok": True,
+        "ok": verified,
+        "configured": True,
+        "available": available,
+        "verified": verified,
         "authoritative": False,
         "stores": stores,
-        "note": "Legacy L7/Mnemosyne facades now delegate to canonical L7/L22 stores; absent orphan paths are expected.",
+        "existingUnverifiedStores": existing,
+        "inventoryErrors": inventory_errors,
+        "note": (
+            "This component verifies only that known orphan store paths are absent. Canonical "
+            "L7/L22 availability and behavior are reported by their own components."
+        ),
+        "truthBoundary": (
+            "A present legacy path is degraded until its ownership and migration state are "
+            "independently verified; path presence is never treated as proof of delegation."
+        ),
     }
 
 
@@ -473,19 +1494,205 @@ def _structural_graph_health() -> Dict[str, Any]:
 def _latest_index_artifact_health() -> Dict[str, Any]:
     path = _latest_index_artifact()
     if not path:
-        return {"ok": False, "artifactPath": None, "error": "no codebase index artifact found"}
+        return {
+            "ok": False,
+            "configured": True,
+            "available": False,
+            "verified": False,
+            "artifactPath": None,
+            "error": "no codebase index artifact found",
+        }
     try:
-        import json
-
         data = json.loads(path.read_text(encoding="utf-8"))
         error_count = len(data.get("errors", []) or [])
         graph = data.get("graph") if isinstance(data.get("graph"), dict) else {}
+        node_count = int(graph.get("nodeCount", 0) or 0)
+        edge_count = int(graph.get("edgeCount", 0) or 0)
+        artifact_structural_ok = error_count == 0 and node_count > 0 and edge_count > 0
+
+        completed_at = _parse_utc_timestamp(data.get("completedAt"))
+        age_seconds = (
+            round((_utc_now() - completed_at).total_seconds(), 3)
+            if completed_at is not None
+            else None
+        )
+        max_age_seconds = _codebase_index_max_age_seconds()
+        freshness_ok = (
+            age_seconds is not None
+            and -300 <= age_seconds <= max_age_seconds
+        )
+
+        expected_source_root = _codebase_source_root()
+        serving_source = _git_source_identity(expected_source_root)
+        artifact_source_repo = str(data.get("sourceRepo") or "").strip()
+        try:
+            source_repo_matches = bool(artifact_source_repo) and (
+                Path(artifact_source_repo).expanduser().resolve()
+                == expected_source_root
+            )
+        except Exception:
+            source_repo_matches = False
+        source_commit_matches = bool(data.get("sourceCommit")) and (
+            str(data.get("sourceCommit")) == str(serving_source.get("sourceCommit"))
+        )
+        source_tree_matches = bool(data.get("sourceTreeDigest")) and (
+            str(data.get("sourceTreeDigest"))
+            == str(serving_source.get("sourceTreeDigest"))
+        )
+        source_clean_matches = (
+            data.get("sourceClean") is True
+            and serving_source.get("sourceClean") is True
+        )
+        snapshot_patterns = data.get("sourceSnapshotExcludePatterns")
+        snapshot_contract_valid = (
+            isinstance(snapshot_patterns, list)
+            and len(snapshot_patterns) <= 128
+            and all(
+                isinstance(value, str) and len(value.encode("utf-8")) <= 512
+                for value in snapshot_patterns
+            )
+            and isinstance(data.get("sourceSnapshotRecursive"), bool)
+        )
+        serving_snapshot = None
+        source_snapshot_error = None
+        if snapshot_contract_valid:
+            try:
+                serving_snapshot = codebase_source_snapshot(
+                    expected_source_root,
+                    exclude_patterns=snapshot_patterns,
+                    recursive=data["sourceSnapshotRecursive"],
+                )
+            except Exception as exc:
+                source_snapshot_error = f"{type(exc).__name__}: {exc}"
+        source_snapshot_matches = (
+            snapshot_contract_valid
+            and serving_snapshot is not None
+            and data.get("sourceSnapshotAlgorithm") == SNAPSHOT_ALGORITHM
+            and str(data.get("sourceSnapshotDigest") or "")
+            == str(serving_snapshot.get("digest") or "")
+            and int(data.get("sourceSnapshotFileCount", -1))
+            == int(serving_snapshot.get("fileCount", -2))
+            and int(data.get("sourceSnapshotBytes", -1))
+            == int(serving_snapshot.get("totalBytes", -2))
+        )
+
+        serving_graph_path = _serving_graph_path()
+        artifact_graph_path = str(data.get("dbPath") or "").strip()
+        try:
+            graph_path_matches = (
+                serving_graph_path is not None
+                and bool(artifact_graph_path)
+                and Path(artifact_graph_path).expanduser().resolve()
+                == serving_graph_path
+            )
+        except Exception:
+            graph_path_matches = False
+        live_graph_digest = None
+        graph_digest_error = None
+        live_graph_counts = None
+        runtime_graph_counts = None
+        if serving_graph_path is not None:
+            try:
+                live_graph_digest = _sha256_file(serving_graph_path)
+                live_graph_counts = _serving_graph_database_counts(serving_graph_path)
+                runtime_graph_counts = _serving_graph_runtime_counts()
+            except Exception as exc:
+                graph_digest_error = f"{type(exc).__name__}: {exc}"
+        graph_digest_matches = bool(data.get("graphDigest")) and (
+            str(data.get("graphDigest")) == str(live_graph_digest)
+        )
+        graph_digest_algorithm_matches = data.get("graphDigestAlgorithm") == "sha256"
+        graph_reset_verified = data.get("graphReset") is True
+        graph_counts_match = (
+            live_graph_counts is not None
+            and int(live_graph_counts.get("nodeCount", 0)) == node_count
+            and int(live_graph_counts.get("edgeCount", 0)) == edge_count
+            and runtime_graph_counts is not None
+            and int(runtime_graph_counts.get("nodeCount", 0)) == node_count
+            and int(runtime_graph_counts.get("edgeCount", 0)) == edge_count
+            and node_count > 0
+            and edge_count > 0
+        )
+        structural_ok = artifact_structural_ok and graph_counts_match
+
+        schema_matches = data.get("schemaVersion") == _CODEBASE_INDEX_SCHEMA_VERSION
+        indexer_matches = data.get("indexerVersion") == _CODEBASE_INDEXER_VERSION
+        provenance_complete = all(
+            bool(data.get(field))
+            for field in (
+                "sourceRepo",
+                "sourceCommit",
+                "sourceTreeDigest",
+                "sourceClean",
+                "sourceSnapshotAlgorithm",
+                "sourceSnapshotDigest",
+                "sourceSnapshotExcludePatterns",
+                "dbPath",
+                "graphDigest",
+                "graphDigestAlgorithm",
+                "indexerVersion",
+                "completedAt",
+            )
+        )
+        source_matches = (
+            source_repo_matches
+            and source_commit_matches
+            and source_tree_matches
+            and source_clean_matches
+            and source_snapshot_matches
+        )
+        graph_matches = (
+            graph_path_matches
+            and graph_digest_algorithm_matches
+            and graph_digest_matches
+            and graph_counts_match
+        )
+        verified = all((
+            structural_ok,
+            freshness_ok,
+            schema_matches,
+            indexer_matches,
+            provenance_complete,
+            source_matches,
+            graph_matches,
+            graph_reset_verified,
+        ))
+        verification_failures = []
+        for condition, reason in (
+            (structural_ok, "structural_index_invalid"),
+            (freshness_ok, "freshness_sla_failed"),
+            (schema_matches, "artifact_schema_mismatch"),
+            (indexer_matches, "indexer_version_mismatch"),
+            (provenance_complete, "provenance_incomplete"),
+            (source_matches, "serving_source_mismatch"),
+            (source_snapshot_matches, "source_snapshot_mismatch"),
+            (graph_matches, "serving_graph_mismatch"),
+            (graph_reset_verified, "graph_reset_unverified"),
+        ):
+            if not condition:
+                verification_failures.append(reason)
         return {
-            "ok": error_count == 0 and int(graph.get("nodeCount", 0) or 0) > 0,
+            "ok": verified,
+            "configured": True,
+            "available": True,
+            "verified": verified,
+            "status": "verified" if verified else "degraded",
             "artifactPath": str(path),
             "modifiedAt": _iso_from_mtime(path),
-            "ageSeconds": _age_seconds(path),
-            "sourceRepo": data.get("sourceRepo"),
+            "artifactMtimeAgeSeconds": _age_seconds(path),
+            "completedAt": data.get("completedAt"),
+            "ageSeconds": age_seconds,
+            "maxAgeSeconds": max_age_seconds,
+            "freshnessVerified": freshness_ok,
+            "sourceRepo": artifact_source_repo or None,
+            "sourceCommit": data.get("sourceCommit"),
+            "sourceTreeDigest": data.get("sourceTreeDigest"),
+            "sourceClean": data.get("sourceClean"),
+            "sourceSnapshotDigest": data.get("sourceSnapshotDigest"),
+            "sourceSnapshotFileCount": data.get("sourceSnapshotFileCount"),
+            "sourceSnapshotBytes": data.get("sourceSnapshotBytes"),
+            "indexerVersion": data.get("indexerVersion"),
+            "schemaVersion": data.get("schemaVersion"),
             "filesParsed": data.get("files_parsed"),
             "filesSkipped": data.get("files_skipped"),
             "nodesAdded": data.get("nodes_added"),
@@ -493,9 +1700,72 @@ def _latest_index_artifact_health() -> Dict[str, Any]:
             "elapsedSeconds": data.get("elapsedSeconds"),
             "errorCount": error_count,
             "graph": graph,
+            "sourceProvenance": {
+                "expectedRepo": str(expected_source_root),
+                "servingCommit": serving_source.get("sourceCommit"),
+                "servingTreeDigest": serving_source.get("sourceTreeDigest"),
+                "repoMatches": source_repo_matches,
+                "commitMatches": source_commit_matches,
+                "treeDigestMatches": source_tree_matches,
+                "cleanWorktreeMatches": source_clean_matches,
+                "artifactSnapshotDigest": data.get("sourceSnapshotDigest"),
+                "servingSnapshotDigest": (
+                    serving_snapshot.get("digest") if serving_snapshot else None
+                ),
+                "snapshotDigestMatches": source_snapshot_matches,
+                "snapshotAlgorithm": data.get("sourceSnapshotAlgorithm"),
+                "snapshotFileCount": (
+                    serving_snapshot.get("fileCount") if serving_snapshot else None
+                ),
+                "verified": source_matches,
+                "error": serving_source.get("error") or source_snapshot_error,
+            },
+            "graphProvenance": {
+                "artifactDbPath": artifact_graph_path or None,
+                "servingDbPath": str(serving_graph_path) if serving_graph_path else None,
+                "artifactGraphDigest": data.get("graphDigest"),
+                "digestAlgorithm": data.get("graphDigestAlgorithm"),
+                "servingGraphDigest": live_graph_digest,
+                "pathMatches": graph_path_matches,
+                "digestAlgorithmMatches": graph_digest_algorithm_matches,
+                "digestMatches": graph_digest_matches,
+                "artifactNodeCount": node_count,
+                "artifactEdgeCount": edge_count,
+                "servingNodeCount": (
+                    live_graph_counts.get("nodeCount") if live_graph_counts else None
+                ),
+                "servingEdgeCount": (
+                    live_graph_counts.get("edgeCount") if live_graph_counts else None
+                ),
+                "runtimeNodeCount": (
+                    runtime_graph_counts.get("nodeCount")
+                    if runtime_graph_counts else None
+                ),
+                "runtimeEdgeCount": (
+                    runtime_graph_counts.get("edgeCount")
+                    if runtime_graph_counts else None
+                ),
+                "countsMatch": graph_counts_match,
+                "verified": graph_matches,
+                "resetVerified": graph_reset_verified,
+                "error": graph_digest_error,
+            },
+            "verificationFailures": verification_failures,
+            "truthBoundary": (
+                "The last-known-good graph remains readable when this component degrades. "
+                "Verified requires artifact freshness plus exact Git, parser-candidate snapshot, "
+                "and serving graph identity."
+            ),
         }
     except Exception as exc:
-        return {"ok": False, "artifactPath": str(path), "error": str(exc)}
+        return {
+            "ok": False,
+            "configured": True,
+            "available": True,
+            "verified": False,
+            "artifactPath": str(path),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def _parser_smoke_health() -> Dict[str, Any]:
@@ -549,63 +1819,135 @@ def _memory_health_payload() -> Dict[str, Any]:
         "parserSmoke": _parser_smoke_health(),
     }
     ok = all(bool(component.get("ok")) for component in components.values())
+    verified = all(
+        bool(component.get("verified", component.get("ok")))
+        for component in components.values()
+    )
     return {
-        "success": ok,
-        "ok": ok,
+        "success": ok and verified,
+        "ok": ok and verified,
+        "verified": verified,
+        "status": "verified" if ok and verified else "degraded",
         "generatedAt": _utc_now().isoformat(),
         "components": components,
         "sourceOfTruth": "control_plane_cortex",
         "mirrorPolicy": "Hetzner may mirror this graph/artifacts for execution-plane reads, but control-plane Cortex is authoritative.",
+        "truthBoundary": (
+            "Component ok/verified fields cover only their stated verification scopes. "
+            "Configuration or path presence alone never certifies canonical authority."
+        ),
+    }
+
+
+def _knowledge_status_payload(
+    principal: AuthenticatedMemoryPrincipal,
+) -> Dict[str, Any]:
+    semantic = _principal_semantic_memory_probe(principal)
+    available = bool(semantic.get("available"))
+    payload = {
+        "success": available,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "active" if available else "unavailable",
+        "capabilities": [
+            "knowledge_graph",
+            "semantic_search",
+            "memory_persistence",
+        ],
+        "memory_count": semantic.get("count"),
+        "memory_count_is_lower_bound": bool(semantic.get("countIsLowerBound")),
+        "memory_scan_limit": semantic.get("scanLimit"),
+        "principal_scoped": True,
+        "aggregate_details": "withheld",
+        "canonical_endpoint": "/knowledge/status",
+    }
+    if semantic.get("error"):
+        payload["error"] = semantic["error"]
+    return payload
+
+
+def _knowledge_probe_failure(*, surface: str, error: BaseException) -> Dict[str, Any]:
+    if isinstance(error, HealthProbeTimedOut):
+        probe_status = "timeout"
+    elif isinstance(error, HealthProbeBusy):
+        probe_status = "busy"
+    else:
+        probe_status = "error"
+    return {
+        "success": False,
+        "ok": False,
+        "level": 22,
+        "name": "Mnemosyne",
+        "status": "unavailable",
+        "memory_count": None,
+        "principal_scoped": True,
+        "aggregate_details": "withheld",
+        "canonical_endpoint": surface,
+        "probe_status": probe_status,
+        "error": f"health_probe_{probe_status}:{type(error).__name__}",
     }
 
 
 @router.get("/status")
-async def knowledge_status():
+async def knowledge_status(http_request: Request = None):
     """L22 Mnemosyne status endpoint (canonical)."""
     try:
-        memory_count = None
-        try:
-            memory_count = int(collection.count())
-        except Exception:
-            memory_count = None
-
-        available = memory_count is not None
-        return {
-            "success": available,
-            "level": 22,
-            "name": "Mnemosyne",
-            "status": "active" if available else "unavailable",
-            "capabilities": [
-                "knowledge_graph",
-                "semantic_search",
-                "memory_persistence",
-            ],
-            "memory_count": memory_count,
-            "canonical_endpoint": "/knowledge/status",
-        }
+        principal = (
+            memory_principal_for_request(http_request)
+            if http_request is not None
+            else _authenticated_memory_principal_scope(
+                DEFAULT_TENANT_ID,
+                DEFAULT_WORKSPACE_ID,
+                None,
+            )
+        )
+        return await _KNOWLEDGE_STATUS_PROBE.run(
+            key=principal.memory_principal_key,
+            function=lambda: _knowledge_status_payload(principal),
+            timeout_seconds=_health_probe_timeout_seconds(),
+        )
     except Exception as e:
-        return {
-            "success": False,
-            "level": 22,
-            "name": "Mnemosyne",
-            "status": "degraded",
-            "error": str(e),
-        }
+        return _knowledge_probe_failure(surface="/knowledge/status", error=e)
 
 
 @router.get("/memory-health")
-async def memory_health():
-    """Comprehensive memory health gate.
-
-    This deliberately separates semantic memory, Codec, durable file memory,
-    and structural codebase memory so a green generic "memory" status cannot
-    hide an empty or stale code graph again.
-    """
-    return _memory_health_payload()
+async def memory_health(http_request: Request = None):
+    """Principal-local compatibility health; aggregate diagnostics are withheld."""
+    principal = (
+        memory_principal_for_request(http_request)
+        if http_request is not None
+        else _authenticated_memory_principal_scope(
+            DEFAULT_TENANT_ID,
+            DEFAULT_WORKSPACE_ID,
+            None,
+        )
+    )
+    try:
+        return await _KNOWLEDGE_MEMORY_HEALTH_PROBE.run(
+            key=principal.memory_principal_key,
+            function=lambda: _principal_memory_health_payload(principal),
+            timeout_seconds=_health_probe_timeout_seconds(),
+        )
+    except Exception as exc:
+        payload = _knowledge_probe_failure(surface="/knowledge/memory-health", error=exc)
+        payload.update(
+            {
+                "components": {},
+                "aggregateDetails": "withheld",
+                "truthBoundary": (
+                    "The bounded principal-local health probe did not complete; "
+                    "no aggregate or cross-principal health is inferred."
+                ),
+            }
+        )
+        return payload
 
 
 @router.post("/search")
-async def search_knowledge(request: KnowledgeSearchRequest):
+async def search_knowledge(
+    request: KnowledgeSearchRequest,
+    http_request: Request = None,
+):
     """Compatibility semantic search endpoint used by OpenClaw config.
 
     Uses Librarian's resilient recall path so memory_search remains available even
@@ -615,13 +1957,7 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        principal = _authenticated_memory_principal_scope(
-            request.tenant_id,
-            request.workspace_id,
-            request.scope_signature,
-            scope=request.scope,
-            scope_credential_id=request.scope_credential_id,
-        )
+        principal = _route_principal(request, http_request)
         tenant, workspace = principal.tenant_id, principal.storage_workspace_id
 
         result = robust_search(
@@ -630,6 +1966,8 @@ async def search_knowledge(request: KnowledgeSearchRequest):
             allow_fallback=True,
             tenant_id=tenant,
             workspace_id=workspace,
+            memory_principal_key=principal.memory_principal_key,
+            filters=parse_memory_search_filters(request.filters),
         )
         return {
             "query": request.query,
@@ -641,6 +1979,10 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         }
     except HTTPException:
         raise
+    except MemoryFilterError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except MemoryGovernanceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as e:
         return {
             "query": request.query,
@@ -659,20 +2001,17 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         "x-cortex-principal-scope-required": True,
     },
 )
-async def prior_art_gate(request: PriorArtGateRequest):
+async def prior_art_gate(
+    request: PriorArtGateRequest,
+    http_request: Request = None,
+):
     """Pre-implementation recall gate for existing capabilities.
 
     Use this before building a new product/control-plane primitive. It searches
     durable memory plus the structural code graph and requires a reuse/extend/
     adapter decision when high-confidence prior art exists.
     """
-    principal = _authenticated_memory_principal_scope(
-        request.tenant_id,
-        request.workspace_id,
-        request.scope_signature,
-        scope=request.scope,
-        scope_credential_id=request.scope_credential_id,
-    )
+    principal = _route_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
 
     try:
@@ -694,6 +2033,7 @@ async def prior_art_gate(request: PriorArtGateRequest):
                     allow_fallback=True,
                     tenant_id=tenant,
                     workspace_id=workspace,
+                    memory_principal_key=principal.memory_principal_key,
                 )
                 if result.get("available") is not True:
                     memory_query_failed = True
@@ -751,10 +2091,13 @@ async def prior_art_gate(request: PriorArtGateRequest):
 
 
 @router.post("/query")
-async def query_graph(request: BoundedGraphQueryRequest):
+async def query_graph(
+    request: BoundedGraphQueryRequest,
+    http_request: Request = None,
+):
     """Query the knowledge graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.query(
             request,
             tenant_id=principal.tenant_id,
@@ -768,16 +2111,41 @@ async def query_graph(request: BoundedGraphQueryRequest):
 
 
 @router.get("/graph/stats")
-async def graph_stats():
+async def graph_stats(http_request: Request):
     """Return structural graph cardinality and type breakdowns."""
     try:
-        return {"success": True, "data": service.graph.stats(), "error": None}
+        principal = memory_principal_for_request(http_request)
+        nodes = _principal_graph_nodes(principal, limit=1000)
+        edges = [
+            edge for edge in service.graph.storage.query_edges(limit=1000)
+            if str(getattr(edge, "tenant_id", "") or "") == principal.tenant_id
+            and str(getattr(edge, "storage_workspace_id", "") or "")
+            == principal.storage_workspace_id
+        ]
+        node_types: Dict[str, int] = {}
+        edge_types: Dict[str, int] = {}
+        for node in nodes:
+            key = str(getattr(node.type, "value", node.type))
+            node_types[key] = node_types.get(key, 0) + 1
+        for edge in edges:
+            key = str(getattr(edge.type, "value", edge.type))
+            edge_types[key] = edge_types.get(key, 0) + 1
+        return {"success": True, "data": {
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+            "nodeTypes": node_types,
+            "edgeTypes": edge_types,
+            "namespace": "authenticated_principal",
+        }, "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.post("/structural/search")
-async def structural_search(request: StructuralSearchRequest):
+async def structural_search(
+    request: StructuralSearchRequest,
+    http_request: Request = None,
+):
     """Search the Cortex structural code graph.
 
     This is deliberately separate from semantic memory search. Use it for
@@ -785,7 +2153,7 @@ async def structural_search(request: StructuralSearchRequest):
     functions, routes, and nearby dependency edges.
     """
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         node_type = None
         if request.node_type:
             try:
@@ -822,14 +2190,21 @@ async def structural_search(request: StructuralSearchRequest):
 
 
 @router.post("/structural/impact")
-async def structural_impact(request: ImpactRequest):
+async def structural_impact(
+    request: ImpactRequest,
+    http_request: Request = None,
+):
     """Return dependency/call/import neighborhood for a node or symbol query."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         nodes = []
         if request.node_id:
             node = service.graph.get_node(
-                request.node_id,
+                service._scoped_id(
+                    request.node_id,
+                    principal.tenant_id,
+                    principal.storage_workspace_id,
+                ),
                 tenant_id=principal.tenant_id,
                 storage_workspace_id=principal.storage_workspace_id,
             )
@@ -877,10 +2252,13 @@ async def structural_impact(request: ImpactRequest):
 
 
 @router.post("/nodes")
-async def create_node(request: BoundedGraphNodeCreateRequest):
+async def create_node(
+    request: BoundedGraphNodeCreateRequest,
+    http_request: Request = None,
+):
     """Create a new node in the graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.create_node(
             request,
             tenant_id=principal.tenant_id,
@@ -894,12 +2272,22 @@ async def create_node(request: BoundedGraphNodeCreateRequest):
 
 
 @router.get("/nodes/{node_id}")
-async def get_node(node_id: str):
+async def get_node(node_id: str, http_request: Request):
     """Get a node by ID."""
     try:
-        result = await service.get_node(node_id)
-        if result:
-            return {"success": True, "data": result, "error": None}
+        principal = memory_principal_for_request(http_request)
+        scoped_node_id = service._scoped_id(
+            node_id,
+            principal.tenant_id,
+            principal.storage_workspace_id,
+        )
+        node = service.graph.get_node(
+            scoped_node_id,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
+        if node is not None:
+            return {"success": True, "data": _node_to_dict(node), "error": None}
         raise HTTPException(status_code=404, detail="Node not found")
     except HTTPException:
         raise
@@ -908,10 +2296,13 @@ async def get_node(node_id: str):
 
 
 @router.post("/edges")
-async def create_edge(request: BoundedGraphEdgeCreateRequest):
+async def create_edge(
+    request: BoundedGraphEdgeCreateRequest,
+    http_request: Request = None,
+):
     """Create a new edge in the graph."""
     try:
-        principal = _graph_principal(request)
+        principal = _route_principal(request, http_request)
         result = await service.create_edge(
             request,
             tenant_id=principal.tenant_id,
@@ -927,14 +2318,46 @@ async def create_edge(request: BoundedGraphEdgeCreateRequest):
 @router.get("/nodes/{node_id}/neighbors")
 async def get_neighbors(
     node_id: str,
+    http_request: Request,
     edge_type: str = None,
     direction: str = "out",
     limit: int = Query(100, ge=1, le=100),
 ):
     """Get neighbors of a node."""
     try:
-        result = await service.get_neighbors(node_id, edge_type, direction, limit)
-        return {"success": True, "data": result}
+        principal = memory_principal_for_request(http_request)
+        scoped_node_id = service._scoped_id(
+            node_id,
+            principal.tenant_id,
+            principal.storage_workspace_id,
+        )
+        node = service.graph.get_node(
+            scoped_node_id,
+            tenant_id=principal.tenant_id,
+            storage_workspace_id=principal.storage_workspace_id,
+        )
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        resolved_edge_type = None
+        if edge_type:
+            try:
+                resolved_edge_type = EdgeType(edge_type)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="invalid edge_type") from exc
+        rows = _principal_graph_neighbors(
+            principal,
+            scoped_node_id,
+            edge_type=resolved_edge_type,
+            direction=direction,
+            limit=limit,
+        )
+        return {"success": True, "data": {
+            "node_id": scoped_node_id,
+            "neighbors": [_neighbor_to_dict(row) for row in rows],
+            "count": len(rows),
+        }}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:

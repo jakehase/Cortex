@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -6,34 +7,79 @@ import cortex_server.modules.reasoning_approvals as approvals
 from cortex_server.modules.reasoning_approvals import grant_allows_step
 
 
+def _approval_step(*, endpoint="/deploy", node_id="deploy", method="POST"):
+    return {
+        "endpoint": endpoint,
+        "method": method,
+        "node_id": node_id,
+        "metadata": {},
+    }
+
+
+def _persist_exact_grant(step, **updates):
+    values = {
+        "granted_by": "Jake",
+        "scope": "workflow",
+        "principal_id": "principal-bound",
+        "workflow_id": "wf-bound",
+        "action_digest": approvals.approval_action_digest(step),
+        "target": approvals.approval_action_target(step),
+        "nonce": f"nonce-{uuid4().hex}",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "node_ids": [str(step.get("node_id") or "")],
+        "endpoint_prefixes": [str(step.get("endpoint") or "")],
+        "methods": [str(step.get("method") or "POST").upper()],
+        "risk_levels": ["high"],
+    }
+    values.update(updates)
+    return approvals.create_approval_grant(**values)
+
+
+def _grant_metadata(grant, **updates):
+    metadata = {
+        "principal_id": "principal-bound",
+        "workflow_id": "wf-bound",
+        "approval_grant_ids": [grant["grant_id"]],
+    }
+    metadata.update(updates)
+    return metadata
+
+
 def test_approval_grant_scope_and_expiry(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
 
-    active = approvals.create_approval_grant(
-        granted_by="Jake",
-        scope="workflow",
+    step = _approval_step(endpoint="/homeassistant/service", node_id="lights")
+    active = _persist_exact_grant(
+        step,
         workflow_id="wf_ok",
         endpoint_prefixes=["/homeassistant/service"],
-        methods=["POST"],
-        risk_levels=["high"],
         note="allow lights",
     )
-    expired = approvals.create_approval_grant(
-        granted_by="Jake",
-        scope="workflow",
+    expired = _persist_exact_grant(
+        step,
         workflow_id="wf_ok",
         endpoint_prefixes=["/homeassistant/service"],
-        methods=["POST"],
-        risk_levels=["high"],
+        nonce=f"nonce-expired-{uuid4().hex}",
         expires_at=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
         note="expired",
     )
 
-    step = {"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights", "metadata": {}}
-    allowed = grant_allows_step(step, workflow_metadata={"workflow_id": "wf_ok", "approval_grant_ids": [active["grant_id"]]}, risk="high")
-    denied_wrong_workflow = grant_allows_step(step, workflow_metadata={"workflow_id": "wf_other", "approval_grant_ids": [active["grant_id"]]}, risk="high")
-    denied_expired = grant_allows_step(step, workflow_metadata={"workflow_id": "wf_ok", "approval_grant_ids": [expired["grant_id"]]}, risk="high")
+    allowed = grant_allows_step(
+        step,
+        workflow_metadata=_grant_metadata(active, workflow_id="wf_ok"),
+        risk="high",
+    )
+    denied_wrong_workflow = grant_allows_step(
+        step,
+        workflow_metadata=_grant_metadata(active, workflow_id="wf_other"),
+        risk="high",
+    )
+    denied_expired = grant_allows_step(
+        step,
+        workflow_metadata=_grant_metadata(expired, workflow_id="wf_ok"),
+        risk="high",
+    )
 
     assert allowed is not None
     assert allowed["grant_id"] == active["grant_id"]
@@ -44,26 +90,20 @@ def test_approval_grant_scope_and_expiry(tmp_path, monkeypatch):
 def test_step_and_risk_scopes_require_nonempty_exact_runtime_bindings(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
-    grants = {}
-    for name, values in {
-        "empty_step": {"scope": "step", "node_ids": []},
-        "bound_step": {"scope": "step", "node_ids": ["deploy"]},
-        "empty_risk": {"scope": "risk_class", "risk_levels": []},
-        "bound_risk": {"scope": "risk_class", "risk_levels": ["high"]},
-    }.items():
-        grants[name] = approvals.create_approval_grant(granted_by="Jake", **values)
+    step = _approval_step()
+    other_step = _approval_step(node_id="other")
+    empty_step = _persist_exact_grant(step, scope="step", node_ids=[])
+    bound_step = _persist_exact_grant(step, scope="step", node_ids=["deploy"])
+    wrong_node = _persist_exact_grant(other_step, scope="step", node_ids=["deploy"])
+    empty_risk = _persist_exact_grant(step, scope="risk_class", risk_levels=[])
+    bound_risk = _persist_exact_grant(step, scope="risk_class", risk_levels=["high"])
 
-    def allows(name, *, node_id="deploy", risk="high"):
-        step = {"endpoint": "/deploy", "method": "POST", "node_id": node_id, "metadata": {}}
-        metadata = {"approval_grant_ids": [grants[name]["grant_id"]]}
-        return grant_allows_step(step, workflow_metadata=metadata, risk=risk)
-
-    assert allows("empty_step") is None
-    assert allows("bound_step", node_id="other") is None
-    assert allows("bound_step") is not None
-    assert allows("empty_risk") is None
-    assert allows("bound_risk", risk="medium") is None
-    assert allows("bound_risk") is not None
+    assert grant_allows_step(step, workflow_metadata=_grant_metadata(empty_step), risk="high") is None
+    assert grant_allows_step(other_step, workflow_metadata=_grant_metadata(wrong_node), risk="high") is None
+    assert grant_allows_step(step, workflow_metadata=_grant_metadata(bound_step), risk="high") is not None
+    assert grant_allows_step(step, workflow_metadata=_grant_metadata(empty_risk), risk="high") is None
+    assert grant_allows_step(step, workflow_metadata=_grant_metadata(bound_risk), risk="medium") is None
+    assert grant_allows_step(step, workflow_metadata=_grant_metadata(bound_risk), risk="high") is not None
 
 
 def test_malformed_durable_scope_bindings_fail_closed(tmp_path, monkeypatch):
@@ -142,18 +182,21 @@ def test_string_endpoint_prefix_is_not_split_into_character_grants(tmp_path, mon
 
 def test_valid_tuple_bindings_preserve_exact_segment_prefix_matching(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
-    grant = approvals.create_approval_grant(
-        scope="workflow",
-        node_ids=("deploy",),
-        endpoint_prefixes=("/safe",),
-        methods=("post",),
-        risk_levels=("HIGH",),
-    )
-    metadata = {"approval_grant_ids": [grant["grant_id"]]}
 
     def allows(endpoint):
-        step = {"endpoint": endpoint, "method": "POST", "node_id": "deploy", "metadata": {}}
-        return grant_allows_step(step, workflow_metadata=metadata, risk="high") is not None
+        step = _approval_step(endpoint=endpoint)
+        grant = _persist_exact_grant(
+            step,
+            node_ids=("deploy",),
+            endpoint_prefixes=("/safe",),
+            methods=("post",),
+            risk_levels=("HIGH",),
+        )
+        return grant_allows_step(
+            step,
+            workflow_metadata=_grant_metadata(grant),
+            risk="high",
+        ) is not None
 
     assert allows("/safe")
     assert allows("/safe/action")
@@ -192,9 +235,24 @@ def test_malformed_persisted_endpoint_prefixes_fail_closed(tmp_path, monkeypatch
 
 def test_root_endpoint_prefix_explicitly_matches_only_absolute_endpoints(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
-    grant = approvals.create_approval_grant(scope="endpoint", endpoint_prefixes=["/"])
-    metadata = {"approval_grant_ids": [grant["grant_id"]]}
 
     for endpoint in ("/", "/safe", "/safe/action"):
-        assert grant_allows_step({"endpoint": endpoint}, workflow_metadata=metadata) is not None
-    assert grant_allows_step({"endpoint": "relative"}, workflow_metadata=metadata) is None
+        step = _approval_step(endpoint=endpoint)
+        grant = _persist_exact_grant(step, scope="endpoint", endpoint_prefixes=["/"])
+        assert grant_allows_step(
+            step,
+            workflow_metadata=_grant_metadata(grant),
+            risk="high",
+        ) is not None
+
+    relative_step = _approval_step(endpoint="relative")
+    relative_grant = _persist_exact_grant(
+        relative_step,
+        scope="endpoint",
+        endpoint_prefixes=["/"],
+    )
+    assert grant_allows_step(
+        relative_step,
+        workflow_metadata=_grant_metadata(relative_grant),
+        risk="high",
+    ) is None

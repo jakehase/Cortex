@@ -81,7 +81,10 @@ def build_fractal_plan(task: str, max_depth: int = 3, max_branching: int = 3, br
 
         children: List[FractalNode] = []
         for i, part in enumerate(parts, start=1):
-            child_branch = f"{branch_prefix}/d{depth+1}-b{i}"
+            # The full parent path is part of the branch identity. Rebuilding a
+            # branch from only depth/index lets equal tasks in separate sibling
+            # subtrees receive the same node ID.
+            child_branch = f"{branch}/d{depth+1}-b{i}"
             children.append(grow(part, depth + 1, child_branch))
 
         return FractalNode(
@@ -95,11 +98,13 @@ def build_fractal_plan(task: str, max_depth: int = 3, max_branching: int = 3, br
     root = grow(task.strip(), 0, f"{branch_prefix}/root")
 
     leaves: List[Dict[str, Any]] = []
+    node_ids: List[str] = []
     max_seen_depth = 0
 
     def walk(node: FractalNode):
         nonlocal max_seen_depth
         max_seen_depth = max(max_seen_depth, node.depth)
+        node_ids.append(str(node.node_id or ""))
         if not node.children:
             leaves.append({
                 "node_id": node.node_id,
@@ -114,6 +119,12 @@ def build_fractal_plan(task: str, max_depth: int = 3, max_branching: int = 3, br
 
     walk(root)
 
+    if any(not node_id for node_id in node_ids) or len(set(node_ids)) != len(node_ids):
+        raise ValueError("fractal plan contains duplicate or empty node IDs")
+    leaf_ids = [str(leaf.get("node_id") or "") for leaf in leaves]
+    if any(not node_id for node_id in leaf_ids) or len(set(leaf_ids)) != len(leaf_ids):
+        raise ValueError("fractal plan contains duplicate or empty leaf node IDs")
+
     return {
         "root": root.to_dict(),
         "leaf_count": len(leaves),
@@ -124,8 +135,20 @@ def build_fractal_plan(task: str, max_depth: int = 3, max_branching: int = 3, br
 
 
 def aggregate_fractal_results(plan: Dict[str, Any], leaf_results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    by_id = {str(r.get("node_id")): r for r in (leaf_results or []) if isinstance(r, dict)}
     leaves = plan.get("leaves") if isinstance(plan.get("leaves"), list) else []
+    leaf_ids = [str(leaf.get("node_id") or "") for leaf in leaves if isinstance(leaf, dict)]
+    if len(leaf_ids) != len(leaves) or any(not node_id for node_id in leaf_ids):
+        raise ValueError("fractal plan contains an invalid leaf")
+    if len(set(leaf_ids)) != len(leaf_ids):
+        raise ValueError("fractal plan contains duplicate leaf node IDs")
+
+    normalized_results = [row for row in (leaf_results or []) if isinstance(row, dict)]
+    result_ids = [str(row.get("node_id") or "") for row in normalized_results]
+    if any(not node_id for node_id in result_ids):
+        raise ValueError("fractal result contains an empty node ID")
+    if len(set(result_ids)) != len(result_ids):
+        raise ValueError("fractal results contain duplicate node IDs")
+    by_id = {node_id: row for node_id, row in zip(result_ids, normalized_results)}
 
     covered = 0
     summaries: List[str] = []

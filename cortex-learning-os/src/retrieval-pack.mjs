@@ -8,8 +8,34 @@ function tokenEstimate(value) {
   return Math.ceil(JSON.stringify(value).length / 4);
 }
 
+function refreshTokenEstimate(pack) {
+  for (let index = 0; index < 4; index += 1) {
+    const estimate = tokenEstimate(pack);
+    if (estimate === pack.estimatedTokens) return estimate;
+    pack.estimatedTokens = estimate;
+  }
+  return pack.estimatedTokens;
+}
+
+function boundedText(value, name, maximumBytes) {
+  const text = String(value || '');
+  if (Buffer.byteLength(text, 'utf8') > maximumBytes) throw new RangeError(`${name} exceeds ${maximumBytes} UTF-8 bytes`);
+  return text;
+}
+
+function boundedCodeList(values, name, { maximumItems = 64, maximumBytes = 128 } = {}) {
+  if (!Array.isArray(values) || values.length > maximumItems) throw new RangeError(`${name} exceeds ${maximumItems} items`);
+  return values.map((value, index) => boundedText(value, `${name}[${index}]`, maximumBytes));
+}
+
 export function buildRetrievalPack({ capsule, task, conceptIds = [], trustedLessons = [], candidateLessons = [], mistakeWarnings = [], now = new Date().toISOString(), limit = 8, maxTokens = 1200 } = {}) {
-  const taskTerms = terms(`${task} ${conceptIds.join(' ')}`);
+  const tokenBudget = Number(maxTokens);
+  if (!Number.isSafeInteger(tokenBudget) || tokenBudget < 1 || tokenBudget > 100_000) {
+    throw new RangeError('maxTokens must be an integer between 1 and 100000');
+  }
+  const boundedTask = boundedText(task, 'task', 16_384);
+  const boundedConceptIds = boundedCodeList(conceptIds, 'conceptIds');
+  const taskTerms = terms(`${boundedTask} ${boundedConceptIds.join(' ')}`);
   const valid = trustedLessons.filter((lesson) => {
     if (!validateRecord(lesson).ok || lesson.capsuleId !== capsule.capsuleId) return false;
     return !lesson.retestAfter || new Date(lesson.retestAfter).getTime() >= new Date(now).getTime();
@@ -30,32 +56,42 @@ export function buildRetrievalPack({ capsule, task, conceptIds = [], trustedLess
       relevanceScore: Number(row.score.toFixed(4)),
       promotionProofDigest: row.lesson.promotionProof?.digest || null
     }];
-    if (tokenEstimate(next) > maxTokens) break;
+    if (tokenEstimate(next) > tokenBudget) break;
     lessons.push(next.at(-1));
   }
   const warnings = mistakeWarnings
-    .filter((warning) => (warning.conceptIds || []).some((id) => conceptIds.includes(id)))
+    .filter((warning) => (warning.conceptIds || []).some((id) => boundedConceptIds.includes(id)))
     .slice(0, 4)
     .map((warning) => ({ mistakeId: warning.mistakeId, rootCause: warning.rootCause, correction: warning.correction }));
   const result = {
     schemaVersion: SCHEMAS.retrievalPack,
     generatedAt: now,
     capsuleId: capsule.capsuleId,
-    task: String(task || ''),
-    conceptIds,
+    task: boundedTask,
+    conceptIds: boundedConceptIds,
     trustedLessonIds: lessons.map((lesson) => lesson.lessonId),
     lessons,
     mistakeWarnings: warnings,
     omittedUntrustedCount: candidateLessons.length,
     estimatedTokens: 0,
-    maxTokens,
+    maxTokens: tokenBudget,
     truthBoundary: 'Only promoted, unexpired trusted lessons are included. Candidate and raw notes are omitted; cited warnings are not promoted as lessons.'
   };
-  result.estimatedTokens = tokenEstimate(result);
-  while (result.estimatedTokens > maxTokens && result.lessons.length > 0) {
+  refreshTokenEstimate(result);
+  while (result.estimatedTokens > tokenBudget && result.lessons.length > 0) {
     result.lessons.pop();
     result.trustedLessonIds = result.lessons.map((lesson) => lesson.lessonId);
-    result.estimatedTokens = tokenEstimate(result);
+    refreshTokenEstimate(result);
+  }
+  while (result.estimatedTokens > tokenBudget && result.mistakeWarnings.length > 0) {
+    result.mistakeWarnings.pop();
+    refreshTokenEstimate(result);
+  }
+  refreshTokenEstimate(result);
+  const validation = validateRecord(result);
+  if (!validation.ok || tokenEstimate(result) > tokenBudget) {
+    const reasons = validation.ok ? ['retrieval pack exceeds maxTokens'] : validation.errors;
+    throw new RangeError(`retrieval pack cannot satisfy its declared bounds: ${reasons.join('; ')}`);
   }
   return result;
 }

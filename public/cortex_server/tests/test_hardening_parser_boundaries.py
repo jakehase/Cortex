@@ -27,6 +27,25 @@ from cortex_server.parsers.js_parser import JSParser, JSParserConfig, TRUNCATION
 from cortex_server.parsers.pdf_parser import PDFParser, PDFParserConfig
 
 
+@pytest.fixture(autouse=True)
+def _configured_parser_egress_hosts(monkeypatch):
+    """Keep legacy parser fixtures explicit under the default-deny host policy."""
+
+    monkeypatch.setenv(
+        "CORTEX_PARSER_EGRESS_ALLOWED_HOSTS",
+        ",".join(
+            (
+                "example.test",
+                "other.test",
+                "one.test",
+                "two.test",
+                "three.test",
+                "public.test",
+            )
+        ),
+    )
+
+
 class RecordingGraph:
     def __init__(self, *, fail=False):
         self.nodes = []
@@ -152,7 +171,8 @@ def test_pdf_library_error_is_logged_but_public_error_has_no_path(caplog, tmp_pa
 
     assert result.error == "PDF parsing failed"
     assert str(secret) not in result.error
-    assert str(secret) in caplog.text
+    assert str(secret) not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_pdf_oversized_content_is_rejected_before_chars_materialization():
@@ -408,7 +428,8 @@ def test_directory_failure_response_uses_relative_identifier_and_sanitized_error
     assert result["errors"] == ["private/secret.py: File parsing failed"]
     assert str(tmp_path) not in str(result)
     assert "database password leaked" not in str(result)
-    assert "database password leaked" in caplog.text
+    assert "database password leaked" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_directory_record_budget_is_aggregate_includes_pdfs_and_stops(tmp_path):
@@ -1364,6 +1385,42 @@ def test_fetch_streams_with_strict_byte_cap(monkeypatch):
         asyncio.run(router._fetch_html("https://public.test/large"))
     assert len(extended_chunks) == 1
     assert len(extended_chunks[0]) == router.MAX_DOWNLOAD_BYTES
+
+
+def test_fetch_applies_absolute_deadline_to_slow_stream(monkeypatch):
+    class SlowResponse(FakeResponse):
+        async def aiter_bytes(self):
+            for chunk in (b"one", b"two"):
+                await asyncio.sleep(0.02)
+                yield chunk
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, *_args, **_kwargs):
+            return SlowResponse()
+
+    async def valid(url):
+        return url
+
+    monkeypatch.setattr(router.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(router, "_public_http_url", valid)
+    started = time.monotonic()
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            router._fetch_html(
+                "https://public.test/slow",
+                deadline=time.monotonic() + 0.025,
+            )
+        )
+    assert time.monotonic() - started < 0.2
 
 
 def test_fetch_pins_validated_address_while_preserving_host_and_sni(monkeypatch):

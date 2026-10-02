@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "recommended_levels": [
+    {
+      "level": 24,
+      "name": "Nexus",
+      "reason": "provider-consumer contract fixture",
+      "score": 0.99,
+      "always_on": true
+    }
+  ],
+  "reasoning": [
+    "Nexus coordinates the requested route"
+  ],
+  "routing_method": "shared_contract_fixture",
+  "routing_markers": {},
+  "contract": {
+    "contract_version": "orchestrate_guard_v3"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "cortex.owner-memory-recall.v1",
+  "privacy": "synthetic_no_phi_no_credentials",
+  "cases": [
+    {
+      "id": "synthetic-current-release-ring",
+      "query": "Which release ring is current for the synthetic lighthouse service?",
+      "expected_fact_keys": ["fact_synthetic_release_current"],
+      "expected_source_ids": ["src_synthetic_release_registry"],
+      "filters": {
+        "projects": ["synthetic-lighthouse"],
+        "statuses": ["active"],
+        "include_stale": false
+      }
+    },
+    {
+      "id": "synthetic-source-path-filter",
+      "query": "What color is assigned to the synthetic north marker?",
+      "expected_fact_keys": ["fact_synthetic_north_marker"],
+      "expected_source_paths": ["fixtures/synthetic/north-marker.md"],
+      "filters": {
+        "source_paths": ["fixtures/synthetic/north-marker.md"],
+        "statuses": ["active"]
+      }
+    },
+    {
+      "id": "synthetic-project-isolation",
+      "query": "What is the synthetic alpha project's selected transport?",
+      "expected_fact_keys": ["fact_synthetic_alpha_transport"],
+      "forbidden_source_ids": ["src_synthetic_beta"],
+      "forbidden_projects": ["synthetic-beta"],
+      "filters": {
+        "projects": ["synthetic-alpha"],
+        "statuses": ["active"]
+      }
+    },
+    {
+      "id": "synthetic-fresh-answer",
+      "query": "Which synthetic checkpoint remains fresh?",
+      "expected_fact_keys": ["fact_synthetic_fresh_checkpoint"],
+      "filters": {
+        "projects": ["synthetic-freshness"],
+        "statuses": ["active"],
+        "include_stale": false,
+        "include_unknown_time": false
+      }
+    },
+    {
+      "id": "synthetic-contradiction-winner",
+      "query": "Which synthetic atlas mode is authoritative?",
+      "expected_fact_keys": ["fact_synthetic_atlas_authoritative"],
+      "expected_winner_fact_key": "fact_synthetic_atlas_authoritative",
+      "filters": {
+        "claim_keys": ["claim_synthetic_atlas_mode"],
+        "statuses": ["active"],
+        "include_conflicts": false
+      }
+    },
+    {
+      "id": "synthetic-as-known-at",
+      "query": "What synthetic beacon state was known at the checkpoint?",
+      "expected_fact_keys": ["fact_synthetic_beacon_checkpoint"],
+      "filters": {
+        "claim_keys": ["claim_synthetic_beacon_state"],
+        "as_of": "2026-01-15T12:00:00Z",
+        "as_known_at": "2026-01-15T12:05:00Z",
+        "statuses": ["active"],
+        "include_stale": true,
+        "include_unknown_time": false
+      }
+    }
+  ]
+}

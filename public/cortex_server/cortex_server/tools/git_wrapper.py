@@ -3,6 +3,7 @@ Git CLI Wrapper - Safe, typed wrapper for Git operations.
 """
 
 import asyncio
+import os
 import shutil
 import tempfile
 import subprocess
@@ -46,10 +47,19 @@ def _ref(value: str, kind: str) -> str:
 
 
 def _bounded_sync_command(
-    cmd: List[str], cwd: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT
+    cmd: List[str],
+    cwd: Optional[str] = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    env: Optional[Dict[str, str]] = None,
 ) -> "GitResult":
     """Run with concurrent fixed-capacity pipe drains and a hard deadline."""
-    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
     tails = [bytearray(), bytearray()]
     overflowed = [False, False]
 
@@ -142,7 +152,10 @@ async def _stop_process(proc: Any) -> None:
 
 
 async def run_git_async(
-    cmd: List[str], cwd: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT
+    cmd: List[str],
+    cwd: Optional[str] = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    env: Optional[Dict[str, str]] = None,
 ) -> "GitResult":
     """Run Git without blocking, and retain ownership of the child until reaped."""
     deadline = asyncio.get_running_loop().time() + timeout
@@ -152,6 +165,7 @@ async def run_git_async(
     try:
         proc = await asyncio.wait_for(spawn_owned(asyncio.create_subprocess_exec(
             *cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=env,
         ), TERMINATE_GRACE, _stop_process), remaining)
     except asyncio.TimeoutError:
         raise GitError("Git command timed out")
@@ -229,6 +243,33 @@ class GitRepo:
     def __init__(self, path: str):
         self.path = Path(path).resolve()
         self.repo_root = self._discover_repo_root(self.path)
+
+    @staticmethod
+    def _command(*args: str) -> List[str]:
+        return [
+            "git",
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "core.fsmonitor=false",
+            "-c", "credential.helper=",
+            "-c", "core.pager=cat",
+            "-c", "commit.gpgSign=false",
+            "-c", "tag.gpgSign=false",
+            "-c", "diff.external=",
+            *args,
+        ]
+
+    @staticmethod
+    def _environment() -> Dict[str, str]:
+        return {
+            "PATH": os.getenv("PATH", "/usr/bin:/bin"),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "HOME": "/nonexistent",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "/bin/false",
+        }
     
     def _discover_repo_root(self, path: Path) -> Path:
         """Find the repository root by walking up directories."""
@@ -243,8 +284,12 @@ class GitRepo:
     
     def _run(self, *args: str, check: bool = False, cwd: Optional[str] = None) -> GitResult:
         """Run a git command."""
-        cmd = ["git", *args]
-        result = _bounded_sync_command(cmd, cwd or str(self.repo_root))
+        cmd = self._command(*args)
+        result = _bounded_sync_command(
+            cmd,
+            cwd or str(self.repo_root),
+            env=self._environment(),
+        )
         
         if check and not result.success:
             raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), result)
@@ -253,9 +298,14 @@ class GitRepo:
     
     async def _run_async(self, *args: str, check: bool = False, cwd: Optional[str] = None) -> GitResult:
         """Run a git command asynchronously."""
-        cmd = ["git", *args]
+        cmd = self._command(*args)
         
-        result = await run_git_async(cmd, cwd or str(self.repo_root), DEFAULT_TIMEOUT)
+        result = await run_git_async(
+            cmd,
+            cwd or str(self.repo_root),
+            DEFAULT_TIMEOUT,
+            env=self._environment(),
+        )
         
         if check and not result.success:
             raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), result)
@@ -278,9 +328,19 @@ class GitRepo:
             cmd.extend(["-b", _ref(branch, "branch")])
         if depth:
             cmd.extend(["--depth", str(depth)])
-        
         cmd.extend(["--", url, path])
-        return _bounded_sync_command(["git", *cmd])
+        return _bounded_sync_command(
+            GitRepo._command(*cmd),
+            env=GitRepo._environment(),
+        )
+
+    @staticmethod
+    def init(path: str) -> GitResult:
+        """Initialize a repository with the restricted Git environment."""
+        return _bounded_sync_command(
+            GitRepo._command("init", "--", path),
+            env=GitRepo._environment(),
+        )
     
     @staticmethod
     async def clone_async(
@@ -292,16 +352,16 @@ class GitRepo:
     ) -> GitResult:
         """Clone a repository asynchronously."""
         _ref(url, "URL")
-        cmd = ["git", "clone"]
+        clone_args = ["clone"]
         
         if branch:
-            cmd.extend(["-b", _ref(branch, "branch")])
+            clone_args.extend(["-b", _ref(branch, "branch")])
         if depth:
-            cmd.extend(["--depth", str(depth)])
-        
-        cmd.extend(["--", url, path])
+            clone_args.extend(["--depth", str(depth)])
+        clone_args.extend(["--", url, path])
+        cmd = GitRepo._command(*clone_args)
         try:
-            return await run_git_async(cmd)
+            return await run_git_async(cmd, env=GitRepo._environment())
         except GitError as exc:
             if str(exc).startswith("Git command timed out"):
                 raise GitError("Git clone timed out") from exc
@@ -494,6 +554,18 @@ class GitRepo:
                 remotes.append({"name": parts[0], "url": parts[1]})
         
         return remotes
+
+    def remote_url(self, remote: str) -> str:
+        """Resolve a configured remote without invoking credential helpers."""
+        result = self._run("remote", "get-url", "--", _ref(remote, "remote"), check=True)
+        return result.stdout.strip()
+
+    async def remote_url_async(self, remote: str) -> str:
+        """Resolve a configured remote without blocking the event loop."""
+        result = await self._run_async(
+            "remote", "get-url", "--", _ref(remote, "remote"), check=True
+        )
+        return result.stdout.strip()
     
     def fetch(self, remote: str = "origin") -> GitResult:
         """Fetch from remote."""

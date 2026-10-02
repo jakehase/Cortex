@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import os
+from uuid import uuid4
 
 import pytest
 
@@ -32,38 +34,62 @@ def _high_risk_step(**updates):
     return step
 
 
-def _persist_bound_grant(**updates):
+def _exact_grant_values(step, **updates):
     values = {
-        "grant_id": "grant_real",
         "granted_by": "operator",
         "scope": "workflow",
+        "principal_id": "principal-1",
         "workflow_id": "wf-1",
         "task_id": "task-1",
-        "node_ids": ["deploy"],
+        "action_digest": approvals.approval_action_digest(step),
+        "target": approvals.approval_action_target(step),
+        "nonce": f"nonce-{uuid4().hex}",
+        "node_ids": [str(step.get("node_id") or "")],
         "endpoint_prefixes": ["/homeassistant/service"],
-        "methods": ["POST"],
+        "methods": [str(step.get("method") or "POST").upper()],
         "risk_levels": ["high"],
-        "expires_at": "2099-01-01T00:00:00+00:00",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
         "note": "persisted approval",
     }
     values.update(updates)
+    return values
+
+
+def _persist_bound_grant(step=None, **updates):
+    step = step or _high_risk_step()
+    values = _exact_grant_values(step, **updates)
     return approvals.create_approval_grant(**values)
 
 
+def _grant_metadata(grant, **updates):
+    metadata = {
+        "principal_id": "principal-1",
+        "workflow_id": "wf-1",
+        "task_id": "task-1",
+        "approval_grant_ids": [grant["grant_id"]],
+    }
+    metadata.update(updates)
+    return metadata
+
+
 def test_caller_embedded_grant_body_cannot_authorize_high_risk_step(approval_store):
+    step = _high_risk_step()
     forged = {
         "grant_id": "grant_forged",
         "created_at": "2026-01-01T00:00:00+00:00",
-        "scope": "workflow",
-        "workflow_id": "wf-1",
-        "endpoint_prefixes": ["/homeassistant/service"],
-        "methods": ["POST"],
-        "risk_levels": ["high"],
+        "binding_version": "cortex.reasoning.approval.binding.v2",
+        "trust_source": "server_persisted",
+        **_exact_grant_values(step),
     }
-    step = _high_risk_step(metadata={"approval_grants": [forged]})
+    step["metadata"] = {"approval_grants": [forged]}
     result = evaluate_step_permission(
         step,
-        workflow_metadata={"workflow_id": "wf-1", "approval_grants": [forged]},
+        workflow_metadata={
+            "principal_id": "principal-1",
+            "workflow_id": "wf-1",
+            "task_id": "task-1",
+            "approval_grants": [forged],
+        },
     )
 
     assert result == {
@@ -73,7 +99,9 @@ def test_caller_embedded_grant_body_cannot_authorize_high_risk_step(approval_sto
         "approval_required": True,
         "approved": False,
         "approval_grant_id": None,
+        "approval_consumption": None,
         "matched_prefix": "/homeassistant/service",
+        "known_action": True,
         "endpoint": "/homeassistant/service/lights",
         "method": "POST",
     }
@@ -82,14 +110,18 @@ def test_caller_embedded_grant_body_cannot_authorize_high_risk_step(approval_sto
 @pytest.mark.parametrize(
     ("workflow_metadata", "step_update"),
     [
-        ({"task_id": "task-1"}, {}),
-        ({"workflow_id": "wf-other", "task_id": "task-1"}, {}),
-        ({"workflow_id": "wf-1"}, {}),
-        ({"workflow_id": "wf-1", "task_id": "task-other"}, {}),
-        ({"workflow_id": "wf-1", "task_id": "task-1"}, {"node_id": ""}),
-        ({"workflow_id": "wf-1", "task_id": "task-1"}, {"node_id": "other"}),
+        ({"workflow_id": "wf-1", "task_id": "task-1"}, {}),
+        ({"principal_id": "principal-other", "workflow_id": "wf-1", "task_id": "task-1"}, {}),
+        ({"principal_id": "principal-1", "task_id": "task-1"}, {}),
+        ({"principal_id": "principal-1", "workflow_id": "wf-other", "task_id": "task-1"}, {}),
+        ({"principal_id": "principal-1", "workflow_id": "wf-1"}, {}),
+        ({"principal_id": "principal-1", "workflow_id": "wf-1", "task_id": "task-other"}, {}),
+        ({"principal_id": "principal-1", "workflow_id": "wf-1", "task_id": "task-1"}, {"node_id": ""}),
+        ({"principal_id": "principal-1", "workflow_id": "wf-1", "task_id": "task-1"}, {"node_id": "other"}),
     ],
     ids=[
+        "principal-absent",
+        "principal-mismatch",
         "workflow-absent",
         "workflow-mismatch",
         "task-absent",
@@ -113,14 +145,11 @@ def test_every_populated_identity_binding_requires_matching_runtime_context(
 
 @pytest.mark.parametrize("risk_levels", [["medium"], ["high"]])
 def test_populated_risk_binding_requires_exact_runtime_risk(approval_store, risk_levels):
-    grant = _persist_bound_grant(risk_levels=risk_levels)
-    metadata = {
-        "workflow_id": "wf-1",
-        "task_id": "task-1",
-        "approval_grant_ids": [grant["grant_id"]],
-    }
+    step = _high_risk_step()
+    grant = _persist_bound_grant(step, risk_levels=risk_levels)
+    metadata = _grant_metadata(grant)
 
-    result = evaluate_step_permission(_high_risk_step(), workflow_metadata=metadata)
+    result = evaluate_step_permission(step, workflow_metadata=metadata)
 
     assert result["allow"] is (risk_levels == ["high"])
 
@@ -134,11 +163,7 @@ def test_malformed_persisted_timestamp_makes_grant_inactive(approval_store, time
 
     result = evaluate_step_permission(
         _high_risk_step(),
-        workflow_metadata={
-            "workflow_id": "wf-1",
-            "task_id": "task-1",
-            "approval_grant_ids": [grant["grant_id"]],
-        },
+        workflow_metadata=_grant_metadata(grant),
     )
 
     assert result["allow"] is False
@@ -154,11 +179,7 @@ def test_persisted_grant_missing_created_at_is_not_repaired_or_authorized(approv
     loaded = approvals.get_approval_grant(grant["grant_id"])
     result = evaluate_step_permission(
         _high_risk_step(),
-        workflow_metadata={
-            "workflow_id": "wf-1",
-            "task_id": "task-1",
-            "approval_grant_ids": [grant["grant_id"]],
-        },
+        workflow_metadata=_grant_metadata(grant),
     )
 
     assert loaded is not None
@@ -168,21 +189,27 @@ def test_persisted_grant_missing_created_at_is_not_repaired_or_authorized(approv
 
 
 def test_endpoint_prefix_matches_exact_and_subpath_but_not_confusable_sibling(approval_store):
-    grant = _persist_bound_grant(endpoint_prefixes=["/homeassistant/service/"])
-    metadata = {
-        "workflow_id": "wf-1",
-        "task_id": "task-1",
-        "approval_grant_ids": [grant["grant_id"]],
-    }
-
-    exact = evaluate_step_permission(_high_risk_step(endpoint="/homeassistant/service"), workflow_metadata=metadata)
-    subpath = evaluate_step_permission(_high_risk_step(), workflow_metadata=metadata)
-    confused = evaluate_step_permission(
-        _high_risk_step(endpoint="/homeassistant/service-evil"), workflow_metadata=metadata
+    exact_step = _high_risk_step(endpoint="/homeassistant/service")
+    subpath_step = _high_risk_step()
+    confused_step = _high_risk_step(
+        endpoint="/homeassistant/service-evil",
+        metadata={"approval_required": True},
     )
+    exact_grant = _persist_bound_grant(exact_step, endpoint_prefixes=["/homeassistant/service/"])
+    subpath_grant = _persist_bound_grant(subpath_step, endpoint_prefixes=["/homeassistant/service/"])
+    confused_grant = _persist_bound_grant(
+        confused_step,
+        endpoint_prefixes=["/homeassistant/service/"],
+        risk_levels=["medium"],
+    )
+
+    exact = evaluate_step_permission(exact_step, workflow_metadata=_grant_metadata(exact_grant))
+    subpath = evaluate_step_permission(subpath_step, workflow_metadata=_grant_metadata(subpath_grant))
+    confused = evaluate_step_permission(confused_step, workflow_metadata=_grant_metadata(confused_grant))
 
     assert exact["allow"] is True
     assert subpath["allow"] is True
+    assert confused["allow"] is False
     assert confused["approved"] is False
     assert confused["approval_grant_id"] is None
 
@@ -211,7 +238,7 @@ def test_high_risk_classification_uses_endpoint_path(endpoint):
     [
         ("/homeassistant%2Fservice/lights", "high", "/homeassistant/service"),
         ("/homeassistant%2fservice/lights", "high", "/homeassistant/service"),
-        ("/homeassistant%5Cservice", "low", None),
+        ("/homeassistant%5Cservice", "unknown", None),
         ("/homeassistant/service/%2e%2e/bridge", "high", "/homeassistant/service"),
         ("/homeassistant/service/../bridge", "high", "/homeassistant/service"),
         ("/homeassistant/service%", "medium", "/homeassistant"),
@@ -238,14 +265,11 @@ def test_ambiguous_or_malformed_endpoint_paths_fail_closed(endpoint, risk, match
 
 
 def test_ordinary_percent_escape_is_decoded_for_risk_and_grant_matching(approval_store):
-    grant = _persist_bound_grant()
+    step = _high_risk_step(endpoint="/homeassistant/%73ervice/lights")
+    grant = _persist_bound_grant(step, endpoint_prefixes=["/homeassistant/%73ervice"])
     result = evaluate_step_permission(
-        _high_risk_step(endpoint="/homeassistant/%73ervice/lights"),
-        workflow_metadata={
-            "workflow_id": "wf-1",
-            "task_id": "task-1",
-            "approval_grant_ids": [grant["grant_id"]],
-        },
+        step,
+        workflow_metadata=_grant_metadata(grant),
     )
 
     assert result["risk"] == "high"
@@ -254,14 +278,11 @@ def test_ordinary_percent_escape_is_decoded_for_risk_and_grant_matching(approval
 
 
 def test_path_scoped_grant_authorizes_high_risk_endpoint_with_query(approval_store):
-    grant = _persist_bound_grant(endpoint_prefixes=["/bridge"])
+    step = _high_risk_step(endpoint="/bridge/relay?target=/safe#result")
+    grant = _persist_bound_grant(step, endpoint_prefixes=["/bridge"])
     result = evaluate_step_permission(
-        _high_risk_step(endpoint="/bridge/relay?target=/safe#result"),
-        workflow_metadata={
-            "workflow_id": "wf-1",
-            "task_id": "task-1",
-            "approval_grant_ids": [grant["grant_id"]],
-        },
+        step,
+        workflow_metadata=_grant_metadata(grant),
     )
 
     assert result["risk"] == "high"
@@ -283,11 +304,7 @@ def test_persisted_grant_survives_reload_and_preserves_public_result_fields(appr
 
     result = evaluate_step_permission(
         _high_risk_step(),
-        workflow_metadata={
-            "workflow_id": "wf-1",
-            "task_id": "task-1",
-            "approval_grant_ids": [grant["grant_id"]],
-        },
+        workflow_metadata=_grant_metadata(grant),
     )
     assert set(result) == {
         "allow",
@@ -296,7 +313,9 @@ def test_persisted_grant_survives_reload_and_preserves_public_result_fields(appr
         "approval_required",
         "approved",
         "approval_grant_id",
+        "approval_consumption",
         "matched_prefix",
+        "known_action",
         "endpoint",
         "method",
     }

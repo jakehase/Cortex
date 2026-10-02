@@ -5,16 +5,22 @@ import cortex_server.routers.nexus as nexus
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 
 
-def _client(monkeypatch):
+def _client(monkeypatch, *, headers=None):
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    return TestClient(app)
+    return TestClient(app, headers=headers)
 
 
-def test_orchestrate_returns_assurance_contract(monkeypatch):
-    client = _client(monkeypatch)
+def test_orchestrate_returns_assurance_contract(
+    monkeypatch,
+    configured_memory_principal,
+):
+    client = _client(
+        monkeypatch,
+        headers=configured_memory_principal().headers,
+    )
     r = client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
     assert r.status_code == 200
     body = r.json()
@@ -25,8 +31,14 @@ def test_orchestrate_returns_assurance_contract(monkeypatch):
     assert body["contract"]["assurance_verdict"] == body["assurance"]["verdict"]
 
 
-def test_assurance_surfaces_missing_constraints(monkeypatch):
-    client = _client(monkeypatch)
+def test_assurance_surfaces_missing_constraints(
+    monkeypatch,
+    configured_memory_principal,
+):
+    client = _client(
+        monkeypatch,
+        headers=configured_memory_principal().headers,
+    )
     q = "How do I install this under budget 100 with at least 3 steps?"
     r = client.post("/nexus/orchestrate", json={}, params={"query": q})
     assert r.status_code == 200
@@ -36,9 +48,15 @@ def test_assurance_surfaces_missing_constraints(monkeypatch):
     assert body["assurance"]["release_decision"] in {"downgrade", "repair", "block"}
 
 
-def test_assurance_surfaces_missing_constraints_on_semantic_lane(monkeypatch):
+def test_assurance_surfaces_missing_constraints_on_semantic_lane(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(nexus, "_is_simple_qa", lambda *a, **k: False)
-    client = _client(monkeypatch)
+    client = _client(
+        monkeypatch,
+        headers=configured_memory_principal().headers,
+    )
     q = "How do I install this under budget 100 with at least 3 steps?"
     r = client.post("/nexus/orchestrate", json={}, params={"query": q})
 

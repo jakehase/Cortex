@@ -72,7 +72,6 @@ def schedule_runtime_plan(
     request: Any,
     *,
     workflow: JsonDict,
-    create_approval_grant_fn: Callable[..., JsonDict],
     build_workflow_policy_fn: Callable[..., JsonDict],
     create_process_from_workflow_fn: Callable[..., JsonDict],
 ) -> JsonDict:
@@ -81,26 +80,14 @@ def schedule_runtime_plan(
     if request.options.cadence_seconds:
         runtime_metadata["cadence_seconds"] = int(request.options.cadence_seconds)
     approval_grant_ids = [str(x) for x in (request.options.approval_grant_ids or []) if str(x).strip()]
-    for item in request.options.approval_grants or []:
-        if not isinstance(item, dict):
-            continue
-        grant = create_approval_grant_fn(
-            workflow_id=workflow["workflow_id"],
-            granted_by=str(item.get("granted_by") or "human"),
-            scope=str(item.get("scope") or "workflow"),
-            task_id=((workflow.get("kernel_task") or {}).get("task_id")),
-            node_ids=list(item.get("node_ids") or []),
-            endpoint_prefixes=list(item.get("endpoint_prefixes") or []),
-            methods=list(item.get("methods") or []),
-            risk_levels=list(item.get("risk_levels") or []),
-            expires_at=item.get("expires_at"),
-            note=item.get("note"),
-            metadata=dict(item.get("metadata") or {}),
-        )
-        approval_grant_ids.append(str(grant.get("grant_id")))
+    inline_approval_grants = [dict(item) for item in (request.options.approval_grants or []) if isinstance(item, dict)]
+    if inline_approval_grants:
+        # Preserve signed grants for downstream verification.  Scheduling must
+        # never turn an unsigned caller assertion into a persisted authority.
+        runtime_metadata["approval_grants"] = inline_approval_grants
     if approval_grant_ids:
         runtime_metadata["approval_grant_ids"] = approval_grant_ids
-    if request.options.approved and not approval_grant_ids:
+    if request.options.approved:
         runtime_metadata["legacy_approval_requested"] = True
     runtime_policy = build_workflow_policy_fn(
         name=workflow["name"],
@@ -1092,10 +1079,87 @@ async def maybe_sentinel_gate(
 ) -> Optional[JsonDict]:
     if (metadata or {}).get("requires_preflight") is not True:
         return None
-    gate = await sentinel_preflight_fn()
-    if isinstance(gate, dict) and gate.get("success") and isinstance(gate.get("scan"), dict):
-        if int(gate["scan"].get("issues_found") or 0) > 0:
-            return {"success": False, "error": "sentinel_gate_failed", "sentinel": gate.get("scan"), "workflow_id": workflow_id}
+
+    def blocked(error: str, *, detail: str, sentinel: Optional[JsonDict] = None) -> JsonDict:
+        evidence = sentinel if isinstance(sentinel, dict) else {
+            "status": "unavailable" if error == "sentinel_preflight_unavailable" else "malformed",
+            "error": detail,
+        }
+        return {
+            "success": False,
+            "error": error,
+            "detail": detail,
+            "sentinel": evidence,
+            "workflow_id": workflow_id,
+        }
+
+    try:
+        gate = await sentinel_preflight_fn()
+    except Exception as exc:
+        return blocked(
+            "sentinel_preflight_unavailable",
+            detail=f"{type(exc).__name__}:{exc}"[:300],
+        )
+
+    if not isinstance(gate, dict):
+        return blocked(
+            "sentinel_preflight_malformed",
+            detail="preflight response must be an object",
+        )
+    if gate.get("success") is not True:
+        detail = str(gate.get("error") or "preflight response did not report success")[:300]
+        return blocked("sentinel_preflight_unavailable", detail=detail)
+
+    scan = gate.get("scan")
+    if not isinstance(scan, dict):
+        return blocked(
+            "sentinel_preflight_malformed",
+            detail="successful preflight response is missing a scan object",
+        )
+    issues_found = scan.get("issues_found")
+    if type(issues_found) is not int or issues_found < 0:
+        return blocked(
+            "sentinel_preflight_malformed",
+            detail="scan.issues_found must be a non-negative integer",
+            sentinel=scan,
+        )
+    watchers_checked = scan.get("watchers_checked")
+    results = scan.get("results")
+    if (
+        type(watchers_checked) is not int
+        or watchers_checked <= 0
+        or not isinstance(results, list)
+        or len(results) != watchers_checked
+    ):
+        return blocked(
+            "sentinel_preflight_malformed",
+            detail="scan must contain a non-empty result for every checked watcher",
+            sentinel=scan,
+        )
+    for result in results:
+        if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+            return blocked(
+                "sentinel_preflight_malformed",
+                detail="every scan result must contain a boolean ok field",
+                sentinel=scan,
+            )
+        try:
+            status_code = int(result.get("status_code"))
+        except (TypeError, ValueError):
+            status_code = 0
+        if result.get("ok") is not True or not 0 < status_code < 400:
+            if issues_found == 0:
+                return blocked(
+                    "sentinel_preflight_malformed",
+                    detail="scan issue count contradicts an unhealthy result",
+                    sentinel=scan,
+                )
+    if issues_found > 0:
+        return blocked(
+            "sentinel_gate_failed",
+            detail=f"Sentinel reported {issues_found} issue(s)",
+            sentinel=scan,
+        )
     return None
 
 

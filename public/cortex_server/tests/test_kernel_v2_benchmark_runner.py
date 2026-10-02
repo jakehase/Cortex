@@ -2,7 +2,8 @@ from cortex_server.benchmarks.kernel_v2_benchmark import run_suite
 from pathlib import Path
 
 
-def test_kernel_v2_benchmark_runner_smoke(tmp_path):
+def test_kernel_v2_benchmark_runner_smoke(tmp_path, configured_memory_principal):
+    auth = configured_memory_principal(session_id="bench-memory-alpha")
     corpus_path = Path(__file__).resolve().parents[1] / "benchmarks" / "cortex_kernel_v2_corpus_2026-04-01.json"
     results = run_suite(
         str(corpus_path),
@@ -13,6 +14,7 @@ def test_kernel_v2_benchmark_runner_smoke(tmp_path):
             "oracle_memory_followup",
             "command_center_state",
         ],
+        memory_scope_headers=auth.headers,
     )
 
     assert results["summary"]["total_runs"] == 4

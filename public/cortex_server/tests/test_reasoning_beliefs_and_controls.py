@@ -1,5 +1,7 @@
 import json
 import asyncio
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -11,6 +13,35 @@ from cortex_server.modules.governance_compiler import compile_workflow_policy
 from cortex_server.modules.reasoning_planner import ReasoningPlanGraph
 from cortex_server.modules.reasoning_safety import evaluate_step_permission
 from cortex_server.modules.verification_contracts import evaluate_contracts
+
+
+def _persist_exact_approval(step, **updates):
+    values = {
+        "granted_by": "approval-issuer",
+        "scope": "workflow",
+        "principal_id": "principal-demo",
+        "workflow_id": "wf_demo",
+        "action_digest": approvals.approval_action_digest(step),
+        "target": approvals.approval_action_target(step),
+        "nonce": f"nonce-{uuid4().hex}",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        "node_ids": [str(step.get("node_id") or "")],
+        "endpoint_prefixes": [str(step.get("endpoint") or "")],
+        "methods": [str(step.get("method") or "POST").upper()],
+        "risk_levels": ["high"],
+    }
+    values.update(updates)
+    return approvals.create_approval_grant(**values)
+
+
+def _approval_metadata(grant, **updates):
+    metadata = {
+        "principal_id": "principal-demo",
+        "workflow_id": "wf_demo",
+        "approval_grant_ids": [grant["grant_id"]],
+    }
+    metadata.update(updates)
+    return metadata
 
 
 
@@ -100,25 +131,26 @@ def test_verification_contracts_and_safety_gate_work(tmp_path, monkeypatch):
         {"endpoint": "/homeassistant/service", "method": "POST", "metadata": {"approval_required": True}},
         workflow_metadata={},
     )
-    grant = approvals.create_approval_grant(
+    step = {
+        "endpoint": "/homeassistant/service",
+        "method": "POST",
+        "node_id": "lights",
+        "metadata": {},
+    }
+    grant = _persist_exact_approval(
+        step,
         granted_by="Jake",
-        scope="workflow",
-        workflow_id="wf_demo",
-        node_ids=["lights"],
-        endpoint_prefixes=["/homeassistant/service"],
-        methods=["POST"],
-        risk_levels=["high"],
         metadata={"role": "approver"},
     )
     approved = evaluate_step_permission(
-        {"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights", "metadata": {}},
-        workflow_metadata={"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+        step,
+        workflow_metadata=_approval_metadata(grant),
     )
     approval_contract = evaluate_contracts(
         [{"kind": "approval_required", "stage": "pre", "approval_scope": "workflow"}],
         stage="pre",
-        step={"endpoint": "/homeassistant/service", "method": "POST", "node_id": "lights", "metadata": {}},
-        workflow_metadata={"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+        step=step,
+        workflow_metadata=_approval_metadata(grant),
         user_id="Jake",
         role="approver",
     )
@@ -164,18 +196,24 @@ def test_approval_contract_accepts_authoritative_grant_without_node_or_caller_bi
 ):
     monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
-    grant = approvals.create_approval_grant(
+    step = {
+        "endpoint": "/homeassistant/service",
+        "method": "POST",
+        "node_id": "lights",
+        "metadata": {},
+    }
+    grant = _persist_exact_approval(
+        step,
         granted_by="grant-issuer-not-caller",
         scope=scope,
-        methods=["POST"],
         **grant_bindings,
     )
 
     result = evaluate_contracts(
         [{"kind": "approval_required", "stage": "pre", "approval_scope": scope}],
         stage="pre",
-        step={"endpoint": "/homeassistant/service", "method": "POST", "metadata": {}},
-        workflow_metadata={"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+        step=step,
+        workflow_metadata=_approval_metadata(grant),
     )
 
     assert result["ok"] is True
@@ -185,16 +223,21 @@ def test_approval_contract_accepts_authoritative_grant_without_node_or_caller_bi
 def test_approval_contract_enforces_explicit_role_binding(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "DEFAULT_STATE_PATH", tmp_path / "reasoning_approvals.json")
     monkeypatch.setattr(approvals, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
-    grant = approvals.create_approval_grant(
-        scope="workflow",
-        workflow_id="wf_demo",
+    step = {
+        "endpoint": "/homeassistant/service",
+        "method": "POST",
+        "node_id": "lights",
+        "metadata": {},
+    }
+    grant = _persist_exact_approval(
+        step,
         metadata={"role": "approver"},
     )
     contract = [{"kind": "approval_required", "stage": "pre", "approval_scope": "workflow"}]
     context = {
         "stage": "pre",
-        "step": {"endpoint": "/safe", "method": "POST"},
-        "workflow_metadata": {"workflow_id": "wf_demo", "approval_grant_ids": [grant["grant_id"]]},
+        "step": step,
+        "workflow_metadata": _approval_metadata(grant),
     }
 
     assert evaluate_contracts(contract, role="approver", **context)["ok"] is True

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-
-DEFAULT_STATE_PATH = Path(os.getenv("ROUTE_HEALTH_STATE_PATH", "/opt/clawdbot/state/route_health.json"))
+DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/route_health.json")
 DEFAULT_BREAKER_THRESHOLD = 3
 DEFAULT_BREAKER_COOLDOWN_SECONDS = 60.0
 DEFAULT_HALF_OPEN_MAX_PROBES = 1
@@ -32,11 +32,14 @@ class RouteHealthMonitor:
         cooldown_seconds: float = DEFAULT_BREAKER_COOLDOWN_SECONDS,
         half_open_max_probes: int = DEFAULT_HALF_OPEN_MAX_PROBES,
     ) -> None:
-        self.state_path = state_path or DEFAULT_STATE_PATH
+        self.state_path = (
+            Path(state_path)
+            if state_path is not None
+            else Path(os.getenv("ROUTE_HEALTH_STATE_PATH", str(DEFAULT_STATE_PATH)))
+        )
         self.failure_threshold = max(1, int(failure_threshold))
         self.cooldown_seconds = max(1.0, float(cooldown_seconds))
         self.half_open_max_probes = max(1, int(half_open_max_probes))
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state = self._load_state()
 
     def _load_state(self) -> Dict[str, Any]:
@@ -52,6 +55,7 @@ class RouteHealthMonitor:
         return {"version": "route_health.v1", "dependencies": {}}
 
     def _persist(self) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(json.dumps(self.state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _row(self, dependency: str) -> Dict[str, Any]:
@@ -164,4 +168,27 @@ class RouteHealthMonitor:
         return {"version": self.state.get("version", "route_health.v1"), "dependencies": deps}
 
 
-ROUTE_HEALTH = RouteHealthMonitor()
+_ROUTE_HEALTH_INSTANCE: Optional[RouteHealthMonitor] = None
+_ROUTE_HEALTH_LOCK = threading.Lock()
+
+
+def get_route_health_monitor() -> RouteHealthMonitor:
+    """Resolve the process monitor when a runtime route first needs it."""
+
+    global _ROUTE_HEALTH_INSTANCE
+    if _ROUTE_HEALTH_INSTANCE is not None:
+        return _ROUTE_HEALTH_INSTANCE
+    with _ROUTE_HEALTH_LOCK:
+        if _ROUTE_HEALTH_INSTANCE is None:
+            _ROUTE_HEALTH_INSTANCE = RouteHealthMonitor()
+        return _ROUTE_HEALTH_INSTANCE
+
+
+class _LazyRouteHealthMonitor:
+    """Compatibility facade that keeps module import read-only."""
+
+    def __getattr__(self, name: str):
+        return getattr(get_route_health_monitor(), name)
+
+
+ROUTE_HEALTH = _LazyRouteHealthMonitor()

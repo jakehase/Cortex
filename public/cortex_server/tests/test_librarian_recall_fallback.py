@@ -140,14 +140,17 @@ async def test_librarian_status_accepts_live_collection_despite_stale_degraded_c
 
 
 @pytest.mark.asyncio
-async def test_librarian_status_accepts_fallback_when_collection_probe_fails(monkeypatch):
+async def test_librarian_status_reports_fallback_only_as_degraded(monkeypatch):
     monkeypatch.setattr(librarian.collection, "count", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
     monkeypatch.setattr(librarian, "_fallback_store_appendable", lambda: True)
 
     status = await librarian.librarian_status()
 
-    assert status["success"] is True
-    assert status["status"] == "active"
+    assert status["success"] is False
+    assert status["status"] == "degraded"
+    assert status["degraded"] is True
+    assert status["semantic_store_available"] is False
+    assert status["fallback_persistence_available"] is True
 
 
 @pytest.mark.asyncio
@@ -331,7 +334,7 @@ def test_robust_search_uses_local_file_memory_when_chroma_misses_client_context(
     monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
     monkeypatch.setattr(librarian.collection, "query", _fake_query)
     monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
-    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *args, **kwargs: [])
 
     out = librarian.robust_search("Morgan SimplePractice NPI billing provider correspondence", n_results=2, allow_fallback=True)
     assert out["results"]
@@ -356,7 +359,7 @@ def test_local_file_memory_ranks_later_correction_above_stale_negative(monkeypat
     monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
     monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
     monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
-    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *args, **kwargs: [])
 
     out = librarian.robust_search("Morgan correspondence SimplePractice NPI billing provider", n_results=3, allow_fallback=True)
     assert out["results"]
@@ -381,7 +384,7 @@ def test_local_file_memory_staleness_is_generic_not_morgan_specific(monkeypatch,
     monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
     monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
     monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
-    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *args, **kwargs: [])
 
     out = librarian.robust_search("Nexus webhook bridge implemented verified", n_results=3, allow_fallback=True)
     assert out["results"]
@@ -466,7 +469,7 @@ def test_negative_evidence_queries_can_still_return_missing_rows(monkeypatch, tm
     monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
     monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
     monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
-    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *args, **kwargs: [])
 
     out = librarian.robust_search("what was missing for Nexus webhook bridge", n_results=3, allow_fallback=True)
     assert out["results"]
@@ -488,7 +491,7 @@ def test_memory_system_meta_notes_do_not_crowd_domain_facts(monkeypatch, tmp_pat
     monkeypatch.setenv(librarian._LOCAL_FILE_MEMORY_ROOTS_ENV, str(memory_root))
     monkeypatch.setattr(librarian.collection, "query", lambda *args, **kwargs: {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]})
     monkeypatch.setattr(librarian.collection, "get", lambda *args, **kwargs: {"ids": [], "documents": [], "metadatas": []})
-    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda limit=200: [])
+    monkeypatch.setattr(librarian, "_read_fallback_rows", lambda *args, **kwargs: [])
 
     out = librarian.robust_search("Morgan correspondence SimplePractice NPI billing provider", n_results=3, allow_fallback=True)
     assert out["results"]

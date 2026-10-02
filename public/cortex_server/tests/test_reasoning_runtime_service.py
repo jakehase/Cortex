@@ -45,7 +45,17 @@ def test_maybe_sentinel_gate_and_build_workflow_request_record():
         runtime_service.maybe_sentinel_gate(
             metadata={"requires_preflight": True},
             workflow_id="wf_1",
-            sentinel_preflight_fn=lambda: _async_result({"success": True, "scan": {"issues_found": 2}}),
+            sentinel_preflight_fn=lambda: _async_result({
+                "success": True,
+                "scan": {
+                    "issues_found": 2,
+                    "watchers_checked": 2,
+                    "results": [
+                        {"ok": False, "status_code": 503},
+                        {"ok": False, "status_code": 503},
+                    ],
+                },
+            }),
         )
     )
     assert blocked["error"] == "sentinel_gate_failed"
@@ -55,7 +65,14 @@ def test_maybe_sentinel_gate_and_build_workflow_request_record():
         runtime_service.maybe_sentinel_gate(
             metadata={"requires_preflight": True},
             workflow_id="wf_2",
-            sentinel_preflight_fn=lambda: _async_result({"success": True, "scan": {"issues_found": 0}}),
+            sentinel_preflight_fn=lambda: _async_result({
+                "success": True,
+                "scan": {
+                    "issues_found": 0,
+                    "watchers_checked": 1,
+                    "results": [{"ok": True, "status_code": 200}],
+                },
+            }),
         )
     )
     assert allowed is None
@@ -99,7 +116,14 @@ def test_execute_and_persist_workflow_and_finalize_async_paths():
         runtime_service.finalize_async_workflow(
             {"workflow_id": "wf_blocked", "name": "blocked"},
             metadata={"requires_preflight": True},
-            sentinel_preflight_fn=lambda: _async_result({"success": True, "scan": {"issues_found": 1}}),
+            sentinel_preflight_fn=lambda: _async_result({
+                "success": True,
+                "scan": {
+                    "issues_found": 1,
+                    "watchers_checked": 1,
+                    "results": [{"ok": False, "status_code": 503}],
+                },
+            }),
             execute_workflow_fn=execute_workflow_fn,
             apply_execution_result_fn=lambda wf, ex, **kwargs: blocked_applied.append(ex) or wf,
             build_blocked_execution_fn=lambda **kwargs: {"status": "blocked", "sentinel": kwargs["scan"]},

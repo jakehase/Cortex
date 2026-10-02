@@ -45,6 +45,105 @@ def test_normalize_runtime_event_accepts_legacy_aliases_and_redacts_sensitive_fi
     assert event["lineage"]["redaction"]["redacted_field_count"] >= 1
 
 
+def test_runtime_event_retains_closed_classification_and_progress_metadata():
+    tool_event = normalize_runtime_event(
+        process_id="proc_tool",
+        kind="tool_call_started",
+        payload={
+            "agent_id": "cortex",
+            "scope": "task:visible_work",
+            "source": "runtime",
+            "tool": "pytest",
+            "command_kind": "test",
+            "command_text": "pytest -q tests/test_runtime.py",
+            "unclassified_detail": "must not cross the evidence boundary",
+            "token": "sk-secret-token-1234567890",
+        },
+    )
+
+    assert tool_event["agent_id"] == "cortex"
+    assert tool_event["scope"] == "task:visible_work"
+    assert tool_event["payload"]["source"] == "runtime"
+    assert tool_event["payload"]["tool"] == "pytest"
+    assert tool_event["payload"]["command_kind"] == "test"
+    assert tool_event["payload"]["command_text"] == "[REDACTED]"
+    assert tool_event["payload"]["unclassified_detail"] == "[REDACTED]"
+    assert tool_event["payload"]["token"] == "[REDACTED]"
+
+    progress_event = normalize_runtime_event(
+        process_id="proc_rollback",
+        kind="runtime_delivery_rollback_applied.progress",
+        payload={
+            "rollback_transaction_id": "rollback_tx_123",
+            "snapshot_id": "snapshot_123",
+            "shared_state_revision_id": "revision_123",
+            "lifecycle_state": "running",
+            "active_nodes": ["build"],
+            "waiting_nodes": ["verify"],
+            "completed_nodes": [],
+            "failed_nodes": [],
+        },
+    )
+
+    assert progress_event["payload"] == {
+        "rollback_transaction_id": "rollback_tx_123",
+        "snapshot_id": "snapshot_123",
+        "shared_state_revision_id": "revision_123",
+        "lifecycle_state": "running",
+        "active_nodes": ["build"],
+        "waiting_nodes": ["verify"],
+        "completed_nodes": [],
+        "failed_nodes": [],
+    }
+
+
+def test_policy_patch_event_retains_closed_rollback_schema_without_session_secrets():
+    event = normalize_runtime_event(
+        process_id="proc_policy",
+        kind="policy_patch_applied",
+        payload={
+            "revision_id": "polrev_123",
+            "settings": ["step_timeout_seconds"],
+            "applied_settings": [
+                {
+                    "setting": "step_timeout_seconds",
+                    "before": 15,
+                    "after": 30,
+                    "op": "replace",
+                }
+            ],
+            "metadata_overrides": {"step_timeout_seconds": 30},
+            "previous_values": {"step_timeout_seconds": 15},
+            "operator_overrides": {"step_timeout_seconds": 30},
+            "audit": {
+                "control": "freeze_policy",
+                "actor": {
+                    "actor_id": "cortex",
+                    "actor_session_key": "session-secret-value",
+                },
+                "authorization": {
+                    "authorized": True,
+                    "basis": "owner_match",
+                    "process_session_key": "process-session-secret",
+                },
+            },
+        },
+    )
+
+    assert event["payload"]["metadata_overrides"] == {
+        "step_timeout_seconds": 30
+    }
+    assert event["payload"]["previous_values"] == {
+        "step_timeout_seconds": 15
+    }
+    assert event["payload"]["audit"]["authorization"]["authorized"] is True
+    assert event["payload"]["audit"]["actor"]["actor_session_key"] == "[REDACTED]"
+    assert (
+        event["payload"]["audit"]["authorization"]["process_session_key"]
+        == "[REDACTED]"
+    )
+
+
 def test_validate_state_class_collection_rejects_cross_class_promotion():
     with pytest.raises(ValueError, match="state_class_mismatch"):
         validate_state_class_collection(
@@ -100,20 +199,32 @@ def test_runtime_process_traceability_alias_returns_canonical_bundle(monkeypatch
     assert result["traceability_contract"]["raw_event_class"] == "observed_evidence"
 
 
-def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(monkeypatch):
+def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
 
     session_key = "session:nexus-memory-lineage"
+    auth = configured_memory_principal(session_key)
+    codec_session_key = auth.principal.codec_session_key
     update_codec_state_for_session(
-        session_key,
+        codec_session_key,
         [
             {
                 "text": "Call me Jake and start replies with [Cortex].",
                 "metadata": {"project": "Codec Memory Lineage"},
             }
         ],
+        tenant_id=auth.principal.tenant_id,
+        workspace_id=auth.principal.storage_workspace_id,
     )
-    packet = codec_module.get_codec_packet_for_session(session_key, max_chars=400)
+    packet = codec_module.get_codec_packet_for_session(
+        codec_session_key,
+        max_chars=400,
+        tenant_id=auth.principal.tenant_id,
+        workspace_id=auth.principal.storage_workspace_id,
+    )
     memory_facts = ((packet.get("state") or {}).get("memory_facts") or []) if isinstance(packet, dict) else []
     assert memory_facts, "expected codec memory facts to exist"
     memory_id = memory_facts[0]["memory_id"]
@@ -121,7 +232,7 @@ def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(monkeypatch
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
-    client = TestClient(app)
+    client = TestClient(app, headers=auth.headers)
 
     response = client.get(f"/nexus/codec/memory/{memory_id}/lineage", headers={"x-session-id": session_key})
 

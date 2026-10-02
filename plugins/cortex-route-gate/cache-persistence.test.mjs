@@ -47,9 +47,12 @@ async function invokeWithUnwritableCache(requireRouting, seedCrashTemporary = fa
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
+    success: true,
     recommended_levels: [{ level: 24, name: 'Nexus', reason: 'validated live route' }],
     routing_method: 'live_persistence_test',
     reasoning: ['live routing succeeded'],
+    routing_markers: {},
+    contract: { contract_version: 'orchestrate_guard_v3' },
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 
   try {

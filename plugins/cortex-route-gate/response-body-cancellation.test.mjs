@@ -6,6 +6,8 @@ import path from 'node:path';
 
 import register from './index.ts';
 
+const SAFE_ROUTING_FAILURE = /routing unavailable while requireRouting is enabled; type=Error detail_hash=[0-9a-f]{64}/;
+
 function setupRouteGate() {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-cancel-'));
   const handlers = new Map();
@@ -54,7 +56,8 @@ test('concurrent Content-Length rejections cancel every routing response body', 
     assert.equal(cancellations, attempts.length);
     for (const result of results) {
       assert.equal(result.status, 'rejected');
-      assert.match(String(result.reason), /response exceeds 1024 bytes/);
+      assert.match(String(result.reason), SAFE_ROUTING_FAILURE);
+      assert.doesNotMatch(String(result.reason), /response exceeds 1024 bytes/);
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -76,7 +79,7 @@ test('a body cancellation failure does not mask the response size rejection', as
         { prompt: 'Route request', messages: [{ role: 'user', content: 'Route request' }] },
         { sessionKey: 'agent:main:test:cancel-failure', agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
       ),
-      /response exceeds 1024 bytes/,
+      SAFE_ROUTING_FAILURE,
     );
     assert.equal(cancellationAttempted, true);
   } finally {
@@ -99,7 +102,7 @@ test('a stalled body cancellation does not hold the size rejection open', async 
         { prompt: 'Route request', messages: [{ role: 'user', content: 'Route request' }] },
         { sessionKey: 'agent:main:test:stalled-cancel', agentId: 'test-agent', userId: 'test-user', channelId: 'test-channel' },
       ),
-      /response exceeds 1024 bytes/,
+      SAFE_ROUTING_FAILURE,
     );
     assert.equal(cancellationAttempted, true);
   } finally {

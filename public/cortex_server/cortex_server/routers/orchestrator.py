@@ -28,8 +28,8 @@ from contextlib import ExitStack, asynccontextmanager, contextmanager
 from functools import partial
 from uuid import uuid4
 
+from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL, internal_url
 from cortex_server.modules.diplomat import get_diplomat
-from cortex_server.modules.reasoning_approvals import create_approval_grant
 from cortex_server.modules.reasoning_beliefs import belief_conflicts, beliefs_for_task, explain_belief, get_belief, list_beliefs, search_beliefs, select_influential_beliefs, summarize_beliefs, trace_belief_lineage, upsert_belief
 from cortex_server.modules import reasoning_explain as explain
 from cortex_server.modules import reasoning_observability as observability
@@ -50,7 +50,9 @@ from cortex_server.modules.reasoning_planner import (
     validate_plan_graph,
 )
 from cortex_server.modules.reasoning_policy import build_workflow_policy
+from cortex_server.modules.reasoning_retry_policy import validate_retry_metadata
 from cortex_server.modules.reasoning_store import get_doc as store_get_doc, list_docs as store_list_docs, upsert_doc as store_upsert_doc
+from cortex_server.modules.sensitive_data_redaction import redact_headers
 from cortex_server.modules.reasoning_scheduler import (
     ReasoningSchedulerError,
     create_process_from_workflow,
@@ -177,14 +179,14 @@ _stats = {
     "workflows_executed": 0,
 }
 
-BASE_URL = "http://127.0.0.1:8888"
+BASE_URL = CORTEX_INTERNAL_BASE_URL
 
 MAX_WORKFLOW_STEPS = int(os.getenv("ORCHESTRATOR_MAX_STEPS", "25"))
 MAX_PAYLOAD_BYTES = int(os.getenv("ORCHESTRATOR_MAX_PAYLOAD_BYTES", "51200"))
 STEP_TIMEOUT_MAX_S = float(os.getenv("ORCHESTRATOR_STEP_TIMEOUT_MAX_S", "20"))
 MAX_STEP_RESPONSE_CHARS = int(os.getenv("ORCHESTRATOR_MAX_STEP_RESPONSE_CHARS", "4000"))
 MAX_EXECUTIONS_PER_WORKFLOW = int(os.getenv("ORCHESTRATOR_MAX_EXECUTIONS_PER_WORKFLOW", "20"))
-SENTINEL_SCAN_URL = "http://127.0.0.1:8888/sentinel/scan"
+SENTINEL_SCAN_URL = internal_url("/sentinel/scan")
 
 
 def _db_path() -> Path:
@@ -3644,12 +3646,29 @@ class WorkflowStep(BaseModel):
     failure_mode: str = "continue"
     metadata: Dict[str, Any] = {}
 
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        validate_retry_metadata(value)
+        return value
+
 
 class CreateWorkflowRequest(BaseModel):
     """Workflow definition."""
     name: str
     steps: List[WorkflowStep]
     metadata: Optional[Dict[str, Any]] = {}
+
+    @field_validator("metadata")
+    @classmethod
+    def _bounded_retry_metadata(
+        cls, value: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        validate_retry_metadata(value)
+        policy = value.get("policy") if isinstance(value, dict) and isinstance(value.get("policy"), dict) else {}
+        settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
+        validate_retry_metadata(settings)
+        return value
 
 
 class RuntimeScheduleOptions(BaseModel):
@@ -4074,16 +4093,7 @@ class RuntimeMaintenanceIntakeRequest(BaseModel):
 
 
 def _redact_headers(h: Any) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    if not isinstance(h, dict):
-        return out
-    for k,v in h.items():
-        lk=str(k).lower()
-        if lk in ("authorization","x-bridge-token","x-api-key","cookie"):
-            out[str(k)] = "[REDACTED]"
-        else:
-            out[str(k)] = str(v)[:200]
-    return out
+    return redact_headers(h, max_value_chars=200)
 
 def _validate_endpoint(ep: str) -> None:
     if not isinstance(ep, str) or not ep.startswith('/'):
@@ -4145,13 +4155,13 @@ def _payload_size_ok(obj: Any) -> bool:
 
 
 async def _sentinel_preflight() -> Dict[str, Any]:
-    try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            r = await client.post(SENTINEL_SCAN_URL, json={})
-            r.raise_for_status()
-            return r.json()
-    except Exception as e:
-        return {"success": False, "error": f"sentinel_preflight_failed:{type(e).__name__}:{e}"}
+    # Sentinel mutations now require an initiating principal's one-shot action
+    # receipt. This background workflow has no such delegated authority, so it
+    # must fail closed instead of manufacturing ambient internal authority.
+    return {
+        "success": False,
+        "error": "sentinel_preflight_requires_delegated_action_capability",
+    }
 
 
 def _trim_response_body(body: Any) -> Any:
@@ -4552,13 +4562,20 @@ def _runtime_follow_up_plan(
     update_kind = str(pending_intent.get("kind") or "status").strip() or "status"
     last_outbound = dict(follow_through.get("outbound_update") or {})
     last_sent_at = _parse_optional_dt(str(last_outbound.get("sent_at") or "").strip() or None)
+    last_attempt_at = _parse_optional_dt(str(last_outbound.get("last_attempt_at") or "").strip() or None)
     if last_sent_at is not None and due_at is not None and now < due_at and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
         return None
-    if last_sent_at is not None and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
+    # A held transport attempt is still an outbound attempt.  A watchdog can
+    # issue a fresh report id on every tick, so dedupe semantically identical
+    # updates by their durable attempt time as well as their successful send
+    # time; otherwise a fail-closed Diplomat boundary grows the queue on each
+    # tick while no delegated capability exists.
+    last_delivery_attempt_at = last_sent_at or last_attempt_at
+    if last_delivery_attempt_at is not None and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
         repeated_summary = str(last_outbound.get("summary") or "").strip() == summary
         repeated_status = str(last_outbound.get("status") or "").strip() == status
         repeated_kind = str(last_outbound.get("kind") or "status").strip() == update_kind
-        if repeated_summary and repeated_status and repeated_kind and (now - last_sent_at).total_seconds() < max(1, FOLLOW_UP_REPEAT_GRACE_SECONDS):
+        if repeated_summary and repeated_status and repeated_kind and (now - last_delivery_attempt_at).total_seconds() < max(1, FOLLOW_UP_REPEAT_GRACE_SECONDS):
             return None
     eligible = bool(report_due or follow_up_due or reasons.intersection(FOLLOW_UP_REASON_MARKERS) or report_kind in {"blocked", "completed"})
     if not eligible:
@@ -4606,12 +4623,10 @@ def _runtime_follow_up_attempt_allowed(record: RuntimeFollowUpDispatch, *, now: 
 
 
 def _deliver_runtime_follow_up(record: RuntimeFollowUpDispatch) -> tuple[bool, Optional[str]]:
-    try:
-        diplomat = get_diplomat()
-        success = bool(diplomat.send_briefing(message=record.message, title=record.title))
-        return success, None if success else "diplomat_send_failed"
-    except Exception as exc:  # pragma: no cover - defensive guard
-        return False, str(exc)
+    # A queued follow-up cannot reuse the scheduling request's consumed action
+    # receipt. Hold it until the queue stores and revalidates a delegated,
+    # sink-bound capability with durable operation idempotency.
+    return False, "diplomat_delivery_requires_delegated_action_capability"
 
 
 
@@ -5095,7 +5110,6 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         scheduled = runtime_service.schedule_runtime_plan(
             request,
             workflow=workflow,
-            create_approval_grant_fn=create_approval_grant,
             build_workflow_policy_fn=partial(build_workflow_policy, belief_scope=belief_scope),
             create_process_from_workflow_fn=create_process_from_workflow,
         )

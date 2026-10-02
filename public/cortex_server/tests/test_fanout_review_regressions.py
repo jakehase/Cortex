@@ -267,7 +267,21 @@ async def test_codec_events_hydrate_the_same_live_nexus_session(monkeypatch):
         credential_id="codec-bridge",
         secret="codec-secret",
     )
-    request = SimpleNamespace(headers={"x-session-id": session_key}, client=SimpleNamespace(host="127.0.0.1"))
+    request = SimpleNamespace(
+        headers={
+            "x-session-id": session_key,
+            "x-cortex-tenant-id": scope["tenant_id"],
+            "x-cortex-workspace-id": scope["workspace_id"],
+            "x-cortex-agent-id": scope["agent_id"],
+            "x-cortex-user-id": scope["user_id"],
+            "x-cortex-channel-id": scope["channel_id"],
+            "x-cortex-session-id": scope["session_id"],
+            "x-cortex-scope-credential-id": "codec-bridge",
+            "x-cortex-scope-signature": signature,
+        },
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(),
+    )
     response = await nexus.post_nexus_codec_events(
         nexus.CodecEventsRequest(
             session_key=session_key,
@@ -288,7 +302,7 @@ async def test_codec_events_hydrate_the_same_live_nexus_session(monkeypatch):
         scope_credential_id="codec-bridge",
     )
     live_packet = nexus._codec_context_packet(
-        session_key,
+        principal.codec_session_key,
         query="cobalt river",
         tenant_id=principal.tenant_id,
         workspace_id=principal.storage_workspace_id,

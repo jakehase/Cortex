@@ -4,17 +4,23 @@ import socket
 from pathlib import Path
 from datetime import datetime
 
+from cortex_server.internal_addressing import internal_host_port
 from cortex_server.modules.level_registry import get_level_registry
 
 # Canonical LEVEL_MAP - derived from the shared registry to avoid count drift.
-LEVEL_MAP = {int(row['level']): str(row['name']).split()[0].lower().replace('(browser)', '').strip() for row in get_level_registry()}
-LEVEL_MAP[2] = 'ghost'
-LEVEL_MAP[12] = 'hive'
-LEVEL_MAP[36] = 'conductor'
+_REGISTRY = get_level_registry()
+LEVEL_MAP = {int(row['level']): str(row['slug']) for row in _REGISTRY}
 
 # Reverse mapping for name lookups
 NAME_TO_LEVEL = {v: k for k, v in LEVEL_MAP.items()}
-NAME_TO_LEVEL.update({'browser':2,'parsers':3,'synthesist_api':32,'orchestrator':26,'conductor':36})
+for _row in _REGISTRY:
+    _root = str(_row['route_prefix']).strip('/').split('/')[0]
+    if _root:
+        NAME_TO_LEVEL[_root] = int(_row['level'])
+    for _alias in _row.get('aliases', []):
+        _alias_root = str(_alias).strip('/').split('/')[0]
+        if _alias_root:
+            NAME_TO_LEVEL[_alias_root] = int(_row['level'])
 
 class Cartographer:
     '''Level 23: The Cartographer - Self-Discovery Module'''
@@ -74,10 +80,11 @@ class Cartographer:
         return skills
     
     def check_pulse(self):
-        '''Check port 8888 (Oracle) and port 10200 (Piper TTS)'''
+        '''Check the configured Cortex origin and port 10200 (Piper TTS).'''
         # Check localhost instead of external IP
+        cortex_host, cortex_port = internal_host_port()
         services = {
-            'oracle': {'port': 8888, 'status': 'unknown', 'host': '127.0.0.1'},
+            'oracle': {'port': cortex_port, 'status': 'unknown', 'host': cortex_host},
             'piper_tts': {'port': 10200, 'status': 'unknown', 'host': '127.0.0.1'}
         }
         
@@ -105,7 +112,7 @@ class Cartographer:
                     self.backup_path.unlink()
                 self.identity_path.rename(self.backup_path)
             except Exception as e:
-                print(f'[Cartographer] Warning: Could not archive identity: {e}')
+                print(f'[Cartographer] Warning: Could not archive identity ({type(e).__name__})')
         
         # Build identity map
         identity = {
@@ -130,7 +137,7 @@ class Cartographer:
                 json.dump(identity, f, indent=2)
             print(f'[Cartographer] Identity map saved to {self.identity_path}')
         except Exception as e:
-            print(f'[Cartographer] Error saving identity: {e}')
+            print(f'[Cartographer] Error saving identity ({type(e).__name__})')
         
         return identity
     

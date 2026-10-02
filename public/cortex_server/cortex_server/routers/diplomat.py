@@ -4,15 +4,29 @@ Level 18: The Diplomat — Communication Hub
 Sends messages to arbitrary HTTP endpoints, tracks delivery stats,
 supports broadcast to multiple targets, and keeps a message log.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 from collections import deque
 from urllib.parse import urlparse
 import asyncio
+import hashlib
 import time
-import httpx
+
+from cortex_server.modules.action_capabilities import (
+    ActionAuthorization,
+    assert_action_authorized,
+    require_action_capability,
+)
+from cortex_server.outbound_egress import (
+    EgressError,
+    EgressPolicy,
+    EgressPolicyError,
+    EgressResponseTooLarge,
+    EgressUpstreamError,
+    request as outbound_request,
+)
 
 router = APIRouter()
 
@@ -23,6 +37,7 @@ _MAX_TARGETS = 50
 _MIN_TIMEOUT = 1
 _MAX_TIMEOUT = 120
 _MAX_HEADERS = 50
+_MAX_RESPONSE_BYTES = 64_000
 
 # ── In-memory state ────────────────────────────────────────────────────────
 _stats = {
@@ -148,85 +163,113 @@ def _validate_broadcast_contract(request: BroadcastRequest) -> Dict[str, Any]:
 
 
 async def _deliver(
-    client: httpx.AsyncClient,
     target: str,
     message: str,
     method: str,
     headers: Optional[Dict[str, str]],
     timeout: int,
+    authorization: ActionAuthorization,
 ) -> Dict[str, Any]:
     """Send one message and return structured result."""
+    raise HTTPException(
+        status_code=503,
+        detail="Diplomat delivery requires durable operation idempotency",
+    )
     t0 = time.monotonic()
+    target_bytes = str(target or "").encode("utf-8", errors="replace")
+    safe_target = "[REDACTED]"
+    target_sha256 = hashlib.sha256(target_bytes).hexdigest()
     try:
+        assert_action_authorized(authorization)
+        policy = EgressPolicy.from_environment("diplomat")
         if method == "GET":
-            resp = await client.get(
+            resp = await outbound_request(
+                "GET",
                 target,
+                policy=policy,
                 params={"message": message},
                 headers=headers or {},
                 timeout=float(timeout),
+                max_response_bytes=_MAX_RESPONSE_BYTES,
             )
         else:
-            resp = await client.post(
+            resp = await outbound_request(
+                "POST",
                 target,
+                policy=policy,
                 json={"message": message},
                 headers=headers or {},
                 timeout=float(timeout),
+                max_response_bytes=_MAX_RESPONSE_BYTES,
             )
 
         latency_ms = round((time.monotonic() - t0) * 1000, 1)
         success = 200 <= resp.status_code < 400
 
-        try:
-            body = resp.json()
-        except Exception:
-            body = (resp.text or "")[:500]
-
         result = {
-            "target": target,
+            "target": safe_target,
+            "target_sha256": target_sha256,
             "method": method,
             "status_code": resp.status_code,
             "success": success,
             "latency_ms": latency_ms,
-            "response": body,
+            "response_sha256": hashlib.sha256(resp.body).hexdigest(),
+            "response_bytes": len(resp.body),
             "timestamp": datetime.now().isoformat(),
             "error_code": None if success else "upstream_http_error",
         }
 
-    except httpx.TimeoutException as exc:
+    except EgressPolicyError:
         latency_ms = round((time.monotonic() - t0) * 1000, 1)
         result = {
-            "target": target,
+            "target": safe_target,
+            "target_sha256": target_sha256,
             "method": method,
             "status_code": None,
             "success": False,
             "latency_ms": latency_ms,
-            "error": str(exc)[:300],
+            "error": "destination rejected by server egress policy",
             "timestamp": datetime.now().isoformat(),
-            "error_code": "timeout",
+            "error_code": "egress_policy_rejected",
         }
-    except httpx.RequestError as exc:
+    except EgressResponseTooLarge:
         latency_ms = round((time.monotonic() - t0) * 1000, 1)
         result = {
-            "target": target,
+            "target": safe_target,
+            "target_sha256": target_sha256,
             "method": method,
             "status_code": None,
             "success": False,
             "latency_ms": latency_ms,
-            "error": str(exc)[:300],
+            "error": "upstream response exceeded the byte limit",
             "timestamp": datetime.now().isoformat(),
-            "error_code": "request_error",
+            "error_code": "response_too_large",
         }
-    except Exception as exc:
+    except EgressUpstreamError:
         latency_ms = round((time.monotonic() - t0) * 1000, 1)
         result = {
-            "target": target,
+            "target": safe_target,
+            "target_sha256": target_sha256,
             "method": method,
             "status_code": None,
             "success": False,
             "latency_ms": latency_ms,
-            "error": str(exc)[:300],
+            "error": "outbound delivery failed",
             "timestamp": datetime.now().isoformat(),
-            "error_code": "internal_error",
+            "error_code": "upstream_error",
+        }
+    except EgressError:
+        latency_ms = round((time.monotonic() - t0) * 1000, 1)
+        result = {
+            "target": safe_target,
+            "target_sha256": target_sha256,
+            "method": method,
+            "status_code": None,
+            "success": False,
+            "latency_ms": latency_ms,
+            "error": "outbound delivery was not admitted",
+            "timestamp": datetime.now().isoformat(),
+            "error_code": "egress_unavailable",
         }
 
     _stats["messages_sent"] += 1
@@ -244,19 +287,21 @@ async def _deliver(
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @router.post("/send")
-async def diplomat_send(request: SendRequest):
+async def diplomat_send(
+    request: SendRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
     """Send a message to a single target via HTTP."""
     payload = _validate_send_contract(request)
 
-    async with httpx.AsyncClient() as client:
-        result = await _deliver(
-            client,
-            payload["target"],
-            payload["message"],
-            payload["method"],
-            payload["headers"],
-            payload["timeout"],
-        )
+    result = await _deliver(
+        payload["target"],
+        payload["message"],
+        payload["method"],
+        payload["headers"],
+        payload["timeout"],
+        authorization,
+    )
 
     return {
         "success": result["success"],
@@ -267,23 +312,25 @@ async def diplomat_send(request: SendRequest):
 
 
 @router.post("/broadcast")
-async def diplomat_broadcast(request: BroadcastRequest):
+async def diplomat_broadcast(
+    request: BroadcastRequest,
+    authorization: ActionAuthorization = Depends(require_action_capability),
+):
     """Send a message to multiple targets simultaneously."""
     payload = _validate_broadcast_contract(request)
 
-    async with httpx.AsyncClient() as client:
-        tasks = [
-            _deliver(
-                client,
-                target,
-                payload["message"],
-                payload["method"],
-                payload["headers"],
-                payload["timeout"],
-            )
-            for target in payload["targets"]
-        ]
-        results = await asyncio.gather(*tasks)
+    tasks = [
+        _deliver(
+            target,
+            payload["message"],
+            payload["method"],
+            payload["headers"],
+            payload["timeout"],
+            authorization,
+        )
+        for target in payload["targets"]
+    ]
+    results = await asyncio.gather(*tasks)
 
     delivered = sum(1 for r in results if r["success"])
     total = len(payload["targets"])

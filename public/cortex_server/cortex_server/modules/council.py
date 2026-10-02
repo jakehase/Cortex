@@ -6,6 +6,8 @@ Reviews skill proposals before materialization to ensure safety.
 import requests
 from typing import Dict, List
 
+from cortex_server.internal_addressing import internal_url
+
 
 class TheCouncil:
     """Adversarial review board for evolution proposals.
@@ -17,7 +19,7 @@ class TheCouncil:
     If both approve, the proposal proceeds to materialization.
     """
     
-    ORACLE_URL = "http://localhost:8888/oracle/chat"
+    ORACLE_URL = internal_url("/oracle/chat")
     
     def __init__(self):
         self.critique_history: List[Dict] = []

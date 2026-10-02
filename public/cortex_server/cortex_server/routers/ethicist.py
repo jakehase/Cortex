@@ -11,6 +11,7 @@ import json
 import re
 import time
 
+from cortex_server.internal_addressing import internal_url
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
     conscious_action,
@@ -20,7 +21,7 @@ from cortex_server.modules.unified_messaging import get_bus
 
 router = APIRouter(tags=["Ethicist"])
 
-ORACLE_URL = "http://localhost:8888/oracle/chat"
+ORACLE_URL = internal_url("/oracle/chat")
 ORACLE_TIMEOUT = 90.0
 
 # ── Module-level state ──────────────────────────────────────────────

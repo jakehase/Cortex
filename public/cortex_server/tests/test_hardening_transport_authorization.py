@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import sqlite3
@@ -13,6 +14,11 @@ from cortex_server.middleware.request_body_limit import RequestBodyLimitMiddlewa
 from cortex_server.middleware.write_authorization import WriteAuthorizationMiddleware
 from cortex_server.routers import websockets
 from cortex_server.tools import docker_wrapper
+
+
+def redacted_log_line(value: str) -> str:
+    encoded = value.encode("utf-8")
+    return f"[REDACTED] sha256={hashlib.sha256(encoded).hexdigest()} bytes={len(encoded)}"
 
 
 def websocket_security_from_env():
@@ -230,7 +236,7 @@ async def test_correct_token_accepts_and_bounds_docker_log_request(monkeypatch):
     await websockets.ws_logs(socket, "api_1.prod")
 
     assert socket.accepted is True
-    assert socket.text == ["one", "two"]
+    assert socket.text == [redacted_log_line("one"), redacted_log_line("two")]
     assert factory.calls == [("api_1.prod", {"follow": True, "tail": 100})]
     assert logs.closed is True
 
@@ -351,7 +357,7 @@ async def test_disconnect_and_concurrent_streams_close_each_resource(monkeypatch
     )
 
     assert first.closed and second.closed
-    assert healthy.text == ["b"]
+    assert healthy.text == [redacted_log_line("b")]
     assert factory.constructed == 2
 
 
@@ -381,11 +387,11 @@ async def test_docker_failure_returns_only_sanitized_error_and_recovers(monkeypa
     assert failed.json == [{"type": "error", "message": "log stream unavailable"}]
     assert failed.closed == [(1011, "log stream unavailable")]
     assert secret not in repr((failed.json, failed.closed))
-    assert recovered.text == ["recovered"]
+    assert recovered.text == [redacted_log_line("recovered")]
 
 
 @pytest.mark.asyncio
-async def test_http_direct_loopback_compatibility_and_forwarded_fail_closed():
+async def test_http_loopback_and_forwarded_sources_both_require_transport_token():
     app = FastAPI()
     app.add_middleware(
         WriteAuthorizationMiddleware,
@@ -400,7 +406,7 @@ async def test_http_direct_loopback_compatibility_and_forwarded_fail_closed():
 
     transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 1234))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        assert (await client.post("/write")).status_code == 200
+        assert (await client.post("/write")).status_code == 403
         denied = await client.post("/write", headers={"x-forwarded-for": "127.0.0.1"})
         allowed = await client.post(
             "/write",
@@ -486,7 +492,7 @@ async def test_log_websocket_admission_rejects_before_docker_and_restores_capaci
 
     recovered = FakeWebSocket(headers=headers, log_admission=admission)
     await websockets.ws_logs(recovered, "recovered")
-    assert recovered.text == ["recovered"]
+    assert recovered.text == [redacted_log_line("recovered")]
     assert factory.constructed == 2
     assert admission.active == 0
 
@@ -744,6 +750,10 @@ async def test_production_artifact_transport_uses_dedicated_bounded_partition(
     monkeypatch.setenv(
         "CORTEX_RELEASE_ARTIFACT_WRITE_TOKEN", "artifact-" + "r" * 32
     )
+    monkeypatch.setenv(
+        "CORTEX_ACTION_DELEGATION_SECRET", "delegation-" + "d" * 32
+    )
+    monkeypatch.setenv("L2_NOTARY_SECRET", "notary-" + "n" * 32)
     monkeypatch.setattr(
         main,
         "_parse_read_scope_credentials",

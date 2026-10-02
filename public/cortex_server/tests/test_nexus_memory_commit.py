@@ -7,16 +7,16 @@ import os
 from pathlib import Path
 import pytest
 from fastapi import FastAPI
-import socket
+import selectors
 import sqlite3
 import subprocess
 import sys
 import threading
 import time
 import types
-import uvicorn
 
 import cortex_server.routers.nexus as nexus
+import cortex_server.routers.l22 as real_l22
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.runtime.assurance_receipt_ledger import (
     AssuranceReceiptLedgerUnavailable,
@@ -49,13 +49,13 @@ def _isolated_assurance_receipt_ledger(monkeypatch, tmp_path):
     )
 
 
-def _concurrent_commit(app, payload, barrier):
+def _concurrent_commit(app, payload, barrier, headers):
     barrier.wait(timeout=5)
 
     async def send():
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
+            transport=transport, base_url="http://test", headers=headers
         ) as client:
             response = await client.post("/nexus/commit", json=payload)
             return response.status_code, response.json()
@@ -101,11 +101,141 @@ def _app(monkeypatch, recorder, *, committed_records=None):
 
     fake_l22.store_memory_record = store_memory_record
     fake_l22.lookup_idempotent_memory_record = lookup_idempotent_memory_record
+    # Nexus performs the same pure request preflight as the real L22 writer
+    # before reserving a commit receipt. Keep that production validation in
+    # this storage-fake fixture instead of silently bypassing it.
+    fake_l22.prepare_memory_store_request = real_l22.prepare_memory_store_request
     monkeypatch.setitem(sys.modules, "cortex_server.routers.l22", fake_l22)
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
+
+    @app.post("/knowledge/search")
+    async def search_committed_test_records():
+        return {
+            "success": True,
+            "results": [dict(result) for _request, result in committed.values()],
+        }
+
     return app
+
+
+_NODE_ASGI_REQUEST_PREFIX = "__CORTEX_ASGI_REQUEST__"
+_NODE_ASGI_RESPONSE_PREFIX = "__CORTEX_ASGI_RESPONSE__"
+_NODE_ASGI_FETCH_BRIDGE = f"""
+    import {{ createInterface }} from 'node:readline';
+    const responseLines = createInterface({{ input: process.stdin }});
+    const pendingResponses = new Map();
+    responseLines.on('line', (line) => {{
+      if (!line.startsWith({_NODE_ASGI_RESPONSE_PREFIX!r})) return;
+      const response = JSON.parse(line.slice({_NODE_ASGI_RESPONSE_PREFIX!r}.length));
+      const pending = pendingResponses.get(response.id);
+      if (!pending) return;
+      pendingResponses.delete(response.id);
+      pending(response);
+    }});
+    let bridgeRequestId = 0;
+    globalThis.fetch = async (url, options = {{}}) => {{
+      const id = String(++bridgeRequestId);
+      const headers = Object.fromEntries(new Headers(options.headers || {{}}).entries());
+      const request = {{
+        id,
+        url: String(url),
+        method: String(options.method || 'GET'),
+        headers,
+        body: options.body == null ? '' : String(options.body),
+      }};
+      process.stdout.write({_NODE_ASGI_REQUEST_PREFIX!r} + JSON.stringify(request) + '\\n');
+      const response = await new Promise((resolve) => pendingResponses.set(id, resolve));
+      if (response.networkError) throw new TypeError(response.error || 'ASGI transport failed');
+      return new Response(response.body, {{ status: response.status, headers: response.headers }});
+    }};
+    globalThis.__closeCortexAsgiBridge = () => responseLines.close();
+"""
+
+
+def _run_node_script_against_asgi(script, app, *, timeout=10):
+    command = [
+        "node",
+        "--input-type=module",
+        "--eval",
+        f"{_NODE_ASGI_FETCH_BRIDGE}\n{script}\n__closeCortexAsgiBridge();",
+    ]
+    process = subprocess.Popen(
+        command,
+        text=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
+    captured_stdout = []
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                raise subprocess.TimeoutExpired(command, timeout)
+            if not selector.select(remaining):
+                process.kill()
+                raise subprocess.TimeoutExpired(command, timeout)
+            line = process.stdout.readline()
+            if line == "":
+                break
+            if not line.startswith(_NODE_ASGI_REQUEST_PREFIX):
+                captured_stdout.append(line)
+                continue
+            request = json.loads(line[len(_NODE_ASGI_REQUEST_PREFIX) :])
+
+            async def dispatch():
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(
+                    transport=transport,
+                    base_url="http://cortex-asgi.test",
+                ) as client:
+                    return await client.request(
+                        request["method"],
+                        request["url"],
+                        headers=request["headers"],
+                        content=request["body"],
+                    )
+
+            try:
+                response = asyncio.run(dispatch())
+                reply = {
+                    "id": request["id"],
+                    "status": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text,
+                }
+            except Exception as exc:
+                reply = {
+                    "id": request["id"],
+                    "networkError": True,
+                    "error": type(exc).__name__,
+                }
+            process.stdin.write(
+                _NODE_ASGI_RESPONSE_PREFIX + json.dumps(reply, separators=(",", ":")) + "\n"
+            )
+            process.stdin.flush()
+        returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(
+            command,
+            returncode,
+            "".join(captured_stdout),
+            process.stderr.read(),
+        )
+    finally:
+        selector.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=1)
 
 
 def test_first_referent_reservation_fsyncs_every_new_directory_link(
@@ -179,16 +309,21 @@ async def _receipt(client, payload, headers=None):
 
 
 @pytest.mark.asyncio
-async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
+async def test_commit_writes_to_l22_when_assurance_allows(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-write")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         r = await client.post(
             "/nexus/commit",
@@ -218,11 +353,20 @@ async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
     assert body["committed"] is True
     assert body["durable_write"]["status"] == "stored"
     assert body["assurance"]["memory_commit"]["eligible"] is True
+    acknowledgement = body["acknowledgement"]
+    assert acknowledgement["version"] == "nexus.memory-commit-ack.v1"
+    assert acknowledgement["status"] == "committed"
+    assert acknowledgement["memory_id"] == body["durable_write"]["id"] == "mem-123"
+    assert acknowledgement["receipt_id"] == body["assurance"]["receipt"]["id"]
+    assert acknowledgement["retrieval"] == {
+        "path": "/knowledge/search",
+        "identifier_field": "id",
+    }
     assert replay.status_code == 200
     assert replay.json() == body
     assert len(recorder.calls) == 1
-    assert recorder.calls[0]["tenant_id"] == "cortex-local"
-    assert recorder.calls[0]["workspace_id"] == "default"
+    assert recorder.calls[0]["tenant_id"] == auth.principal.tenant_id
+    assert recorder.calls[0]["workspace_id"] == auth.principal.storage_workspace_id
     assert recorder.calls[0]["idempotency_key"]
     stored_metadata = recorder.calls[0]["metadata"]
     assert stored_metadata["query"] == interaction["query"]
@@ -242,17 +386,20 @@ async def test_commit_writes_to_l22_when_assurance_allows(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_commit_rejects_alternate_idempotency_identity_without_consuming_receipt(
-    monkeypatch,
+    monkeypatch, configured_memory_principal
 ):
     recorder = _Recorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-idempotency")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         forged = await client.post(
             "/nexus/commit",
@@ -279,7 +426,9 @@ async def test_commit_rejects_alternate_idempotency_identity_without_consuming_r
 
 
 @pytest.mark.asyncio
-async def test_failed_durable_write_releases_only_its_receipt_reservation(monkeypatch):
+async def test_failed_durable_write_releases_only_its_receipt_reservation(
+    monkeypatch, configured_memory_principal
+):
     class _FailThenStore(_Recorder):
         def __call__(self, **kwargs):
             self.calls.append(kwargs)
@@ -293,13 +442,16 @@ async def test_failed_durable_write_releases_only_its_receipt_reservation(monkey
 
     recorder = _FailThenStore()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-durable-retry")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         first = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -323,10 +475,11 @@ async def test_failed_durable_write_releases_only_its_receipt_reservation(monkey
 
 @pytest.mark.asyncio
 async def test_finalization_failure_retains_reservation_after_durable_write(
-    monkeypatch,
+    monkeypatch, configured_memory_principal
 ):
     recorder = _Recorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-finalization")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
@@ -344,7 +497,9 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
 
     monkeypatch.setattr(nexus, "finalize_assurance_receipt", fail_finalization_once)
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         first = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -362,8 +517,11 @@ async def test_finalization_failure_retains_reservation_after_durable_write(
 
 
 @pytest.mark.asyncio
-async def test_expired_consumed_receipt_reconciles_after_restart(monkeypatch):
+async def test_expired_consumed_receipt_reconciles_after_restart(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
+    auth = configured_memory_principal(session_id="memory-commit-expired-consumed")
     committed_records = {}
     clock = [2_000_000_000]
     monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
@@ -374,7 +532,9 @@ async def test_expired_consumed_receipt_reconciles_after_restart(monkeypatch):
     }
     first_app = _app(monkeypatch, recorder, committed_records=committed_records)
     first_transport = httpx.ASGITransport(app=first_app)
-    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=first_transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         committed = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -384,7 +544,7 @@ async def test_expired_consumed_receipt_reconciles_after_restart(monkeypatch):
     restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
     restarted_transport = httpx.ASGITransport(app=restarted_app)
     async with httpx.AsyncClient(
-        transport=restarted_transport, base_url="http://test"
+        transport=restarted_transport, base_url="http://test", headers=auth.headers
     ) as client:
         replay = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -397,8 +557,11 @@ async def test_expired_consumed_receipt_reconciles_after_restart(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_expired_durable_unfinalized_receipt_recovers_after_restart(monkeypatch):
+async def test_expired_durable_unfinalized_receipt_recovers_after_restart(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
+    auth = configured_memory_principal(session_id="memory-commit-expired-unfinalized")
     committed_records = {}
     clock = [2_000_000_000]
     monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
@@ -415,7 +578,9 @@ async def test_expired_durable_unfinalized_receipt_recovers_after_restart(monkey
     monkeypatch.setattr(nexus, "finalize_assurance_receipt", interrupt_finalization)
     first_app = _app(monkeypatch, recorder, committed_records=committed_records)
     first_transport = httpx.ASGITransport(app=first_app)
-    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=first_transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         interrupted = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -428,7 +593,7 @@ async def test_expired_durable_unfinalized_receipt_recovers_after_restart(monkey
     restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
     restarted_transport = httpx.ASGITransport(app=restarted_app)
     async with httpx.AsyncClient(
-        transport=restarted_transport, base_url="http://test"
+        transport=restarted_transport, base_url="http://test", headers=auth.headers
     ) as client:
         recovered = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -445,8 +610,11 @@ async def test_expired_durable_unfinalized_receipt_recovers_after_restart(monkey
 
 
 @pytest.mark.asyncio
-async def test_expired_receipt_returns_authoritative_no_write_after_restart(monkeypatch):
+async def test_expired_receipt_returns_authoritative_no_write_after_restart(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
+    auth = configured_memory_principal(session_id="memory-commit-expired-no-write")
     committed_records = {}
     clock = [2_000_000_000]
     monkeypatch.setattr(nexus.time, "time", lambda: clock[0])
@@ -457,14 +625,16 @@ async def test_expired_receipt_returns_authoritative_no_write_after_restart(monk
     }
     first_app = _app(monkeypatch, recorder, committed_records=committed_records)
     first_transport = httpx.ASGITransport(app=first_app)
-    async with httpx.AsyncClient(transport=first_transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=first_transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
 
     clock[0] += nexus._ASSURANCE_RECEIPT_TTL_SECONDS + 1
     restarted_app = _app(monkeypatch, recorder, committed_records=committed_records)
     restarted_transport = httpx.ASGITransport(app=restarted_app)
     async with httpx.AsyncClient(
-        transport=restarted_transport, base_url="http://test"
+        transport=restarted_transport, base_url="http://test", headers=auth.headers
     ) as client:
         proof = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -491,7 +661,9 @@ def test_receipt_reservation_rejects_exact_expiry_boundary(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_commit_reserves_signed_jti_before_durable_write(monkeypatch):
+async def test_concurrent_commit_reserves_signed_jti_before_durable_write(
+    monkeypatch, configured_memory_principal
+):
     class _SlowRecorder(_Recorder):
         def __call__(self, **kwargs):
             self.calls.append(kwargs)
@@ -504,19 +676,25 @@ async def test_concurrent_commit_reserves_signed_jti_before_durable_write(monkey
 
     recorder = _SlowRecorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-concurrent")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
     payload = {**interaction, "assurance_receipt": receipt}
     barrier = threading.Barrier(2)
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(
-            pool.map(lambda _: _concurrent_commit(app, payload, barrier), range(2))
+            pool.map(
+                lambda _: _concurrent_commit(app, payload, barrier, auth.headers),
+                range(2),
+            )
         )
 
     assert sorted(status for status, _body in results) == [200, 409]
@@ -771,8 +949,11 @@ def test_expired_unknown_reservation_is_never_pruned_into_false_noncommit_proof(
 
 
 @pytest.mark.asyncio
-async def test_consumed_receipt_survives_router_recreation(monkeypatch):
+async def test_consumed_receipt_survives_router_recreation(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
+    auth = configured_memory_principal(session_id="memory-commit-router-recreation")
     first_app = _app(monkeypatch, recorder)
     interaction = {
         "query": "Remember this deployment decision",
@@ -781,7 +962,7 @@ async def test_consumed_receipt_survives_router_recreation(monkeypatch):
     }
     first_transport = httpx.ASGITransport(app=first_app)
     async with httpx.AsyncClient(
-        transport=first_transport, base_url="http://test"
+        transport=first_transport, base_url="http://test", headers=auth.headers
     ) as client:
         receipt = await _receipt(client, interaction)
         committed = await client.post(
@@ -790,7 +971,7 @@ async def test_consumed_receipt_survives_router_recreation(monkeypatch):
     second_app = _app(monkeypatch, recorder)
     second_transport = httpx.ASGITransport(app=second_app)
     async with httpx.AsyncClient(
-        transport=second_transport, base_url="http://test"
+        transport=second_transport, base_url="http://test", headers=auth.headers
     ) as client:
         replay = await client.post(
             "/nexus/commit", json={**interaction, "assurance_receipt": receipt}
@@ -803,9 +984,12 @@ async def test_consumed_receipt_survives_router_recreation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monkeypatch):
+async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-key-rotation")
     old_key = "old-assurance-signing-key-material-00000001"
     new_key = "new-assurance-signing-key-material-00000002"
     monkeypatch.setenv("NEXUS_ASSURANCE_SIGNING_KEY_ID", "assurance-2026-01")
@@ -816,7 +1000,9 @@ async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monk
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         receipt_payload = nexus._decode_assurance_receipt(receipt)
         assert receipt_payload["signing_key_id"] == "assurance-2026-01"
@@ -848,7 +1034,7 @@ async def test_assurance_receipt_key_id_survives_rotation_and_lost_response(monk
 
 
 def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
-    monkeypatch,
+    monkeypatch, configured_memory_principal
 ):
     now = 2_000_000_000
     old_key = "old-assurance-signing-key-material-00000001"
@@ -873,6 +1059,12 @@ def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
         response="Historical keys verify only receipts issued before retirement.",
         levels_used=[7, 22],
     )
+    auth = configured_memory_principal(session_id="memory-commit-historical-key")
+    request = types.SimpleNamespace(
+        headers=auth.headers,
+        state=types.SimpleNamespace(),
+        client=types.SimpleNamespace(host="127.0.0.1"),
+    )
 
     def signed_old_receipt(*, issued_at, expires_at):
         payload = {
@@ -883,7 +1075,7 @@ def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
             "query_hash": nexus._content_hash(interaction.query),
             "response_hash": nexus._content_hash(interaction.response),
             "levels_used": nexus._normalized_commit_levels(interaction.levels_used),
-            "scope": nexus._assurance_scope(None),
+            "scope": nexus._assurance_scope(request),
             "risk_flags": [],
             "validator_pass": True,
             "signing_key_id": "assurance-old",
@@ -907,7 +1099,10 @@ def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
             )
         }
     )
-    assert nexus._verify_assurance_receipt(valid, None)["signing_key_id"] == "assurance-old"
+    assert (
+        nexus._verify_assurance_receipt(valid, request)["signing_key_id"]
+        == "assurance-old"
+    )
 
     newly_dated = interaction.model_copy(
         update={
@@ -918,7 +1113,7 @@ def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
         }
     )
     with pytest.raises(ValueError, match="outside_issuance_window"):
-        nexus._verify_assurance_receipt(newly_dated, None)
+        nexus._verify_assurance_receipt(newly_dated, request)
 
     overlong = interaction.model_copy(
         update={
@@ -929,7 +1124,7 @@ def test_historical_assurance_key_enforces_issuance_window_and_server_max_ttl(
         }
     )
     with pytest.raises(ValueError, match="expired_receipt"):
-        nexus._verify_assurance_receipt(overlong, None)
+        nexus._verify_assurance_receipt(overlong, request)
 
 
 def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_restart(
@@ -971,8 +1166,10 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
         def __init__(self, downstream):
             self.downstream = downstream
             self.dropped = False
+            self.request_paths = []
 
         async def __call__(self, scope, receive, send):
+            self.request_paths.append(scope.get("path"))
             if scope.get("path") == "/nexus/commit" and not self.dropped:
                 self.dropped = True
 
@@ -984,28 +1181,9 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
             await self.downstream(scope, receive, send)
 
     wrapped = DropFirstCommitResponse(app)
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen(128)
-    port = listener.getsockname()[1]
-    server = uvicorn.Server(
-        uvicorn.Config(wrapped, log_level="critical", lifespan="off")
-    )
-    thread = threading.Thread(
-        target=server.run,
-        kwargs={"sockets": [listener]},
-        daemon=True,
-    )
-    thread.start()
-    deadline = time.monotonic() + 5
-    while not server.started and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert server.started
-
     plugin_url = (Path(__file__).resolve().parents[3] / "plugins" / "cortex-memory-bridge" / "index.ts").as_uri()
     config = {
-        "baseUrl": f"http://127.0.0.1:{port}",
+        "baseUrl": "http://cortex-asgi.test",
         "stateDir": str(state_dir),
         "tenantId": "tenant-integration",
         "workspaceId": "workspace-integration",
@@ -1038,39 +1216,31 @@ def test_memory_bridge_reuses_durable_nexus_receipt_after_response_loss_and_rest
     second_script = f"""
         import fs from 'node:fs'; import path from 'node:path';
         import plugin from {json.dumps(plugin_url)};
+        const handlers = new Map();
         plugin.register({{
           pluginConfig: {json.dumps(config)}, logger: {{ info() {{}}, warn() {{}} }},
-          on() {{}}, registerMemoryRuntime() {{}}, registerTool() {{}},
+          on(name, handler) {{ handlers.set(name, handler); }}, registerMemoryRuntime() {{}}, registerTool() {{}},
         }});
         const root = path.join({json.dumps(str(state_dir))}, 'lifecycle-principals-v2');
         const pending = () => fs.existsSync(root) && fs.readdirSync(root).some((entry) => fs.existsSync(path.join(root, entry, 'lifecycle-spool.json')));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (!pending()) process.exit(4);
+        const context = {{ sessionKey: 'integration-session' }};
+        handlers.get('llm_output')({{ content: 'We decided to use the safe rollback path and preserve the verified deployment.' }}, context);
+        await handlers.get('agent_end')({{ messages: [{{ role: 'user', content: 'Remember this verified deployment decision.' }}] }}, context);
         const deadline = Date.now() + 4000;
         while (pending() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
-        if (pending()) process.exit(4);
+        if (pending()) process.exit(5);
     """
-    try:
-        first = subprocess.run(
-            ["node", "--input-type=module", "--eval", first_script],
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        assert first.returncode == 0, first.stderr
-        second = subprocess.run(
-            ["node", "--input-type=module", "--eval", second_script],
-            text=True,
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-        assert second.returncode == 0, second.stderr
-        assert wrapped.dropped is True
-        assert len(recorder.calls) == 1
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
-        listener.close()
+    first = _run_node_script_against_asgi(first_script, wrapped)
+    assert first.returncode == 0, first.stderr
+    second = _run_node_script_against_asgi(second_script, wrapped)
+    assert second.returncode == 0, second.stderr
+    assert wrapped.dropped is True
+    assert wrapped.request_paths.count("/nexus/assurance/receipt") == 1
+    assert wrapped.request_paths.count("/nexus/commit") == 2
+    assert wrapped.request_paths.count("/knowledge/search") == 1
+    assert len(recorder.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1102,16 +1272,21 @@ async def test_commit_rejects_caller_self_attestation_without_server_receipt(
 
 
 @pytest.mark.asyncio
-async def test_commit_receipt_is_bound_to_response(monkeypatch):
+async def test_commit_receipt_is_bound_to_response(
+    monkeypatch, configured_memory_principal
+):
     recorder = _Recorder()
     app = _app(monkeypatch, recorder)
+    auth = configured_memory_principal(session_id="memory-commit-response-binding")
     interaction = {
         "query": "Remember this deployment decision",
         "response": "Use the safe rollback path and preserve the backup branch.",
         "levels_used": [7, 22],
     }
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=auth.headers
+    ) as client:
         receipt = await _receipt(client, interaction)
         response = await client.post(
             "/nexus/commit",

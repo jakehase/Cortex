@@ -18,15 +18,18 @@ def setup_function():
 
 
 
-def _client():
+def _client(headers):
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(oracle.router, prefix="/oracle")
-    return TestClient(app)
+    return TestClient(app, headers=headers)
 
 
 
-def test_oracle_chat_surfaces_kernel_trace_and_status(monkeypatch):
+def test_oracle_chat_surfaces_kernel_trace_and_status(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.setenv("ORACLE_ROUTE_TO_AUGMENTER", "false")
     monkeypatch.setenv("ORACLE_EMERGENCY_BYPASS", "false")
     monkeypatch.setenv("ORACLE_KERNEL_V2_ENABLED", "true")
@@ -36,7 +39,8 @@ def test_oracle_chat_surfaces_kernel_trace_and_status(monkeypatch):
     monkeypatch.setattr(oracle, "_semantic_guardrail_response", lambda *a, **k: None)
     monkeypatch.setattr(oracle, "_best_effort_answer", lambda *a, **k: ("kernel answer", "fake-model", "fake_backend"))
 
-    client = _client()
+    auth = configured_memory_principal("oracle-kernel-trace")
+    client = _client(auth.headers)
     response = client.post(
         "/oracle/chat",
         json={"prompt": "Plan the architecture tradeoff for the runtime compiler rollout.", "priority": "normal"},

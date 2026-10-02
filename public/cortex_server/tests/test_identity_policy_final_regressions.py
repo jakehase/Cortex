@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from cortex_server.modules import cortex_codec
 from cortex_server.modules.memory_scope import (
+    AuthenticatedMemoryPrincipal,
     MemoryScopeAuthError,
     authenticate_memory_principal,
     memory_scope_signature,
@@ -53,6 +54,14 @@ def _credential_headers(
     if outcome_token:
         headers["x-cortex-outcome-feedback-token"] = outcome_token
     return headers
+
+
+def _request(headers: dict[str, str], *, state: SimpleNamespace | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        headers=headers,
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=state if state is not None else SimpleNamespace(),
+    )
 
 
 def test_signed_dynamic_session_policy_authorizes_fresh_bounded_sessions(monkeypatch):
@@ -140,13 +149,24 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
         return function(*args, **kwargs)
 
     monkeypatch.setattr(nexus, "run_in_threadpool", direct_call)
-    request = SimpleNamespace(headers={"x-session-id": session_id}, client=SimpleNamespace(host="127.0.0.1"))
     principals = []
     for credential_id, secret, scope, marker in (
         ("credential-a", "secret-a", scope_a, "private-marker-a"),
         ("credential-b", "secret-b", scope_b, "private-marker-b"),
     ):
         signature = memory_scope_signature(**scope, credential_id=credential_id, secret=secret)
+        principal = authenticate_memory_principal(
+            tenant_id=scope["tenant_id"],
+            workspace_id=scope["workspace_id"],
+            scope=scope,
+            credential_id=credential_id,
+            signature=signature,
+            production=True,
+        )
+        request = _request(
+            _credential_headers(scope, credential_id=credential_id, secret=secret),
+            state=SimpleNamespace(authenticated_memory_principal=principal),
+        )
         response = await nexus.post_nexus_codec_events(
             nexus.CodecEventsRequest(
                 session_key=session_id,
@@ -160,25 +180,16 @@ async def test_codec_and_kernel_continuity_are_principal_scoped_for_shared_sessi
             request,
         )
         assert response["success"] is True
-        principals.append(
-            authenticate_memory_principal(
-                tenant_id=scope["tenant_id"],
-                workspace_id=scope["workspace_id"],
-                scope=scope,
-                credential_id=credential_id,
-                signature=signature,
-                production=True,
-            )
-        )
+        principals.append(principal)
 
     packet_a = nexus._codec_context_packet(
-        session_id,
+        principals[0].codec_session_key,
         tenant_id=principals[0].tenant_id,
         workspace_id=principals[0].storage_workspace_id,
         telemetry_session_key=nexus._principal_continuity_key(principals[0], session_id),
     )
     packet_b = nexus._codec_context_packet(
-        session_id,
+        principals[1].codec_session_key,
         tenant_id=principals[1].tenant_id,
         workspace_id=principals[1].storage_workspace_id,
         telemetry_session_key=nexus._principal_continuity_key(principals[1], session_id),
@@ -337,9 +348,21 @@ async def test_codec_lifecycle_replay_returns_durable_result_without_reapplying(
         credential_id="codec-bridge",
         secret="codec-bridge-secret",
     )
-    request = SimpleNamespace(
-        headers={"x-session-id": session_id},
-        client=SimpleNamespace(host="127.0.0.1"),
+    principal = authenticate_memory_principal(
+        tenant_id=scope["tenant_id"],
+        workspace_id=scope["workspace_id"],
+        scope=scope,
+        credential_id="codec-bridge",
+        signature=signature,
+        production=False,
+    )
+    request = _request(
+        _credential_headers(
+            scope,
+            credential_id="codec-bridge",
+            secret="codec-bridge-secret",
+        ),
+        state=SimpleNamespace(authenticated_memory_principal=principal),
     )
 
     def payload(text):
@@ -407,7 +430,7 @@ async def test_codec_incomplete_reservation_recovers_from_durable_source_ref(
         }
     ]
     request_fingerprint = nexus._codec_events_request_fingerprint(
-        session_key=session_id,
+        session_key=principal.codec_session_key,
         events=normalized_events,
         max_chars=420,
     )
@@ -422,7 +445,9 @@ async def test_codec_incomplete_reservation_recovers_from_durable_source_ref(
     ).hexdigest()
     nexus.reserve_assurance_receipt(
         state_path,
-        scope=nexus._codec_events_idempotency_scope(principal, session_id),
+        scope=nexus._codec_events_idempotency_scope(
+            principal, principal.codec_session_key
+        ),
         jti=idempotency_key,
         expires_at=nexus._CODEC_EVENTS_IDEMPOTENCY_EXPIRES_AT,
     )
@@ -446,9 +471,9 @@ async def test_codec_incomplete_reservation_recovers_from_durable_source_ref(
             "durable": {"fingerprint": "codec-fp-recovered"},
         },
     )
-    request = SimpleNamespace(
-        headers={"x-session-id": session_id},
-        client=SimpleNamespace(host="127.0.0.1"),
+    request = _request(
+        _credential_headers(scope, credential_id="codec-bridge", secret=secret),
+        state=SimpleNamespace(authenticated_memory_principal=principal),
     )
     response = await nexus.post_nexus_codec_events(
         nexus.CodecEventsRequest(
@@ -467,7 +492,9 @@ async def test_codec_incomplete_reservation_recovers_from_durable_source_ref(
     assert response["state_fingerprint"] == "codec-fp-recovered"
     assert nexus.assurance_receipt_status(
         state_path,
-        scope=nexus._codec_events_idempotency_scope(principal, session_id),
+        scope=nexus._codec_events_idempotency_scope(
+            principal, principal.codec_session_key
+        ),
         jti=idempotency_key,
     ) == "consumed"
 
@@ -482,13 +509,13 @@ def test_orchestration_principal_authentication_fails_closed_in_production(monke
 
     with pytest.raises(HTTPException, match="full principal"):
         nexus._authenticated_nexus_principal(
-            SimpleNamespace(headers={"x-session-id": scope["session_id"]}),
+            _request({"x-session-id": scope["session_id"]}),
             session_hint=scope["session_id"],
         )
 
     headers = _credential_headers(scope, credential_id="credential-auth", secret="secret-auth")
     principal, session_id = nexus._authenticated_nexus_principal(
-        SimpleNamespace(headers=headers),
+        _request(headers),
         session_hint=scope["session_id"],
     )
     assert principal.scope == scope
@@ -497,7 +524,7 @@ def test_orchestration_principal_authentication_fails_closed_in_production(monke
     mismatched = {**headers, "x-session-id": "openclaw-other-session"}
     with pytest.raises(HTTPException, match="transport session"):
         nexus._authenticated_nexus_principal(
-            SimpleNamespace(headers=mismatched),
+            _request(mismatched),
             session_hint=scope["session_id"],
         )
 
@@ -526,7 +553,10 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         secret="secret-feedback",
         outcome_token="feedback-control",
     )
-    request = SimpleNamespace(headers=headers, state=SimpleNamespace(cortex_write_authorization="write_token"))
+    request = _request(
+        headers,
+        state=SimpleNamespace(cortex_write_authorization="write_token"),
+    )
     principal, _ = nexus._authenticated_nexus_principal(request, session_hint=scope["session_id"])
 
     observed = []
@@ -556,8 +586,12 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         task_archetype="planning",
         policy_label="server-observed-policy",
         codec_variant="referents_plus_codec",
+        output="Verified final answer from causally observed execution.",
+        user_outcome="accepted",
+        executed_levels=[9, 24],
+        selected_levels=[9, 24, 34],
+        plan_digest="d" * 64,
         validator_pass=True,
-        execution_success=True,
         recovery_needed=False,
         latency_ms=321,
         outcome_confidence=0.91,
@@ -569,7 +603,10 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
             policy_label="caller-forged-policy",
         )
 
-    unauthorized = SimpleNamespace(headers={**headers, "x-cortex-outcome-feedback-token": ""}, state=request.state)
+    unauthorized = _request(
+        {**headers, "x-cortex-outcome-feedback-token": ""},
+        state=request.state,
+    )
     with pytest.raises(HTTPException) as denied:
         await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), unauthorized)
     assert denied.value.status_code == 403
@@ -580,8 +617,8 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=tampered), request)
     assert invalid_signature.value.status_code == 403
 
-    other_request = SimpleNamespace(
-        headers=_credential_headers(
+    other_request = _request(
+        _credential_headers(
             other_scope,
             credential_id="credential-other",
             secret="secret-other",
@@ -601,7 +638,9 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
     assert result["recorded"] is True
     assert result["codec_policy"]["variant"] == "referents_plus_codec"
     assert observed[0]["policy_label"] == "server-observed-policy"
-    assert observed[0]["validator_result"] == {"pass": True, "source": "nexus.orchestrate.receipt"}
+    assert observed[0]["validator_result"] == {"pass": True, "source": "causal_outcome_receipt"}
+    assert observed[0]["executed_levels"] == [9, 24]
+    assert observed[0]["user_correction"] is False
     assert codec_calls[0][0]["tenant_id"] == principal.tenant_id
     assert codec_calls[0][0]["storage_workspace_id"] == principal.storage_workspace_id
     assert codec_calls[0][2] == issued["payload"]["jti"]
@@ -620,8 +659,12 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
         task_archetype="planning",
         policy_label="server-observed-policy",
         codec_variant="query_only",
+        output="Observed failed execution output.",
+        user_outcome="failed",
+        executed_levels=[24],
+        selected_levels=[24],
+        plan_digest="e" * 64,
         validator_pass=False,
-        execution_success=False,
         recovery_needed=True,
         latency_ms=654,
         outcome_confidence=0.62,
@@ -647,8 +690,17 @@ async def test_outcome_feedback_resumes_partial_projection_and_replays_exact_res
         "task_archetype": "planning",
         "policy_label": "server-policy",
         "codec_variant": "referents_plus_codec",
+        "receipt_kind": "causal_outcome",
+        "trainable": True,
+        "plan_digest": "d" * 64,
+        "selected_levels": [9, 24, 34],
+        "executed_levels": [9, 24],
+        "output_observed": True,
+        "output_hash": "c" * 64,
+        "user_outcome": "accepted",
+        "activation_complete": True,
+        "causal_evidence_complete": True,
         "validator_pass": True,
-        "execution_success": True,
         "recovery_needed": False,
         "latency_ms": 123,
         "outcome_confidence": 0.9,
@@ -742,7 +794,13 @@ def test_codec_projection_persists_idempotency_marker_with_outcome(
     monkeypatch.setattr(
         nexus, "_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH", tmp_path / "receipts.json"
     )
-    monkeypatch.setattr(codec, "_scoped_codec_session_key", lambda *_args, **_kwargs: "scoped")
+    scoped_calls = []
+    monkeypatch.setattr(
+        codec,
+        "_scoped_codec_session_key",
+        lambda session_key, **scope: scoped_calls.append((session_key, scope))
+        or "scoped",
+    )
     monkeypatch.setattr(codec, "_codec_session_update_lock", lambda _key: threading.RLock())
     monkeypatch.setattr(codec, "get_codec_state", lambda *_args, **_kwargs: dict(durable))
 
@@ -768,11 +826,10 @@ def test_codec_projection_persists_idempotency_marker_with_outcome(
     monkeypatch.setattr(codec, "_persist_codec_state_to_l22", persist)
     monkeypatch.setattr(codec, "_touch_codec_session_locked", lambda _key: None)
     monkeypatch.setattr(codec, "_SESSION_CODEC_STATE", {})
-    scope = {
-        "session_id": "session",
-        "tenant_id": "tenant",
-        "storage_workspace_id": "workspace",
-    }
+    scope = AuthenticatedMemoryPrincipal(
+        credential_id="credential-codec-outcome",
+        **_scope("tenant", "agent", "session"),
+    ).storage_metadata
     receipt_id = "d" * 32
 
     first = nexus._apply_codec_outcome_projection(
@@ -785,6 +842,12 @@ def test_codec_projection_persists_idempotency_marker_with_outcome(
     assert first["state_revision"] == second["state_revision"] == 1
     assert apply_calls == [{"status": "success", "text": "observed"}]
     assert durable["outcome_feedback_receipt_ids"] == [receipt_id]
+    assert all(call[0].startswith("principal:") for call in scoped_calls)
+    assert all(call[1]["tenant_id"] == scope["tenant_id"] for call in scoped_calls)
+    assert all(
+        call[1]["workspace_id"] == scope["storage_workspace_id"]
+        for call in scoped_calls
+    )
 
 
 def test_outcome_tuner_cache_is_principal_scoped(monkeypatch, tmp_path):

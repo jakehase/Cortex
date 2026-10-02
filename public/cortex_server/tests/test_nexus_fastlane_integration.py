@@ -19,13 +19,18 @@ def test_risk_flags():
 
 
 @pytest.mark.asyncio
-async def test_cognitive_wave_slice_present(monkeypatch):
+async def test_cognitive_wave_slice_present(monkeypatch, configured_memory_principal):
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     app = FastAPI()
     app.add_middleware(HUDMiddleware)
     app.include_router(nexus.router, prefix="/nexus")
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-fastlane-wave")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         r = await client.post("/nexus/orchestrate", json={}, params={"query": "What is 2+2?"})
     assert r.status_code == 200
     body = r.json()
@@ -40,7 +45,10 @@ async def test_cognitive_wave_slice_present(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_orchestrate_get_cannot_mutate_and_post_requires_write_authorization(monkeypatch):
+async def test_orchestrate_get_cannot_mutate_and_post_requires_write_authorization(
+    monkeypatch,
+    configured_memory_principal,
+):
     codec_updates = []
     monkeypatch.setattr(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "stub", "method": "stub"})
     monkeypatch.setattr(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False, "evidence": []})
@@ -56,7 +64,12 @@ async def test_orchestrate_get_cannot_mutate_and_post_requires_write_authorizati
     )
     app.include_router(nexus.router, prefix="/nexus")
     transport = httpx.ASGITransport(app=app, client=("198.51.100.20", 41000))
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("nexus-write-boundary")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         get_response = await client.get("/nexus/orchestrate", params={"query": "What is 2+2?"})
         unauthorized_post = await client.post("/nexus/orchestrate", json={"query": "What is 2+2?"})
 

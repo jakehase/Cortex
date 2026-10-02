@@ -153,7 +153,14 @@ def test_record_oracle_turn_emits_execution_artifact(monkeypatch):
 def test_oracle_codec_prefix_uses_boosted_budget_when_policy_prefers_codec(monkeypatch):
     observed = {}
     monkeypatch.setattr(oracle, "get_codec_policy_for_query", lambda query: {"action": "prefer_codec", "confidence": 0.9, "should_inject": True, "boost_factor": 1.5})
-    monkeypatch.setattr(oracle, "get_codec_packet_for_session", lambda session_key, max_chars=0: observed.update({"max_chars": max_chars}) or {"available": True, "packet": "Prefs: [Cortex]"})
+    monkeypatch.setattr(
+        oracle,
+        "get_codec_packet_for_session",
+        lambda session_key, max_chars=0, **_scope: observed.update(
+            {"max_chars": max_chars}
+        )
+        or {"available": True, "packet": "Prefs: [Cortex]"},
+    )
 
     prefix = _codec_prefix("oracle-boost-test", "Plan the architecture tradeoff for this change.")
 
@@ -261,7 +268,10 @@ def test_oracle_passive_followup_verifier_parses_json_decision(monkeypatch):
     assert result["reason"]
 
 
-def test_oracle_chat_failure_records_execution_outcome(monkeypatch):
+def test_oracle_chat_failure_records_execution_outcome(
+    monkeypatch,
+    configured_memory_principal,
+):
     captured = {}
     monkeypatch.setenv("ORACLE_ROUTE_TO_AUGMENTER", "false")
     monkeypatch.setenv("ORACLE_EMERGENCY_BYPASS", "false")
@@ -274,8 +284,13 @@ def test_oracle_chat_failure_records_execution_outcome(monkeypatch):
     app = FastAPI()
     app.include_router(oracle.router, prefix="/oracle")
     client = TestClient(app, raise_server_exceptions=False)
+    auth = configured_memory_principal("oracle-codec-failure")
 
-    r = client.post("/oracle/chat", json={"prompt": "Explain the architecture tradeoff here.", "priority": "normal"})
+    r = client.post(
+        "/oracle/chat",
+        json={"prompt": "Explain the architecture tradeoff here.", "priority": "normal"},
+        headers=auth.headers,
+    )
 
     assert r.status_code == 500
     assert captured["execution_success"] is False
@@ -285,12 +300,16 @@ def test_oracle_chat_failure_records_execution_outcome(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(monkeypatch):
+async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(
+    monkeypatch,
+    configured_memory_principal,
+):
     monkeypatch.delenv("ORACLE_EMERGENCY_BYPASS", raising=False)
     monkeypatch.setenv("ORACLE_ROUTE_TO_AUGMENTER", "false")
     monkeypatch.setenv("ORACLE_KERNEL_V2_ENABLED", "true")
     monkeypatch.setenv("ORACLE_KERNEL_V2_MODE", "active")
     observed = {}
+    recorded = {}
 
     async def _run_inline(func, *args, **kwargs):
         return func(*args, **kwargs)
@@ -303,7 +322,8 @@ async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(monke
     monkeypatch.setattr(
         oracle,
         "_record_oracle_turn",
-        lambda *a, **k: {"kernel_v2": {"actual_lane": "best_effort"}},
+        lambda *a, **k: recorded.update({"session_key": a[0], **k})
+        or {"kernel_v2": {"actual_lane": "best_effort"}},
     )
     monkeypatch.setattr(
         oracle,
@@ -315,7 +335,12 @@ async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(monke
     app.add_middleware(HUDMiddleware)
     app.include_router(oracle.router, prefix="/oracle")
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    auth = configured_memory_principal("oracle-emergency-policy")
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers=auth.headers,
+    ) as client:
         response = await client.post(
             "/oracle/chat",
             json={"prompt": "Plan the architecture tradeoff for this runtime rollout.", "priority": "normal"},
@@ -324,6 +349,9 @@ async def test_oracle_emergency_bypass_is_opt_in_when_environment_is_unset(monke
     assert response.status_code == 200
     body = response.json()
     assert observed["called"] is True
+    assert recorded["codec_session_key"] == auth.principal.codec_session_key
+    assert recorded["tenant_id"] == auth.principal.tenant_id
+    assert recorded["workspace_id"] == auth.principal.storage_workspace_id
     assert body["model"] == "fake-model"
     assert body["routing_trace"]["kernel_v2"]["result"]["actual_lane"] == "best_effort"
     assert body["routing_trace"]["path"] != "emergency_static"
