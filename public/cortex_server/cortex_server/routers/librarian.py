@@ -1026,6 +1026,18 @@ _STORAGE_METADATA_PROTECTED = frozenset(PRINCIPAL_FIELDS) | frozenset({
 })
 _STORAGE_METADATA_LOCK = threading.RLock()
 
+# Authenticated scope fields are server-authoritative routing metadata, not
+# caller memory content. They are validated and overwritten by
+# scoped_memory_metadata() before this module receives them. Exclude them from
+# sensitive-field admission scanning so a legitimate credential identifier is
+# not mistaken for a secret payload. Raw content and every caller-controlled
+# metadata field remain subject to the privacy gate.
+_MEMORY_ADMISSION_INTERNAL_METADATA = frozenset(PRINCIPAL_FIELDS) | frozenset({
+    "scope_credential_id",
+    "storage_workspace_id",
+    "memory_principal_key",
+})
+
 
 def _storage_metadata_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True,
@@ -1927,10 +1939,15 @@ def prepare_governed_memory_write(
             raise MemoryDeletionError(
                 "memory write predates the principal deletion fence"
             )
+    admission_metadata = {
+        key: value
+        for key, value in metadata.items()
+        if key not in _MEMORY_ADMISSION_INTERNAL_METADATA
+    }
     decision = store.admit(
         principal_key,
         content,
-        metadata,
+        admission_metadata,
         allow_sensitive=str(os.getenv("CORTEX_MEMORY_ALLOW_SENSITIVE", "")).lower()
         in {"1", "true", "yes", "on"},
         baa_authorized=str(os.getenv("CORTEX_MEMORY_BAA_AUTHORIZED", "")).lower()
