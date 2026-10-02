@@ -549,6 +549,7 @@ def _empty_receipt(scope_digest: str = "", policy_digest: str = "") -> dict[str,
         "scopeDigest": scope_digest,
         "policyDigest": policy_digest,
         "accepted": {},
+        "quarantined": {},
         "sources": {},
         "retired": {},
         "generations": {},
@@ -605,7 +606,8 @@ def load_receipt(path: Path) -> tuple[dict[str, Any], bool, bool]:
             "reason": "stable_identity_migration_required",
         }
     raw.setdefault("generations", {})
-    for field, expected_type in (("sources", dict), ("retired", dict), ("generations", dict), ("pending", list), ("lastRun", dict), ("health", dict)):
+    raw.setdefault("quarantined", {})
+    for field, expected_type in (("sources", dict), ("retired", dict), ("generations", dict), ("quarantined", dict), ("pending", list), ("lastRun", dict), ("health", dict)):
         if not isinstance(raw.get(field), expected_type):
             raise ReceiptError(f"owner memory receipt field is invalid: {field}")
     for fact_key, generation in raw["generations"].items():
@@ -915,6 +917,39 @@ def _entry_store_digest(entry: DesiredChunk) -> str:
         "type": "memory",
         "metadata": _entry_metadata(entry),
     })
+
+
+def privacy_partition(
+    desired: dict[str, DesiredChunk],
+) -> tuple[dict[str, DesiredChunk], dict[str, dict[str, Any]]]:
+    """Apply the canonical admission scanner before any owner-index write.
+
+    Rejected chunks remain hash-only in the receipt so an approved source can
+    contain a private subsection without blocking refresh of every safe chunk.
+    """
+
+    server_root = Path(__file__).resolve().parents[1] / "public" / "cortex_server"
+    if str(server_root) not in sys.path:
+        sys.path.insert(0, str(server_root))
+    from cortex_server.runtime.memory_governance import classify_memory_admission
+
+    allowed: dict[str, DesiredChunk] = {}
+    quarantined: dict[str, dict[str, Any]] = {}
+    for fact_key, entry in desired.items():
+        metadata = _entry_metadata(entry)
+        decision = classify_memory_admission(entry.text, metadata)
+        if decision.allowed:
+            allowed[fact_key] = entry
+            continue
+        quarantined[fact_key] = {
+            "payloadSha256": entry.sha256,
+            "metadataSha256": canonical_digest(metadata),
+            "classification": decision.classification,
+            "reasons": list(decision.reasons),
+            "sourceId": entry.source_id,
+            "chunkId": entry.chunk_id,
+        }
+    return allowed, quarantined
 
 
 def _semantic_query(entry: DesiredChunk) -> str:
@@ -1380,11 +1415,17 @@ def _reconcile_pending_candidates(
     return repair_predecessors
 
 
-def _snapshot_digest(policy_digest: str, desired: dict[str, DesiredChunk], sources: dict[str, Any]) -> str:
+def _snapshot_digest(
+    policy_digest: str,
+    desired: dict[str, DesiredChunk],
+    sources: dict[str, Any],
+    quarantined: dict[str, dict[str, Any]],
+) -> str:
     return canonical_digest({
         "policyDigest": policy_digest,
         "chunks": {key: entry.sha256 for key, entry in sorted(desired.items())},
         "sources": sources,
+        "quarantined": quarantined,
     })
 
 
@@ -1407,7 +1448,7 @@ def _verify_legacy_scope(client: Any, receipt: dict[str, Any]) -> None:
 
 def _receipt_differs(
     receipt: dict[str, Any], desired: dict[str, DesiredChunk], sources: dict[str, Any],
-    policy_digest: str, scope_digest: str,
+    quarantined: dict[str, dict[str, Any]], policy_digest: str, scope_digest: str,
 ) -> bool:
     new, changed, _unchanged, retired = _plan(receipt, desired)
     return bool(
@@ -1415,6 +1456,7 @@ def _receipt_differs(
         or receipt.get("sources") != sources
         or receipt.get("policyDigest") != policy_digest
         or receipt.get("scopeDigest") != scope_digest
+        or receipt.get("quarantined") != quarantined
     )
 
 
@@ -1422,6 +1464,7 @@ def _result(
     *, mode: str, status: str, health: str, policies: list[SourcePolicy], desired: dict[str, DesiredChunk],
     new: int, changed: int, retired: int, skipped: int, scope_digest: str,
     semantic_checked: int = 0, reason: str | None = None,
+    privacy_quarantined: int = 0,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "mode": mode,
@@ -1436,6 +1479,7 @@ def _result(
         "semanticReadback": {"checked": semantic_checked, "verified": semantic_checked if health == "healthy" else 0},
         "scopeDigest": scope_digest,
         "privacyBoundary": PRIVACY_BLOCKER,
+        "privacyQuarantined": privacy_quarantined,
     }
     if reason:
         result["reason"] = reason
@@ -1478,10 +1522,13 @@ def main(
     plugin, scope, signature = signed_scope(config)
     scope_digest = canonical_digest(scope)
     policies, policy_digest = load_policy(args.manifest)
-    desired, sources = collect_desired(
+    all_desired, sources = collect_desired(
         args.root, policies, scope_digest=scope_digest
     )
-    initial_snapshot = _snapshot_digest(policy_digest, desired, sources)
+    desired, privacy_quarantined = privacy_partition(all_desired)
+    initial_snapshot = _snapshot_digest(
+        policy_digest, desired, sources, privacy_quarantined
+    )
 
     args.lock.parent.mkdir(parents=True, exist_ok=True)
     with args.lock.open("a+b") as lock_file:
@@ -1490,7 +1537,11 @@ def main(
         receipt, existed, legacy = load_receipt(args.receipt)
         _validate_receipt_scope(receipt, scope_digest, legacy=legacy)
         new, changed, unchanged, retired = _plan(receipt, desired)
-        source_state_changed = receipt.get("sources") != sources or receipt.get("policyDigest") != policy_digest
+        source_state_changed = (
+            receipt.get("sources") != sources
+            or receipt.get("policyDigest") != policy_digest
+            or receipt.get("quarantined") != privacy_quarantined
+        )
 
         if args.mode == "dry-run":
             return _result(
@@ -1498,6 +1549,7 @@ def main(
                 health="unknown", policies=policies, desired=desired, new=len(new), changed=len(changed),
                 retired=len(retired), skipped=len(unchanged), scope_digest=scope_digest,
                 reason="dry_run_never_asserts_backend_health",
+                privacy_quarantined=len(privacy_quarantined),
             )
 
         client = client_factory(plugin=plugin, scope=scope, signature=signature)
@@ -1516,7 +1568,10 @@ def main(
                     raise IndexingFailure("owner memory receipt is missing", code="receipt_missing")
                 if receipt.get("lastRun", {}).get("status") != "current" or receipt.get("pending"):
                     raise IndexingFailure("owner memory work is pending or failed", code="pending_or_failed")
-                if _receipt_differs(receipt, desired, sources, policy_digest, scope_digest):
+                if _receipt_differs(
+                    receipt, desired, sources, privacy_quarantined,
+                    policy_digest, scope_digest,
+                ):
                     raise IndexingFailure("approved sources and receipt disagree", code="freshness_stale")
                 for fact_key, entry in desired.items():
                     accepted = receipt["accepted"].get(fact_key)
@@ -1551,6 +1606,7 @@ def main(
                     mode="check", status="degraded", health="degraded", policies=policies, desired=desired,
                     new=0, changed=0, retired=0, skipped=len(desired), scope_digest=scope_digest,
                     semantic_checked=len(desired), reason=degraded_reason,
+                    privacy_quarantined=len(privacy_quarantined),
                 )
             receipt["lastCheck"] = {
                 "status": "healthy", "checkedAt": checked_at, "semanticVerified": len(desired),
@@ -1564,6 +1620,7 @@ def main(
                 mode="check", status="current", health="healthy", policies=policies, desired=desired,
                 new=0, changed=0, retired=0, skipped=len(desired), scope_digest=scope_digest,
                 semantic_checked=len(desired),
+                privacy_quarantined=len(privacy_quarantined),
             )
 
         repair_predecessors = _reconcile_pending_candidates(
@@ -1589,6 +1646,7 @@ def main(
             "authorizationBoundary": AUTHORIZATION_BOUNDARY,
             "scopeDigest": scope_digest,
             "privacyBoundary": PRIVACY_BLOCKER,
+            "quarantined": privacy_quarantined,
             "pending": operations,
             "lastRun": {"status": "pending", "startedAt": started_at},
             "health": {"status": "degraded", "reason": "work_pending", "checkedAt": started_at},
@@ -1685,10 +1743,14 @@ def main(
                 atomic_write_receipt(args.receipt, receipt)
 
             final_policies, final_policy_digest = load_policy(args.manifest)
-            final_desired, final_sources = collect_desired(
+            final_all_desired, final_sources = collect_desired(
                 args.root, final_policies, scope_digest=scope_digest
             )
-            if _snapshot_digest(final_policy_digest, final_desired, final_sources) != initial_snapshot:
+            final_desired, final_quarantined = privacy_partition(final_all_desired)
+            if _snapshot_digest(
+                final_policy_digest, final_desired, final_sources,
+                final_quarantined,
+            ) != initial_snapshot:
                 receipt["pending"].append({"operation": "rescan", "reason": "source_changed_during_run"})
                 raise IndexingFailure("approved sources changed during refresh", code="source_changed_during_run")
             for fact_key, entry in desired.items():
@@ -1718,6 +1780,7 @@ def main(
                 "policyDigest": policy_digest,
                 "scopeDigest": scope_digest,
                 "sources": sources,
+                "quarantined": privacy_quarantined,
                 "pending": [],
                 "lastRun": {
                     "status": "current",
@@ -1742,6 +1805,7 @@ def main(
                 policies=policies, desired=desired, new=len(new), changed=len(changed), retired=len(retired),
                 skipped=len(unchanged), scope_digest=scope_digest, semantic_checked=len(desired),
                 reason=None if semantic_health == "healthy" else health_reason,
+                privacy_quarantined=len(privacy_quarantined),
             )
         except Exception as exc:
             failure = exc if isinstance(exc, IndexingFailure) else IndexingFailure(
