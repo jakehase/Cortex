@@ -100,7 +100,7 @@ async def test_sweep_alerts_once_and_announces_resolution(monkeypatch):
 
     _patch_checks(monkeypatch, oracle_ok=False)
     first = await sw.run_once(app)
-    assert first["status"] == "failed" and first["issues"] == 1
+    assert first["status"] == "degraded" and first["issues"] == 1
     await sw.run_once(app)  # same issue: no second alert
     alerts = [e for e in bus.events if e[1] == "cortex_alert"]
     assert len(alerts) == 1 and alerts[0][2]["check"] == "oracle_consult" and alerts[0][2]["severity"] == "high"

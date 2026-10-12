@@ -111,10 +111,14 @@ def _readiness_app(
         async def search():
             return {"results": []}
 
+        async def knowledge_status():
+            return {"status": "operational"}
+
         app.add_api_route("/l22/store", store, methods=list(l22_methods))
         app.add_api_route(
             "/knowledge/search", search, methods=list(knowledge_methods)
         )
+        app.add_api_route("/knowledge/status", knowledge_status, methods=["GET"])
         if duplicate_l22_post:
             app.add_api_route("/l22/store", store, methods=["POST"])
 

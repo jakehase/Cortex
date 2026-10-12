@@ -534,6 +534,7 @@ def _temporal_v1_visibility(
 ) -> TemporalDecision:
     valid_from = _stored_temporal_instant(meta, "valid_from")
     valid_to = _stored_temporal_instant(meta, "valid_to")
+    memory_status = _temporal_lifecycle_status(meta)
     occurred = bool(meta.get("occurred_at") or meta.get("occurred_on"))
     valid_state = (
         "bounded" if valid_from is not None and valid_to is not None

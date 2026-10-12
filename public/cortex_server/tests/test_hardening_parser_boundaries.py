@@ -245,6 +245,7 @@ def test_pdf_rejects_complete_result_when_aggregate_page_budget_is_exceeded(
 def test_pdf_page_timeout_terminates_and_joins_worker(monkeypatch):
     parser = object.__new__(PDFParser)
     parser.config = PDFParserConfig(page_timeout_seconds=0.001)
+    parser._backend_name_value = "pdfplumber"
     events = []
 
     class Parent:

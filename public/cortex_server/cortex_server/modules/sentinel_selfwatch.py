@@ -36,7 +36,6 @@ from cortex_server.modules.health_status import (
     OPERATIONAL,
     STALE_EVIDENCE,
     UNTESTED,
-    aggregate_status,
     normalize_status,
 )
 
@@ -350,7 +349,10 @@ async def run_once(app: Any) -> Dict[str, Any]:
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "checked_monotonic": time.monotonic(),
         "elapsed_ms": int((time.monotonic() - started) * 1000),
-        "status": aggregate_status(c.get("status") for c in checks),
+        # A completed sweep with findings means Sentinel is operating but the
+        # observed system is degraded. ``failed`` is reserved for failure of
+        # the monitoring mechanism itself, not the severity of a finding.
+        "status": DEGRADED if issues else OPERATIONAL,
         "issues": len(issues),
         "checks": checks,
     }

@@ -26,6 +26,9 @@ def _install_minimal_routers(monkeypatch, *, failed=(), missing=()):
         async def search():
             return {"results": []}
 
+        async def level_status():
+            return {"status": "operational"}
+
         async def orchestrate():
             return {"success": True}
 
@@ -45,6 +48,10 @@ def _install_minimal_routers(monkeypatch, *, failed=(), missing=()):
         for name, (path, endpoint, methods) in routes.items():
             if name not in failed and name not in missing:
                 app.add_api_route(path, endpoint, methods=methods)
+        if "knowledge" not in failed and "knowledge" not in missing:
+            app.add_api_route("/knowledge/status", level_status, methods=["GET"])
+        if "nexus" not in failed and "nexus" not in missing:
+            app.add_api_route("/nexus/status", level_status, methods=["GET"])
 
         report = {
             "loaded": [
@@ -74,6 +81,10 @@ def _install_included_routers(monkeypatch):
         @router.post("/knowledge/search")
         async def search():
             return {"results": []}
+
+        @router.get("/knowledge/status")
+        async def knowledge_status():
+            return {"status": "operational"}
 
         app.include_router(router)
         report = {
@@ -1179,7 +1190,7 @@ async def test_health_returns_degraded_contract_when_readiness_probe_raises(
     payload = json.loads(response.body)
 
     assert response.status_code == 503
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "failed"
     assert payload["readiness"] is False
     assert payload["checks"]["readinessProbe"]["ok"] is False
     assert payload["one_brain"] == {

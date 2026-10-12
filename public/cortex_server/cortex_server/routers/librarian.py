@@ -2360,16 +2360,21 @@ def finalize_governed_memory_write(
 def _apply_governed_result_policy(
     rows: List[Dict[str, Any]],
     *,
+    query: str,
     filters: Optional[MemorySearchFilters],
     memory_principal_key: Optional[str],
 ) -> List[Dict[str, Any]]:
     inactive_statuses = {"superseded", "tombstoned", "expired", "historical"}
+    query_historical = _query_wants_historical_memory(query)
     historical_view = bool(
-        filters
-        and (
-            filters.as_of
-            or filters.as_known_at
-            or inactive_statuses.intersection(filters.statuses)
+        query_historical
+        or (
+            filters
+            and (
+                filters.as_of
+                or filters.as_known_at
+                or inactive_statuses.intersection(filters.statuses)
+            )
         )
     )
     filtered: List[Dict[str, Any]] = []
@@ -2387,7 +2392,12 @@ def _apply_governed_result_policy(
             include_stale=filters.include_stale if filters else False,
             include_unknown_time=filters.include_unknown_time if filters else True,
         )
-        if not temporal.visible:
+        explicit_temporal_view = bool(filters and (filters.as_of or filters.as_known_at))
+        if not temporal.visible and not (
+            query_historical
+            and stored_status in inactive_statuses
+            and not explicit_temporal_view
+        ):
             continue
         metadata.update(
             {
@@ -5293,6 +5303,7 @@ def _robust_search_unpresented(
     def governed(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return _apply_governed_result_policy(
             rows,
+            query=query,
             filters=filters,
             memory_principal_key=memory_principal_key,
         )[: max(1, int(n_results))]
@@ -5663,6 +5674,7 @@ def _search_with_novelty_unpresented(
         if rows:
             rows = _apply_governed_result_policy(
                 rows,
+                query=query,
                 filters=filters,
                 memory_principal_key=memory_principal_key,
             )
@@ -5733,6 +5745,7 @@ def _search_with_novelty_unpresented(
 
     scored_rows = _apply_governed_result_policy(
         scored_rows,
+        query=query,
         filters=filters,
         memory_principal_key=memory_principal_key,
     )

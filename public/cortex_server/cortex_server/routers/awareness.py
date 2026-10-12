@@ -2263,12 +2263,13 @@ async def _auto_index_check(wm):
 async def _probe_health() -> Dict[str, Any]:
     """Measured self-health from in-process L1 metrics and level availability."""
     try:
+        from cortex_server.modules.health_status import OPERATIONAL
         from cortex_server.modules.kernel import get_kernel, kernel_level_status, summarise_metrics
 
         kernel_status = await asyncio.to_thread(get_kernel().status)
         active: List[str] = []
         degraded: List[str] = []
-        if kernel_status.get("status") == "online":
+        if kernel_status.get("status") == OPERATIONAL:
             active.append("kernel")
             digest = summarise_metrics(await asyncio.to_thread(get_kernel().metrics))
             mem = (digest.get("mem") or {}).get("avail_pct")
