@@ -24,6 +24,16 @@ from cortex_server.models.requests import ParsePythonRequest, ParsePDFRequest, P
 from cortex_server.outbound_egress import EgressPolicy, EgressPolicyError
 from cortex_server.services.parser_service import ParserService
 from cortex_server.modules.level_route_status import capability_report
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    UNTESTED,
+    aggregate_status,
+    is_failure,
+    vocabulary_payload,
+)
 
 MAX_DOWNLOAD_BYTES = 2_000_000
 MAX_EXTRACT_REQUEST_BYTES = 2_000_000
@@ -434,21 +444,60 @@ _STATUS_CAPABILITIES = {
 @router.get("/status")
 async def status(request: Request = None):
     """Report only mounted parser routes and the parser backends really present."""
-    report = capability_report(request, "/parsers", _STATUS_CAPABILITIES)
     service = getattr(getattr(getattr(request, "app", None), "state", None), "parser_service", None)
-    backends: Dict[str, Any] = {"python": "python_ast", "html": "beautifulsoup"}
+    backends: Dict[str, Any] = {
+        "service": OPERATIONAL if service is not None else DEGRADED,
+        "python": "python_ast",
+        "html": "beautifulsoup",
+    }
     if service is not None:
         backends["javascript_inline"] = service.js_backend()
-        backends["pdf_available"] = getattr(service, "pdf_parser", None) is not None
+        pdf_status = service.pdf_backend_status()
     else:
         backends["javascript_inline"] = "unknown"
-        backends["pdf_available"] = None
+        pdf_status = {
+            "status": DEGRADED,
+            "available": False,
+            "backend": None,
+            "reason": "parser_service_unavailable",
+        }
+    backends["pdf_available"] = pdf_status["available"]
+    backends["pdf"] = pdf_status
+    extra_unavailable = None
+    if pdf_status["status"] in {DEGRADED, DISABLED_BY_DESIGN}:
+        extra_unavailable = {
+            "pdf_parse_persist": str(pdf_status.get("reason") or pdf_status["status"])
+        }
+    report = capability_report(
+        request,
+        "/parsers",
+        _STATUS_CAPABILITIES,
+        extra_unavailable=extra_unavailable,
+    )
     usable = bool(report["capabilities"])
+    parser_status = OPERATIONAL if usable else UNTESTED
+    if service is None:
+        parser_status = DEGRADED
+    load_report = getattr(
+        getattr(getattr(request, "app", None), "state", None),
+        "router_load_report",
+        {},
+    )
+    safe_partial = {
+        str(row.get("router") if isinstance(row, dict) else row)
+        for row in (load_report.get("safeModePartial") or [])
+    } if isinstance(load_report, dict) else set()
+    if "parsers" in safe_partial:
+        parser_status = aggregate_status([parser_status, RESTRICTED_BY_DESIGN])
+    pdf_route_mounted = "POST /parsers/pdf" in report["mounted_routes"]
+    if pdf_route_mounted:
+        parser_status = aggregate_status([parser_status, pdf_status["status"]])
     return {
-        "success": True,
+        "success": not is_failure(parser_status),
         "level": 3,
         "name": "Parser",
-        "status": "active" if usable else "unavailable",
+        "status": parser_status,
+        "status_vocabulary": vocabulary_payload(),
         "capabilities": report["capabilities"],
         "unavailable": report["unavailable"],
         "mounted_routes": report["mounted_routes"],

@@ -16,18 +16,32 @@ import time
 logger = logging.getLogger(__name__)
 
 
-def _page_worker(connection, raw, page_index, page_num, doc_id, config):
+def _page_worker(connection, raw, page_index, page_num, doc_id, config, backend_name):
     """Child entry point; never return library exception details to the parent."""
     try:
-        import pdfplumber
-
         parser = object.__new__(PDFParser)
         parser.config = config
-        parser._pdfplumber = pdfplumber
-        with pdfplumber.open(io.BytesIO(raw)) as pdf:
-            page = pdf.pages[page_index]
-            parser._preflight_page(page, decode=True)
-            result = parser._parse_page(page, page_num, doc_id, preflight=False)
+        parser._backend_name_value = backend_name
+        if backend_name == "pymupdf":
+            import pymupdf
+
+            parser._pymupdf = pymupdf
+            with pymupdf.open(stream=raw, filetype="pdf") as pdf:
+                result = parser._parse_pymupdf_page(pdf.load_page(page_index), page_num, doc_id)
+        elif backend_name == "fitz":
+            import fitz
+
+            parser._pymupdf = fitz
+            with fitz.open(stream=raw, filetype="pdf") as pdf:
+                result = parser._parse_pymupdf_page(pdf.load_page(page_index), page_num, doc_id)
+        else:
+            import pdfplumber
+
+            parser._pdfplumber = pdfplumber
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                page = pdf.pages[page_index]
+                parser._preflight_page(page, decode=True)
+                result = parser._parse_page(page, page_num, doc_id, preflight=False)
         connection.send(("ok", result))
     except BaseException:
         try:
@@ -80,11 +94,44 @@ class PDFParser:
     def __init__(self, config: Optional[PDFParserConfig] = None):
         self.config = config or PDFParserConfig()
         self._pdfplumber = None
+        self._pymupdf = None
+        self._backend_name_value = None
         try:
-            import pdfplumber
-            self._pdfplumber = pdfplumber
+            import pymupdf
+
+            self._pymupdf = pymupdf
+            self._backend_name_value = "pymupdf"
         except ImportError:
-            raise ImportError("pdfplumber is required for PDF parsing. Install with: pip install pdfplumber")
+            try:
+                import pdfplumber
+
+                self._pdfplumber = pdfplumber
+                self._backend_name_value = "pdfplumber"
+            except ImportError:
+                try:
+                    # PyMuPDF < 1.24 exposed its supported API as ``fitz``.
+                    import fitz
+
+                    self._pymupdf = fitz
+                    self._backend_name_value = "fitz"
+                except ImportError as exc:
+                    raise ImportError(
+                        "PDF parsing requires PyMuPDF (pymupdf/fitz) or pdfplumber"
+                    ) from exc
+
+    @property
+    def backend_name(self) -> str:
+        return self._backend_name()
+
+    def _backend_name(self) -> str:
+        configured = getattr(self, "_backend_name_value", None)
+        if configured:
+            return str(configured)
+        if getattr(self, "_pymupdf", None) is not None:
+            return "pymupdf"
+        if getattr(self, "_pdfplumber", None) is not None:
+            return "pdfplumber"
+        raise RuntimeError("PDF backend is unavailable")
     
     def parse_file(self, path: str) -> PDFParseResult:
         """Parse a PDF file and return extracted entities."""
@@ -98,6 +145,8 @@ class PDFParser:
 
     def parse_bytes(self, raw: bytes, path: str) -> PDFParseResult:
         """Parse an already-opened immutable snapshot."""
+        if self._backend_name() in {"pymupdf", "fitz"}:
+            return self._parse_bytes_pymupdf(raw, path)
         result = PDFParseResult()
         
         try:
@@ -126,6 +175,7 @@ class PDFParser:
                         "modified": doc_meta.get("ModDate"),
                         "pages": len(pdf.pages),
                         "format": "pdf",
+                        "backend": self._backend_name(),
                     }
                 }
                 
@@ -177,6 +227,90 @@ class PDFParser:
         
         return result
 
+    def _parse_bytes_pymupdf(self, raw: bytes, path: str) -> PDFParseResult:
+        """Parse through PyMuPDF's supported in-memory document interface."""
+
+        result = PDFParseResult()
+        try:
+            if len(raw) > self.config.max_file_bytes:
+                result.error = f"PDF exceeds {self.config.max_file_bytes} byte limit"
+                return result
+            backend = self._pymupdf
+            with backend.open(stream=raw, filetype="pdf") as pdf:
+                page_count_value = getattr(pdf, "page_count", None)
+                page_count = int(len(pdf) if page_count_value is None else page_count_value)
+                if page_count > self.config.max_pages:
+                    result.error = f"PDF exceeds {self.config.max_pages} page limit"
+                    return result
+                doc_meta = getattr(pdf, "metadata", {}) or {}
+                result.document = {
+                    "id": f"doc:{Path(path).name}",
+                    "type": "Document",
+                    "name": Path(path).stem,
+                    "uri": path,
+                    "language": "unknown",
+                    "metadata": {
+                        "title": doc_meta.get("title"),
+                        "author": doc_meta.get("author"),
+                        "creator": doc_meta.get("creator"),
+                        "producer": doc_meta.get("producer"),
+                        "created": doc_meta.get("creationDate"),
+                        "modified": doc_meta.get("modDate"),
+                        "pages": page_count,
+                        "format": "pdf",
+                        "backend": self._backend_name(),
+                    },
+                }
+                text_bytes = 0
+                page_result_bytes = 0
+                page_result_records = 0
+                deadline = time.monotonic() + self.config.total_timeout_seconds
+                for page_index in range(page_count):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("PDF parsing deadline exceeded")
+                    page_result = self._parse_page_bounded(
+                        raw,
+                        page_index,
+                        page_index + 1,
+                        result.document["id"],
+                        remaining,
+                    )
+                    text_bytes += len(
+                        page_result.get("metadata", {}).get("text", "").encode("utf-8")
+                    )
+                    if text_bytes > self.config.max_text_bytes:
+                        result.document = None
+                        result.pages = []
+                        result.error = f"PDF text exceeds {self.config.max_text_bytes} byte limit"
+                        return result
+                    encoded_page = json.dumps(
+                        page_result, ensure_ascii=False, separators=(",", ":")
+                    ).encode("utf-8")
+                    page_result_bytes += len(encoded_page)
+                    structures = page_result.get("metadata", {}).get("structures", [])
+                    page_result_records += 1 + (
+                        len(structures) if isinstance(structures, list) else 0
+                    )
+                    if (
+                        page_result_bytes > self.config.max_page_result_bytes
+                        or page_result_records > self.config.max_page_result_records
+                    ):
+                        result.document = None
+                        result.pages = []
+                        result.error = "PDF page results exceed aggregate limit"
+                        return result
+                    result.pages.append(page_result)
+        except Exception as exc:
+            logger.error(
+                "PDF library failed while parsing document (%s)",
+                type(exc).__name__,
+            )
+            result.document = None
+            result.pages = []
+            result.error = "PDF parsing failed"
+        return result
+
     def _parse_page_bounded(
         self, raw: bytes, page_index: int, page_num: int, doc_id: str, remaining: float
     ) -> Dict[str, Any]:
@@ -188,7 +322,15 @@ class PDFParser:
         parent, child = context.Pipe(duplex=False)
         process = context.Process(
             target=_page_worker,
-            args=(child, raw, page_index, page_num, doc_id, self.config),
+            args=(
+                child,
+                raw,
+                page_index,
+                page_num,
+                doc_id,
+                self.config,
+                self._backend_name(),
+            ),
             daemon=True,
         )
         timeout = min(self.config.page_timeout_seconds, remaining)
@@ -331,6 +473,64 @@ class PDFParser:
                 "structures": structures,
                 "columns": len(columns),
             }
+        }
+
+    def _parse_pymupdf_page(self, page, page_num: int, doc_id: str) -> Dict[str, Any]:
+        """Convert one PyMuPDF page into the existing bounded page contract."""
+
+        try:
+            page_dict = page.get_text("dict", sort=True)
+        except TypeError:  # supported older PyMuPDF interface
+            page_dict = page.get_text("dict")
+        blocks = page_dict.get("blocks") or []
+        if len(blocks) > self.config.max_page_objects:
+            raise ValueError("PDF page object limit exceeded")
+        lines: List[Dict[str, Any]] = []
+        objects = len(blocks)
+        for block in blocks:
+            if block.get("type", 0) != 0:
+                continue
+            block_lines = block.get("lines") or []
+            objects += len(block_lines)
+            for line in block_lines:
+                spans = line.get("spans") or []
+                objects += len(spans)
+                if objects > self.config.max_page_objects:
+                    raise ValueError("PDF page object limit exceeded")
+                text = "".join(str(span.get("text") or "") for span in spans)
+                if not text:
+                    continue
+                bbox = line.get("bbox") or (0.0, 0.0, 0.0, 0.0)
+                sizes = [float(span.get("size") or 0.0) for span in spans]
+                fonts = [str(span.get("font") or "") for span in spans]
+                lines.append(
+                    {
+                        "text": text,
+                        "top": float(bbox[1]),
+                        "x0": float(bbox[0]),
+                        "x1": float(bbox[2]),
+                        "font_size": statistics.mean(sizes) if sizes else 0.0,
+                        "font_name": fonts[0] if fonts else "",
+                        "is_bold": any("bold" in font.lower() for font in fonts),
+                    }
+                )
+        lines.sort(key=lambda line: (line["top"], line["x0"]))
+        text = "\n".join(line["text"] for line in lines)
+        if len(text) > self.config.max_page_chars:
+            raise ValueError("PDF page character limit exceeded")
+        if len(text.encode("utf-8")) > self.config.max_page_content_bytes:
+            raise ValueError("PDF page content limit exceeded")
+        return {
+            "id": f"{doc_id}:page:{page_num}",
+            "type": "Page",
+            "name": f"Page {page_num}",
+            "uri": f"{doc_id}#page={page_num}",
+            "metadata": {
+                "page_number": page_num,
+                "text": text,
+                "structures": self._detect_structure(lines),
+                "columns": 1,
+            },
         }
     
     def _detect_columns(self, chars: List[Dict]) -> List[Dict[str, float]]:

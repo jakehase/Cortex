@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd /root/clawd
+: "${ORACLE_BRIDGE_TOKEN:?ORACLE_BRIDGE_TOKEN must be provided through the protected helper environment file}"
 export ORACLE_EXECUTOR_AGENT="${ORACLE_EXECUTOR_AGENT:-oracle}"
+export ORACLE_EXECUTOR_MODEL="${ORACLE_EXECUTOR_MODEL:-gpt-5.6-sol}"
+export ORACLE_EXECUTOR_THINKING="${ORACLE_EXECUTOR_THINKING:-xhigh}"
+export ORACLE_EXECUTOR_AUTH_POLICY="${ORACLE_EXECUTOR_AUTH_POLICY:-pmhnp_oauth_approved_2026-09-25}"
+export ORACLE_EXECUTOR_SERVICE_TIER_POLICY="${ORACLE_EXECUTOR_SERVICE_TIER_POLICY:-provider_default_no_override}"
 export ORACLE_EXECUTOR_SESSION_MODE="${ORACLE_EXECUTOR_SESSION_MODE:-ephemeral}"
 export ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES="${ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES:-60}"
 export ORACLE_EXECUTOR_SESSION_RETENTION_COUNT="${ORACLE_EXECUTOR_SESSION_RETENTION_COUNT:-300}"
 export ORACLE_EXECUTOR_SESSION_RETENTION_DAYS="${ORACLE_EXECUTOR_SESSION_RETENTION_DAYS:-7}"
 export ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS="${ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS:-1800}"
-pkill -f 'uvicorn deploy.oracle_executor:app' >/dev/null 2>&1 || true
-exec python3 -m uvicorn deploy.oracle_executor:app --host 0.0.0.0 --port 18999
+exec python3 -m uvicorn deploy.oracle_executor:app --host 127.0.0.1 --port 18999

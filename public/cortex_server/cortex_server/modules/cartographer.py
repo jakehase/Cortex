@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from cortex_server.internal_addressing import internal_host_port
+from cortex_server.modules.health_status import UNTESTED
 from cortex_server.modules.level_registry import get_level_registry
 
 # Canonical LEVEL_MAP - derived from the shared registry to avoid count drift.
@@ -176,7 +177,7 @@ def build_topology(probe_snapshot: Optional[Dict[str, Any]] = None, mount_states
                 "kind": "level",
                 "level": level,
                 "name": row["name"],
-                "status": observed.get("status", "unknown"),
+                "status": observed.get("status", UNTESTED),
                 "mount": observed.get("mount"),
                 "probe_outcome": (observed.get("probe") or {}).get("outcome"),
             }

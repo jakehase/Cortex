@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import { assertOwnerBoundFallbackIdentity, captureTrustedPrincipalContext, deriveCortexKnowledgePrincipal } from '../cortex-principal-identity.mjs';
+import { resolveTrustedCortexPrincipalContext } from '../cortex-principal-identity.mjs';
 
 function resolveConfig(cfg) {
   const rootEntry = cfg?.plugins?.entries?.['cortex-memory-bridge'];
@@ -501,13 +501,6 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
   throw lastError || new Error('unknown cortex memory manager error');
 }
 
-function requireTrustedPrincipalContext(context, fallback) {
-  const trusted = captureTrustedPrincipalContext(context, fallback);
-  if (!trusted.sessionKey) throw new Error('Cortex memory manager requires trusted invocation context: missing sessionKey');
-  if (trusted.senderConflict) throw new Error('Cortex memory manager requires an unambiguous trusted sender');
-  return trusted;
-}
-
 function scopedHeaders(rcfg, scope) {
   const secret = String(rcfg.scopeHmacSecret || '');
   const headers = rcfg.writeToken ? { [rcfg.writeTokenHeader]: rcfg.writeToken } : {};
@@ -572,19 +565,12 @@ export class CortexMemorySearchManager {
       params.logger?.warn ? params.logger.warn.bind(params.logger) : console.warn,
     );
     const invocationContext = params.invocationContext || params;
-    assertOwnerBoundFallbackIdentity(this.rcfg, invocationContext);
-    this.invocationContext = requireTrustedPrincipalContext(
-      invocationContext,
-      {
-        agentId: params.agentId || this.rcfg.agentId,
-        // Only an explicit ownerSenderId is a configured sender binding.  The
-        // configured userId remains a safe fixed user fallback, but is not
-        // relabeled as callback sender evidence.
-        senderId: this.rcfg.ownerSenderId,
-        userId: this.rcfg.userId,
-        channelId: this.rcfg.channelId,
-      },
-    );
+    const resolution = resolveTrustedCortexPrincipalContext(this.rcfg, {
+      ...invocationContext,
+      agentId: invocationContext.agentId || params.agentId,
+    });
+    this.invocationContext = resolution.context;
+    this.knowledgePrincipal = resolution.knowledgePrincipal;
     this.agentId = this.invocationContext.agentId;
   }
   static async create(params) { return new CortexMemorySearchManager(params); }
@@ -592,7 +578,7 @@ export class CortexMemorySearchManager {
     const classification = classifyQuery(query);
     const requestedMax = Number(opts.maxResults || 6);
     const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, this.rcfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
-    const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
+    const scope = this.knowledgePrincipal;
     const headers = scopedHeaders(this.rcfg, scope);
     const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
       query,
@@ -619,7 +605,7 @@ export class CortexMemorySearchManager {
     if (!Number.isSafeInteger(from) || from < 1 || !Number.isSafeInteger(lines) || lines < 1 || lines > 200) {
       throw new Error('memory_get requires a positive integer from and 1–200 lines');
     }
-    const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
+    const scope = this.knowledgePrincipal;
     const result = await postJson(`${this.rcfg.baseUrl}/librarian/record`, {
       id: match[1], from_line: from, lines, scope, ...memoryScopeFields(this.rcfg, scope),
     }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs,
@@ -659,7 +645,7 @@ export class CortexMemorySearchManager {
   }
   async probeSearchAvailability() {
     try {
-      const scope = deriveCortexKnowledgePrincipal(this.rcfg, this.invocationContext);
+      const scope = this.knowledgePrincipal;
       const headers = scopedHeaders(this.rcfg, scope);
       const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, {
         query: 'cortex memory backend availability probe',

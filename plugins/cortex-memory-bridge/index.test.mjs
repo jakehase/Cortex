@@ -471,15 +471,15 @@ test('lifecycle hooks require a trusted session and use only configured fixed-pr
 
     assert.throws(
       () => handlers.get('llm_output')({ content: 'must not use the configured global session' }, {}),
-      /lifecycle callback requires trusted session identity/,
+      /canonical Cortex principal requires trusted callback session identity/,
     );
     await assert.rejects(
       () => handlers.get('subagent_ended')({ result: 'must not persist' }, {}),
-      /lifecycle callback requires trusted session identity/,
+      /canonical Cortex principal requires trusted callback session identity/,
     );
     await assert.rejects(
       () => handlers.get('agent_end')({ result: 'must not persist' }, {}),
-      /lifecycle callback requires trusted session identity/,
+      /canonical Cortex principal requires trusted callback session identity/,
     );
     assert.equal(requests.length, 0);
     assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
@@ -509,7 +509,7 @@ test('lifecycle hooks require a trusted session and use only configured fixed-pr
   }
 });
 
-test('owner-bound lifecycle fallback rejects an explicit foreign callback user before persistence', async () => {
+test('owner-bound lifecycle requires affirmative sender evidence before persistence', async () => {
   const handlers = new Map();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-owner-bound-lifecycle-test-'));
   const originalFetch = globalThis.fetch;
@@ -538,30 +538,32 @@ test('owner-bound lifecycle fallback rejects an explicit foreign callback user b
     const foreignUserOnly = { sessionKey: 'foreign-user-only-session', userId: 'foreign-user' };
     assert.throws(
       () => handlers.get('llm_output')({ content: 'must not enter the owner output cache' }, foreignUserOnly),
-      /owner-bound Cortex scope rejects a callback user without trusted sender identity/,
+      /owner-bound Cortex scope requires trusted callback sender identity/,
     );
     await assert.rejects(
       () => handlers.get('subagent_ended')({ result: 'must not persist' }, foreignUserOnly),
-      /owner-bound Cortex scope rejects a callback user without trusted sender identity/,
+      /owner-bound Cortex scope requires trusted callback sender identity/,
     );
     await assert.rejects(
       () => handlers.get('agent_end')({ result: 'must not persist' }, foreignUserOnly),
-      /owner-bound Cortex scope rejects a callback user without trusted sender identity/,
+      /owner-bound Cortex scope requires trusted callback sender identity/,
     );
     assert.equal(requests, 0);
     assert.deepEqual(lifecycleSpoolFiles(stateDir), []);
 
-    assert.doesNotThrow(() => handlers.get('llm_output')(
-      { content: 'session-only owner callback remains supported' },
+    for (const incomplete of [
       { sessionKey: 'owner-session-only-lifecycle' },
-    ));
-    assert.doesNotThrow(() => handlers.get('llm_output')(
-      { content: 'matching owner user callback remains supported' },
       { sessionKey: 'owner-user-lifecycle', userId: 'owner-user' },
-    ));
-    assert.doesNotThrow(() => handlers.get('llm_output')(
-      { content: 'owner sender alias callback remains supported' },
       { sessionKey: 'owner-sender-alias-lifecycle', userId: 'owner-sender' },
+    ]) {
+      assert.throws(
+        () => handlers.get('llm_output')({ content: 'missing sender must not imply owner' }, incomplete),
+        /owner-bound Cortex scope requires trusted callback sender identity/,
+      );
+    }
+    assert.doesNotThrow(() => handlers.get('llm_output')(
+      { content: 'explicit owner sender callback remains supported' },
+      { sessionKey: 'owner-sender-lifecycle', senderId: 'owner-sender' },
     ));
     assert.equal(requests, 0);
   } finally {
@@ -764,14 +766,11 @@ test('native memory_get preserves owner scope, validates the record window, and 
       from: 2,
       lines: 2,
     });
-    assert.equal(sessionOnly.details.text, 'Synthetic owner-only project fact.');
-    assert.deepEqual(requests.at(-1).body.scope, getRequest.body.scope);
-    assert.equal(
-      requests.at(-1).headers.get('x-cortex-scope-signature'),
-      getRequest.headers.get('x-cortex-scope-signature'),
-    );
+    assert.equal(sessionOnly.details.disabled, true);
+    assert.equal(sessionOnly.details.error, 'cortex_memory_get_failed');
 
     for (const callbackUser of ['owner-user', 'owner-sender']) {
+      const beforeMatchingUser = requests.length;
       const matchingOwner = await getFactory({
         sessionKey: `matching-${callbackUser}-callback`,
         userId: callbackUser,
@@ -780,8 +779,9 @@ test('native memory_get preserves owner scope, validates the record window, and 
         from: 2,
         lines: 2,
       });
-      assert.equal(matchingOwner.details.text, 'Synthetic owner-only project fact.');
-      assert.deepEqual(requests.at(-1).body.scope, getRequest.body.scope);
+      assert.equal(matchingOwner.details.disabled, true);
+      assert.equal(matchingOwner.details.error, 'cortex_memory_get_failed');
+      assert.equal(requests.length, beforeMatchingUser);
     }
 
     const beforeForeignUser = requests.length;

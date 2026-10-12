@@ -100,18 +100,18 @@ async def test_sweep_alerts_once_and_announces_resolution(monkeypatch):
 
     _patch_checks(monkeypatch, oracle_ok=False)
     first = await sw.run_once(app)
-    assert first["status"] == "unhealthy" and first["issues"] == 1
+    assert first["status"] == "failed" and first["issues"] == 1
     await sw.run_once(app)  # same issue: no second alert
     alerts = [e for e in bus.events if e[1] == "cortex_alert"]
     assert len(alerts) == 1 and alerts[0][2]["check"] == "oracle_consult" and alerts[0][2]["severity"] == "high"
 
     _patch_checks(monkeypatch, oracle_ok=True)
     healthy = await sw.run_once(app)
-    assert healthy["status"] == "healthy"
+    assert healthy["status"] == "operational"
     assert [e[1] for e in bus.events].count("cortex_alert_resolved") == 1
 
     summary = sw.summary()
-    assert summary["fresh"] is True and summary["status"] == "healthy" and summary["runs"] == 3
+    assert summary["fresh"] is True and summary["status"] == "operational" and summary["runs"] == 3
     assert summary["mode"] == "read_only_in_process"
 
 
@@ -132,10 +132,10 @@ async def test_failing_check_is_reported_not_raised(monkeypatch):
 async def test_sentinel_health_uses_fresh_self_watch(monkeypatch):
     _patch_checks(monkeypatch)
     monkeypatch.setattr(sentinel, "_scheduler_running", False)
-    assert sentinel._sentinel_health_snapshot()["health_reason"] == "scheduler_not_running"  # no sweep yet
+    assert sentinel._sentinel_health_snapshot()["health_reason"] == "self_watch_not_running"  # no sweep yet
     await sw.run_once(SimpleNamespace(state=SimpleNamespace(lifecycle_checks={})))
     health = sentinel._sentinel_health_snapshot()
-    assert health["status"] == "active" and health["health_reason"] == "self_watch_healthy"
+    assert health["status"] == "operational" and health["health_reason"] == "self_watch_operational"
     assert health["self_watch"]["fresh"] is True
 
     _patch_checks(monkeypatch, oracle_ok=False)
@@ -214,14 +214,14 @@ async def test_level_check_ignores_sentinel_itself_and_names_reasons(monkeypatch
 
     monkeypatch.setattr(level_probe, "refresh_probe_snapshot", no_refresh)
     monkeypatch.setattr(kernel, "kernel_level_status", lambda app: {
-        "measured": True, "online_levels": [1], "restricted_levels": [], "degraded_levels": [21, 5],
+        "measured": True, "operational_levels": [1], "restricted_by_design_levels": [], "degraded_levels": [21, 5],
         "levels": [
             {"level": 21, "status": "degraded", "reason": "probe_self_reported_unhealthy",
              "probe": {"reported_status": "stopped"}},
             {"level": 5, "status": "degraded", "reason": "probe_self_reported_unhealthy"},
             {"level": 17, "status": "degraded", "probe": {"reported_status": "unavailable"}},
             {"level": 7, "status": "degraded", "reason": "recent_server_errors"},
-            {"level": 1, "status": "online"},
+            {"level": 1, "status": "operational"},
         ]})
     row = await sw.check_levels(object())
     assert row["ok"] is False and row["value"]["degraded"] == [7]

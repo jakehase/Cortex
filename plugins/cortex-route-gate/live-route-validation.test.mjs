@@ -21,7 +21,7 @@ function canonicalLiveResponse(response) {
     ...response,
   };
 }
-const SAFE_ROUTING_FAILURE = /routing unavailable while requireRouting is enabled; type=Error detail_hash=[0-9a-f]{64}/;
+const SAFE_ROUTING_FAILURE = /CORTEX_ROUTE_REQUIRED_FAILURE: Cortex routing is unavailable; this turn was stopped before model execution/;
 function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;

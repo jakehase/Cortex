@@ -19,6 +19,20 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from cortex_server.modules import cortex_kernel_v2, level_probe
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    STALE_EVIDENCE,
+    UNTESTED,
+    aggregate_status,
+    is_failure,
+    is_usable,
+    normalize_status,
+    vocabulary_payload,
+)
 from cortex_server.routers.nexus import orchestrate_query
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
@@ -122,15 +136,15 @@ def _self_tests() -> Dict[int, Dict[str, Any]]:
 
 def _aggregate(snapshot: Optional[Dict[str, Any]], self_tests: Optional[Dict[int, Dict[str, Any]]] = None) -> Dict[str, Any]:
     if snapshot is None or not snapshot.get("available", True):
-        return {"status": "unknown", "reason": (snapshot or {}).get("reason", "no_measurement"), "results": []}
+        return {"status": UNTESTED, "reason": (snapshot or {}).get("reason", "no_measurement"), "results": []}
     tests = self_tests or {}
     results: List[Dict[str, Any]] = []
     for row in snapshot.get("levels") or ():
         probe = row.get("probe") or {}
         test = tests.get(row["level"])
-        state = row.get("status")
-        if test is not None and not test.get("passed") and state in {"online", "restricted"}:
-            state = "degraded"
+        state = normalize_status(row.get("status"))
+        if test is not None and not test.get("passed") and state in {OPERATIONAL, RESTRICTED_BY_DESIGN}:
+            state = DEGRADED
         results.append(
             {
                 "level": row["level"],
@@ -150,25 +164,34 @@ def _aggregate(snapshot: Optional[Dict[str, Any]], self_tests: Optional[Dict[int
                 "reported_status": probe.get("reported_status"),
                 "latency_ms": probe.get("latency_ms"),
                 "self_test": test,
-                "success": state in {"online", "restricted"},
+                "success": is_usable(state),
             }
         )
-    mounted = [r for r in results if r["mounted"]]
-    failed = [r["level"] for r in results if r["state"] in {"degraded", "failed"}]
-    healthy = [r for r in mounted if r["success"]]
-    if not mounted:
-        status = "unhealthy"
-    elif not failed:
-        status = "healthy"
-    elif len(healthy) >= max(1, len(mounted) // 2):
-        status = "degraded"
-    else:
-        status = "unhealthy"
+    evaluated = [
+        r for r in results
+        if r["state"] not in {DISABLED_BY_DESIGN, UNTESTED}
+    ]
+    usable = [r for r in evaluated if r["success"]]
+    status = aggregate_status(r["state"] for r in results)
     return {
         "status": status,
-        "health_pct": round(100.0 * len(healthy) / len(mounted), 1) if mounted else 0.0,
-        "failed_levels": failed,
-        "unmounted_levels": [r["level"] for r in results if r["state"] == "unmounted"],
+        "health_pct": round(100.0 * len(usable) / len(evaluated), 1) if evaluated else None,
+        "failed_levels": [r["level"] for r in results if r["state"] == FAILED],
+        "degraded_levels": [r["level"] for r in results if r["state"] == DEGRADED],
+        "restricted_by_design_levels": [
+            r["level"] for r in results if r["state"] == RESTRICTED_BY_DESIGN
+        ],
+        "disabled_by_design_levels": [
+            r["level"] for r in results if r["state"] == DISABLED_BY_DESIGN
+        ],
+        "stale_evidence_levels": [
+            r["level"] for r in results if r["state"] == STALE_EVIDENCE
+        ],
+        "untested_levels": [r["level"] for r in results if r["state"] == UNTESTED],
+        "unmounted_levels": [
+            r["level"] for r in results
+            if r["state"] in {DISABLED_BY_DESIGN, UNTESTED}
+        ],
         "identity_mismatch_levels": [r["level"] for r in results if r["identity_match"] is False],
         "timeout_levels": [r["level"] for r in results if r["probe_outcome"] == "timeout"],
         "levels_probed": sum(1 for r in results if r["http_status"] is not None),
@@ -184,13 +207,14 @@ async def meta_conductor_health(http_request: Request, refresh: bool = False) ->
     )
     aggregate = _aggregate(snapshot, _self_tests())
     return {
-        "success": aggregate["status"] in {"healthy", "degraded"},
+        "success": not is_failure(aggregate["status"]),
         "service": "meta_conductor",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "measured_at": (snapshot or {}).get("measured_at"),
         "snapshot_age_s": (snapshot or {}).get("age_s"),
         "probe_mode": "in_process_route_handler",
         "activation_metadata_source": "meta_conductor",
+        "status_vocabulary": vocabulary_payload(),
         **aggregate,
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
         "contract": dict(CONTRACT_METADATA),
@@ -204,14 +228,18 @@ async def meta_conductor_status(http_request: Request) -> Dict[str, Any]:
     level_probe.schedule_probe_refresh(http_request.app, max_age_s=HEALTH_TTL_S)
     age = (snapshot or {}).get("age_s")
     if snapshot is None and level_probe.refresh_in_progress():
-        aggregate: Dict[str, Any] = {"status": "measuring", "failed_levels": [], "unmounted_levels": []}
+        aggregate: Dict[str, Any] = {"status": UNTESTED, "failed_levels": [], "unmounted_levels": []}
     elif snapshot is not None and age is not None and age > HEALTH_STALE_AFTER_S:
-        aggregate = {**_aggregate(snapshot), "status": "stale"}
+        aggregate = _aggregate(snapshot)
+        aggregate = {
+            **aggregate,
+            "status": aggregate_status([aggregate["status"], STALE_EVIDENCE]),
+        }
     else:
         aggregate = _aggregate(snapshot)
     levels = _status_levels()
     return {
-        "success": aggregate["status"] in {"healthy", "degraded", "measuring"},
+        "success": not is_failure(aggregate["status"]),
         "level": 36,
         "name": "Conductor (Meta)",
         "status": aggregate["status"],
@@ -219,11 +247,17 @@ async def meta_conductor_status(http_request: Request) -> Dict[str, Any]:
         "health_snapshot_age_s": age,
         "health_pct": aggregate.get("health_pct"),
         "failed_levels": aggregate.get("failed_levels", []),
+        "degraded_levels": aggregate.get("degraded_levels", []),
+        "restricted_by_design_levels": aggregate.get("restricted_by_design_levels", []),
+        "disabled_by_design_levels": aggregate.get("disabled_by_design_levels", []),
+        "stale_evidence_levels": aggregate.get("stale_evidence_levels", []),
+        "untested_levels": aggregate.get("untested_levels", []),
         "unmounted_levels": aggregate.get("unmounted_levels", []),
         "total_levels": len(levels),
         "levels": levels,
         "activation_metadata_available": True,
         "activation_metadata_source": "meta_conductor",
+        "status_vocabulary": vocabulary_payload(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
         "contract": dict(CONTRACT_METADATA),

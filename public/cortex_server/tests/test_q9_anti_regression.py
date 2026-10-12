@@ -61,21 +61,42 @@ def _release(root: Path, envelope: Path):
     target.write_text("q9\n", encoding="utf-8")
     os.chmod(target, 0o644)
     payload = {
-        "schemaVersion": "cortex.release-envelope.v1",
+        "schemaVersion": "cortex.release-envelope.v2",
         "releaseId": "q9-test",
         "sourceCommit": "a" * 40,
         "sourceTree": "b" * 40,
         "parentCommit": "c" * 40,
+        "sourceIdentity": {
+            "clean": True,
+            "statusPorcelainSha256": hashlib.sha256(b"").hexdigest(),
+            "indexTree": "b" * 40,
+            "objectFormat": "sha1",
+        },
         "fileCount": 1,
         "files": [
             {
                 "path": "app.txt",
+                "classification": "product",
                 "mode": 0o644,
                 "bytes": target.stat().st_size,
                 "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
             }
         ],
-        "runtimeSurfaceContract": None,
+        "sourceClassification": {
+            "contractPath": "app.txt",
+            "contractSha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            "trackedCounts": {"product": 1},
+            "privateRuntime": {
+                "trackedFileCount": 0,
+                "trackedFilesAllowed": False,
+                "absoluteRoots": ["/var/lib/cortex"],
+            },
+        },
+        "runtimeSurfaceContract": {
+            "path": "app.txt",
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        },
+        "qualificationReceipts": [],
         "mutableStatePolicy": {
             "releaseSourceReadOnly": True,
             "allowedRoots": ["/var/lib/cortex"],
@@ -83,6 +104,22 @@ def _release(root: Path, envelope: Path):
         },
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
+    for kind, surfaces in (("full-suite", []), ("focused-gates", ["BROWSER-1", "OPS-2"])):
+        receipt = {
+            "schemaVersion": "cortex.qualification-receipt.v1",
+            "kind": kind,
+            "outcome": "green",
+            "sourceCommit": "a" * 40,
+            "sourceTree": "b" * 40,
+            "exitCode": 0,
+            "surfaceIds": surfaces,
+        }
+        payload_hash = hashlib.sha256(
+            json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        payload["qualificationReceipts"].append(
+            {"kind": kind, "receiptSha256": payload_hash, "payloadSha256": payload_hash, "payload": receipt}
+        )
     payload["envelopeSha256"] = system_router._canonical_digest(payload)
     envelope.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 

@@ -61,6 +61,12 @@ test('config schema exposes the bounded response-size option and rejects unknown
     maximum: 16_777_216,
     default: 1_048_576,
   });
+  assert.deepEqual(manifest.configSchema.properties.maxAttempts, {
+    type: 'integer',
+    minimum: 1,
+    maximum: 3,
+    default: 2,
+  });
   assert.match(runtimeSource, /maxResponseBytes: typeof c\.maxResponseBytes === 'number' \? c\.maxResponseBytes : 1_048_576/);
   assert.equal('maxResponseByte' in manifest.configSchema.properties, false);
   assert.deepEqual(
@@ -93,9 +99,10 @@ test('status preserves a successful HTTP status without forwarding the upstream 
     headers: { 'content-type': 'application/json' },
   });
   try {
-    assert.deepEqual(await executeStatus({ baseUrl: 'http://bridge.invalid' }), {
+    assert.deepEqual(await executeStatus({ baseUrl: 'http://127.0.0.1:18888' }), {
       ok: true,
       status: 200,
+      attempts: 1,
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -110,7 +117,7 @@ test('browser POST attaches the configured write-token header while status GET d
     return new Response('{}', { status: 200 });
   };
   try {
-    const config = { baseUrl: 'http://bridge.invalid', writeToken: 'browser-secret', writeTokenHeader: 'x-browser-token' };
+    const config = { baseUrl: 'http://127.0.0.1:18888', writeToken: 'browser-secret', writeTokenHeader: 'x-browser-token' };
     await browseTool(config).execute('call', { query: 'test' });
     await executeStatus(config);
     assert.equal(new Headers(requests[0].init.headers).get('x-browser-token'), 'browser-secret');
@@ -127,7 +134,7 @@ test('browser tools do not forward upstream diagnostic bodies', async () => {
   const opaqueDiagnostic = 'OPAQUE_UPSTREAM_SECRET_123456789';
   globalThis.fetch = async () => new Response(opaqueDiagnostic, { status: 503 });
   try {
-    const result = await browseTool({ baseUrl: 'http://bridge.invalid' })
+    const result = await browseTool({ baseUrl: 'http://127.0.0.1:18888' })
       .execute('call', { query: 'bounded failure' });
     assert.equal(result.includes(opaqueDiagnostic), false);
     assert.deepEqual(JSON.parse(result), {
@@ -135,7 +142,13 @@ test('browser tools do not forward upstream diagnostic bodies', async () => {
       provider: 'cortex-browser',
       endpoint: '/browser/search',
       status: 503,
+      attempts: 2,
       error: 'Cortex browser request failed',
+      fallback: {
+        required: true,
+        attempted: false,
+        reason: 'cortex_browser_unavailable',
+      },
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -150,7 +163,7 @@ test('browser action signature binds callback principal, path, exact body, nonce
     return new Response('{}', { status: 200 });
   };
   try {
-    await browseTool({ baseUrl: 'http://bridge.invalid' }).execute('call', { query: 'bound request' });
+    await browseTool({ baseUrl: 'http://127.0.0.1:18888' }).execute('call', { query: 'bound request' });
     const { init } = requests[0];
     const headers = new Headers(init.headers);
     const scope = ['tenant-id', 'workspace-id', 'agent-id', 'user-id', 'channel-id', 'session-id']
@@ -187,7 +200,7 @@ test('browser action applies configured principal fallbacks to a trusted session
   };
   try {
     await browseTool(
-      { baseUrl: 'http://bridge.invalid' },
+      { baseUrl: 'http://127.0.0.1:18888' },
       { sessionKey: 'session-only-browser-callback' },
     ).execute('call', { query: 'fallback-bound request' });
     const headers = new Headers(request.init.headers);
@@ -215,9 +228,10 @@ for (const status of [404, 503]) {
       headers: { 'content-type': 'text/plain' },
     });
     try {
-      assert.deepEqual(await executeStatus({ baseUrl: 'http://bridge.invalid', maxResponseBytes: 64 }), {
+      assert.deepEqual(await executeStatus({ baseUrl: 'http://127.0.0.1:18888', maxResponseBytes: 64 }), {
         ok: false,
         status,
+        attempts: status === 503 ? 2 : 1,
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -229,8 +243,9 @@ test('status reports an oversize response as an established bounded-read failure
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('x'.repeat(65), { status: 200 });
   try {
-    assert.deepEqual(await executeStatus({ baseUrl: 'http://bridge.invalid', maxResponseBytes: 64 }), {
+    assert.deepEqual(await executeStatus({ baseUrl: 'http://127.0.0.1:18888', maxResponseBytes: 64 }), {
       ok: false,
+      attempts: 1,
       error: 'response exceeds 64 bytes',
     });
   } finally {
@@ -300,8 +315,9 @@ test('status reports a metadata-only deadline failure', async () => {
     init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
   });
   try {
-    assert.deepEqual(await executeStatus({ baseUrl: 'http://bridge.invalid', timeoutMs: 20 }), {
+    assert.deepEqual(await executeStatus({ baseUrl: 'http://127.0.0.1:18888', timeoutMs: 20, maxAttempts: 1 }), {
       ok: false,
+      attempts: 1,
       error: 'Cortex browser status request failed',
     });
   } finally {
@@ -313,8 +329,9 @@ test('status reports a network failure', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new TypeError('synthetic network diagnostic'); };
   try {
-    assert.deepEqual(await executeStatus({ baseUrl: 'http://bridge.invalid', timeoutMs: 200 }), {
+    assert.deepEqual(await executeStatus({ baseUrl: 'http://127.0.0.1:18888', timeoutMs: 200, maxAttempts: 1 }), {
       ok: false,
+      attempts: 1,
       error: 'Cortex browser status request failed',
     });
   } finally {

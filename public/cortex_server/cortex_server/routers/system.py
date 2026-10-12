@@ -69,11 +69,36 @@ def _release_layer() -> dict:
         if cached is not None:
             return dict(cached)
     envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
-    if envelope.get("schemaVersion") != "cortex.release-envelope.v1":
+    if envelope.get("schemaVersion") != "cortex.release-envelope.v2":
         return {"status": "red", "reason": "unsupported release envelope schema"}
     if _canonical_digest(envelope) != envelope.get("envelopeSha256"):
         return {"status": "red", "reason": "release envelope digest mismatch"}
     mismatches = []
+    source_identity = envelope.get("sourceIdentity")
+    if not isinstance(source_identity, dict) or source_identity.get("clean") is not True:
+        mismatches.append({"path": "<sourceIdentity>", "reason": "source_not_clean"})
+    elif source_identity.get("indexTree") != envelope.get("sourceTree"):
+        mismatches.append({"path": "<sourceIdentity>", "reason": "source_tree_mismatch"})
+    private_runtime = (envelope.get("sourceClassification") or {}).get("privateRuntime")
+    if (
+        not isinstance(private_runtime, dict)
+        or private_runtime.get("trackedFilesAllowed") is not False
+        or private_runtime.get("trackedFileCount") != 0
+    ):
+        mismatches.append({"path": "<sourceClassification>", "reason": "private_runtime_not_external"})
+    qualification = envelope.get("qualificationReceipts")
+    qualification_kinds = {
+        row.get("kind")
+        for row in qualification or []
+        if isinstance(row, dict)
+        and isinstance(row.get("payload"), dict)
+        and row["payload"].get("sourceCommit") == envelope.get("sourceCommit")
+        and row["payload"].get("sourceTree") == envelope.get("sourceTree")
+        and row["payload"].get("outcome") == "green"
+        and row["payload"].get("exitCode") == 0
+    }
+    if qualification_kinds != {"full-suite", "focused-gates"}:
+        mismatches.append({"path": "<qualificationReceipts>", "reason": "exact_candidate_receipts_missing"})
     for row in envelope.get("files") or []:
         relative = str(row.get("path") or "")
         pure = PurePosixPath(relative)
@@ -97,6 +122,8 @@ def _release_layer() -> dict:
         "releaseId": envelope.get("releaseId"),
         "sourceCommit": envelope.get("sourceCommit"),
         "sourceTree": envelope.get("sourceTree"),
+        "sourceClean": (envelope.get("sourceIdentity") or {}).get("clean") is True,
+        "qualificationReceiptKinds": sorted(qualification_kinds),
         "fileCount": envelope.get("fileCount"),
         "envelopeSha256": envelope.get("envelopeSha256"),
         "mismatchCount": len(mismatches),

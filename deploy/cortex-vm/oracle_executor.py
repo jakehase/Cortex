@@ -1,13 +1,15 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import subprocess
 import os
 import json
 import hashlib
+import hmac
 import re
 import uuid
 import math
 import time
+from datetime import datetime, timezone
 
 app = FastAPI()
 CT101_HOST = os.getenv("CT101_HOST", "10.0.0.220")
@@ -16,9 +18,19 @@ CT101_KEY = os.getenv("CT101_KEY", "/opt/cortex-oracle-bridge/ct101_exec_key")
 CT101_WORKDIR = os.getenv("CT101_WORKDIR", "/root/clawd/deploy/oracle-workspace-lite")
 TIMEOUT = int(os.getenv("ORACLE_EXECUTOR_TIMEOUT", "60"))
 AGENT_ID = os.getenv("ORACLE_EXECUTOR_AGENT", "oracle").strip() or "oracle"
+EXPECTED_MODEL = os.getenv("ORACLE_EXECUTOR_MODEL", "gpt-5.6-sol").strip() or "gpt-5.6-sol"
+AUTH_POLICY = os.getenv("ORACLE_EXECUTOR_AUTH_POLICY", "pmhnp_oauth_approved_2026-09-25").strip()
+SERVICE_TIER_POLICY = os.getenv("ORACLE_EXECUTOR_SERVICE_TIER_POLICY", "provider_default_no_override").strip()
+EXECUTOR_TOKEN = (os.getenv("ORACLE_EXECUTOR_TOKEN") or os.getenv("ORACLE_BRIDGE_TOKEN") or "").strip()
+if EXECUTOR_TOKEN and len(EXECUTOR_TOKEN) < 32:
+    raise RuntimeError("Oracle executor token must contain at least 32 characters")
 THINKING = os.getenv("ORACLE_EXECUTOR_THINKING", "xhigh").strip().lower() or "xhigh"
 if THINKING != "xhigh":
     raise RuntimeError("ORACLE_EXECUTOR_THINKING must remain xhigh")
+if AUTH_POLICY != "pmhnp_oauth_approved_2026-09-25":
+    raise RuntimeError("ORACLE_EXECUTOR_AUTH_POLICY must remain pmhnp_oauth_approved_2026-09-25")
+if SERVICE_TIER_POLICY != "provider_default_no_override":
+    raise RuntimeError("ORACLE_EXECUTOR_SERVICE_TIER_POLICY must not force a service tier")
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
@@ -35,6 +47,71 @@ LAST_CLEANUP_AT = 0.0
 class InvokeRequest(BaseModel):
     prompt: str
     system: str | None = None
+    origin_channel: str | None = None
+    scope_hash: str | None = None
+
+
+def _require_authorized(request: Request) -> None:
+    if not EXECUTOR_TOKEN:
+        raise HTTPException(status_code=503, detail="oracle executor authentication is not configured")
+    supplied = request.headers.get("x-bridge-token", "")
+    if not supplied or not hmac.compare_digest(supplied, EXECUTOR_TOKEN):
+        raise HTTPException(status_code=401, detail="oracle executor authentication failed")
+
+
+def _model_matches_policy(model: str) -> bool:
+    observed = str(model or "").strip().casefold()
+    expected = EXPECTED_MODEL.casefold()
+    return bool(observed and observed in {expected, expected.rsplit("/", 1)[-1]})
+
+
+def _process_failure_detail(label: str, result) -> str:
+    """Return useful diagnostics without reflecting provider or prompt content."""
+    output = "\n".join(str(part) for part in (getattr(result, "stdout", ""), getattr(result, "stderr", "")) if part)
+    encoded = output.encode("utf-8", errors="replace")
+    return (
+        f"{label}; returncode={getattr(result, 'returncode', 'unknown')}; "
+        f"output_bytes={len(encoded)}; output_sha256={hashlib.sha256(encoded).hexdigest()}"
+    )
+
+
+def _completion_receipt(response: str, provider: str, model: str, session_id: str, payload_count: int) -> dict:
+    completed_at = datetime.now(timezone.utc).isoformat()
+    response_sha256 = hashlib.sha256(response.encode("utf-8")).hexdigest()
+    source = f"{provider}:{model}"
+    seed = "\0".join(("cortex.oracle.completion.v1", "provider_response", source, completed_at, response_sha256))
+    return {
+        "version": "cortex.oracle.completion.v1",
+        "receipt_id": f"oracle_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:24]}",
+        "kind": "provider_response",
+        "source": source,
+        "completed_at": completed_at,
+        "response_sha256": response_sha256,
+        "evidence": {
+            "provider": provider,
+            "model": model,
+            "identity_source": "openclaw_agent_meta",
+            "command_agent": AGENT_ID,
+            "returncode": 0,
+            "session_id_sha256": hashlib.sha256(session_id.encode("utf-8")).hexdigest(),
+            "payload_count": payload_count,
+            "execution_boundary": "cortex_oracle_executor",
+            "auth_policy": AUTH_POLICY,
+            "service_tier_policy": SERVICE_TIER_POLICY,
+        },
+    }
+
+
+def _sign_response(payload: dict) -> str:
+    if not EXECUTOR_TOKEN:
+        return ""
+    signed = json.dumps(
+        {key: value for key, value in payload.items() if key != "helper_signature"},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hmac.new(EXECUTOR_TOKEN.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _sanitize_session_id(value: str) -> str:
@@ -135,7 +212,6 @@ def _maybe_cleanup_remote_sessions():
         return []
 
 
-@app.get('/health')
 def health():
     return {
         "ok": True,
@@ -143,7 +219,11 @@ def health():
         "mode": "ssh-ct101-openclaw",
         "ct101": CT101_HOST,
         "agentId": AGENT_ID,
+        "modelPolicy": EXPECTED_MODEL,
         "thinking": THINKING,
+        "authPolicy": AUTH_POLICY,
+        "serviceTierPolicy": SERVICE_TIER_POLICY,
+        "requestAuthentication": "required",
         "localExecution": LOCAL_EXECUTION,
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
@@ -156,13 +236,19 @@ def health():
     }
 
 
-@app.post('/invoke')
+@app.get('/health')
+def health_endpoint(request: Request):
+    _require_authorized(request)
+    return health()
+
+
 def invoke(req: InvokeRequest):
     prompt = (req.prompt or '').strip()
     if not prompt:
         raise HTTPException(status_code=400, detail='prompt required')
 
     session_id = _session_for_prompt(prompt)
+    system_text = (req.system or '').strip()
     bridged_prompt = (
         "You are the host-side Oracle executor for Cortex. "
         "Return only the answer text that Oracle should say. "
@@ -172,19 +258,28 @@ def invoke(req: InvokeRequest):
         "If the request asks for a definition or explanation, answer in one or two crisp sentences. "
         "If the request asks for analysis, give the strongest direct answer you can in plain English. "
         "Avoid generic assistant filler like 'How can I assist you today?' or 'Live conditions can still shift'.\n\n"
-        f"User request: {prompt}"
+        "CORTEX_ORACLE_REQUEST_V1\n"
+        "Apply the system field as authoritative system instructions and the user field as the user request.\n"
+        + json.dumps({"system": system_text, "user": prompt}, ensure_ascii=False, separators=(",", ":"))
     )
+    if req.scope_hash and not re.fullmatch(r"[a-f0-9]{64}", req.scope_hash):
+        raise HTTPException(status_code=400, detail='invalid principal scope digest')
 
     reset_cmd = ""
     if RESET_AGENT_SESSION:
         reset_params = json.dumps({"key": RESET_AGENT_SESSION_KEY})
         reset_cmd = f"openclaw gateway call sessions.reset --params {json.dumps(reset_params)} --json >/dev/null && "
     local_flag = "--local " if LOCAL_EXECUTION else ""
+    channel_flag = ""
+    if req.origin_channel:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", req.origin_channel):
+            raise HTTPException(status_code=400, detail='invalid origin channel')
+        channel_flag = f" --channel {json.dumps(req.origin_channel)}"
     remote_cmd = (
         f"cd {CT101_WORKDIR} && "
         f"{reset_cmd}"
         f"openclaw agent {local_flag}--agent {json.dumps(AGENT_ID)} --session-id {session_id} --message {json.dumps(bridged_prompt)} "
-        f"--thinking {THINKING} --timeout {TIMEOUT} --json"
+        f"--thinking {THINKING} --timeout {TIMEOUT} --json{channel_flag}"
     )
     cmd = [
         'ssh', '-i', CT101_KEY, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
@@ -197,7 +292,7 @@ def invoke(req: InvokeRequest):
         raise HTTPException(status_code=504, detail='oracle executor timeout')
 
     if r.returncode != 0:
-        raise HTTPException(status_code=503, detail=(r.stderr or r.stdout or 'executor failed')[:1200])
+        raise HTTPException(status_code=503, detail=_process_failure_detail('oracle executor failed', r))
 
     try:
         data = _extract_json_payload('\n'.join(part for part in [r.stdout, r.stderr] if part))
@@ -209,14 +304,35 @@ def invoke(req: InvokeRequest):
             raise ValueError('empty response')
         meta = data.get('result', {}).get('meta') or data.get('meta') or {}
         agent_meta = meta.get('agentMeta') or {}
+        model = str(agent_meta.get('model') or '').strip()
+        provider = str(agent_meta.get('provider') or '').strip()
+        executed_agent = str(agent_meta.get('agentId') or agent_meta.get('agent') or '').strip()
+        if not model or not provider:
+            raise ValueError('missing provider model identity')
+        if executed_agent and not hmac.compare_digest(executed_agent.casefold(), AGENT_ID.casefold()):
+            raise ValueError('oracle agent identity mismatch')
+        if not _model_matches_policy(model):
+            raise ValueError('provider model violates approved policy')
         cleaned = _maybe_cleanup_remote_sessions()
-        return {
+        payload = {
             'ok': True,
             'response': text,
-            'model': agent_meta.get('model') or 'openclaw-gateway-agent',
-            'provider': agent_meta.get('provider') or 'openclaw',
+            'model': model,
+            'provider': provider,
             'sessionId': agent_meta.get('sessionId') or session_id,
             'cleanupRemoved': len(cleaned),
+            'done': True,
+            'origin': 'cortex_oracle_executor',
+            'provider_invoked': True,
+            'completion_receipt': _completion_receipt(text, provider, model, session_id, len(payloads)),
         }
+        payload['helper_signature'] = _sign_response(payload)
+        return payload
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f'invalid executor payload: {e}; raw={(r.stdout or r.stderr)[:800]}')
+        raise HTTPException(status_code=503, detail=f'invalid executor payload: {e}')
+
+
+@app.post('/invoke')
+def invoke_endpoint(req: InvokeRequest, request: Request):
+    _require_authorized(request)
+    return invoke(req)

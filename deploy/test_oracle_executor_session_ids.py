@@ -134,7 +134,12 @@ class OracleExecutorSessionTests(unittest.TestCase):
             class Result:
                 returncode = 0
                 stdout = ''
-                stderr = '[plugins] prefix {"detail":"noise"}\n{"result":{"payloads":[{"text":"ok"}]}}\n[plugins] suffix {"detail":"noise"}'
+                stderr = (
+                    '[plugins] prefix {"detail":"noise"}\n'
+                    '{"result":{"payloads":[{"text":"ok"}],"meta":{"agentMeta":'
+                    '{"model":"gpt-5.6-sol","provider":"openai-codex","agentId":"oracle"}}}}\n'
+                    '[plugins] suffix {"detail":"noise"}'
+                )
 
             def fake_run(cmd, **kwargs):
                 captured['cmd'] = cmd
@@ -145,11 +150,46 @@ class OracleExecutorSessionTests(unittest.TestCase):
             mod._maybe_cleanup_remote_sessions = lambda: []
             result = mod.invoke(mod.InvokeRequest(prompt='test'))
             self.assertEqual(result['response'], 'ok')
+            self.assertTrue(result['done'])
+            self.assertEqual(result['completion_receipt']['evidence']['auth_policy'], 'pmhnp_oauth_approved_2026-09-25')
+            self.assertEqual(result['completion_receipt']['evidence']['service_tier_policy'], 'provider_default_no_override')
             if path.parent.name == 'cortex-vm':
                 self.assertIn('--thinking xhigh', captured['cmd'][-1])
             else:
                 index = captured['cmd'].index('--thinking')
                 self.assertEqual(captured['cmd'][index + 1], 'xhigh')
+
+    def test_all_oracle_executors_require_auth_and_sign_bound_receipts(self):
+        for path in [ROOT / 'oracle_executor.py', ROOT / 'cortex-vm' / 'oracle_executor.py']:
+            token = 'smoke-helper-token-32-characters!!'
+            mod = load_module(path, {'ORACLE_BRIDGE_TOKEN': token})
+
+            class Request:
+                def __init__(self, token):
+                    self.headers = {'x-bridge-token': token}
+
+            with self.assertRaises(Exception) as rejected:
+                mod._require_authorized(Request('wrong-token'))
+            self.assertEqual(getattr(rejected.exception, 'status_code', None), 401)
+            mod._require_authorized(Request(token))
+
+            receipt = mod._completion_receipt('ok', 'openai-codex', 'gpt-5.6-sol', 'session', 1)
+            payload = {'completion_receipt': receipt}
+            signature = mod._sign_response(payload)
+            self.assertRegex(signature, r'^[0-9a-f]{64}$')
+            self.assertEqual(receipt['evidence']['execution_boundary'], 'cortex_oracle_executor')
+            receipt['evidence']['auth_policy'] = 'tampered'
+            self.assertNotEqual(signature, mod._sign_response(payload))
+
+            class FailedResult:
+                returncode = 19
+                stdout = 'prompt-secret-sentinel'
+                stderr = 'provider-secret-sentinel'
+
+            detail = mod._process_failure_detail('oracle executor failed', FailedResult())
+            self.assertNotIn('prompt-secret-sentinel', detail)
+            self.assertNotIn('provider-secret-sentinel', detail)
+            self.assertRegex(detail, r'returncode=19; output_bytes=\d+; output_sha256=[0-9a-f]{64}$')
 
     def test_extract_json_payload_ignores_plugin_log_prefix_and_suffix(self):
         mod = load_module(ROOT / 'cortex-vm' / 'oracle_executor.py', {

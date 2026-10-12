@@ -2363,9 +2363,21 @@ def _apply_governed_result_policy(
     filters: Optional[MemorySearchFilters],
     memory_principal_key: Optional[str],
 ) -> List[Dict[str, Any]]:
+    inactive_statuses = {"superseded", "tombstoned", "expired", "historical"}
+    historical_view = bool(
+        filters
+        and (
+            filters.as_of
+            or filters.as_known_at
+            or inactive_statuses.intersection(filters.statuses)
+        )
+    )
     filtered: List[Dict[str, Any]] = []
     for row in rows:
         metadata = dict(row.get("metadata") or {})
+        stored_status = str(metadata.get("memory_status") or "active").strip().casefold()
+        if stored_status in inactive_statuses and not historical_view:
+            continue
         if not row_matches_filters(metadata, filters, check_status=False):
             continue
         temporal = temporal_visibility(
@@ -2411,6 +2423,8 @@ def _apply_governed_result_policy(
                 or "active"
             )
             if filters and filters.statuses and effective_status not in filters.statuses:
+                continue
+            if effective_status in inactive_statuses and not historical_view:
                 continue
             if projection:
                 metadata = {**(row.get("metadata") or {}), "fact_conflict": projection}

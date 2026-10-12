@@ -404,6 +404,7 @@ def main() -> int:
                     "claim_key": "claim-synthetic-mode",
                     "fact_key": "fact-synthetic-mode-high",
                     "fact_value": "current",
+                    "contradicts_ids": ["memory-low"],
                     "source_id": "source-high",
                     "authority_rank": 90,
                 },

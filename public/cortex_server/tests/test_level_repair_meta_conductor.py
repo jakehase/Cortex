@@ -64,7 +64,7 @@ def test_orchestrate_returns_plan_and_in_process_target_probes(monkeypatch):
     ).json()
     assert seen["query"] == "validate this payload" and seen["request"] is not None and seen["payload"] is None
     rows = {row["level"]: row for row in body["results"]}
-    assert rows[34]["state"] == "online" and rows[34]["http_status"] == 200
+    assert rows[34]["state"] == "operational" and rows[34]["http_status"] == 200
     assert rows[33]["state"] == "failed"
     assert body["recommended_levels"][0]["level"] == 34
 
@@ -91,17 +91,17 @@ def test_health_probes_every_level_in_process_and_flags_failures():
     assert rows[33]["state"] == "failed"
     assert 33 in body["failed_levels"]
     assert 4 in body["unmounted_levels"]
-    assert body["status"] in {"degraded", "unhealthy"}
+    assert body["status"] == "failed"
     assert body["probe_mode"] == "in_process_route_handler"
 
 
 def test_status_is_derived_from_cached_health_not_constant(monkeypatch):
     client = TestClient(_app())
     first = client.get("/meta_conductor/status").json()
-    assert first["status"] in {"measuring", "unknown"}
+    assert first["status"] == "untested"
     client.get("/meta_conductor/health?refresh=true")
     second = client.get("/meta_conductor/status").json()
-    assert second["status"] in {"degraded", "unhealthy"}
+    assert second["status"] == "failed"
     assert 33 in second["failed_levels"]
     assert second["health_snapshot_age_s"] is not None
 

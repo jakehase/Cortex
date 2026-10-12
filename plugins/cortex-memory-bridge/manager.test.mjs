@@ -240,7 +240,7 @@ test('manager rejects unkeyed session identity fallback', async () => {
 test('manager construction fails closed when its trusted invocation seam is incomplete', async () => {
   await assert.rejects(
     () => CortexMemorySearchManager.create({ cfg: scopedConfig, agentId: 'agent-a' }),
-    /trusted invocation context: missing sessionKey/,
+    /canonical Cortex principal requires trusted callback session identity/,
   );
 });
 

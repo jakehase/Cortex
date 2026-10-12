@@ -27,3 +27,19 @@
 
 - **Decision:** Run repo-scale/full-suite qualification on Hetzner and keep CT101 limited to control-plane work, focused smokes, deployment, supervision, and artifact consumption.
 - **Reason:** Standing execution-plane boundary and control-plane responsiveness requirements.
+
+## 2026-10-11 — Isolate nested Oracle execution
+
+- **Decision:** Run the ordinary Cortex API as unprivileged `cortex` with no capabilities or OpenClaw filesystem writes. Move its two mutable SQLite paths into `/var/lib/cortex`. Reuse the existing Oracle executor as an authenticated loopback helper with response-bound receipts and only the Oracle session/auth-profile write paths.
+- **Reason:** Oracle must keep using the approved OpenClaw OAuth/profile and signed principal flow without granting the entire API root and broad OpenClaw writes.
+- **Deferred boundary:** Moving the root-owned OAuth profile to a dedicated non-root identity requires a separately approved credential migration.
+
+## 2026-10-11 — Reconcile canonical inference policy
+
+- **Decision:** The active policy is PMHNP OAuth approved September 25, 2026; `gpt-5.6-sol`; default `xhigh`; provider-default service tier with no forced Fast/priority override; safe mode and external-write restrictions remain enabled.
+- **Supersedes:** Personal OAuth, default `ultra`, and forced Fast/priority rules. They remain explicit historical entries rather than being erased.
+
+## 2026-10-11 — Gate rather than disable requested attachments
+
+- **Decision:** Preserve requested image/document parsing, label attachment contents as untrusted data, and block attachment-driven external-write tool calls unless authorization appears in user-authored text and existing write gates also pass.
+- **Reason:** Globally disabling attachment tool inputs would break approved workflows; policy isolation can reduce prompt-injection impact without claiming parser-level isolation.

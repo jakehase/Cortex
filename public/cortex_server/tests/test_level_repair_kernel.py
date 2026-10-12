@@ -66,13 +66,13 @@ def test_kernel_levels_are_derived_from_the_mounted_app_not_hard_coded():
 
     rows = _by_level(body["levels"])
     assert len(rows) == 38
-    assert rows[1]["status"] == "online"
-    assert rows[34]["status"] == "online"
-    assert rows[4]["status"] == "unmounted" and rows[4]["mount"] == "skipped_safe_mode"
+    assert rows[1]["status"] == "operational"
+    assert rows[34]["status"] == "operational"
+    assert rows[4]["status"] == "disabled_by_design" and rows[4]["mount"] == "skipped_safe_mode"
     assert rows[30]["status"] == "failed" and rows[30]["mount"] == "import_failed"
     assert rows[15]["status"] == "degraded" and rows[15]["reason"] == "canonical_status_route_missing"
-    # A level whose router was never loaded must not be "online".
-    assert rows[24]["status"] == "unmounted"
+    # A level whose router was never loaded must not be operational.
+    assert rows[24]["status"] == "untested"
     assert len({row["status"] for row in body["levels"]}) > 1
     assert set(body["online_levels"]) == {1, 34}
     assert body["measured"] is True and body["success"] is True
@@ -86,11 +86,11 @@ def test_kernel_level_status_is_a_pure_in_process_function_for_nexus():
     assert kernel_module.kernel_online_levels(app) == {1, 34}
 
 
-def test_kernel_level_status_reports_unknown_without_a_running_app(monkeypatch):
+def test_kernel_level_status_reports_untested_without_a_running_app(monkeypatch):
     monkeypatch.setattr(level_probe, "resolve_app", lambda app=None: None)
     status = kernel_module.kernel_level_status()
     assert status["measured"] is False
-    assert {row["status"] for row in status["levels"]} == {"unknown"}
+    assert {row["status"] for row in status["levels"]} == {"untested"}
     assert kernel_module.kernel_online_levels() is None
 
 

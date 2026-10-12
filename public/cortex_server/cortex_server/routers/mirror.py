@@ -17,6 +17,17 @@ from fastapi.responses import HTMLResponse
 
 from cortex_server.modules import level_probe
 from cortex_server.modules.cartographer import build_topology
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    STALE_EVIDENCE,
+    UNTESTED,
+    is_failure,
+    vocabulary_payload,
+)
 from cortex_server.modules.level_registry import (
     LEVEL_REGISTRY_VERSION,
     get_level_registry,
@@ -35,19 +46,20 @@ MAP_TTL_S = 30.0
 MAP_STALE_AFTER_S = 300.0
 
 STATUS_COLORS = {
-    "online": "#00ff41",
-    "restricted": "#00bfff",
-    "degraded": "#ffcc00",
-    "unmounted": "#8a8a8a",
-    "failed": "#ff0040",
-    "unknown": "#666666",
+    OPERATIONAL: "#00ff41",
+    RESTRICTED_BY_DESIGN: "#00bfff",
+    DISABLED_BY_DESIGN: "#8a8a8a",
+    STALE_EVIDENCE: "#d7aaff",
+    DEGRADED: "#ffcc00",
+    UNTESTED: "#666666",
+    FAILED: "#ff0040",
 }
 
 
 def _summary(levels: List[Dict[str, Any]]) -> Dict[str, int]:
     counts: Dict[str, int] = {"total": len(levels)}
     for row in levels:
-        key = str(row.get("status") or "unknown")
+        key = str(row.get("status") or UNTESTED)
         counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -90,7 +102,7 @@ async def get_dashboard(request: Request):
 
     cards_html = ""
     for row in levels:
-        status = str(row.get("status") or "unknown")
+        status = str(row.get("status") or UNTESTED)
         color = STATUS_COLORS.get(status, "#666666")
         probe = row.get("probe") or {}
         latency = probe.get("latency_ms")
@@ -166,13 +178,13 @@ async def mirror_status(request: Request, deep: bool = False):
     if snapshot is None and level_probe.refresh_in_progress():
         # The first map is being measured right now (this handler may itself
         # be one of the probes); report that rather than a failure.
-        status, success = "measuring", True
+        status, success = UNTESTED, True
     elif snapshot is None or not snapshot.get("available", True):
-        status, success = "no_map", False
+        status, success = UNTESTED, True
     elif age is not None and age > MAP_STALE_AFTER_S:
-        status, success = "stale", False
+        status, success = STALE_EVIDENCE, True
     else:
-        status, success = "active", True
+        status, success = OPERATIONAL, True
     levels = (snapshot or {}).get("levels") or []
     data: Dict[str, Any] = {
         "level": 23,
@@ -184,12 +196,13 @@ async def mirror_status(request: Request, deep: bool = False):
         "map_age_s": age,
         "map_stale_after_s": MAP_STALE_AFTER_S,
         "probe_mode": "in_process_route_handler",
+        "status_vocabulary": vocabulary_payload(),
         "summary": _summary(levels) if levels else None,
         "timestamp": datetime.now().isoformat(),
     }
     if deep:
         data["levels"] = [_compact(row) for row in levels]
-    return {"success": success, "status": status, "data": data, "error": None if success else status}
+    return {"success": success, "status": status, "data": data, "error": status if is_failure(status) else None}
 
 
 @router.get("/state")
@@ -225,12 +238,12 @@ async def level_map(request: Request):
             "router_path": info["path"],
             "category": info["category"],
             "always_on": info["always_on"],
-            "status": observed.get("status", "unknown"),
+            "status": observed.get("status", UNTESTED),
             "mount": observed.get("mount"),
             "mounted_routes": observed.get("mounted_routes", []),
             "probe_outcome": (observed.get("probe") or {}).get("outcome"),
             # Legacy field: now the measured status rather than an HTTP guess.
-            "reachable": observed.get("status", "unknown"),
+            "reachable": observed.get("status", UNTESTED),
         })
 
     return {

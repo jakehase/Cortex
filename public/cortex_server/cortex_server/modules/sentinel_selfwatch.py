@@ -29,6 +29,17 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    STALE_EVIDENCE,
+    UNTESTED,
+    aggregate_status,
+    normalize_status,
+)
+
 logger = logging.getLogger("cortex.sentinel.selfwatch")
 
 FIRST_DELAY_S = 60.0
@@ -41,7 +52,6 @@ COVERED_ELSEWHERE = {5: "oracle_consult"}
 BY_DESIGN = {17: "git status needs an operator execution token", 25: "Bridge is approval-only"}
 WINDOW_S = 30 * 60
 CHRONOS_MAX_AGE_H = 27
-SEVERITY_ORDER = {"info": 0, "medium": 1, "high": 2}
 _HISTORY: "deque[Dict[str, Any]]" = deque(maxlen=48)
 _state: Dict[str, Any] = {
     "task": None,
@@ -69,6 +79,7 @@ def _row(name: str, ok: bool, detail: str, *, severity: str = "info", value: Any
     return {
         "check": name,
         "ok": bool(ok),
+        "status": OPERATIONAL if ok else (FAILED if severity == "high" else DEGRADED),
         "severity": "info" if ok else severity,
         "detail": str(detail)[:300],
         "value": value,
@@ -112,17 +123,28 @@ async def check_levels(app: Any) -> Dict[str, Any]:
     status = kernel_level_status(app)
     if not status.get("measured"):
         return _row("levels", True, "level availability not measurable (no running app)")
-    failed = [row["level"] for row in status.get("levels") or () if row.get("status") == "failed"]
+    failed = [row["level"] for row in status.get("levels") or () if row.get("status") == FAILED]
     # L21 is Sentinel itself: its status is derived from this watch, so judging
     # it here would feed back on itself.
     skip = set(SELF_LEVELS) | set(COVERED_ELSEWHERE) | set(BY_DESIGN)
     degraded_rows = [row for row in status.get("levels") or ()
-                     if row.get("status") == "degraded" and row.get("level") not in skip]
+                     if row.get("status") == DEGRADED and row.get("level") not in skip]
     degraded = [row["level"] for row in degraded_rows]
     reasons = {row["level"]: _degraded_reason(row) for row in degraded_rows}
-    unmounted = [row["level"] for row in status.get("levels") or () if row.get("status") == "unmounted"]
-    value = {"failed": failed, "degraded": degraded, "unmounted_by_design": unmounted,
-             "online": len(status.get("online_levels") or []), "restricted": len(status.get("restricted_levels") or [])}
+    disabled = [
+        row["level"] for row in status.get("levels") or ()
+        if row.get("status") == DISABLED_BY_DESIGN
+    ]
+    value = {
+        "failed": failed,
+        "degraded": degraded,
+        "disabled_by_design": disabled,
+        "operational": len(status.get("operational_levels") or status.get("online_levels") or []),
+        "restricted_by_design": len(
+            status.get("restricted_by_design_levels") or status.get("restricted_levels") or []
+        ),
+        "stale_evidence": len(status.get("stale_evidence_levels") or []),
+    }
     if failed:
         return _row("levels", False, f"levels failed to load: {failed}", severity="high", value=value)
     value["degraded_reasons"] = reasons
@@ -131,7 +153,12 @@ async def check_levels(app: Any) -> Dict[str, Any]:
     if degraded:
         detail = "levels probing unhealthy: " + ", ".join(f"L{lvl} ({reasons[lvl]})" for lvl in degraded)
         return _row("levels", False, detail, severity="medium", value=value)
-    return _row("levels", True, f"{value['online']} online, {value['restricted']} restricted, none degraded", value=value)
+    return _row(
+        "levels",
+        True,
+        f"{value['operational']} operational, {value['restricted_by_design']} restricted by design, none degraded",
+        value=value,
+    )
 
 
 def _degraded_reason(row: Dict[str, Any]) -> str:
@@ -272,8 +299,8 @@ def check_sentinel_state() -> Dict[str, Any]:
     from cortex_server.routers import sentinel
 
     health = sentinel.watcher_state_health()
-    status = str(health.get("status") or "unknown")
-    if status != "healthy":
+    status = normalize_status(health.get("status"))
+    if status != OPERATIONAL:
         return _row("sentinel_persistence", False, f"watcher state {status}", severity="medium", value=status)
     return _row("sentinel_persistence", True, f"watcher state {status}", value=status)
 
@@ -319,12 +346,11 @@ async def run_once(app: Any) -> Dict[str, Any]:
         await _guarded("sentinel_persistence", check_sentinel_state),
     ]
     issues = [c for c in checks if not c["ok"]]
-    worst = max((SEVERITY_ORDER.get(c["severity"], 1) for c in issues), default=0)
     result = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "checked_monotonic": time.monotonic(),
         "elapsed_ms": int((time.monotonic() - started) * 1000),
-        "status": "healthy" if not issues else ("degraded" if worst < 2 else "unhealthy"),
+        "status": aggregate_status(c.get("status") for c in checks),
         "issues": len(issues),
         "checks": checks,
     }
@@ -426,7 +452,17 @@ def summary() -> Dict[str, Any]:
         "last_checked_at": (last or {}).get("checked_at"),
         "last_age_s": age,
         "fresh": fresh,
-        "status": (last or {}).get("status") if fresh else ("pending" if running() else "off"),
+        "status": (
+            (last or {}).get("status")
+            if fresh
+            else UNTESTED
+            if running()
+            else DISABLED_BY_DESIGN
+            if not enabled()
+            else STALE_EVIDENCE
+            if last
+            else UNTESTED
+        ),
         "issues": [
             {k: c[k] for k in ("check", "severity", "detail")} for c in ((last or {}).get("checks") or []) if not c["ok"]
         ] if fresh else [],

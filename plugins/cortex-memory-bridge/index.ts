@@ -2,7 +2,11 @@ import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { assertOwnerBoundFallbackIdentity, captureTrustedPrincipalContext, deriveCortexPrincipal, deriveCortexKnowledgePrincipal } from '../cortex-principal-identity.mjs';
+import {
+  captureTrustedPrincipalContext,
+  registerTrustedCortexSubagentSession,
+  resolveTrustedCortexPrincipalContext,
+} from '../cortex-principal-identity.mjs';
 
 type BridgeConfig = {
   baseUrl?: string;
@@ -2034,10 +2038,10 @@ function canonicalChannelIdentity(cfg: Pick<BridgeConfig, 'channelId'>, ctx: any
   throw new Error('Cortex channel identity must be a bounded opaque identifier');
 }
 function scopedIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
-  return deriveCortexPrincipal(cfg, ctx);
+  return resolveTrustedCortexPrincipalContext(cfg, ctx).principal;
 }
 function searchableIdentity(cfg: BridgeConfig, ctx: any = {}): Record<string, string> {
-  return deriveCortexKnowledgePrincipal(cfg, ctx);
+  return resolveTrustedCortexPrincipalContext(cfg, ctx).knowledgePrincipal;
 }
 function memoryScopeFields(cfg: BridgeConfig, scope: Record<string, string>): Record<string, string> {
   const secret = String(cfg.scopeHmacSecret || '');
@@ -2077,14 +2081,8 @@ function boundedLifecycleIdentity(value: unknown, field: string, maxLength: numb
   return normalized;
 }
 function canonicalLifecycleContext(cfg: BridgeConfig, ctx: any = {}, idempotencyKey = ''): LifecycleSpoolRecord['context'] {
-  assertOwnerBoundFallbackIdentity(cfg, ctx);
-  const callbackSender = String(ctx?.senderId || ctx?.requesterSenderId || '').trim();
-  const trusted = captureTrustedPrincipalContext(ctx, {
-    senderId: String(cfg.ownerSenderId || cfg.userId || '').trim(),
-    userId: cfg.userId,
-    channelId: cfg.channelId,
-    agentId: cfg.agentId,
-  });
+  const resolution = resolveTrustedCortexPrincipalContext(cfg, ctx);
+  const trusted = resolution.context;
   const session = boundedLifecycleIdentity(
     trusted.sessionKey,
     'session identity',
@@ -2105,10 +2103,10 @@ function canonicalLifecycleContext(cfg: BridgeConfig, ctx: any = {}, idempotency
     channelId: canonicalChannelIdentity(cfg, trusted),
     agentId: boundedLifecycleIdentity(trusted.agentId, 'agent identity', 256),
     userId: boundedLifecycleIdentity(trusted.userId, 'user identity', 256),
-    // Preserve an actual callback sender, or the explicitly configured owner
-    // binding.  A generic configured user fallback is enough to complete a
-    // session-only principal, but must not be relabeled as callback evidence.
-    ...(callbackSender || cfg.ownerSenderId ? { senderId: sender } : {}),
+    // A delegated callback receives the exact authenticated parent sender from
+    // the locally registered, HMAC-sealed envelope. Missing callback metadata
+    // alone is never promoted to owner identity.
+    ...(sender ? { senderId: sender } : {}),
     idempotencyKey,
   };
 }
@@ -3686,18 +3684,37 @@ const plugin = {
 
     api.on('subagent_ended', async (event: any, ctx: any) => {
       const cfg = initialConfig;
-      const binding = principalBinding(ctx);
-      const cached = cachedLifecycleOutput(binding.namespace, event, ctx);
+      const eventChildSession = String(event?.targetSessionKey || '').trim();
+      const callbackChildSession = String(ctx?.childSessionKey || '').trim();
+      const requesterSession = String(ctx?.requesterSessionKey || '').trim();
+      const nativeDelegatedCallback = Boolean(eventChildSession || callbackChildSession || requesterSession);
+      if (nativeDelegatedCallback && (!eventChildSession || !callbackChildSession || eventChildSession !== callbackChildSession)) {
+        throw new Error('CORTEX_DELEGATION_REJECTED: subagent completion requires matching event and callback child session identity');
+      }
+      if (nativeDelegatedCallback) {
+        registerTrustedCortexSubagentSession(cfg, {
+          childSessionKey: eventChildSession,
+          requesterSessionKey: requesterSession,
+        });
+      }
+      // Preserve the older direct lifecycle shape only when no native
+      // delegation fields are present. Owner-bound direct callbacks still need
+      // affirmative sender evidence through principalBinding.
+      const callbackContext = nativeDelegatedCallback
+        ? { ...ctx, sessionKey: eventChildSession, sessionId: eventChildSession }
+        : ctx;
+      const binding = principalBinding(callbackContext);
+      const cached = cachedLifecycleOutput(binding.namespace, event, callbackContext);
       const fallbackText = cached.text;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ principal: binding.namespace, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
-      const persistenceKey = makePersistenceKey(binding.namespace, event, ctx, fallbackText || extractText(event?.result));
+      const persistenceKey = makePersistenceKey(binding.namespace, event, callbackContext, fallbackText || extractText(event?.result));
       const outcome = await persistLifecycle(
         persistenceKey,
         cfg,
         { result: event?.result, messages: event?.messages, success: event?.success },
-        ctx,
+        callbackContext,
         fallbackText,
       );
       if (!outcome.ok) {

@@ -97,8 +97,11 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-trap 'exit 143' TERM
-trap 'exit 130' INT
+# systemd and operators use TERM/INT for controlled stops and restarts. The
+# EXIT trap still terminates and reaps every child; report the requested stop
+# as success while preserving non-zero statuses from children that exit on
+# their own below.
+trap 'exit 0' TERM INT
 
 /usr/bin/env -i \
 PATH=/usr/bin:/bin \

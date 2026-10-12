@@ -170,7 +170,7 @@ test('requireRouting fails closed when Cortex fetch fails', async () => {
         messages: [{ role: 'user', content: 'status' }],
         sessionKey: 'agent:main:test:direct:fail-closed',
       }),
-      /routing unavailable while requireRouting is enabled/,
+      /CORTEX_ROUTE_REQUIRED_FAILURE: Cortex routing is unavailable; this turn was stopped before model execution/,
     );
   } finally {
     globalThis.fetch = previousFetch;

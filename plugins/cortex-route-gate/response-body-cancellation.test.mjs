@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import register from './index.ts';
 
-const SAFE_ROUTING_FAILURE = /routing unavailable while requireRouting is enabled; type=Error detail_hash=[0-9a-f]{64}/;
+const SAFE_ROUTING_FAILURE = /CORTEX_ROUTE_REQUIRED_FAILURE: Cortex routing is unavailable; this turn was stopped before model execution/;
 
 function setupRouteGate() {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-route-cancel-'));

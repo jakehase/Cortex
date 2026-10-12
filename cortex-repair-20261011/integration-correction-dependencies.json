@@ -1,0 +1,138 @@
+{
+  "copiedContentSha256": "79f1a9976a77d859b65be0ded3591f583f75d3d8f84116a5adb10168c9268c24",
+  "dependencyManifest": "/home/jake/clawd-remote/cortex-repair-20261011/cortex-repair-20261011/requirements-integration-correction.txt",
+  "dependencyManifestSha256": "98da082c076f0bb76b3f89f6994ff3710ef638bd8d1de51a6b18b4a82543732a",
+  "destinationSitePackages": "/home/jake/clawd-remote/cortex-repair-20261011/.integration-venv/lib/python3.12/site-packages",
+  "generatedAt": "2026-10-12T05:39:32.557555+00:00",
+  "mode": "offline-copy-from-exact-local-distributions",
+  "packages": {
+    "annotated-doc": {
+      "contentSetSha256": "8ae5f81e3fd42b150ef7b31bb7420e7e188efac70098ae759a54575cd4425887",
+      "fileCount": 11,
+      "version": "0.0.4"
+    },
+    "annotated-types": {
+      "contentSetSha256": "723641d9689c13e7c5b8b9e21451ee453a5fbaebd8db57cbd792ebf90d18b627",
+      "fileCount": 10,
+      "version": "0.7.0"
+    },
+    "anyio": {
+      "contentSetSha256": "7fe88e6e9ec26a06371d08e99a584bacd0b0c41a81dad4d2a7ce3548e5f24fff",
+      "fileCount": 96,
+      "version": "4.14.1"
+    },
+    "beautifulsoup4": {
+      "contentSetSha256": "d1898c958e511cc33ec83608c86adb8291f2d65c02c06e522721453d7ed37ac0",
+      "fileCount": 38,
+      "version": "4.15.0"
+    },
+    "certifi": {
+      "contentSetSha256": "7d2a8c466465dbf9d0db49e0e1b452de6ba8d4c161c166c27abb9ee0dbb81dea",
+      "fileCount": 14,
+      "version": "2026.6.17"
+    },
+    "charset-normalizer": {
+      "contentSetSha256": "cdc9119e14270f9039bb1799d14b6b9c3e16260e9df17269dc26aedf4eb6c15f",
+      "fileCount": 35,
+      "version": "3.4.9"
+    },
+    "fastapi": {
+      "contentSetSha256": "189ed67d7bee090248e59c3f2dd8bc1284462e12325040b1e9679a9f2074385d",
+      "fileCount": 111,
+      "version": "0.139.0"
+    },
+    "h11": {
+      "contentSetSha256": "95bf4121e08bcfbe10a33fc1266005301ba73e2cd1a5b83eeab2adf6130c985f",
+      "fileCount": 29,
+      "version": "0.16.0"
+    },
+    "httpcore": {
+      "contentSetSha256": "74dcb2f5b80984b2bee8b44592995d87224de423456427a7bc03cd2715a59934",
+      "fileCount": 68,
+      "version": "1.0.9"
+    },
+    "httpx": {
+      "contentSetSha256": "6922815e5b8040756050e78bf456733377cfaa130ab4c81860bebcf66a30704b",
+      "fileCount": 54,
+      "version": "0.28.1"
+    },
+    "idna": {
+      "contentSetSha256": "3b5878e298a195006ccb54ae470c42afcd265f9bdc169c01f7a727f2d1ea2654",
+      "fileCount": 27,
+      "version": "3.18"
+    },
+    "iniconfig": {
+      "contentSetSha256": "cd9d1bf1af9a36c450577d5838965cb0d80cb83b13d40a519ca02dc21426fcc1",
+      "fileCount": 15,
+      "version": "2.3.0"
+    },
+    "packaging": {
+      "contentSetSha256": "c14827df0f81ef24d5ad867058479aef028555e530e5a10d400618eaedfa1cdf",
+      "fileCount": 48,
+      "version": "26.2"
+    },
+    "pluggy": {
+      "contentSetSha256": "6606b12c5ba8356ede2f7f64094133c3de1fafec0649557ed31993bce2a1715e",
+      "fileCount": 23,
+      "version": "1.6.0"
+    },
+    "pydantic": {
+      "contentSetSha256": "bdd563aaffba7376c89fcdfeab4385f494b839768c1f5fe1a661d51f5170a516",
+      "fileCount": 218,
+      "version": "2.13.4"
+    },
+    "pydantic-core": {
+      "contentSetSha256": "f93f34edb67652f3d19109b830d041fa99317fad18f9e21a65544b44a33e1dc3",
+      "fileCount": 13,
+      "version": "2.46.4"
+    },
+    "pygments": {
+      "contentSetSha256": "5b348a90d71f95936a58212a23b2cf971eb0187de793080d3e225e9c8bf21c08",
+      "fileCount": 685,
+      "version": "2.20.0"
+    },
+    "pymupdf": {
+      "contentSetSha256": "1982728a4693f203952d6e204f4392ca79a538407ac715ece4a7820630a3124a",
+      "fileCount": 130,
+      "version": "1.28.0"
+    },
+    "pytest": {
+      "contentSetSha256": "2773b21638714ac34a2e42c52502a8c570f757fa02159f2a9d573905a0b42a64",
+      "fileCount": 172,
+      "version": "9.1.1"
+    },
+    "requests": {
+      "contentSetSha256": "13c0e6e1614e17fa2aa9aec596b5dcdf0bf0b43e8d165e1aef32c03b5a3cadda",
+      "fileCount": 47,
+      "version": "2.34.2"
+    },
+    "soupsieve": {
+      "contentSetSha256": "0dfbb14f13cc445cb1c27cddc37e944075345d5e0aec4173c9deef140266f4a2",
+      "fileCount": 20,
+      "version": "2.8.4"
+    },
+    "starlette": {
+      "contentSetSha256": "33f1dac3a2fbbbdd5536e63fb527220c02cbbba108581172a1add4f2cab8cbec",
+      "fileCount": 74,
+      "version": "1.3.1"
+    },
+    "typing-extensions": {
+      "contentSetSha256": "4769b50037d8a2049f844e56e1f5ad60df91bdf3d351a7b4e4e28a53b6a7e0e4",
+      "fileCount": 7,
+      "version": "4.16.0"
+    },
+    "typing-inspection": {
+      "contentSetSha256": "7b200bb8b15fbdadd718460b3e832e58e056200723aa1e806c2500aa813aa290",
+      "fileCount": 13,
+      "version": "0.4.2"
+    },
+    "urllib3": {
+      "contentSetSha256": "42dc8578c4d7a09b0241e33fa0dcd7699f40dc093cb987af4bdab847022ecaa4",
+      "fileCount": 79,
+      "version": "2.7.0"
+    }
+  },
+  "schemaVersion": "cortex.integration-dependency-provisioning.v1",
+  "sourceSitePackages": "/home/jake/cortex-venv/lib/python3.12/site-packages",
+  "systemPackagesModified": false
+}

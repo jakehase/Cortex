@@ -21,6 +21,18 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    STALE_EVIDENCE,
+    UNTESTED,
+    aggregate_status,
+    vocabulary_payload,
+)
+
 METRICS_SCHEMA_VERSION = "cortex.kernel.metrics.v2"
 _ACCEPTED_METRICS_SCHEMAS = frozenset({"cortex.kernel.metrics.v1", METRICS_SCHEMA_VERSION})
 _CPU_SAMPLE_SECONDS = 0.1
@@ -229,7 +241,7 @@ class Kernel:
             return {
                 "level": self.level,
                 "name": self.name,
-                "status": "degraded",
+                "status": DEGRADED,
                 "metricsAvailable": False,
                 "processAlive": True,
                 "controlAvailable": False,
@@ -244,7 +256,7 @@ class Kernel:
         return {
             "level": self.level,
             "name": self.name,
-            "status": "online" if core_ok else "degraded",
+            "status": OPERATIONAL if core_ok else DEGRADED,
             "metricsAvailable": core_ok,
             "processAlive": True,
             "controlAvailable": False,
@@ -291,10 +303,8 @@ def kernel_level_status(
     when present and fresh, the cached in-process probe snapshot. It performs
     no I/O beyond reading in-memory state, so Nexus can call it on every turn.
 
-    Status values: ``online`` (router loaded, canonical status mounted, no
-    contrary evidence), ``restricted`` (safe-mode subset), ``degraded`` (mounted
-    but probe/evidence says unhealthy), ``unmounted`` (skipped/disabled/not
-    loaded), ``failed`` (import failure / missing router), ``unknown`` (no app).
+    Status values use ``cortex.health-status.v1``. In particular, safe-mode
+    policy states and stale probe evidence are not component failures.
     """
 
     from cortex_server.modules import level_probe
@@ -308,7 +318,7 @@ def kernel_level_status(
                 "level": int(row["level"]),
                 "name": str(row["name"]),
                 "canonical_status": str(row["canonical_status"]),
-                "status": "unknown",
+                "status": UNTESTED,
                 "reason": "app_unavailable",
             }
             for row in get_level_registry()
@@ -319,9 +329,18 @@ def kernel_level_status(
     evidence = level_probe.recent_level_evidence(
         [row["route_prefix"] for row in rows], own_paths=_OWN_LEVEL_PATHS
     )
-    snapshot = probe_snapshot if probe_snapshot is not None else level_probe.cached_probe_snapshot(probe_max_age_s)
+    snapshot = probe_snapshot if probe_snapshot is not None else level_probe.cached_probe_snapshot(None)
+    snapshot_age = snapshot.get("age_s") if isinstance(snapshot, dict) else None
+    use_probe_evidence = bool(
+        isinstance(snapshot, dict)
+        and (
+            probe_snapshot is not None
+            or snapshot_age is None
+            or float(snapshot_age) <= float(probe_max_age_s)
+        )
+    )
     probes: Dict[int, Dict[str, Any]] = {}
-    if isinstance(snapshot, dict):
+    if use_probe_evidence:
         for probed in snapshot.get("levels") or ():
             if isinstance(probed, dict) and isinstance(probed.get("probe"), dict):
                 probes[int(probed["level"])] = probed["probe"]
@@ -331,11 +350,11 @@ def kernel_level_status(
         row["recent_evidence"] = observed
         recent = [status for status in observed.get("recent_statuses") or () if isinstance(status, int)]
         if (
-            row["status"] in {"online", "restricted"}
+            row["status"] in {OPERATIONAL, RESTRICTED_BY_DESIGN}
             and len(recent) >= _RECENT_FAILURE_MIN_REQUESTS
             and all(status >= 500 for status in recent)
         ):
-            row["status"] = "degraded"
+            row["status"] = DEGRADED
             row["reason"] = "recent_server_errors"
         probe = probes.get(row["level"])
         if probe is not None:
@@ -344,16 +363,53 @@ def kernel_level_status(
                 for key in ("outcome", "status_code", "latency_ms", "reported_status", "probed_at")
             }
             outcome = probe.get("outcome")
-            if row["status"] in {"online", "restricted"} and outcome not in {
+            reported_status = probe.get("reported_status")
+            if row["status"] in {OPERATIONAL, RESTRICTED_BY_DESIGN} and outcome not in {
                 "healthy", "auth_required", "nested_probe_suppressed", None
             }:
-                row["status"] = "degraded"
+                row["status"] = (
+                    reported_status
+                    if outcome == "self_reported_unhealthy"
+                    and reported_status in {DEGRADED, FAILED}
+                    else DEGRADED
+                )
                 row["reason"] = f"probe_{outcome}"
-    age = snapshot.get("age_s") if isinstance(snapshot, dict) else None
-    return _summarise_levels(rows, measured=True, probe_age_s=age)
+            elif (
+                row["status"] in {OPERATIONAL, RESTRICTED_BY_DESIGN}
+                and outcome == "healthy"
+                and reported_status in {
+                    RESTRICTED_BY_DESIGN,
+                    DISABLED_BY_DESIGN,
+                    STALE_EVIDENCE,
+                    UNTESTED,
+                }
+            ):
+                row["status"] = reported_status
+                row["reason"] = f"self_reported_{reported_status}"
+    evidence_status = (
+        UNTESTED
+        if snapshot is None
+        else OPERATIONAL
+        if use_probe_evidence
+        else STALE_EVIDENCE
+    )
+    return _summarise_levels(
+        rows,
+        measured=True,
+        probe_age_s=snapshot_age,
+        probe_evidence_status=evidence_status,
+        probe_used=use_probe_evidence,
+    )
 
 
-def _summarise_levels(rows: List[Dict[str, Any]], *, measured: bool, probe_age_s: Optional[float]) -> Dict[str, Any]:
+def _summarise_levels(
+    rows: List[Dict[str, Any]],
+    *,
+    measured: bool,
+    probe_age_s: Optional[float],
+    probe_evidence_status: str = UNTESTED,
+    probe_used: bool = False,
+) -> Dict[str, Any]:
     def levels_with(*states: str) -> List[int]:
         return [row["level"] for row in rows if row.get("status") in states]
 
@@ -361,16 +417,27 @@ def _summarise_levels(rows: List[Dict[str, Any]], *, measured: bool, probe_age_s
     for row in rows:
         counts[str(row.get("status"))] = counts.get(str(row.get("status")), 0) + 1
     return {
-        "schemaVersion": "cortex.kernel.levels.v2",
+        "schemaVersion": "cortex.kernel.levels.v3",
+        "status": aggregate_status(row.get("status") for row in rows),
+        "status_vocabulary": vocabulary_payload(),
         "measured": measured,
         "sources": ["route_table", "router_load_report", "metrics_ring"]
-        + (["in_process_probe_cache"] if probe_age_s is not None else []),
+        + (["in_process_probe_cache"] if probe_used else []),
         "probe_snapshot_age_s": probe_age_s,
+        "probe_evidence_status": probe_evidence_status,
         "counts": counts,
-        "online_levels": levels_with("online"),
-        "restricted_levels": levels_with("restricted"),
-        "degraded_levels": levels_with("degraded"),
-        "unavailable_levels": levels_with("unmounted", "failed", "unknown"),
+        "operational_levels": levels_with(OPERATIONAL),
+        "restricted_by_design_levels": levels_with(RESTRICTED_BY_DESIGN),
+        "disabled_by_design_levels": levels_with(DISABLED_BY_DESIGN),
+        "stale_evidence_levels": levels_with(STALE_EVIDENCE),
+        "degraded_levels": levels_with(DEGRADED),
+        "untested_levels": levels_with(UNTESTED),
+        "failed_levels": levels_with(FAILED),
+        # Compatibility collection names; member rows use only the canonical
+        # status vocabulary.
+        "online_levels": levels_with(OPERATIONAL),
+        "restricted_levels": levels_with(RESTRICTED_BY_DESIGN),
+        "unavailable_levels": levels_with(DISABLED_BY_DESIGN, UNTESTED, FAILED),
         "levels": rows,
     }
 
@@ -385,7 +452,7 @@ def kernel_online_levels(app: Any = None) -> Optional[set]:
     status = kernel_level_status(app)
     if not status.get("measured"):
         return None
-    return set(status["online_levels"]) | set(status["restricted_levels"])
+    return set(status["operational_levels"]) | set(status["restricted_by_design_levels"])
 
 
 def summarise_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:

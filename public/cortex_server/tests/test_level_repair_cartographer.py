@@ -51,16 +51,16 @@ def test_state_uses_in_process_probes_so_auth_is_not_reported_as_degradation():
     assert client.get("/validator/status").status_code == 403  # HTTP path is guarded
     body = client.get("/mirror/state").json()
     rows = {row["level"]: row for row in body["data"]["levels"]}
-    assert rows[34]["status"] == "online"
+    assert rows[34]["status"] == "operational"
     assert rows[34]["probe"]["outcome"] == "healthy"
     assert rows[34]["probe"]["status_code"] == 200
-    assert rows[3]["status"] == "unmounted" and rows[3]["mount"] == "skipped_safe_mode"
+    assert rows[3]["status"] == "disabled_by_design" and rows[3]["mount"] == "skipped_safe_mode"
     assert "HTTP 403" not in str(body)
 
 
 def test_status_is_not_hard_coded_active_before_any_map():
     body = TestClient(_app()).get("/mirror/status").json()
-    assert body["data"]["status"] in {"measuring", "no_map"}
+    assert body["data"]["status"] == "untested"
     assert body["data"]["map_age_s"] is None
 
 
@@ -68,7 +68,7 @@ def test_status_reports_map_age_after_measurement():
     client = TestClient(_app())
     client.get("/mirror/state")
     body = client.get("/mirror/status").json()
-    assert body["data"]["status"] == "active"
+    assert body["data"]["status"] == "operational"
     assert body["data"]["map_age_s"] is not None
     assert body["data"]["summary"]["total"] == 38
 
@@ -93,7 +93,7 @@ def test_topology_has_evidenced_edges_and_dependency_nodes():
 def test_dashboard_escapes_and_renders_measured_states():
     response = TestClient(_app()).get("/mirror/")
     assert response.status_code == 200
-    assert "UNMOUNTED" in response.text and "ONLINE" in response.text
+    assert "DISABLED_BY_DESIGN" in response.text and "OPERATIONAL" in response.text
 
 
 def test_cartographer_module_has_no_unconditional_operational_claim(monkeypatch):

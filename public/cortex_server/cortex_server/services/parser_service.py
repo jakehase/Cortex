@@ -22,6 +22,11 @@ from cortex_server.models.requests import (
     ParsePythonRequest, ParsePDFRequest, ParseJavaScriptRequest, ParseDirectoryRequest
 )
 from cortex_server.knowledge.graph import Graph, Node, Edge, NodeType, EdgeType
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    OPERATIONAL,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,11 +50,17 @@ class ParserService:
         self.python_parser = PythonParser(ParserConfig())
         self.pdf_parser = None
         self.pdf_parser_error = None
-        try:
-            self.pdf_parser = PDFParser(PDFParserConfig())
-        except Exception as exc:
-            logger.error("PDF parser initialization failed (%s)", type(exc).__name__)
-            self.pdf_parser_error = type(exc).__name__
+        self.pdf_parser_enabled = os.getenv(
+            "CORTEX_PDF_PARSER_ENABLED", "1"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        if self.pdf_parser_enabled:
+            try:
+                self.pdf_parser = PDFParser(PDFParserConfig())
+            except Exception as exc:
+                logger.error("PDF parser initialization failed (%s)", type(exc).__name__)
+                self.pdf_parser_error = type(exc).__name__
+        else:
+            self.pdf_parser_error = "disabled_by_design"
         self.js_parser = JSParser(JSParserConfig())
         # Application/schema construction must not create or migrate the
         # persistent graph.  Parsing remains eager, but graph storage is a
@@ -58,6 +69,40 @@ class ParserService:
         self._graph_lock = threading.Lock()
         self._worker_slots = threading.BoundedSemaphore(self.MAX_WORKERS)
         self._worker_tasks = set()
+
+    def pdf_backend_status(self) -> Dict[str, Any]:
+        """Return sanitized PDF backend truth for health/status surfaces."""
+
+        if not getattr(self, "pdf_parser_enabled", True):
+            return {
+                "status": DISABLED_BY_DESIGN,
+                "available": False,
+                "backend": None,
+                "reason": "operator_disabled",
+            }
+        parser = getattr(self, "pdf_parser", None)
+        if parser is None:
+            return {
+                "status": DEGRADED,
+                "available": False,
+                "backend": None,
+                "reason": getattr(self, "pdf_parser_error", None) or "initialization_failed",
+            }
+        try:
+            backend_name = parser.backend_name
+        except Exception:
+            return {
+                "status": DEGRADED,
+                "available": False,
+                "backend": None,
+                "reason": "backend_unavailable",
+            }
+        return {
+            "status": OPERATIONAL,
+            "available": True,
+            "backend": backend_name,
+            "reason": None,
+        }
 
     @property
     def graph(self) -> Graph:

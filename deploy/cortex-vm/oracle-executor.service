@@ -10,17 +10,37 @@ ExecStart=/usr/bin/python3 -m uvicorn oracle_executor:app --host 10.0.0.52 --por
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/tmp /var/tmp
+UMask=0077
+EnvironmentFile=/etc/cortex/oracle-helper.env
 Environment=CT101_HOST=10.0.0.220
 Environment=CT101_USER=root
 Environment=CT101_KEY=/opt/cortex-oracle-bridge/ct101_exec_key
 Environment=CT101_WORKDIR=/root/clawd/deploy/oracle-workspace-lite
 Environment=ORACLE_EXECUTOR_TIMEOUT=60
 Environment=ORACLE_EXECUTOR_AGENT=oracle
+Environment=ORACLE_EXECUTOR_MODEL=gpt-5.6-sol
 Environment=ORACLE_EXECUTOR_THINKING=xhigh
+Environment=ORACLE_EXECUTOR_AUTH_POLICY=pmhnp_oauth_approved_2026-09-25
+Environment=ORACLE_EXECUTOR_SERVICE_TIER_POLICY=provider_default_no_override
 Environment=ORACLE_EXECUTOR_LOCAL=true
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY=agent:oracle:main

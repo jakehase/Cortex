@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh Cortex owner-memory sources when changed
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+RandomizedDelaySec=15s
+Persistent=true
+Unit=cortex-owner-memory-index.service
+
+[Install]
+WantedBy=timers.target

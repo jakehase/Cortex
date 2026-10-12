@@ -6,6 +6,7 @@ type BridgeConfig = {
   baseUrl?: string;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  maxAttempts?: number;
   writeToken?: string;
   writeTokenHeader?: string;
   tenantId?: string;
@@ -40,10 +41,27 @@ function cfg(pluginConfig?: Record<string, unknown>): Required<BridgeConfig> {
   const c = (pluginConfig ?? {}) as BridgeConfig;
   const writeTokenHeader = c.writeTokenHeader ?? 'x-cortex-write-token';
   if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(writeTokenHeader)) throw new Error('invalid Cortex write-token header name');
+  const baseUrl = new URL(c.baseUrl ?? 'http://127.0.0.1:18888');
+  if (
+    baseUrl.protocol !== 'http:'
+    || !['127.0.0.1', '[::1]'].includes(baseUrl.hostname)
+    || baseUrl.username
+    || baseUrl.password
+    || (baseUrl.pathname !== '/' && baseUrl.pathname !== '')
+    || baseUrl.search
+    || baseUrl.hash
+  ) {
+    throw new Error('Cortex browser bridge baseUrl must be a credential-free loopback HTTP origin');
+  }
+  const maxAttempts = c.maxAttempts ?? 2;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) {
+    throw new Error('Cortex browser bridge maxAttempts must be an integer from 1 to 3');
+  }
   const resolved = {
-    baseUrl: (c.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
+    baseUrl: baseUrl.origin,
     timeoutMs: typeof c.timeoutMs === 'number' ? c.timeoutMs : 15000,
     maxResponseBytes: typeof c.maxResponseBytes === 'number' ? c.maxResponseBytes : 1_048_576,
+    maxAttempts,
     writeToken: typeof c.writeToken === 'string' ? c.writeToken : '',
     writeTokenHeader: writeTokenHeader.toLowerCase(),
     tenantId: String(c.tenantId ?? '').trim(),
@@ -180,6 +198,30 @@ function maybeJson(text: string) {
   try { return JSON.parse(text); } catch { return text; }
 }
 
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+async function requestWithRetries(
+  operation: () => Promise<{ ok: boolean; status: number; text: string }>,
+  maxAttempts: number,
+) {
+  let response: { ok: boolean; status: number; text: string } | null = null;
+  let error: unknown = null;
+  let attempts = 0;
+  for (attempts = 1; attempts <= maxAttempts; attempts += 1) {
+    try {
+      response = await operation();
+      error = null;
+      if (response.ok || !RETRYABLE_STATUS.has(response.status)) break;
+    } catch (caught) {
+      response = null;
+      error = caught;
+      const message = caught instanceof Error ? caught.message : '';
+      if (/^response exceeds \d+ bytes$/.test(message)) break;
+    }
+  }
+  return { response, error, attempts: Math.min(attempts, maxAttempts) };
+}
+
 const plugin = {
   id: 'cortex-browser-bridge',
   name: 'Cortex Browser Bridge',
@@ -203,26 +245,39 @@ const plugin = {
         };
         const endpoint = hasUrl ? '/browser/browse' : '/browser/search';
         const body = JSON.stringify(payload);
-        try {
+        const outcome = await requestWithRetries(async () => {
           const headers = actionHeaders(c, trustedContext, 'POST', endpoint, body);
-          const response = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', headers, body }, c.timeoutMs, c.maxResponseBytes);
-          if (!response.ok) {
-            recordBridgeFailure(`cortex-browser-bridge: ${endpoint} failed status=${response.status} reason=${diagnosticForLog(response.text)}`);
-            return JSON.stringify({
-              ok: false,
-              provider: 'cortex-browser',
-              endpoint,
-              status: response.status,
-              error: 'Cortex browser request failed',
-            });
-          }
-          return JSON.stringify({ ok: true, provider: 'cortex-browser', endpoint, data: maybeJson(response.text) });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '';
-          const boundedReadFailure = /^response exceeds \d+ bytes$/.test(message) ? message : 'Cortex browser request failed';
-          recordBridgeFailure(`cortex-browser-bridge: ${endpoint} failed before a response reason=${diagnosticForLog(message)}`);
-          return JSON.stringify({ ok: false, provider: 'cortex-browser', endpoint, error: boundedReadFailure });
+          return requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', headers, body }, c.timeoutMs, c.maxResponseBytes);
+        }, c.maxAttempts);
+        if (outcome.response?.ok) {
+          return JSON.stringify({
+            ok: true,
+            provider: 'cortex-browser',
+            endpoint,
+            attempts: outcome.attempts,
+            data: maybeJson(outcome.response.text),
+          });
         }
+        const message = outcome.error instanceof Error ? outcome.error.message : '';
+        const boundedReadFailure = /^response exceeds \d+ bytes$/.test(message) ? message : 'Cortex browser request failed';
+        const status = outcome.response?.status;
+        const reason = outcome.response ? diagnosticForLog(outcome.response.text) : diagnosticForLog(message);
+        recordBridgeFailure(`cortex-browser-bridge: ${endpoint} failed status=${status ?? 'none'} attempts=${outcome.attempts} reason=${reason}`);
+        return JSON.stringify({
+          ok: false,
+          provider: 'cortex-browser',
+          endpoint,
+          ...(status === undefined ? {} : { status }),
+          attempts: outcome.attempts,
+          error: boundedReadFailure,
+          fallback: {
+            required: status === undefined || RETRYABLE_STATUS.has(status),
+            attempted: false,
+            reason: status === undefined || RETRYABLE_STATUS.has(status)
+              ? 'cortex_browser_unavailable'
+              : 'cortex_browser_rejected',
+          },
+        });
       },
     }), { names: ['cortex_browse'] });
 
@@ -233,14 +288,16 @@ const plugin = {
       parameters: StatusSchema,
       execute: async () => {
         const c = registrationConfig;
-        try {
-          const response = await requestText(`${c.baseUrl}/browser/status`, { method: 'GET' }, c.timeoutMs, c.maxResponseBytes);
-          return JSON.stringify({ ok: response.ok, status: response.status });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '';
-          const boundedReadFailure = /^response exceeds \d+ bytes$/.test(message) ? message : 'Cortex browser status request failed';
-          return JSON.stringify({ ok: false, error: boundedReadFailure });
+        const outcome = await requestWithRetries(
+          () => requestText(`${c.baseUrl}/browser/status`, { method: 'GET' }, c.timeoutMs, c.maxResponseBytes),
+          c.maxAttempts,
+        );
+        if (outcome.response) {
+          return JSON.stringify({ ok: outcome.response.ok, status: outcome.response.status, attempts: outcome.attempts });
         }
+        const message = outcome.error instanceof Error ? outcome.error.message : '';
+        const boundedReadFailure = /^response exceeds \d+ bytes$/.test(message) ? message : 'Cortex browser status request failed';
+        return JSON.stringify({ ok: false, attempts: outcome.attempts, error: boundedReadFailure });
       },
     }), { names: ['cortex_browser_status'] });
   },

@@ -18,6 +18,15 @@ from cortex_server.modules.async_offload import (
     BlockingCallDeadlineExceeded,
     run_blocking,
 )
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    STALE_EVIDENCE,
+    UNTESTED,
+    vocabulary_payload,
+)
 from cortex_server.internal_addressing import internal_url
 from cortex_server.routers.openclaw import load_config
 
@@ -60,8 +69,8 @@ _LAST_VERIFIED_COMPLETION_AT: Optional[str] = None
 # No implicit default host: the historical LAN bridge is retired, and an
 # unconfigured bridge must never receive prompts or the bridge token.
 BRIDGE_URL = os.getenv("ORACLE_BRIDGE_URL", "").strip()
-BRIDGE_TOKEN = os.getenv("ORACLE_BRIDGE_TOKEN", "")
-BRIDGE_MODEL_LABEL = "gpt-5.3-codex-via-openclaw-bridge"
+BRIDGE_TOKEN = os.getenv("ORACLE_BRIDGE_TOKEN", "").strip()
+BRIDGE_MODEL_LABEL = "gpt-5.6-sol-via-openclaw-helper"
 # Config-derived identity is only a pre-execution/degraded trace hint. Successful
 # completions replace it with provider-confirmed OpenClaw agent metadata.
 OPENCLAW_MODEL_LABEL = "(dynamic)"
@@ -72,12 +81,17 @@ OPENCLAW_CONFIG_PATH = Path(
 ).expanduser()
 _OPENCLAW_CONFIG_DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 _OPENCLAW_CONFIG_HARD_MAX_BYTES = 8 * 1024 * 1024
+ORACLE_OPENCLAW_DIRECT_ENABLED = os.getenv("ORACLE_OPENCLAW_DIRECT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT = os.getenv(
+    "ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT",
+    "false" if ORACLE_OPENCLAW_DIRECT_ENABLED else "true",
+).strip().lower() in {"1", "true", "yes", "on"}
 
-# OpenClaw local invoke thinking level (keep low-latency by default).
+# OpenClaw invoke reasoning follows the October 7, 2026 approved default.
 _OPENCLAW_THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh", "ultra")
-ORACLE_OPENCLAW_THINKING = os.getenv("ORACLE_OPENCLAW_THINKING", "off").strip().lower() or "off"
+ORACLE_OPENCLAW_THINKING = os.getenv("ORACLE_OPENCLAW_THINKING", "xhigh").strip().lower() or "xhigh"
 if ORACLE_OPENCLAW_THINKING not in _OPENCLAW_THINKING_LEVELS:
-    ORACLE_OPENCLAW_THINKING = "off"
+    ORACLE_OPENCLAW_THINKING = "xhigh"
 
 # Session strategy:
 # - per_key (default): deterministic per-(principal, prompt, system) session id
@@ -286,6 +300,15 @@ def _resolve_openclaw_model_identity(
 
 def _openclaw_executable_readiness() -> Dict[str, Any]:
     """Check executable presence without starting the historically hanging CLI."""
+
+    if not ORACLE_OPENCLAW_DIRECT_ENABLED:
+        return {
+            "configuredBin": None,
+            "resolvedPath": None,
+            "available": bool(BRIDGE_URL and BRIDGE_TOKEN and ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT),
+            "check": "authenticated_oracle_helper_configuration",
+            "providerCallMade": False,
+        }
 
     resolved = shutil.which(OPENCLAW_BIN)
     executable = bool(resolved and os.access(resolved, os.X_OK))
@@ -2847,7 +2870,31 @@ def _bridge_is_low_quality_response(prompt: str, text: str) -> bool:
     return False
 
 
-def call_bridge(prompt: str) -> str:
+def _bridge_signature_is_valid(data: Dict[str, Any]) -> bool:
+    if not ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT:
+        return True
+    if not BRIDGE_TOKEN:
+        return False
+    if not isinstance(data.get("completion_receipt"), dict):
+        return False
+    signed = json.dumps(
+        {key: value for key, value in data.items() if key != "helper_signature"},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    expected = hmac.new(BRIDGE_TOKEN.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
+    supplied = str(data.get("helper_signature") or "")
+    return bool(supplied and hmac.compare_digest(supplied, expected))
+
+
+def call_bridge(
+    prompt: str,
+    *,
+    system: Optional[str] = None,
+    principal_scope_key: str = "internal-system",
+    origin_channel: Optional[str] = None,
+) -> str:
     """Call external bridge and normalize legacy/modern payload formats.
 
     Accepted payloads:
@@ -2860,7 +2907,13 @@ def call_bridge(prompt: str) -> str:
     headers = {"Content-Type": "application/json"}
     if BRIDGE_TOKEN:
         headers["X-Bridge-Token"] = BRIDGE_TOKEN
-    r = requests.post(BRIDGE_URL, headers=headers, json={"prompt": prompt}, timeout=ORACLE_BRIDGE_TIMEOUT_S)
+    body = {
+        "prompt": prompt,
+        "system": system,
+        "scope_hash": hashlib.sha256(str(principal_scope_key or "internal-system").encode("utf-8")).hexdigest(),
+        "origin_channel": origin_channel,
+    }
+    r = requests.post(BRIDGE_URL, headers=headers, json=body, timeout=ORACLE_BRIDGE_TIMEOUT_S)
     if r.status_code >= 400:
         raise HTTPException(status_code=503, detail=f"Bridge error ({r.status_code}): {r.text[:300]}")
 
@@ -2875,6 +2928,8 @@ def call_bridge(prompt: str) -> str:
     # Explicit failure signal from modern bridge contract.
     if data.get("ok") is False:
         raise HTTPException(status_code=503, detail=f"Bridge returned not-ok: {data}")
+    if not _bridge_signature_is_valid(data):
+        raise HTTPException(status_code=503, detail="Bridge returned an unsigned or invalid completion receipt")
 
     # Guard against recursive bridge loop (bridge returning Oracle fallback payloads).
     if str(data.get("model") or "").startswith("oracle-") or str(data.get("lane") or "").startswith("emergency_"):
@@ -3057,11 +3112,13 @@ def _parse_openclaw_cli_json(stdout: str) -> Any:
 
 
 def call_openclaw_local(prompt: str, system: Optional[str] = None, *, principal_scope_key: str = "internal-system", ephemeral_session: bool = False, origin_channel: Optional[str] = None, thinking: Optional[str] = None) -> str:
-    """Invoke local OpenClaw agent with reliability + single-flight.
+    """Invoke OpenClaw through the configured execution boundary.
 
     - Single-flight: identical (prompt, system) shares one in-flight call.
     - Retries: best-effort retry on transient failures.
     - Concurrency guard: small bounded semaphore (prevents head-of-line blocking).
+    - Production: the hardened unit disables direct execution and uses the
+      authenticated Oracle helper, keeping OpenClaw state outside this process.
     - thinking: optional per-call reasoning level (one of _OPENCLAW_THINKING_LEVELS);
       defaults to ORACLE_OPENCLAW_THINKING. Level calls use it to fit a chat turn.
     """
@@ -3122,6 +3179,37 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None, *, principal_
     # We are the leader for this key.
     err_detail = None
     try:
+        if not ORACLE_OPENCLAW_DIRECT_ENABLED:
+            if not BRIDGE_URL or not BRIDGE_TOKEN or not ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT:
+                raise HTTPException(status_code=503, detail="authenticated Oracle helper is not fully configured")
+            helper_text = call_bridge(
+                prompt,
+                system=system,
+                principal_scope_key=principal_scope_key,
+                origin_channel=origin_channel,
+            )
+            helper_receipt = getattr(helper_text, "completion_receipt", None)
+            helper_model = str(getattr(helper_text, "selected_model", None) or "")
+            if (
+                not isinstance(helper_text, str)
+                or not helper_text.strip()
+                or not bool(getattr(helper_text, "provider_invoked", False))
+                or not _completion_receipt_is_valid(helper_receipt or {}, response=str(helper_text))
+                or not _provider_completion_identity_is_valid(helper_receipt or {}, model=helper_model)
+                or not isinstance((helper_receipt or {}).get("evidence"), dict)
+                or (helper_receipt or {})["evidence"].get("execution_boundary") != "cortex_oracle_executor"
+                or (helper_receipt or {})["evidence"].get("auth_policy") != "pmhnp_oauth_approved_2026-09-25"
+                or (helper_receipt or {})["evidence"].get("service_tier_policy") != "provider_default_no_override"
+            ):
+                raise HTTPException(status_code=503, detail="Oracle helper produced no verified completion")
+            binding = _openclaw_provider_binding()
+            _record_openclaw_provider_evidence(binding, helper_receipt)
+            with _OPENCLAW_LOCK:
+                _OPENCLAW_RATE_LIMITS.pop(principal_scope_key, None)
+                inflight["result"] = helper_text
+                _LAST_VERIFIED_COMPLETION_AT = datetime.now(timezone.utc).isoformat()
+            return helper_text
+
         executable, agent = _openclaw_command_contract()
         if ephemeral_session:
             # One-shot structured consults: a fresh session per call, so no
@@ -3362,7 +3450,12 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     # Controlled by env to allow fast rollback.
     if ORACLE_FALLBACKS_ENABLED and (prefer_bridge_first or os.getenv("ORACLE_PREFER_BRIDGE_FIRST", "false").lower() == "true") and BRIDGE_URL and _bridge_cb_allows():
         try:
-            text = call_bridge(prompt)
+            text = call_bridge(
+                prompt,
+                system=system,
+                principal_scope_key=principal_scope_key,
+                origin_channel=origin_channel,
+            )
             _bridge_cb_record_success()
             ROUTE_STATS["bridge"] += 1
             return _backend_answer(text, BRIDGE_MODEL_LABEL, ("codec_policy_bridge_first" if prefer_bridge_first else "bridge_first"))
@@ -3425,7 +3518,13 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
                 return _backend_answer(text, _openclaw_model_label(), "openclaw_primary_hedge_fast")
             except concurrent.futures.TimeoutError:
                 # OpenClaw not ready quickly enough; start bridge race.
-                br_f = ex.submit(call_bridge, prompt)
+                br_f = ex.submit(
+                    call_bridge,
+                    prompt,
+                    system=system,
+                    principal_scope_key=principal_scope_key,
+                    origin_channel=origin_channel,
+                )
 
                 done, _ = concurrent.futures.wait(
                     [oc_f, br_f],
@@ -3494,7 +3593,12 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
     # 2) bridge (if we didn't already hedge it)
     if (not should_hedge) and (not avoid_bridge_fallback):
         try:
-            text = call_bridge(prompt)
+            text = call_bridge(
+                prompt,
+                system=system,
+                principal_scope_key=principal_scope_key,
+                origin_channel=origin_channel,
+            )
             ROUTE_STATS['bridge'] += 1
             return _backend_answer(text, BRIDGE_MODEL_LABEL, "bridge_fallback_after_openclaw_error")
         except Exception as e:
@@ -4607,6 +4711,16 @@ def _openclaw_provider_binding() -> Optional[str]:
         identity = _resolve_openclaw_model_identity()
         if not identity.get("configured"):
             return None
+        if not ORACLE_OPENCLAW_DIRECT_ENABLED:
+            bound = {
+                "agent": str(os.getenv("ORACLE_OPENCLAW_AGENT") or "oracle").strip(),
+                "model": identity.get("model"),
+                "source": identity.get("source"),
+                "execution_boundary": "authenticated_oracle_helper",
+                "helper_url": BRIDGE_URL,
+                "signed_receipt_required": ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT,
+            }
+            return hashlib.sha256(json.dumps(bound, sort_keys=True, default=str).encode()).hexdigest()
         cfg = _read_openclaw_config(Path(OPENCLAW_CONFIG_PATH).expanduser())
         auth = cfg.get("auth") if isinstance(cfg.get("auth"), dict) else {}
         bound = {
@@ -4660,6 +4774,29 @@ def _probe_openclaw_status() -> Dict[str, Any]:
         error = "openclaw_executable_not_found"
     elif not model_identity.get("configured"):
         error = str(model_identity.get("error") or "openclaw_model_not_configured")
+    if not ORACLE_OPENCLAW_DIRECT_ENABLED and error is None:
+        try:
+            response = requests.get(
+                BRIDGE_URL.replace("/invoke", "/health"),
+                headers={"X-Bridge-Token": BRIDGE_TOKEN},
+                timeout=3,
+            )
+            response.raise_for_status()
+            helper = response.json()
+            configured_model = str(model_identity.get("model") or "").casefold()
+            helper_model = str(helper.get("modelPolicy") or "").casefold()
+            if helper.get("ok") is not True:
+                error = "oracle_helper_not_ok"
+            elif helper.get("thinking") != "xhigh":
+                error = "oracle_helper_reasoning_policy_mismatch"
+            elif helper.get("authPolicy") != "pmhnp_oauth_approved_2026-09-25":
+                error = "oracle_helper_auth_policy_mismatch"
+            elif helper.get("serviceTierPolicy") != "provider_default_no_override":
+                error = "oracle_helper_service_tier_policy_mismatch"
+            elif helper_model not in {configured_model, configured_model.rsplit("/", 1)[-1]}:
+                error = "oracle_helper_model_policy_mismatch"
+        except Exception:
+            error = "oracle_helper_unavailable"
     binding = _openclaw_provider_binding()
     with _OPENCLAW_LOCK:
         evidence = dict(_OPENCLAW_PROVIDER_EVIDENCE)
@@ -4672,13 +4809,23 @@ def _probe_openclaw_status() -> Dict[str, Any]:
         elif age is None or age < 0 or age > _OPENCLAW_PROVIDER_EVIDENCE_TTL_S:
             reason = "provider_evidence_expired"
     verified = bool(not error and reason == "provider_response" and evidence.get("verified"))
+    if verified:
+        evidence_status = OPERATIONAL
+    elif reason in {"provider_evidence_expired", "provider_configuration_changed"}:
+        evidence_status = STALE_EVIDENCE
+    elif reason == "no_provider_evidence":
+        evidence_status = UNTESTED
+    else:
+        evidence_status = DEGRADED
     return {
         # Path/configuration inspection proves only that a provider invocation
         # could be attempted.  It never proves that the provider is healthy.
         "ok": verified,
         "ready": error is None,
+        "availabilityStatus": OPERATIONAL if error is None else FAILED,
         "providerVerified": verified,
         "providerEvidence": {
+            "status": evidence_status,
             "reason": reason,
             "age_seconds": round(age, 3) if age is not None else None,
             "max_age_seconds": _OPENCLAW_PROVIDER_EVIDENCE_TTL_S,
@@ -4790,10 +4937,11 @@ async def oracle_status():
 
     # An optional backend that routing policy forbids cannot make the primary
     # path healthy. Configuration/path lookup also is not provider execution.
-    any_backend_ok = bool(openclaw_ok or (ORACLE_FALLBACKS_ENABLED and
+    any_backend_available = bool(openclaw_ready or (ORACLE_FALLBACKS_ENABLED and
                           (bridge_ok or (OLLAMA_ENABLED and local_online is True))))
     return {
-        'status': 'online' if any_backend_ok else 'degraded',
+        'status': OPERATIONAL if any_backend_available else DEGRADED,
+        'status_vocabulary': vocabulary_payload(),
         'alive_cortex_mode': {
             'enabled': bool(alive_cfg.get('enabled', False)),
             'core_chain': alive_cfg.get('core_chain', [37, 5, 21, 22, 26]),
@@ -4818,7 +4966,9 @@ async def oracle_status():
         ),
         'bridge_ok': bridge_ok,
         'bridge_enabled': bool(ORACLE_FALLBACKS_ENABLED),
-        'bridge_status': ('online' if bridge_ok else 'unavailable') if ORACLE_FALLBACKS_ENABLED else 'disabled_by_policy',
+        'bridge_status': (
+            OPERATIONAL if bridge_ok else DEGRADED
+        ) if ORACLE_FALLBACKS_ENABLED else DISABLED_BY_DESIGN,
         'bridge_timeout_s': ORACLE_BRIDGE_TIMEOUT_S,
         'hedge_enabled': ORACLE_HEDGE_ENABLED,
         'hedge_delay_s': ORACLE_HEDGE_DELAY_S,
@@ -4846,8 +4996,14 @@ async def oracle_status():
         'inflight_chats': _INFLIGHT_CHATS,
         'openclaw_ok': openclaw_ok,
         'openclaw_ready': openclaw_ready,
+        'openclaw_availability_status': openclaw.get("availabilityStatus") or (
+            OPERATIONAL if openclaw_ready else FAILED
+        ),
         'openclaw_provider_verified': bool(openclaw.get("providerVerified")),
         'openclaw_provider_evidence': openclaw.get("providerEvidence"),
+        'provider_freshness_status': (
+            (openclaw.get("providerEvidence") or {}).get("status") or UNTESTED
+        ),
         'openclaw_error': openclaw_err,
         'ollama_enabled': bool(OLLAMA_ENABLED),
         'is_busy': IS_BUSY,

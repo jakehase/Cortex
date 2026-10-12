@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Request
 
 from cortex_server.modules import level_probe
+from cortex_server.modules.health_status import OPERATIONAL, vocabulary_payload
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_entry
 from cortex_server.modules.kernel import get_kernel, kernel_level_status
 
@@ -26,7 +27,7 @@ async def kernel_levels(request: Request, probe: bool = False) -> Dict[str, Any]
     Status comes from the mounted route table, the router load report, the
     recent-response ring and (when fresh, or when ``probe=true``) in-process
     probes of each level's canonical status handler. No level is reported
-    ``online`` unless its router is loaded and its status route is mounted.
+    ``operational`` unless its router is loaded and its status route is mounted.
     """
 
     app = request.app
@@ -42,6 +43,13 @@ async def kernel_levels(request: Request, probe: bool = False) -> Dict[str, Any]
         "sources": status.get("sources"),
         "probe_snapshot_age_s": status.get("probe_snapshot_age_s"),
         "counts": status.get("counts"),
+        "status": status.get("status"),
+        "status_vocabulary": vocabulary_payload(),
+        "probe_evidence_status": status.get("probe_evidence_status"),
+        "operational_levels": status.get("operational_levels"),
+        "restricted_by_design_levels": status.get("restricted_by_design_levels"),
+        "disabled_by_design_levels": status.get("disabled_by_design_levels"),
+        "stale_evidence_levels": status.get("stale_evidence_levels"),
         "online_levels": status.get("online_levels"),
         "restricted_levels": status.get("restricted_levels"),
         "degraded_levels": status.get("degraded_levels"),
@@ -57,10 +65,11 @@ async def kernel_status(request: Request) -> Dict[str, Any]:
     entry = get_level_entry(1) or {"level": 1, "name": "Kernel", "canonical_status": "/kernel/status"}
     observed = await asyncio.to_thread(get_kernel().status)
     return {
-        "success": observed["status"] == "online",
+        "success": observed["status"] == OPERATIONAL,
         "level": entry["level"],
         "name": entry["name"],
         "status": observed["status"],
+        "status_vocabulary": vocabulary_payload(),
         "metrics_available": observed["metricsAvailable"],
         "process_alive": observed["processAlive"],
         "control_available": observed["controlAvailable"],

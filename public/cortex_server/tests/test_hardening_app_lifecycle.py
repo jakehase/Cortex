@@ -733,7 +733,7 @@ async def test_failed_redis_connectivity_is_not_ready_and_never_logs_success(
         response = await _route(app, "/ready")()
         body = response.body.decode()
         assert response.status_code == 503
-        assert '"status":"not_ready"' in body
+        assert '"status":"failed"' in body
         assert app.state.lifecycle_checks["redis"]["ok"] is False
         assert app.state.lifecycle_checks["redis"]["error"] == "RuntimeError"
 
@@ -1162,7 +1162,7 @@ async def test_health_reports_restricted_when_safe_mode_skips_action_routers(
 
     assert response.status_code == 200
     assert payload["readiness"] is True
-    assert payload["status"] == "restricted"
+    assert payload["status"] == "restricted_by_design"
     assert payload["routerLoad"]["safeModeSkipped"] == ["architect"]
 
 
@@ -1364,7 +1364,7 @@ async def test_canonical_readiness_requires_runtime_delivery_probe_in_production
         assert response.status_code == 503
         assert payload["checks"]["runtimeDelivery"]["required"] is True
         assert payload["checks"]["runtimeDelivery"]["ok"] is False
-        assert payload["checks"]["runtimeDelivery"]["status"] == "not_ready"
+        assert payload["checks"]["runtimeDelivery"]["status"] == "failed"
 
 
 @pytest.mark.asyncio

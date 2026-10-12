@@ -233,6 +233,7 @@ def validate_terminal_state(
     max_age_seconds: float = DEFAULT_MAX_STATE_AGE_SECONDS,
     ssh_host: str | None = None,
     now: datetime | None = None,
+    required_producer: str | None = None,
 ) -> dict[str, Any]:
     """Validate the authority needed to render a terminal notification."""
 
@@ -242,6 +243,8 @@ def validate_terminal_state(
         raise NotifierError(f"unsupported terminal status: {status!r}")
     if state.get("schemaVersion") != TERMINAL_STATE_SCHEMA:
         raise NotifierError(f"terminal state requires schemaVersion {TERMINAL_STATE_SCHEMA}")
+    if required_producer is not None and state.get("producer") != required_producer:
+        raise NotifierError(f"terminal state producer must be {required_producer}")
     for field in ("jobId", "runId"):
         value = state.get(field)
         if not isinstance(value, str) or not SAFE_ID.fullmatch(value.strip()):
@@ -292,6 +295,7 @@ def notification_key(job_label: str, source: str, state: dict[str, Any]) -> str:
     manifest = state.get("artifactManifest") if isinstance(state.get("artifactManifest"), dict) else {}
     stable = {
         "schemaVersion": state.get("schemaVersion"),
+        "producer": state.get("producer"),
         "job": job_label,
         "jobId": state.get("jobId"),
         "runId": state.get("runId"),
@@ -303,6 +307,7 @@ def notification_key(job_label: str, source: str, state: dict[str, Any]) -> str:
         "artifactPath": manifest.get("path"),
         "artifactSha256": manifest.get("sha256"),
         "truthBoundary": state.get("truthBoundary"),
+        "surfaceMatrixSha256": state.get("surfaceMatrixSha256"),
         "head": state.get("candidateHead") or state.get("head") or state.get("commit"),
         "blocker": state.get("blocker") or state.get("error") or state.get("reason"),
     }
@@ -321,6 +326,8 @@ def format_message(job_label: str, state: dict[str, Any]) -> str:
         f"Verification passed: {str(state['verificationPassed']).lower()}",
         f"Truth boundary: {state['truthBoundary']}",
     ]
+    if state.get("producer"):
+        lines.append(f"Authority: {state['producer']}")
 
     head = state.get("candidateHead") or state.get("head") or state.get("commit")
     if head:
@@ -520,6 +527,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ssh-host")
     parser.add_argument("--job-label", required=True)
     parser.add_argument("--terminal-status", action="append", dest="terminal_statuses")
+    parser.add_argument(
+        "--required-producer",
+        help="Consume terminal states only from this exact supervisor producer identifier",
+    )
     parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument(
         "--max-state-age-seconds",
@@ -584,6 +595,7 @@ def main(argv: list[str] | None = None) -> int:
                 terminal_statuses=terminals,
                 max_age_seconds=max_state_age,
                 ssh_host=args.ssh_host,
+                required_producer=args.required_producer,
             )
             source = f"{args.ssh_host or 'local'}:{args.state_file}"
             current_key = notification_key(args.job_label, source, state)
@@ -601,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
                         terminal_statuses=terminals,
                         max_age_seconds=max_state_age,
                         ssh_host=args.ssh_host,
+                        required_producer=args.required_producer,
                     )
                     confirmed_key = notification_key(args.job_label, source, confirmed)
                     if confirmed_key != current_key:

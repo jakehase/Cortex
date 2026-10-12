@@ -317,6 +317,21 @@ class DetachedJobNotifierTests(unittest.TestCase):
                     },
                 })
 
+    def test_release_notifier_accepts_only_the_required_supervisor_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            state = _completed_state(root, producer="cortex.release-supervisor.v1")
+            validated = notifier.validate_terminal_state(
+                state,
+                required_producer="cortex.release-supervisor.v1",
+            )
+            self.assertEqual(validated["producer"], "cortex.release-supervisor.v1")
+            with self.assertRaisesRegex(notifier.NotifierError, "producer must be"):
+                notifier.validate_terminal_state(
+                    {**state, "producer": "worker-notes"},
+                    required_producer="cortex.release-supervisor.v1",
+                )
+
     def test_each_terminal_revision_field_has_a_distinct_delivery_key(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

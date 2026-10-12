@@ -62,6 +62,8 @@ MAX_CHUNKS = 1024
 MAX_CHUNK_CHARS = 1800
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_RETIRED_RECEIPTS = 2048
+DEFAULT_VERIFICATION_MAX_AGE_SECONDS = 60 * 60
+MAX_VERIFICATION_MAX_AGE_SECONDS = 24 * 60 * 60
 ALLOWED_KINDS = frozenset({"curated", "daily", "project"})
 ALLOWED_SUFFIXES = frozenset({".md", ".txt"})
 FORBIDDEN_PATH_PARTS = frozenset({"client", "clients", "patient", "patients", "phi"})
@@ -1460,11 +1462,90 @@ def _receipt_differs(
     )
 
 
+def _source_snapshot_matches(
+    *,
+    root: Path,
+    manifest: Path,
+    scope_digest: str,
+    expected_digest: str,
+) -> bool:
+    policies, policy_digest = load_policy(manifest)
+    all_desired, sources = collect_desired(root, policies, scope_digest=scope_digest)
+    desired, quarantined = privacy_partition(all_desired)
+    return _snapshot_digest(policy_digest, desired, sources, quarantined) == expected_digest
+
+
+def _verification_max_age(value: Any) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("verification max age must be an integer") from exc
+    if seconds < 0 or seconds > MAX_VERIFICATION_MAX_AGE_SECONDS:
+        raise argparse.ArgumentTypeError(
+            f"verification max age must be between 0 and {MAX_VERIFICATION_MAX_AGE_SECONDS} seconds"
+        )
+    return seconds
+
+
+def _receipt_instant(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _recent_semantic_verification(
+    receipt: Mapping[str, Any],
+    *,
+    expected_records: int,
+    maximum_age_seconds: int,
+    now: datetime | None = None,
+) -> tuple[bool, str | None, int]:
+    """Return whether an exact semantic verification can be safely reused.
+
+    Source/policy/scope equality is checked by the caller before this helper.
+    A zero maximum age deliberately disables reuse for an operator-forced
+    verification.  V3 receipts written before this gate can reuse their last
+    healthy check or successful apply without a receipt migration.
+    """
+
+    if maximum_age_seconds <= 0:
+        return False, None, 0
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    candidates = (
+        (receipt.get("lastVerification"), "healthy", "checkedAt"),
+        (receipt.get("lastCheck"), "healthy", "checkedAt"),
+        (receipt.get("lastRun"), "current", "completedAt"),
+    )
+    for raw, required_status, timestamp_key in candidates:
+        if not isinstance(raw, Mapping) or raw.get("status") != required_status:
+            continue
+        if raw.get("semanticVerified") != expected_records:
+            continue
+        verified_at = _receipt_instant(raw.get(timestamp_key))
+        if verified_at is None:
+            continue
+        age_seconds = int((current - verified_at).total_seconds())
+        if 0 <= age_seconds <= maximum_age_seconds:
+            return True, verified_at.isoformat(timespec="seconds").replace("+00:00", "Z"), (
+                maximum_age_seconds - age_seconds
+            )
+    return False, None, 0
+
+
 def _result(
     *, mode: str, status: str, health: str, policies: list[SourcePolicy], desired: dict[str, DesiredChunk],
     new: int, changed: int, retired: int, skipped: int, scope_digest: str,
     semantic_checked: int = 0, reason: str | None = None,
     privacy_quarantined: int = 0,
+    verification_reused_at: str | None = None,
+    verification_due_in_seconds: int | None = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "mode": mode,
@@ -1483,6 +1564,12 @@ def _result(
     }
     if reason:
         result["reason"] = reason
+    if verification_reused_at:
+        result["verificationGate"] = {
+            "decision": "source_unchanged_noop",
+            "reusedExactSemanticVerificationAt": verification_reused_at,
+            "nextFullVerificationDueInSeconds": int(verification_due_in_seconds or 0),
+        }
     return result
 
 
@@ -1497,6 +1584,20 @@ def _parse_arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
     parser.add_argument("--receipt", type=Path, default=RECEIPT)
     parser.add_argument("--lock", type=Path, default=LOCK)
+    parser.add_argument(
+        "--verification-max-age-seconds",
+        type=_verification_max_age,
+        default=_verification_max_age(
+            os.getenv(
+                "CORTEX_OWNER_INDEX_VERIFICATION_MAX_AGE_SECONDS",
+                DEFAULT_VERIFICATION_MAX_AGE_SECONDS,
+            )
+        ),
+        help=(
+            "reuse a prior exact semantic verification for unchanged sources up to this age; "
+            "0 forces verification"
+        ),
+    )
     args = parser.parse_args(argv)
     requested = args.mode
     if args.legacy_apply:
@@ -1552,6 +1653,57 @@ def main(
                 privacy_quarantined=len(privacy_quarantined),
             )
 
+        missing_sources = [
+            path for path, state in sources.items() if state.get("state") == "deleted"
+        ]
+        source_unchanged = not _receipt_differs(
+            receipt,
+            desired,
+            sources,
+            privacy_quarantined,
+            policy_digest,
+            scope_digest,
+        )
+        reusable, reused_at, due_in = _recent_semantic_verification(
+            receipt,
+            expected_records=len(desired),
+            maximum_age_seconds=args.verification_max_age_seconds,
+        )
+        if (
+            args.mode in {"apply", "check"}
+            and existed
+            and not legacy
+            and receipt.get("lastRun", {}).get("status") == "current"
+            and not receipt.get("pending")
+            and receipt.get("health", {}).get("status") == "healthy"
+            and source_unchanged
+            and desired
+            and not missing_sources
+            and reusable
+            and _source_snapshot_matches(
+                root=args.root,
+                manifest=args.manifest,
+                scope_digest=scope_digest,
+                expected_digest=initial_snapshot,
+            )
+        ):
+            return _result(
+                mode=args.mode,
+                status="current",
+                health="healthy",
+                policies=policies,
+                desired=desired,
+                new=0,
+                changed=0,
+                retired=0,
+                skipped=len(desired),
+                scope_digest=scope_digest,
+                reason="source_unchanged_recent_semantic_verification",
+                privacy_quarantined=len(privacy_quarantined),
+                verification_reused_at=reused_at,
+                verification_due_in_seconds=due_in,
+            )
+
         client = client_factory(plugin=plugin, scope=scope, signature=signature)
         if legacy:
             if args.mode == "check":
@@ -1578,6 +1730,16 @@ def main(
                     if not accepted:
                         raise IndexingFailure("receipt omitted an approved chunk", code="freshness_stale")
                     verify_entry(client, entry, accepted["id"])
+                if not _source_snapshot_matches(
+                    root=args.root,
+                    manifest=args.manifest,
+                    scope_digest=scope_digest,
+                    expected_digest=initial_snapshot,
+                ):
+                    raise IndexingFailure(
+                        "approved sources changed during verification",
+                        code="source_changed_during_check",
+                    )
             except Exception as exc:
                 failure = exc if isinstance(exc, IndexingFailure) else IndexingFailure(
                     "unexpected owner health-check failure", code="unexpected_failure"
@@ -1611,6 +1773,7 @@ def main(
             receipt["lastCheck"] = {
                 "status": "healthy", "checkedAt": checked_at, "semanticVerified": len(desired),
             }
+            receipt["lastVerification"] = dict(receipt["lastCheck"])
             receipt["health"] = {
                 "status": "healthy", "reason": "semantic_readback_verified",
                 "checkedAt": checked_at, "semanticVerified": len(desired),
@@ -1789,6 +1952,11 @@ def main(
                     "new": len(new),
                     "changed": len(changed),
                     "retired": len(retired),
+                    "semanticVerified": len(desired),
+                },
+                "lastVerification": {
+                    "status": "healthy" if semantic_health == "healthy" else "degraded",
+                    "checkedAt": completed_at,
                     "semanticVerified": len(desired),
                 },
                 "health": {

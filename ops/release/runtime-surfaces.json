@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "cortex.runtime-surface-contract.v1",
+  "schemaVersion": "cortex.runtime-surface-contract.v2",
   "release": {
     "rootPattern": "/opt/cortex/releases/<release-id>",
     "currentPointer": "/opt/cortex/current",
@@ -8,21 +8,99 @@
   },
   "units": [
     {"name": "cortex.service", "template": "ops/systemd/cortex.service", "required": true},
+    {"name": "cortex-oracle-executor.service", "template": "ops/systemd/cortex-oracle-executor.service", "required": true},
     {"name": "cortex-health-watchdog.service", "template": "ops/systemd/cortex-health-watchdog.service", "required": true},
     {"name": "cortex-health-watchdog.timer", "template": "ops/systemd/cortex-health-watchdog.timer", "required": true},
+    {"name": "cortex-owner-memory-index.service", "template": "ops/systemd/cortex-owner-memory-index.service", "required": true},
+    {"name": "cortex-owner-memory-index.timer", "template": "ops/systemd/cortex-owner-memory-index.timer", "required": true},
     {"name": "cortex-ollama-tunnel.service", "template": "ops/systemd/cortex-ollama-tunnel.service.template", "required": true, "containsDeploymentPlaceholder": true},
     {"name": "openclaw-gateway.service", "ownership": "OpenClaw", "required": true, "managedByQ9": false}
   ],
   "configuration": [
     {"path": "/etc/cortex/cortex.env", "schema": "ops/config/cortex-env.schema.json", "secretBearing": true, "mode": "0600"},
+    {"path": "/etc/cortex/oracle-helper.env", "secretBearing": true, "mode": "0600"},
     {"path": "/root/.openclaw/openclaw.json", "secretBearing": true, "mode": "0600", "managedByQ9": false},
     {"path": "/root/clawd/config/ai-os-adapter/default.json", "secretBearing": false, "managedByQ9": false}
   ],
+  "sourceClassification": {
+    "matchPolicy": "first_match",
+    "trackedCategories": [
+      {
+        "name": "quarantined",
+        "pathComponents": ["_quarantine"],
+        "releaseDisposition": "immutable_inert"
+      },
+      {
+        "name": "generated",
+        "pathComponents": ["artifacts"],
+        "exactPaths": ["public/.export-manifest.json"],
+        "releaseDisposition": "immutable_snapshot"
+      },
+      {
+        "name": "product",
+        "default": true,
+        "releaseDisposition": "immutable_runtime"
+      }
+    ],
+    "privateRuntime": {
+      "trackedFilesAllowed": false,
+      "releaseDisposition": "external_mutable_never_packaged",
+      "absoluteRoots": [
+        "/opt/clawdbot",
+        "/var/lib/cortex",
+        "/var/log/cortex",
+        "/run/cortex",
+        "/var/lib/cortex-health-watchdog",
+        "/var/lib/cortex-oracle",
+        "/var/log/cortex-oracle",
+        "/run/cortex-oracle",
+        "/root/.openclaw"
+      ]
+    }
+  },
+  "qualification": {
+    "receiptSchemaVersion": "cortex.qualification-receipt.v1",
+    "requiredReceiptKinds": ["full-suite", "focused-gates"],
+    "focusedSurfaceIds": [
+      "ROUTE-1",
+      "ROUTE-2",
+      "MEM-1",
+      "SEC-1",
+      "POLICY-1",
+      "POLICY-2",
+      "HEALTH-1",
+      "HEALTH-2",
+      "PARSER-1",
+      "MEM-2",
+      "MEM-3",
+      "BROWSER-1",
+      "OPS-1",
+      "OPS-2",
+      "AIOS-1",
+      "SEC-2"
+    ],
+    "receiptsMustMatchSourceCommitAndTree": true,
+    "replayCommandRequired": true,
+    "hashedArtifactRequired": true
+  },
+  "promotion": {
+    "surfaceMatrix": "cortex-repair-20261011/surface-matrix.json",
+    "gatewayCodeManifestReceiptSchemaVersion": "cortex.gateway-code-manifest-preflight.v1",
+    "requiredReceipts": ["deployment", "rollback", "redeploy"],
+    "authoritativeAcceptedRefNamespace": "refs/heads/accepted/",
+    "remoteResolutionRequired": true,
+    "localTrackingRefIsNotAuthoritative": true,
+    "terminalStateProducer": "cortex.release-supervisor.v1"
+  },
   "mutableRoots": [
-    {"path": "/opt/clawdbot", "purpose": "durable Cortex databases, state, provider artifacts and models"},
-    {"path": "/var/lib/cortex", "purpose": "attestations, release-controller state and Chroma"},
+    {"path": "/var/lib/cortex", "purpose": "Cortex databases, structured state, attestations, release-controller state and Chroma"},
     {"path": "/var/log/cortex", "purpose": "runtime logs"},
     {"path": "/run/cortex", "purpose": "ephemeral runtime coordination"},
+    {"path": "/root/.openclaw/agents/oracle/sessions", "purpose": "Oracle-only session state", "ownerUnit": "cortex-oracle-executor.service"},
+    {"path": "/root/.openclaw/agents/oracle/agent", "purpose": "Oracle-only auth profile", "ownerUnit": "cortex-oracle-executor.service"},
+    {"path": "/var/lib/cortex-oracle", "purpose": "Oracle helper state"},
+    {"path": "/var/log/cortex-oracle", "purpose": "Oracle helper logs"},
+    {"path": "/run/cortex-oracle", "purpose": "Oracle helper runtime coordination"},
     {"path": "/var/lib/cortex-health-watchdog", "purpose": "watchdog state"}
   ],
   "externalDependencies": [
@@ -35,9 +113,12 @@
     "scripts/codex-worker-launcher.mjs",
     "scripts/remote-completion-handoff.mjs",
     "scripts/artifact-retention.mjs",
+    "scripts/index-owner-memory.py",
     "public/cortex_server/scripts/cortex_health_watchdog.sh",
     "scripts/build-release-envelope.py",
-    "scripts/verify-release-envelope.py"
+    "scripts/verify-release-envelope.py",
+    "scripts/deploy-q9-release.py",
+    "scripts/detached_job_notifier.py"
   ],
   "requiredAttestations": [
     "/var/lib/cortex/attestations/aios-latest.json",

@@ -20,7 +20,11 @@ from pydantic import ValidationError
 from cortex_server.modules import cortex_codec
 from cortex_server.routers import l22, librarian
 from cortex_server.runtime import temporal_contract
-from cortex_server.runtime.memory_governance import MemoryGovernanceStore, MemorySearchFilters
+from cortex_server.runtime.memory_governance import (
+    MemoryGovernanceStore,
+    MemorySearchFilters,
+    temporal_visibility,
+)
 
 
 TENANT = "tenant-temporal-stage2"
@@ -786,6 +790,90 @@ def test_source_authority_ranks_only_temporal_v1_rows():
     finally:
         connection.close()
     assert authority == {"gov-v1": 95, "gov-legacy": 0}
+
+
+def test_supporting_values_stay_co_current_and_explicit_conflict_is_component_scoped():
+    store = MemoryGovernanceStore()
+    common = {
+        "claim_key": "claim.supporting-details",
+        "observed_at": "2026-01-01T00:00:00Z",
+    }
+    store.record_fact(
+        principal_key=PRINCIPAL_A,
+        memory_id="summary",
+        content="The service is available.",
+        metadata={**common, "fact_key": "summary", "fact_value": "available", "authority_rank": 40},
+    )
+    store.record_fact(
+        principal_key=PRINCIPAL_A,
+        memory_id="detail",
+        content="The service is available on the internal lane.",
+        metadata={**common, "fact_key": "detail", "fact_value": "internal lane", "authority_rank": 50},
+    )
+    store.record_fact(
+        principal_key=PRINCIPAL_A,
+        memory_id="outage",
+        content="The service is unavailable.",
+        metadata={
+            **common,
+            "fact_key": "outage",
+            "fact_value": "unavailable",
+            "authority_rank": 90,
+            "contradicts_ids": ["summary"],
+        },
+    )
+
+    projection = store.conflict_projection(
+        principal_key=PRINCIPAL_A,
+        memory_ids=["summary", "detail", "outage"],
+    )
+    assert projection["summary"]["fact_status"] == "conflicted"
+    assert projection["outage"]["fact_status"] == "active"
+    assert projection["detail"]["fact_status"] == "active"
+    assert any(
+        edge["reason"] == "explicit_contradiction"
+        for edge in projection["summary"]["edges"]
+    )
+
+
+def test_explicit_supersession_json_dominates_projection_without_erasing_history():
+    store = MemoryGovernanceStore()
+    common = {"claim_key": "claim.execution-plane", "fact_value": "legacy"}
+    store.record_fact(
+        principal_key=PRINCIPAL_A,
+        memory_id="execution-old",
+        content="Use the legacy execution plane.",
+        metadata={**common, "fact_key": "execution-old"},
+    )
+    store.record_fact(
+        principal_key=PRINCIPAL_A,
+        memory_id="execution-new",
+        content="Use the current execution plane.",
+        metadata={
+            "claim_key": "claim.execution-plane",
+            "fact_key": "execution-new",
+            "fact_value": "current",
+            "supersedes_json": '["execution-old"]',
+        },
+    )
+    projection = store.conflict_projection(
+        principal_key=PRINCIPAL_A,
+        memory_ids=["execution-old", "execution-new"],
+    )
+    assert projection["execution-old"]["fact_status"] == "superseded"
+    assert projection["execution-new"]["fact_status"] == "active"
+
+    historical = {
+        "temporal_schema_version": V1,
+        "temporal_kind": "state",
+        "valid_from": "2026-01-01T00:00:00.000Z",
+        "valid_to": "2026-02-01T00:00:00.000Z",
+        "ingested_at": "2026-01-01T00:00:00.000Z",
+        "memory_status": "superseded",
+    }
+    assert temporal_contract.temporal_presentation(historical)["valid_to"] == "2026-02-01T00:00:00.000Z"
+    assert temporal_visibility(historical).visible is False
+    assert temporal_visibility(historical, as_of="2026-01-15T00:00:00Z").visible is True
 
 
 def test_lineage_verification_reports_scope_without_returning_content(monkeypatch):

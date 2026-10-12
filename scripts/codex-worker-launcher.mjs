@@ -15,8 +15,10 @@ const root = path.resolve(here, '..');
 const defaultConfigPath = path.join(root, 'config/worker-launch/default.json');
 const schemaVersion = 'clawd.codex_worker_launch.v2';
 const supportedModels = new Set(['gpt-5.6-sol']);
+const supportedAuthPolicies = new Set(['pmhnp_oauth_approved_2026-09-25']);
 const supportedSandboxes = new Set(['read-only', 'workspace-write']);
-const supportedReasoningEfforts = new Set(['xhigh', 'ultra']);
+const supportedReasoningEfforts = new Set(['xhigh']);
+const supportedServiceTierPolicies = new Set(['provider_default_no_override']);
 
 function parseArgs(argv) {
   const parsed = { _: [] };
@@ -128,14 +130,16 @@ function classifyPreflightFailure(run) {
   return ['execution_plane_preflight', run.error?.code || `preflight_exit_${run.status ?? 'unknown'}`];
 }
 
-function preflight(options) {
+function preflight(options, { sshScriptFn = sshScript } = {}) {
   const invalid = [];
   if (!safeHost(options.host)) invalid.push('invalid_execution_host');
   if (!safeAbsoluteRemotePath(options.codexBin)) invalid.push('explicit_absolute_codex_bin_required');
   if (!safeAbsoluteRemotePath(options.workspace)) invalid.push('explicit_absolute_workspace_required');
   if (!safeModel(options.model)) invalid.push('unsupported_model');
+  if (!supportedAuthPolicies.has(options.authPolicyId)) invalid.push('unsupported_auth_policy');
   if (!safeSandbox(options.sandbox)) invalid.push('unsupported_sandbox');
   if (!safeReasoningEffort(options.reasoningEffort)) invalid.push('unsupported_reasoning_effort');
+  if (!supportedServiceTierPolicies.has(options.serviceTierPolicy)) invalid.push('unsupported_service_tier_policy');
   if (options.serviceTierOverride !== null) invalid.push('service_tier_override_not_supported');
   if (invalid.length) {
     return {
@@ -155,7 +159,7 @@ workspace="$2"
 "$codex_bin" login status >/dev/null 2>&1 || exit 44
 printf 'preflight_ok\n'
 `;
-  const run = sshScript({
+  const run = sshScriptFn({
     host: options.host,
     args: [options.codexBin, options.workspace],
     script,
@@ -183,6 +187,11 @@ printf 'preflight_ok\n'
       workspaceExists: true,
       workspaceWritable: true,
       providerAuthenticated: true
+    },
+    authenticationPolicy: {
+      required: options.authPolicyId,
+      authenticationPresent: true,
+      accountIdentityProviderConfirmed: false,
     },
     launchConfirmed: false,
     truthBoundary: 'Preflight is green; no worker/model turn has started yet.'
@@ -248,8 +257,8 @@ function parseCodexJsonl(stdout) {
   };
 }
 
-function execute(options, prompt) {
-  const checked = preflight(options);
+function execute(options, prompt, dependencies = {}) {
+  const checked = preflight(options, dependencies);
   if (!checked.ok) return { preflight: checked, run: null };
   const promptBase64 = Buffer.from(prompt, 'utf8').toString('base64');
   const script = String.raw`set -uo pipefail
@@ -264,7 +273,7 @@ prompt="$(printf '%s' "$prompt_b64" | base64 -d)" || exit 45
 exec "$codex_bin" exec --json --skip-git-repo-check --sandbox "$sandbox" --model "$model" -c "model_reasoning_effort=\"$reasoning_effort\"" "$prompt"
 `;
   const startedAt = new Date().toISOString();
-  const run = sshScript({
+  const run = (dependencies.sshScriptFn || sshScript)({
     host: options.host,
     args: [options.codexBin, options.workspace, options.model, options.sandbox, options.reasoningEffort, promptBase64],
     script,
@@ -313,12 +322,17 @@ exec "$codex_bin" exec --json --skip-git-repo-check --sandbox "$sandbox" --model
       exitCode: run.status,
       signal: run.signal || null,
       model: options.model,
+      authenticationPolicy: {
+        required: options.authPolicyId,
+        authenticationPresent: true,
+        accountIdentityProviderConfirmed: false,
+      },
       reasoningEffort: options.reasoningEffort,
       serviceTier: {
         requested: null,
         transmitted: false,
         providerConfirmed: false,
-        policy: 'provider_default_no_override',
+        policy: options.serviceTierPolicy,
       },
       sandbox: options.sandbox,
       providerUsage: usage,
@@ -332,133 +346,154 @@ exec "$codex_bin" exec --json --skip-git-repo-check --sandbox "$sandbox" --model
   };
 }
 
-const cli = parseArgs(process.argv.slice(2));
-const action = cli._[0] || 'preflight';
-const configPath = path.resolve(cli.config || defaultConfigPath);
-const config = readConfig(configPath);
-const configuredServiceTier = Object.prototype.hasOwnProperty.call(config, 'serviceTierOverride')
-  ? config.serviceTierOverride
-  : (Object.prototype.hasOwnProperty.call(config, 'serviceTier') ? config.serviceTier : null);
-const requestedServiceTier = Object.prototype.hasOwnProperty.call(cli, 'service-tier')
-  ? cli['service-tier']
-  : configuredServiceTier;
-const sourceIdentity = {
-  launcherSha256: sha256File(fileURLToPath(import.meta.url)),
-  handoffModuleSha256: sha256File(path.join(here, 'remote-completion-handoff.mjs')),
-  configSha256: sha256File(configPath),
-};
-const options = {
-  host: String(cli.host || process.env.CODEX_EXECUTION_HOST || config.executionPlane.host),
-  codexBin: String(cli['codex-bin'] || process.env.CODEX_BIN || config.executionPlane.codexBin),
-  workspace: String(cli.workspace || process.env.CODEX_WORKSPACE || config.executionPlane.workspace),
-  model: String(cli.model || config.model),
-  reasoningEffort: String(cli['reasoning-effort'] || config.reasoningEffort),
-  serviceTierOverride: requestedServiceTier === null || requestedServiceTier === undefined
-    ? null
-    : String(requestedServiceTier),
-  sandbox: String(cli.sandbox || (action === 'smoke' ? 'read-only' : config.sandbox)),
-  transportTimeoutMs: Number(cli['transport-timeout-ms'] || config.timeoutsMs.transport),
-  providerTimeoutMs: Number(cli['provider-timeout-ms'] || config.timeoutsMs.provider),
-  sourceIdentity,
-};
-
-let result;
-if (action === 'preflight') {
-  const checked = preflight(options);
-  result = {
-    schemaVersion,
-    action,
-    generatedAt: new Date().toISOString(),
-    configPath,
-    executionPlane: { host: options.host, codexBin: options.codexBin, workspace: options.workspace },
-    model: options.model,
-    reasoningEffort: options.reasoningEffort,
-    serviceTier: {
-      requested: options.serviceTierOverride,
-      transmitted: false,
-      providerConfirmed: false,
-      policy: 'provider_default_no_override',
-    },
-    sandbox: options.sandbox,
-    sourceIdentity,
-    ...checked
+function runCli(argv = process.argv.slice(2), env = process.env, dependencies = {}) {
+  const cli = parseArgs(argv);
+  const action = cli._[0] || 'preflight';
+  const configPath = path.resolve(cli.config || defaultConfigPath);
+  const config = readConfig(configPath);
+  const configuredServiceTier = Object.prototype.hasOwnProperty.call(config, 'serviceTierOverride')
+    ? config.serviceTierOverride
+    : (Object.prototype.hasOwnProperty.call(config, 'serviceTier') ? config.serviceTier : null);
+  const requestedServiceTier = Object.prototype.hasOwnProperty.call(cli, 'service-tier')
+    ? cli['service-tier']
+    : configuredServiceTier;
+  const sourceIdentity = {
+    launcherSha256: sha256File(fileURLToPath(import.meta.url)),
+    handoffModuleSha256: sha256File(path.join(here, 'remote-completion-handoff.mjs')),
+    configSha256: sha256File(configPath),
   };
-} else if (action === 'exec' || action === 'smoke') {
-  const prompt = action === 'smoke'
-    ? 'This is a worker-launch reliability smoke test. Do not modify files. Reply with exactly WORKER_LAUNCH_OK.'
-    : String(cli.prompt || '');
-  if (!prompt) throw new Error('--prompt is required for exec');
-  const execution = execute(options, prompt);
-  result = {
-    schemaVersion,
-    action,
-    generatedAt: new Date().toISOString(),
-    configPath,
-    executionPlane: { host: options.host, codexBin: options.codexBin, workspace: options.workspace },
-    preflight: execution.preflight,
-    ...(execution.run || {
-      ok: false,
-      launchConfirmed: false,
-      completionConfirmed: false,
-      failureStage: execution.preflight.stage,
-      failureCode: execution.preflight.code,
+  const options = {
+    host: String(cli.host || env.CODEX_EXECUTION_HOST || config.executionPlane.host),
+    codexBin: String(cli['codex-bin'] || env.CODEX_BIN || config.executionPlane.codexBin),
+    workspace: String(cli.workspace || env.CODEX_WORKSPACE || config.executionPlane.workspace),
+    model: String(cli.model || config.model),
+    authPolicyId: String(config.authPolicyId || ''),
+    reasoningEffort: String(cli['reasoning-effort'] || config.reasoningEffort),
+    serviceTierPolicy: String(config.serviceTierPolicy || ''),
+    serviceTierOverride: requestedServiceTier === null || requestedServiceTier === undefined
+      ? null
+      : String(requestedServiceTier),
+    sandbox: String(cli.sandbox || (action === 'smoke' ? 'read-only' : config.sandbox)),
+    transportTimeoutMs: Number(cli['transport-timeout-ms'] || config.timeoutsMs.transport),
+    providerTimeoutMs: Number(cli['provider-timeout-ms'] || config.timeoutsMs.provider),
+    sourceIdentity,
+  };
+
+  let result;
+  if (action === 'preflight') {
+    const checked = preflight(options, dependencies);
+    result = {
+      schemaVersion,
+      action,
+      generatedAt: new Date().toISOString(),
+      configPath,
+      executionPlane: { host: options.host, codexBin: options.codexBin, workspace: options.workspace },
       model: options.model,
+      authenticationPolicy: {
+        required: options.authPolicyId,
+        authenticationPresent: Boolean(checked.ok),
+        accountIdentityProviderConfirmed: false,
+      },
       reasoningEffort: options.reasoningEffort,
       serviceTier: {
         requested: options.serviceTierOverride,
         transmitted: false,
         providerConfirmed: false,
-        policy: 'provider_default_no_override',
+        policy: options.serviceTierPolicy,
       },
       sandbox: options.sandbox,
       sourceIdentity,
-    })
-  };
-  if (action === 'smoke' && result.ok && !result.stdout.includes('WORKER_LAUNCH_OK')) {
-    result.ok = false;
-    result.failureStage = 'supervisor_verification';
-    result.failureCode = 'smoke_sentinel_missing';
+      ...checked
+    };
+  } else if (action === 'exec' || action === 'smoke') {
+    const prompt = action === 'smoke'
+      ? 'This is a worker-launch reliability smoke test. Do not modify files. Reply with exactly WORKER_LAUNCH_OK.'
+      : String(cli.prompt || '');
+    if (!prompt) throw new Error('--prompt is required for exec');
+    const execution = execute(options, prompt, dependencies);
+    result = {
+      schemaVersion,
+      action,
+      generatedAt: new Date().toISOString(),
+      configPath,
+      executionPlane: { host: options.host, codexBin: options.codexBin, workspace: options.workspace },
+      preflight: execution.preflight,
+      ...(execution.run || {
+        ok: false,
+        launchConfirmed: false,
+        completionConfirmed: false,
+        failureStage: execution.preflight.stage,
+        failureCode: execution.preflight.code,
+        model: options.model,
+        authenticationPolicy: {
+          required: options.authPolicyId,
+          authenticationPresent: false,
+          accountIdentityProviderConfirmed: false,
+        },
+        reasoningEffort: options.reasoningEffort,
+        serviceTier: {
+          requested: options.serviceTierOverride,
+          transmitted: false,
+          providerConfirmed: false,
+          policy: options.serviceTierPolicy,
+        },
+        sandbox: options.sandbox,
+        sourceIdentity,
+      })
+    };
+    if (action === 'smoke' && result.ok && !result.stdout.includes('WORKER_LAUNCH_OK')) {
+      result.ok = false;
+      result.failureStage = 'supervisor_verification';
+      result.failureCode = 'smoke_sentinel_missing';
+    }
+  } else {
+    throw new Error(`unknown action: ${action}`);
   }
-} else {
-  throw new Error(`unknown action: ${action}`);
+
+  const resultArtifact = cli.artifact ? path.resolve(cli.artifact) : null;
+  const handoffArtifact = action === 'exec' || action === 'smoke'
+    ? (cli['handoff-artifact']
+        ? path.resolve(cli['handoff-artifact'])
+        : (resultArtifact ? defaultCompletionHandoffPath(resultArtifact) : null))
+    : null;
+  if (handoffArtifact && resultArtifact && handoffArtifact === resultArtifact) {
+    throw new Error('completion handoff artifact must differ from the worker result artifact');
+  }
+  let consoleResult = result;
+  if (action === 'exec' || action === 'smoke') {
+    if (resultArtifact) result.resultArtifactPath = resultArtifact;
+    if (handoffArtifact) result.completionHandoffArtifact = handoffArtifact;
+    const resultBytes = jsonBytes(result);
+    if (resultArtifact) writeBytes(resultArtifact, resultBytes);
+    const resultArtifactBinding = {
+      path: resultArtifact,
+      sha256: sha256(resultBytes),
+      bytes: resultBytes.length,
+      persisted: Boolean(resultArtifact),
+    };
+    const completionHandoff = buildRemoteCompletionHandoff({
+      result,
+      project: cli.project,
+      task: cli.task,
+      completionSummary: cli['completion-summary'],
+      remainingWork: cli['remaining-work'],
+      resultArtifact: resultArtifactBinding,
+    });
+    if (handoffArtifact) writeJson(handoffArtifact, completionHandoff);
+    consoleResult = { ...result, completionHandoff };
+  } else if (resultArtifact) {
+    writeJson(resultArtifact, result);
+  }
+  if (handoffArtifact) result.completionHandoffArtifact = handoffArtifact;
+  return { result, consoleResult, exitCode: result.ok ? 0 : 1 };
 }
 
-const resultArtifact = cli.artifact ? path.resolve(cli.artifact) : null;
-const handoffArtifact = action === 'exec' || action === 'smoke'
-  ? (cli['handoff-artifact']
-      ? path.resolve(cli['handoff-artifact'])
-      : (resultArtifact ? defaultCompletionHandoffPath(resultArtifact) : null))
-  : null;
-if (handoffArtifact && resultArtifact && handoffArtifact === resultArtifact) {
-  throw new Error('completion handoff artifact must differ from the worker result artifact');
+function main() {
+  const output = runCli();
+  process.stdout.write(`${JSON.stringify(output.consoleResult, null, 2)}\n`);
+  process.exitCode = output.exitCode;
 }
-let consoleResult = result;
-if (action === 'exec' || action === 'smoke') {
-  if (resultArtifact) result.resultArtifactPath = resultArtifact;
-  if (handoffArtifact) result.completionHandoffArtifact = handoffArtifact;
-  const resultBytes = jsonBytes(result);
-  if (resultArtifact) writeBytes(resultArtifact, resultBytes);
-  const resultArtifactBinding = {
-    path: resultArtifact,
-    sha256: sha256(resultBytes),
-    bytes: resultBytes.length,
-    persisted: Boolean(resultArtifact),
-  };
-  const completionHandoff = buildRemoteCompletionHandoff({
-    result,
-    project: cli.project,
-    task: cli.task,
-    completionSummary: cli['completion-summary'],
-    remainingWork: cli['remaining-work'],
-    resultArtifact: resultArtifactBinding,
-  });
-  if (handoffArtifact) writeJson(handoffArtifact, completionHandoff);
-  consoleResult = { ...result, completionHandoff };
-} else if (resultArtifact) {
-  writeJson(resultArtifact, result);
-}
-if (handoffArtifact) {
-  result.completionHandoffArtifact = handoffArtifact;
-}
-process.stdout.write(`${JSON.stringify(consoleResult, null, 2)}\n`);
-process.exitCode = result.ok ? 0 : 1;
+
+export { execute, parseCodexJsonl, preflight, runCli };
+
+if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main();

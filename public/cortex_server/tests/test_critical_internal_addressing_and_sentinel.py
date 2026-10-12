@@ -122,7 +122,7 @@ def test_agg_f002_readiness_fails_when_configured_self_origin_is_unreachable(mon
     assert response.status_code == 503
     payload = response.json()
     assert payload["ready"] is False
-    assert payload["checks"]["internalSelfReachability"]["status"] == "unreachable"
+    assert payload["checks"]["internalSelfReachability"]["status"] == "failed"
 
 
 def test_agg_f002_self_probe_rejects_a_reachable_wrong_service(monkeypatch):
@@ -175,8 +175,8 @@ def test_agg_f057_stopped_sentinel_with_no_scan_fails_closed(monkeypatch):
     payload = asyncio.run(sentinel.sentinel_status())
 
     assert payload["success"] is False
-    assert payload["status"] == "stopped"
-    assert payload["severity"] == "unavailable"
+    assert payload["status"] == "failed"
+    assert payload["severity"] == "critical"
     assert payload["scheduler_running"] is False
     assert payload["last_scan_attempt_at"] is None
     assert payload["last_scan_success_at"] is None
@@ -217,7 +217,7 @@ def test_agg_f057_completed_scan_with_down_watcher_is_degraded(monkeypatch):
     assert scan["issues_found"] == 1
     assert payload["success"] is False
     assert payload["status"] == "degraded"
-    assert payload["severity"] == "degraded"
+    assert payload["severity"] == "warning"
     assert payload["health_reason"] == "latest_scan_found_issues"
     assert payload["last_scan_attempt_at"] is not None
     assert payload["last_scan_success_at"] is not None
@@ -274,15 +274,15 @@ def test_agg_f057_stale_scan_and_failed_scheduler_task_fail_closed(monkeypatch):
     )
 
     stale = sentinel._sentinel_health_snapshot(now=now)
-    assert stale["success"] is False
-    assert stale["status"] == "stale"
+    assert stale["success"] is True
+    assert stale["status"] == "stale_evidence"
     assert stale["last_scan_age_seconds"] == 60.0
     assert stale["scan_stale_after_seconds"] == 30.0
 
     monkeypatch.setattr(sentinel, "_scheduler_task", _FailedSentinelTask())
     failed = sentinel._sentinel_health_snapshot(now=now)
     assert failed["success"] is False
-    assert failed["status"] == "error"
+    assert failed["status"] == "failed"
     assert "scheduler_task_failed:RuntimeError" in failed["task_error"]
 
 
@@ -304,7 +304,7 @@ def test_agg_f057_scan_exception_is_retained_for_status(monkeypatch):
 
     payload = asyncio.run(sentinel.sentinel_status())
     assert payload["success"] is False
-    assert payload["status"] == "error"
+    assert payload["status"] == "degraded"
     assert payload["last_scan_attempt_at"] is not None
     assert payload["last_scan_success_at"] is None
     assert "scan_failed:RuntimeError" in payload["scan_error"]
@@ -320,7 +320,7 @@ def test_agg_f057_load_and_save_failures_are_observable(monkeypatch, tmp_path):
         sentinel._load_watchers()
     load_failed = asyncio.run(sentinel.sentinel_status())
     assert load_failed["success"] is False
-    assert load_failed["status"] == "error"
+    assert load_failed["status"] == "failed"
     assert "watcher_load_failed:IsADirectoryError" in load_failed["load_error"]
 
     monkeypatch.setattr(sentinel, "_last_load_error", None)
@@ -328,7 +328,7 @@ def test_agg_f057_load_and_save_failures_are_observable(monkeypatch, tmp_path):
         sentinel._save_watchers()
     save_failed = asyncio.run(sentinel.sentinel_status())
     assert save_failed["success"] is False
-    assert save_failed["status"] == "error"
+    assert save_failed["status"] == "failed"
     assert "watcher_save_failed:IsADirectoryError" in save_failed["save_error"]
 
 
@@ -351,7 +351,7 @@ def test_agg_f057_lifespan_retains_startup_failure(monkeypatch):
 
     payload = asyncio.run(observe_lifespan())
     assert payload["success"] is False
-    assert payload["status"] == "error"
+    assert payload["status"] == "failed"
     assert "watcher_load_failed:ValueError" in payload["startup_error"]
 
 

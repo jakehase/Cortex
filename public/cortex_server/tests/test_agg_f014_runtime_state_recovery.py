@@ -467,7 +467,7 @@ def test_sentinel_recovers_backup_and_surfaces_degraded_state(isolated_sentinel)
     assert health["status"] == "degraded"
     assert health["recovered_from_backup"] is True
     status = asyncio.run(sentinel.sentinel_status())
-    assert status["status"] == "degraded"
+    assert status["status"] == "failed"
     quarantines = list(path.parent.glob(f"{path.name}.corrupt.*"))
     assert len(quarantines) == 1 and quarantines[0].read_bytes() == corrupt
 
@@ -482,7 +482,7 @@ def test_sentinel_unrecoverable_corruption_fails_closed_without_rewrite(isolated
     assert sentinel._watchers == {}
     assert path.read_bytes() == corrupt
     assert sentinel.watcher_state_health()["status"] == "degraded"
-    assert asyncio.run(sentinel.sentinel_status())["status"] == "degraded"
+    assert asyncio.run(sentinel.sentinel_status())["status"] == "failed"
 
 
 def test_sentinel_failed_commit_rolls_back_in_memory_and_surfaces_503(

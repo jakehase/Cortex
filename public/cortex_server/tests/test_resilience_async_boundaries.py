@@ -344,10 +344,11 @@ async def test_oracle_path_only_readiness_never_claims_backend_health(monkeypatc
 
     result = await oracle.oracle_status()
 
-    assert result["status"] == "degraded"
+    assert result["status"] == "operational"
     assert result["openclaw_ready"] is True
     assert result["openclaw_ok"] is False
     assert result["openclaw_provider_verified"] is False
+    assert result["provider_freshness_status"] == "untested"
 
 
 class _FakeScheduler:

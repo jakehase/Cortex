@@ -1,5 +1,13 @@
 # Oracle production readiness notes
 
+## 2026-10-11 least-privilege source design
+
+The ordinary Cortex API no longer needs to execute OpenClaw or write its state. The source deployment now routes nested Oracle execution to `cortex-oracle-executor.service` over authenticated loopback HTTP. That helper retains access to the existing root-owned Oracle agent profile only because moving the approved OAuth credential was out of scope; it has an empty capability bounding set and a home view limited to explicit Oracle workspace/config/profile bind paths. The Cortex API runs as the unprivileged `cortex` user, has an empty capability bounding set, cannot access `/root/.openclaw`, treats `/opt/clawdbot` as read-only for compatibility, and writes only its service-owned state/log/runtime directories. The environment contract moves its graph and L22 SQLite files into `/var/lib/cortex` so those workflows do not depend on the removed `/opt/clawdbot` write grant.
+
+The helper requires a protected shared token, returns a response-bound HMAC plus the existing provider/model completion receipt, enforces `gpt-5.6-sol` and `xhigh`, and does not transmit a service-tier override. It continues to use the PMHNP OAuth profile approved September 25, 2026; no credential is copied into source.
+
+This is a source candidate only. See `cortex-repair-20261011/SECURITY_POLICY_MIGRATION.md` for staged deployment, rollback, and residual risks.
+
 ## 2026-03-17
 
 Oracle was made production-safe by shifting from a brittle single-lane dependency chain:

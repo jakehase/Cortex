@@ -17,6 +17,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL, internal_url
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    STALE_EVIDENCE,
+    UNTESTED,
+    is_failure,
+    normalize_status,
+    vocabulary_payload,
+)
 from cortex_server.modules.action_capabilities import (
     ActionAuthorization,
     assert_action_authorized,
@@ -608,7 +619,7 @@ def _sentinel_health_snapshot(*, now: Optional[float] = None) -> Dict[str, Any]:
 
         self_watch = sentinel_selfwatch.summary()
     except Exception:
-        self_watch = {"enabled": False, "running": False, "fresh": False, "status": "unavailable"}
+        self_watch = {"enabled": False, "running": False, "fresh": False, "status": UNTESTED}
     scan_age = _age_seconds(_last_scan_success_at, now=observed)
     attempt_age = _age_seconds(_last_scan_attempt_at, now=observed)
     scan_belongs_to_current_run = bool(
@@ -619,40 +630,52 @@ def _sentinel_health_snapshot(*, now: Optional[float] = None) -> Dict[str, Any]:
 
     health_error = _startup_error or _last_load_error or _last_save_error or task_error
     if health_error:
-        status, severity, reason = "error", "unavailable", health_error
+        status, severity, reason = FAILED, "critical", health_error
     elif not _scheduler_running and task_state == "completed" and scan_belongs_to_current_run:
         if _last_scan_error or int(_last_scan_issues or 0) > 0:
-            status, severity, reason = "degraded", "degraded", _last_scan_error or "latest_scan_found_issues"
+            status, severity, reason = DEGRADED, "warning", _last_scan_error or "latest_scan_found_issues"
         elif scan_age is None or scan_age > stale_after:
-            status, severity, reason = "stale", "degraded", "completed_schedule_scan_is_stale"
+            status, severity, reason = STALE_EVIDENCE, "info", "completed_schedule_scan_is_stale"
         else:
-            status, severity, reason = "completed", "healthy", "authorized_scan_budget_completed"
+            status, severity, reason = OPERATIONAL, "info", "authorized_scan_budget_completed"
     elif not _scheduler_running and self_watch.get("fresh"):
         # No delegated endpoint schedule: the always-on in-process self-watch
         # is the measured source of Sentinel health.
-        if self_watch.get("status") == "healthy":
-            status, severity, reason = "active", "healthy", "self_watch_healthy"
+        self_watch_status = normalize_status(self_watch.get("status"))
+        if self_watch_status == OPERATIONAL:
+            status, severity, reason = OPERATIONAL, "info", "self_watch_operational"
+        elif self_watch_status == FAILED:
+            status, severity, reason = FAILED, "critical", "self_watch_failed"
+        elif self_watch_status == DEGRADED:
+            status, severity, reason = DEGRADED, "warning", "self_watch_found_issues"
+        elif self_watch_status == STALE_EVIDENCE:
+            status, severity, reason = STALE_EVIDENCE, "info", "self_watch_evidence_stale"
         else:
-            status, severity, reason = "degraded", "degraded", "self_watch_found_issues"
+            status, severity, reason = self_watch_status, "info", "self_watch_not_operationally_tested"
     elif not _scheduler_running:
-        status, severity, reason = "stopped", "unavailable", "scheduler_not_running"
+        if not self_watch.get("enabled", True):
+            status, severity, reason = DISABLED_BY_DESIGN, "info", "self_watch_disabled_by_design"
+        elif self_watch.get("running"):
+            status, severity, reason = UNTESTED, "info", "self_watch_has_no_fresh_sweep"
+        else:
+            status, severity, reason = FAILED, "critical", "self_watch_not_running"
     elif task_state != "running":
-        status, severity, reason = "error", "unavailable", f"scheduler_task_{task_state}"
+        status, severity, reason = FAILED, "critical", f"scheduler_task_{task_state}"
     elif _last_scan_error and (
         _last_scan_success_at is None
         or (_last_scan_attempt_at or 0.0) >= _last_scan_success_at
     ):
-        status, severity, reason = "error", "degraded", _last_scan_error
+        status, severity, reason = DEGRADED, "warning", _last_scan_error
     elif not scan_belongs_to_current_run:
-        status, severity, reason = "starting", "degraded", "no_successful_scan_for_current_scheduler_run"
+        status, severity, reason = UNTESTED, "info", "no_successful_scan_for_current_scheduler_run"
     elif scan_age is None or scan_age > stale_after:
-        status, severity, reason = "stale", "degraded", "successful_scan_is_stale"
+        status, severity, reason = STALE_EVIDENCE, "info", "successful_scan_is_stale"
     elif int(_last_scan_issues or 0) > 0:
-        status, severity, reason = "degraded", "degraded", "latest_scan_found_issues"
+        status, severity, reason = DEGRADED, "warning", "latest_scan_found_issues"
     else:
-        status, severity, reason = "active", "healthy", "scheduler_and_scan_are_healthy"
+        status, severity, reason = OPERATIONAL, "info", "scheduler_and_scan_are_operational"
 
-    success = status in {"active", "completed"}
+    success = not is_failure(status)
     return {
         "success": success,
         "status": status,
@@ -680,6 +703,7 @@ def _sentinel_health_snapshot(*, now: Optional[float] = None) -> Dict[str, Any]:
         "scan_error": _last_scan_error,
         "task_error": task_error,
         "self_watch": self_watch,
+        "status_vocabulary": vocabulary_payload(),
     }
 
 
@@ -734,14 +758,21 @@ def _capability_report() -> Dict[str, Any]:
 @router.get("/status")
 async def sentinel_status():
     health = _sentinel_health_snapshot()
-    persistence = watcher_state_health()
-    persistence_healthy = persistence.get("status") == "healthy"
-    if not persistence_healthy and health.get("status") != "error":
+    persistence_raw = watcher_state_health()
+    persistence_status = normalize_status(
+        persistence_raw.get("status"), default=DEGRADED
+    )
+    persistence = {
+        **persistence_raw,
+        "legacy_status": persistence_raw.get("status"),
+        "status": persistence_status,
+    }
+    if is_failure(persistence_status) and health.get("status") != FAILED:
         health = {
             **health,
             "success": False,
-            "status": "degraded",
-            "severity": "degraded",
+            "status": DEGRADED,
+            "severity": "warning",
             "health_reason": f"watcher_persistence_{persistence.get('reason', 'degraded')}",
         }
     return {

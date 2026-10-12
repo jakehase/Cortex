@@ -5,6 +5,15 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 
 from cortex_server.modules.execution_engine import ExecutionBlocked
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    STALE_EVIDENCE,
+    UNTESTED,
+)
 
 LEVEL = 23
 NAME = "cartographer"
@@ -32,12 +41,18 @@ async def run(query: str, context: Mapping[str, Any]) -> Dict[str, Any]:
     by_status: Dict[str, list] = {}
     for row in rows:
         by_status.setdefault(str(row.get("status")), []).append(int(row["level"]))
-    unavailable = sorted(by_status.get("unmounted", []) + by_status.get("failed", []))
-    degraded = sorted(by_status.get("degraded", []))
-    restricted = sorted(by_status.get("restricted", []))
+    unavailable = sorted(
+        by_status.get(DISABLED_BY_DESIGN, [])
+        + by_status.get(UNTESTED, [])
+        + by_status.get(FAILED, [])
+    )
+    degraded = sorted(by_status.get(DEGRADED, []))
+    restricted = sorted(by_status.get(RESTRICTED_BY_DESIGN, []))
+    stale = sorted(by_status.get(STALE_EVIDENCE, []))
     summary = (
-        f"Cortex level map ({basis}): {len(by_status.get('online', []))} online, "
-        f"restricted {restricted or 'none'}, degraded {degraded or 'none'}, "
+        f"Cortex level map ({basis}): {len(by_status.get(OPERATIONAL, []))} operational, "
+        f"restricted by design {restricted or 'none'}, stale evidence {stale or 'none'}, "
+        f"degraded {degraded or 'none'}, "
         f"unavailable {unavailable or 'none'}. Do not claim a capability from an unavailable or degraded level."
     )
     return {
@@ -58,5 +73,6 @@ async def run(query: str, context: Mapping[str, Any]) -> Dict[str, Any]:
             "unavailable": unavailable,
             "degraded": degraded,
             "restricted": restricted,
+            "stale_evidence": stale,
         },
     }

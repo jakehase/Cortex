@@ -189,7 +189,7 @@ def test_best_effort_answer_respects_avoid_tinyllama_prior(monkeypatch):
     monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(oracle, "_tinyllama_allowed", lambda *a, **k: True)
     monkeypatch.setattr(oracle, "_should_hedge_bridge", lambda *a, **k: False)
-    monkeypatch.setattr(oracle, "call_bridge", lambda prompt: (_ for _ in ()).throw(RuntimeError("bridge down")))
+    monkeypatch.setattr(oracle, "call_bridge", lambda prompt, **_kwargs: (_ for _ in ()).throw(RuntimeError("bridge down")))
     monkeypatch.setattr(oracle, "_solve_with_self_consistency", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("openclaw down")))
     monkeypatch.setattr(oracle, "ensure_ollama_ready", lambda: (_ for _ in ()).throw(AssertionError("tinyllama should be skipped")))
 
@@ -213,7 +213,7 @@ def test_best_effort_answer_can_prefer_bridge_first_from_priors(monkeypatch):
     monkeypatch.setattr(oracle, "BRIDGE_URL", "http://bridge.test")
     monkeypatch.setattr(oracle, "_is_frontend_prompt", lambda text: False)
     monkeypatch.setattr(oracle, "_bridge_cb_allows", lambda: True)
-    monkeypatch.setattr(oracle, "call_bridge", lambda prompt: "bridge answer")
+    monkeypatch.setattr(oracle, "call_bridge", lambda prompt, **_kwargs: "bridge answer")
     monkeypatch.setattr(oracle, "_solve_with_self_consistency", lambda *a, **k: (_ for _ in ()).throw(AssertionError("openclaw should not run first")))
 
     text, model, reason = _best_effort_answer(
@@ -235,7 +235,7 @@ def test_best_effort_answer_can_avoid_bridge_fallback_from_priors(monkeypatch):
     monkeypatch.setattr(oracle, "_openclaw_rate_limited_active", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(oracle, "_should_hedge_bridge", lambda *a, **k: False)
     monkeypatch.setattr(oracle, "_solve_with_self_consistency", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("openclaw down")))
-    monkeypatch.setattr(oracle, "call_bridge", lambda prompt: (_ for _ in ()).throw(AssertionError("bridge fallback should be skipped")))
+    monkeypatch.setattr(oracle, "call_bridge", lambda prompt, **_kwargs: (_ for _ in ()).throw(AssertionError("bridge fallback should be skipped")))
     monkeypatch.setattr(oracle, "_tinyllama_allowed", lambda *a, **k: False)
 
     try:

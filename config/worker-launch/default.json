@@ -6,6 +6,7 @@
     "workspace": "/home/jake/clawd-remote"
   },
   "model": "gpt-5.6-sol",
+  "authPolicyId": "pmhnp_oauth_approved_2026-09-25",
   "reasoningEffort": "xhigh",
   "serviceTierPolicy": "provider_default_no_override",
   "sandbox": "workspace-write",
@@ -13,5 +14,5 @@
     "transport": 15000,
     "provider": 180000
   },
-  "truthBoundary": "A successful preflight proves transport, executable, workspace, and provider authentication only. Worker completion additionally requires one ordered provider turn, a final agent result, observed token usage, and an integrity-bound persisted result/handoff pair. The default service tier is not requested, transmitted, or claimed as provider-confirmed."
+  "truthBoundary": "A successful preflight proves transport, executable, workspace, and provider authentication presence only; it does not disclose or independently attest the OAuth account identity. Deployment must provision the PMHNP OAuth account approved September 25, 2026. Worker completion additionally requires one ordered provider turn, a final agent result, observed token usage, and an integrity-bound persisted result/handoff pair. The normal/default service tier is not requested, transmitted, or claimed as provider-confirmed."
 }

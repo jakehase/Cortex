@@ -50,6 +50,7 @@ _ALLOWED_TIME_PRECISION = frozenset(
 )
 _ALLOWED_CLASSIFICATIONS = frozenset({"public", "private", "sensitive", "restricted"})
 _ALLOWED_EDGE_TYPES = frozenset({"supersedes", "contradicts"})
+_EXCLUSIVE_CLAIM_SEMANTICS = frozenset({"exclusive", "single", "single_value"})
 _ALLOWED_PROMOTION_STATUS = frozenset(
     {"blocked", "pending_review", "approved", "rejected", "promoted"}
 )
@@ -570,6 +571,13 @@ def _temporal_v1_visibility(
         retired_until = _stored_temporal_instant(meta, "valid_until")
         if retired_until is not None and current > retired_until:
             return TemporalDecision(False, "expired", "historical", "validity_window_ended")
+        if memory_status in _TEMPORAL_INACTIVE_STATUSES:
+            return TemporalDecision(
+                False,
+                "historical",
+                "historical",
+                "explicit_lifecycle_status_inactive",
+            )
         if valid_state == "unknown" and not include_unknown_time:
             return TemporalDecision(False, "unknown", valid_state, "unknown_valid_time_excluded")
         reason = "visible"
@@ -1420,6 +1428,116 @@ class MemoryGovernanceStore:
             str(row.get("memory_id") or ""),
         )
 
+    @staticmethod
+    def _relation_ids(metadata: Mapping[str, Any], relation: str) -> set[str]:
+        """Read a bounded explicit relation list without inventing an edge.
+
+        Temporal v1 stores supersession as JSON because vector metadata must
+        remain scalar.  Older callers use ``*_ids``/``*_id``.  Treat malformed
+        relation metadata as absent here; write-contract validation remains
+        responsible for rejecting malformed new temporal payloads.
+        """
+
+        candidates: list[Any] = []
+        plural = metadata.get(f"{relation}_ids")
+        if isinstance(plural, list):
+            candidates.extend(plural)
+        singular = metadata.get(f"{relation}_id")
+        if singular:
+            candidates.append(singular)
+        encoded = metadata.get(f"{relation}_json")
+        if isinstance(encoded, str) and encoded.strip():
+            try:
+                decoded = json.loads(encoded)
+            except (TypeError, json.JSONDecodeError):
+                decoded = []
+            if isinstance(decoded, list):
+                candidates.extend(decoded)
+        return {
+            str(item).strip()
+            for item in candidates[:_MAX_FACTS_PER_CLAIM]
+            if str(item or "").strip()
+        }
+
+    @staticmethod
+    def _claim_is_exclusive(metadata: Mapping[str, Any]) -> bool:
+        semantics = str(
+            metadata.get("claim_semantics")
+            or metadata.get("value_semantics")
+            or metadata.get("claim_cardinality")
+            or ""
+        ).strip().casefold()
+        return semantics in _EXCLUSIVE_CLAIM_SEMANTICS
+
+    @classmethod
+    def _resolve_conflict_statuses(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        principal_key: str,
+        claim_key: str,
+        candidates: Sequence[Mapping[str, Any]],
+    ) -> dict[str, tuple[str, str]]:
+        """Return ``memory_id -> (status, component winner)``.
+
+        Only explicit or declared-exclusive contradiction edges participate.
+        Legacy ``same_claim_different_value`` edges are retained as history but
+        are intentionally not enough to assert opposition: a differing value
+        can be supporting detail, a compatible scoped value, or uncertainty.
+        """
+
+        rows = [dict(row) for row in candidates]
+        by_id = {str(row["memory_id"]): row for row in rows}
+        adjacency = {memory_id: set() for memory_id in by_id}
+        if by_id:
+            edges = connection.execute(
+                "SELECT from_memory_id, to_memory_id, reason FROM fact_edges "
+                "WHERE principal_key = ? AND claim_key = ? AND edge_type = 'contradicts'",
+                (principal_key, claim_key),
+            ).fetchall()
+            for edge in edges:
+                left = str(edge["from_memory_id"])
+                right = str(edge["to_memory_id"])
+                reason = str(edge["reason"] or "")
+                if left not in by_id or right not in by_id:
+                    continue
+                if reason == "same_claim_different_value":
+                    # Pre-repair heuristic edge: preserve it for audit/history,
+                    # but do not keep asserting a conflict that was never
+                    # explicitly or structurally established.
+                    continue
+                adjacency[left].add(right)
+                adjacency[right].add(left)
+
+        resolved: dict[str, tuple[str, str]] = {}
+        remaining = set(by_id)
+        while remaining:
+            root = min(remaining)
+            component: set[str] = set()
+            pending = [root]
+            while pending:
+                current = pending.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                pending.extend(adjacency[current] - component)
+            remaining.difference_update(component)
+            component_rows = [by_id[memory_id] for memory_id in component]
+            winner = max(component_rows, key=cls._rank)
+            winner_id = str(winner["memory_id"])
+            winning_value_hash = str(winner.get("value_hash") or "")
+            has_conflict = any(adjacency[memory_id] for memory_id in component)
+            for memory_id in component:
+                candidate = by_id[memory_id]
+                status = (
+                    "conflicted"
+                    if has_conflict
+                    and str(candidate.get("value_hash") or "") != winning_value_hash
+                    else "active"
+                )
+                resolved[memory_id] = (status, winner_id)
+        return resolved
+
     def record_fact(
         self,
         *,
@@ -1465,24 +1583,12 @@ class MemoryGovernanceStore:
             authority = 0
         now = _iso(_utc_now())
         edge_ids: list[str] = []
-        explicit_supersedes = {
-            str(item)
-            for item in (
-                normalized.get("supersedes_ids")
-                if isinstance(normalized.get("supersedes_ids"), list)
-                else [normalized.get("supersedes_id")]
-            )
-            if item
-        }
-        explicit_contradicts = {
-            str(item)
-            for item in (
-                normalized.get("contradicts_ids")
-                if isinstance(normalized.get("contradicts_ids"), list)
-                else [normalized.get("contradicts_id")]
-            )
-            if item
-        }
+        explicit_supersedes = self._relation_ids(normalized, "supersedes")
+        explicit_contradicts = self._relation_ids(normalized, "contradicts")
+        claim_is_exclusive = self._claim_is_exclusive(normalized)
+        stored_status = _temporal_lifecycle_status(normalized)
+        if stored_status not in _TEMPORAL_INACTIVE_STATUSES:
+            stored_status = "active"
 
         with _GOVERNANCE_LOCK:
             connection = self._connect()
@@ -1511,7 +1617,7 @@ class MemoryGovernanceStore:
                     "value_hash, subject_hash, predicate, scope_hash, confidence, authority, "
                     "provenance_hash, observed_at, last_verified_at, valid_from, valid_until, "
                     "stale_after, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                    "?, ?, ?, ?, ?, 'active', ?) ON CONFLICT(memory_id) DO UPDATE SET "
+                    "?, ?, ?, ?, ?, ?, ?) ON CONFLICT(memory_id) DO UPDATE SET "
                     "fact_key=excluded.fact_key, claim_key=excluded.claim_key, "
                     "source_id=excluded.source_id, value_hash=excluded.value_hash, "
                     "subject_hash=excluded.subject_hash, predicate=excluded.predicate, "
@@ -1519,7 +1625,7 @@ class MemoryGovernanceStore:
                     "confidence=excluded.confidence, authority=excluded.authority, "
                     "observed_at=excluded.observed_at, last_verified_at=excluded.last_verified_at, "
                     "valid_from=excluded.valid_from, valid_until=excluded.valid_until, "
-                    "stale_after=excluded.stale_after, status='active'",
+                    "stale_after=excluded.stale_after, status=excluded.status",
                     (
                         memory,
                         principal,
@@ -1538,6 +1644,7 @@ class MemoryGovernanceStore:
                         normalized.get("valid_from"),
                         normalized.get("valid_until"),
                         normalized.get("stale_after"),
+                        stored_status,
                         now,
                     ),
                 )
@@ -1547,14 +1654,21 @@ class MemoryGovernanceStore:
                     reason = ""
                     if previous["memory_id"] in explicit_supersedes or previous["fact_key"] == fact_key:
                         edge_type = "supersedes"
-                        reason = "explicit_or_same_fact_revision"
+                        reason = (
+                            "explicit_supersession"
+                            if previous["memory_id"] in explicit_supersedes
+                            else "same_fact_revision"
+                        )
                         connection.execute(
                             "UPDATE facts SET status = 'superseded' WHERE memory_id = ?",
                             (previous["memory_id"],),
                         )
-                    elif previous["memory_id"] in explicit_contradicts or previous["value_hash"] != value_hash:
+                    elif previous["memory_id"] in explicit_contradicts:
                         edge_type = "contradicts"
-                        reason = "same_claim_different_value"
+                        reason = "explicit_contradiction"
+                    elif claim_is_exclusive and previous["value_hash"] != value_hash:
+                        edge_type = "contradicts"
+                        reason = "declared_exclusive_value"
                     if edge_type is None:
                         continue
                     edge_id = "edge_" + sha256_text(
@@ -1564,7 +1678,8 @@ class MemoryGovernanceStore:
                         "INSERT INTO fact_edges(edge_id, principal_key, from_memory_id, "
                         "to_memory_id, edge_type, claim_key, reason, created_at) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(principal_key, "
-                        "from_memory_id, to_memory_id, edge_type) DO NOTHING",
+                        "from_memory_id, to_memory_id, edge_type) DO UPDATE SET "
+                        "claim_key=excluded.claim_key, reason=excluded.reason",
                         (
                             edge_id,
                             principal,
@@ -1594,17 +1709,22 @@ class MemoryGovernanceStore:
                     "memory_id": memory,
                     "value_hash": value_hash,
                 }
-                winner_id = str(winner["memory_id"])
-                winning_value_hash = str(winner.get("value_hash") or value_hash)
+                resolved = self._resolve_conflict_statuses(
+                    connection,
+                    principal_key=principal,
+                    claim_key=claim_key,
+                    candidates=candidates,
+                )
+                # Winner identity is component-scoped: an unrelated supporting
+                # fact remains its own active winner rather than inheriting the
+                # highest-ranked fact elsewhere in the same broad claim.
+                winner_id = resolved.get(
+                    memory, ("active", str(winner["memory_id"]))
+                )[1]
                 for candidate in candidates:
                     connection.execute(
                         "UPDATE facts SET status = ? WHERE memory_id = ?",
-                        (
-                            "active"
-                            if str(candidate.get("value_hash") or "") == winning_value_hash
-                            else "conflicted",
-                            candidate["memory_id"],
-                        ),
+                        (resolved[str(candidate["memory_id"])][0], candidate["memory_id"]),
                     )
                 connection.commit()
             except Exception:
@@ -1628,7 +1748,7 @@ class MemoryGovernanceStore:
                 [principal_key, *ids],
             ).fetchall()
             output: dict[str, dict[str, Any]] = {}
-            claim_winners: dict[str, tuple[str, str]] = {}
+            claim_winners: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {}
             for row in rows:
                 fact = dict(row)
                 edges = [
@@ -1657,14 +1777,22 @@ class MemoryGovernanceStore:
                     winner = max(candidates, key=self._rank) if candidates else fact
                     claim_winners[claim_key] = (
                         str(winner["memory_id"]),
-                        str(winner["value_hash"]),
+                        self._resolve_conflict_statuses(
+                            connection,
+                            principal_key=principal_key,
+                            claim_key=claim_key,
+                            candidates=candidates,
+                        ),
                     )
-                winner_id, winning_value_hash = claim_winners[claim_key]
-                effective_status = (
-                    "active"
-                    if str(fact.get("value_hash") or "") == winning_value_hash
-                    else "conflicted"
-                )
+                claim_winner_id, resolved = claim_winners[claim_key]
+                stored_status = str(fact.get("status") or "active")
+                if stored_status in _TEMPORAL_INACTIVE_STATUSES:
+                    effective_status = stored_status
+                    winner_id = claim_winner_id
+                else:
+                    effective_status, winner_id = resolved.get(
+                        str(fact["memory_id"]), ("active", claim_winner_id)
+                    )
                 output[fact["memory_id"]] = {
                     "fact_key": fact["fact_key"],
                     "claim_key": fact["claim_key"],

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from cortex_server.modules.health_status import DEGRADED, FAILED, OPERATIONAL
+
 DEFAULT_STATE_PATH = Path("/opt/clawdbot/state/route_health.json")
 DEFAULT_BREAKER_THRESHOLD = 3
 DEFAULT_BREAKER_COOLDOWN_SECONDS = 60.0
@@ -161,6 +163,13 @@ class RouteHealthMonitor:
             now = time.time()
             row["seconds_remaining"] = max(0, int(float(row.get("breaker_open_until", 0.0)) - now))
             row["healthy"] = row.get("state") == "closed"
+            row["status"] = (
+                OPERATIONAL
+                if row.get("state") == "closed"
+                else DEGRADED
+                if row.get("state") == "half_open"
+                else FAILED
+            )
             return row
         deps = {}
         for dep in list((self.state.get("dependencies") or {}).keys()):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping
 
 from cortex_server.modules.execution_engine import ExecutionBlocked
+from cortex_server.modules.health_status import DEGRADED, FAILED
 
 LEVEL = 36
 NAME = "meta_conductor"
@@ -31,10 +32,10 @@ async def run(query: str, context: Mapping[str, Any]) -> Dict[str, Any]:
     degraded = [
         {"level": row["level"], "reason": row.get("reason")}
         for row in aggregate.get("results", [])
-        if row.get("state") in {"degraded", "failed"}
+        if row.get("state") in {DEGRADED, FAILED}
     ][:10]
     summary = (
-        f"Aggregate Cortex health: {aggregate.get('status')} ({aggregate.get('health_pct')}% of mounted levels healthy; "
+        f"Aggregate Cortex health: {aggregate.get('status')} ({aggregate.get('health_pct')}% of evaluated levels usable; "
         f"basis: {basis}, age {snapshot.get('age_s')} s). "
         f"Degraded/failed: {[d['level'] for d in degraded] or 'none'}. "
         f"Unmounted (not available this deployment): {aggregate.get('unmounted_levels') or 'none'}."
@@ -48,6 +49,9 @@ async def run(query: str, context: Mapping[str, Any]) -> Dict[str, Any]:
             "health_pct": aggregate.get("health_pct"),
             "degraded_levels": degraded,
             "unmounted_levels": aggregate.get("unmounted_levels"),
+            "restricted_by_design_levels": aggregate.get("restricted_by_design_levels"),
+            "disabled_by_design_levels": aggregate.get("disabled_by_design_levels"),
+            "stale_evidence_levels": aggregate.get("stale_evidence_levels"),
             "snapshot_age_s": snapshot.get("age_s"),
             "basis": basis,
         },

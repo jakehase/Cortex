@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "cortex.canonical-inference-policy.v1",
+  "effectiveAt": "2026-10-07",
+  "current": {
+    "oauthPolicyId": "pmhnp_oauth_approved_2026-09-25",
+    "oauthAccountLabel": "PMHNP OAuth account",
+    "oauthApprovedAt": "2026-09-25",
+    "model": "gpt-5.6-sol",
+    "reasoningEffort": "xhigh",
+    "serviceTierPolicy": "provider_default_no_override",
+    "safeMode": true,
+    "externalWrites": "restricted"
+  },
+  "exceptions": {
+    "reasoningEffort": "A task-specific lower effort is allowed only when an explicit task contract records it; it does not change the default.",
+    "serviceTier": "Provider-selected normal/default routing is allowed. Callers must not request Fast, priority, or another paid tier override."
+  },
+  "superseded": [
+    {
+      "policy": "personal_oauth_account",
+      "supersededBy": "pmhnp_oauth_approved_2026-09-25",
+      "supersededAt": "2026-09-25"
+    },
+    {
+      "policy": "reasoning_effort_ultra",
+      "supersededBy": "reasoning_effort_xhigh",
+      "supersededAt": "2026-10-07"
+    },
+    {
+      "policy": "forced_fast_or_priority_service_tier",
+      "supersededBy": "provider_default_no_override",
+      "supersededAt": "2026-10-07"
+    }
+  ],
+  "truthBoundary": "This source policy names the approved account class but contains no credential and cannot independently attest which account is provisioned on a host. Deployment must preserve the existing approved PMHNP OAuth profile and verify it without recording secret values."
+}

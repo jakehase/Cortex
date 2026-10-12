@@ -36,29 +36,27 @@ from contextlib import AsyncExitStack
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
+from cortex_server.modules.health_status import (
+    DEGRADED,
+    DISABLED_BY_DESIGN,
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    STALE_EVIDENCE,
+    UNTESTED,
+    normalize_status,
+)
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
-PROBE_SCHEMA_VERSION = "cortex.level-probe.v1"
+PROBE_SCHEMA_VERSION = "cortex.level-probe.v2"
 DEFAULT_PROBE_TIMEOUT_S = 3.0
 DEFAULT_PROBE_CONCURRENCY = 8
 MAX_PROBE_BODY_BYTES = 256_000
 DEFAULT_CACHE_TTL_S = 30.0
 
-# Self-reported statuses that mean "this level says it is not healthy".
+# Canonical self-reported statuses that mean "this level says it is not healthy".
 UNHEALTHY_REPORTED_STATUSES = frozenset(
-    {
-        "degraded",
-        "down",
-        "error",
-        "failed",
-        "offline",
-        "stopped",
-        "unavailable",
-        "unhealthy",
-        "inactive",
-        "unconfigured",
-        "disabled",
-    }
+    {DEGRADED, FAILED}
 )
 
 _IN_PROBE: contextvars.ContextVar[bool] = contextvars.ContextVar(
@@ -189,16 +187,16 @@ def _mount_classification(module: str, report: Any, has_routes: bool) -> str:
 
 
 _MOUNT_TO_STATE = {
-    "full": "online",
-    "mounted": "online",
-    "safe_subset": "restricted",
-    "skipped_safe_mode": "unmounted",
-    "disabled": "unmounted",
-    "not_loaded": "unmounted",
-    "not_mounted": "unmounted",
-    "no_routes": "unmounted",
-    "import_failed": "failed",
-    "missing_router": "failed",
+    "full": OPERATIONAL,
+    "mounted": OPERATIONAL,
+    "safe_subset": RESTRICTED_BY_DESIGN,
+    "skipped_safe_mode": DISABLED_BY_DESIGN,
+    "disabled": DISABLED_BY_DESIGN,
+    "not_loaded": UNTESTED,
+    "not_mounted": UNTESTED,
+    "no_routes": UNTESTED,
+    "import_failed": FAILED,
+    "missing_router": FAILED,
 }
 
 
@@ -221,10 +219,10 @@ def level_mount_states(app: Any) -> List[Dict[str, Any]]:
         mount = _mount_classification(module, report, bool(level_routes))
         canonical = str(row["canonical_status"])
         canonical_mounted = ("GET", canonical) in keys
-        state = _MOUNT_TO_STATE.get(mount, "unknown")
+        state = _MOUNT_TO_STATE.get(mount, UNTESTED)
         reason = mount
-        if state == "online" and not canonical_mounted:
-            state, reason = "degraded", "canonical_status_route_missing"
+        if state == OPERATIONAL and not canonical_mounted:
+            state, reason = DEGRADED, "canonical_status_route_missing"
         aliases = [
             {"path": str(alias), "mounted": ("GET", str(alias)) in keys}
             for alias in row.get("aliases") or ()
@@ -335,7 +333,10 @@ def _reported(body: Any) -> Dict[str, Any]:
     success = body.get("success")
     level = body.get("level", data.get("level"))
     return {
-        "reported_status": str(status).lower() if isinstance(status, str) else None,
+        # Preserve the prior contract for unfamiliar positive endpoint words:
+        # only known negative legacy words map to a failure.
+        "reported_status": normalize_status(status, default=OPERATIONAL) if isinstance(status, str) else None,
+        "reported_status_raw": str(status).lower() if isinstance(status, str) else None,
         "reported_success": success if isinstance(success, bool) else None,
         "reported_level": level if isinstance(level, int) and not isinstance(level, bool) else None,
     }
@@ -350,9 +351,18 @@ def classify_probe(status_code: Optional[int], reported: Mapping[str, Any]) -> s
         return "auth_required"
     if not 200 <= int(status_code) < 300:
         return "http_error"
-    if reported.get("reported_success") is False:
-        return "self_reported_unhealthy"
     if reported.get("reported_status") in UNHEALTHY_REPORTED_STATUSES:
+        return "self_reported_unhealthy"
+    # Policy and freshness states are successful observations even when a
+    # legacy endpoint also sets ``success=false`` to mean "not fully active".
+    if reported.get("reported_status") in {
+        RESTRICTED_BY_DESIGN,
+        DISABLED_BY_DESIGN,
+        STALE_EVIDENCE,
+        UNTESTED,
+    }:
+        return "healthy"
+    if reported.get("reported_success") is False:
         return "self_reported_unhealthy"
     return "healthy"
 
@@ -506,13 +516,32 @@ async def probe_levels(
         identity_ok = probe.get("reported_level") in (None, row["level"])
         if probe.get("outcome") == "nested_probe_suppressed":
             return merged
-        if row["status"] in {"online", "restricted"}:
+        reported_status = probe.get("reported_status")
+        if row["status"] in {OPERATIONAL, RESTRICTED_BY_DESIGN}:
             if probe.get("outcome") != "healthy":
-                merged["status"] = "degraded"
+                merged["status"] = (
+                    reported_status
+                    if probe.get("outcome") == "self_reported_unhealthy"
+                    and reported_status in {DEGRADED, FAILED}
+                    else DEGRADED
+                )
                 merged["reason"] = f"probe_{probe.get('outcome')}"
             elif not identity_ok:
-                merged["status"] = "degraded"
+                merged["status"] = DEGRADED
                 merged["reason"] = "probe_identity_mismatch"
+            elif reported_status in {
+                RESTRICTED_BY_DESIGN,
+                DISABLED_BY_DESIGN,
+                STALE_EVIDENCE,
+                UNTESTED,
+                DEGRADED,
+                FAILED,
+            }:
+                # A safe-mode mount remains restricted even when its handler
+                # reports operational; otherwise the handler's canonical state
+                # is more specific than mount availability.
+                merged["status"] = reported_status
+                merged["reason"] = f"self_reported_{reported_status}"
         return merged
 
     rows = await asyncio.gather(*(one(row) for row in states))

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { AIOS_EVIDENCE_MAX_AGE_MS, digestJson, validateBoundVerifierEvidence } from '../ai-os/packages/aios-language/runtime/claim-evidence.mjs';
@@ -24,13 +25,15 @@ const PROVIDER_DOGFOOD_SOURCE = path.join(AI_OS_ROOT, 'examples', 'capability-ga
 const DEFAULT_PROVIDER_POLICY = path.join(AI_OS_ROOT, 'kernel', 'policy', 'provider-read-compute.json');
 const ADAPTER_VERSION = 'openclaw-aios-adapter.v0.6-v1-freeze-provider-workflows';
 const CANONICAL_LANGUAGE_VERSION = 'aios.language.v1';
+const EVIDENCE_REFRESH_SCHEMA = 'openclaw.aios.evidence-refresh.v1';
+const EVIDENCE_REFRESH_FILE = path.join('reports', 'evidence-refresh.json');
 
 function nowStamp() {
   return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 }
 
 function usage(exitCode = 0) {
-  const text = `AI OS adapter — bounded local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs promote-default --resume --artifact-root <staged-workspace-path>\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs provider-workflow --workflow <id> --query <text> [--artifact-root <workspace-path>]\n  node scripts/aios-adapter.mjs compile <source.aios> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - The checked-in default is disabled; promotion is a two-phase stage, explicit-approval, resume flow.\n  - AIOS v1 is frozen; surface changes require execution evidence and explicit approval.\n  - Canonical .aios source is compiled before bounded execution.\n  - Provider read/compute uses externally visible network POSTs; returned results stay in internal artifacts.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n`;
+  const text = `AI OS adapter — bounded local bridge for the AI OS language substrate\n\nUsage:\n  node scripts/aios-adapter.mjs promote-default [--label <name>]\n  node scripts/aios-adapter.mjs promote-default --resume --artifact-root <staged-workspace-path>\n  node scripts/aios-adapter.mjs dogfood-smoke [--artifact-root <workspace-path>] [--label <name>]\n  node scripts/aios-adapter.mjs provider-workflow --workflow <id> --query <text> [--artifact-root <workspace-path>]\n  node scripts/aios-adapter.mjs compile <source.aios> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs boot --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs run <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs ps --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs logs --artifact-root <workspace-path> --process <process-id>\n  node scripts/aios-adapter.mjs claim <source.aios|job.json> --artifact-root <workspace-path>\n  node scripts/aios-adapter.mjs status [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs refresh-evidence [--artifact-root <workspace-path>|--last]\n  node scripts/aios-adapter.mjs recover [--artifact-root <workspace-path>|--last]\n\nSafety boundary:\n  - The checked-in default is disabled; promotion is a two-phase stage, explicit-approval, resume flow.\n  - AIOS v1 is frozen; surface changes require execution evidence and explicit approval.\n  - Canonical .aios source is compiled before bounded execution.\n  - Provider read/compute uses externally visible network POSTs; returned results stay in internal artifacts.\n  - refresh-evidence only revalidates local immutable evidence and writes one local report; it never runs a job or provider call.\n  - Does not replace OpenClaw/Cortex routing or the chat/control-plane brain.\n  - Artifact roots must stay inside this workspace.\n`;
   console.log(text);
   process.exit(exitCode);
 }
@@ -94,6 +97,57 @@ function parseJsonOutput(result) {
   return null;
 }
 
+const DURABLE_COMMAND_OUTPUTS = Object.freeze({
+  compile: { file: path.join('packets', 'language-compile.packet.json'), packetType: 'aios.language.compile.proof' },
+  boot: { file: path.join('packets', 'boot-proof.packet.json'), packetType: 'aios.boot.proof' },
+  run: { file: path.join('packets', 'run-proof.packet.json'), packetType: 'aios.run.proof' },
+  claim: { file: path.join('packets', 'completion-claim.packet.json'), packetType: 'aios.completion.claim' },
+});
+
+function durableAiosOutput(args) {
+  const command = String(args[0] || '');
+  const contract = DURABLE_COMMAND_OUTPUTS[command];
+  if (!contract) return null;
+  const artifactFlag = args.indexOf('--artifact-root');
+  const artifactRoot = artifactFlag >= 0 ? path.resolve(String(args[artifactFlag + 1] || '')) : '';
+  if (!artifactRoot) throw new Error(`AIOS ${command} omitted its artifact root`);
+  const proofPath = path.join(artifactRoot, contract.file);
+  const packet = readJson(proofPath, null);
+  if (!packet || typeof packet !== 'object' || Array.isArray(packet)) {
+    throw new Error(`AIOS ${command} did not persist its supported output packet`);
+  }
+  if (
+    packet.ok !== true
+    || packet.command !== command
+    || packet.packetType !== contract.packetType
+    || path.resolve(String(packet.artifactRoot || '')) !== artifactRoot
+  ) {
+    throw new Error(`AIOS ${command} persisted an invalid output packet`);
+  }
+  if (command === 'compile') {
+    const boundary = packet.boundary || {};
+    if (
+      boundary.mode !== 'internal-only'
+      || boundary.externalWrites !== false
+      || boundary.externalTransportEffect !== 'none'
+      || boundary.runtimeReplacement !== false
+      || boundary.outputBoundary !== 'internal-artifact-only'
+      || !Array.isArray(packet.jobPaths)
+      || packet.jobPaths.length !== 1
+      || !boundedJsonPath(packet.jobPaths[0], artifactRoot)
+    ) {
+      throw new Error('AIOS compile packet violated the bounded internal-only output contract');
+    }
+  }
+  if (command === 'run' && packet.process?.state !== 'completed') {
+    throw new Error('AIOS run packet did not report a completed process');
+  }
+  if (command === 'claim' && packet.claimStatus !== 'allowed') {
+    throw new Error('AIOS claim packet was not allowed');
+  }
+  return { ...packet, proofPath, outputContract: 'durable-packet' };
+}
+
 function runAios(args, { expect = 0 } = {}) {
   ensureAiOsReady();
   const result = spawnSync(process.execPath, [AIOS_CLI, ...args], {
@@ -106,12 +160,28 @@ function runAios(args, { expect = 0 } = {}) {
     }
   });
   const parsed = parseJsonOutput(result);
-  if (result.status !== expect) {
+  let durable = null;
+  let durableError = null;
+  try {
+    durable = durableAiosOutput(args);
+  } catch (error) {
+    durableError = error;
+  }
+  if (result.status !== expect || (result.error && !durable) || durableError) {
     const error = new Error(`aios command failed: ${args.join(' ')}`);
-    error.details = { command: args, expectedStatus: expect, actualStatus: result.status, parsed, stdout: result.stdout, stderr: result.stderr };
+    error.details = {
+      command: args,
+      expectedStatus: expect,
+      actualStatus: result.status,
+      spawnError: result.error ? { code: result.error.code, message: result.error.message } : null,
+      durableError: durableError?.message || null,
+      parsed,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
     throw error;
   }
-  return parsed;
+  return durable || parsed;
 }
 
 function runBoundVerifier({ artifactRoot, jobPath, providerPolicyPath = DEFAULT_PROVIDER_POLICY }) {
@@ -289,6 +359,239 @@ function expectedClaimHash(claim) {
   });
 }
 
+function digestFile(file) {
+  return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function claimBindingMatches({ claim, job, boot, run, verifierEvidence, verifierValidation }) {
+  return verifierValidation?.ok === true
+    && job !== null
+    && verifierValidation.binding !== null
+    && claim?.claimStatus === 'allowed'
+    && claim?.claimHash === expectedClaimHash(claim)
+    && claim?.job?.hash === run?.job?.hash
+    && claim?.requiredArtifacts?.bootProof?.hash === (boot ? digestJson(boot) : null)
+    && claim?.requiredArtifacts?.runProof?.hash === (run ? digestJson(run) : null)
+    && claim?.requiredArtifacts?.verifierEvidence?.hash === (verifierEvidence ? digestJson(verifierEvidence) : null)
+    && digestJson(claim?.evidenceBinding ?? null) === digestJson(verifierValidation.binding);
+}
+
+function boundedJsonPath(candidate, boundaryRoot) {
+  if (typeof candidate !== 'string' || !candidate) return null;
+  const resolved = path.resolve(candidate);
+  const boundary = path.resolve(boundaryRoot);
+  const relative = path.relative(boundary, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  try {
+    const state = fs.lstatSync(resolved);
+    if (!state.isFile() || state.isSymbolicLink()) return null;
+  } catch {
+    return null;
+  }
+  return resolved;
+}
+
+function requireLocalRefreshDestination(root) {
+  const resolvedRoot = path.resolve(root);
+  const aiOsReal = fs.realpathSync(AI_OS_ROOT);
+  const rootState = fs.lstatSync(resolvedRoot);
+  const rootReal = fs.realpathSync(resolvedRoot);
+  const relative = path.relative(aiOsReal, rootReal);
+  if (!rootState.isDirectory() || rootState.isSymbolicLink() || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('evidence refresh artifact root must be a real directory inside AI OS');
+  }
+  const reportsDir = path.join(rootReal, 'reports');
+  if (fs.existsSync(reportsDir)) {
+    const reportsState = fs.lstatSync(reportsDir);
+    if (!reportsState.isDirectory() || reportsState.isSymbolicLink()) {
+      throw new Error('evidence refresh reports path must be a real directory');
+    }
+  }
+  const refreshPath = path.join(reportsDir, 'evidence-refresh.json');
+  if (fs.existsSync(refreshPath)) {
+    const refreshState = fs.lstatSync(refreshPath);
+    if (!refreshState.isFile() || refreshState.isSymbolicLink()) {
+      throw new Error('evidence refresh report must be a regular file');
+    }
+  }
+  return { root: rootReal, refreshPath };
+}
+
+function evidenceBundle(root) {
+  const processIndex = readJson(path.join(root, 'processes', 'process-index.json'), null);
+  const claim = readJson(path.join(root, 'packets', 'completion-claim.packet.json'), null);
+  const boot = readJson(path.join(root, 'packets', 'boot-proof.packet.json'), null);
+  const run = readJson(path.join(root, 'packets', 'run-proof.packet.json'), null);
+  const verifierEvidence = readJson(path.join(root, 'packets', 'verifier-evidence.packet.json'), null);
+  const tenantBoundary = readJson(path.join(root, '.aios-tenant-boundary.json'), null);
+  const jobPath = boundedJsonPath(run?.job?.path, WORKSPACE_ROOT);
+  const job = jobPath ? readJson(jobPath, null) : null;
+  const providerPolicyPath = boundedJsonPath(
+    run?.providerPolicy?.path || DEFAULT_PROVIDER_POLICY,
+    WORKSPACE_ROOT,
+  );
+  const providerPolicy = readJson(providerPolicyPath, null);
+  const processRecordPath = boundedJsonPath(run?.process?.recordPath, root);
+  const processRecord = processRecordPath ? readJson(processRecordPath, null) : null;
+  return {
+    processIndex,
+    claim,
+    boot,
+    run,
+    verifierEvidence,
+    tenantBoundary,
+    jobPath,
+    job,
+    providerPolicyPath,
+    providerPolicy,
+    processRecordPath,
+    processRecord,
+  };
+}
+
+function bundleDigests(bundle) {
+  return {
+    job: bundle.job ? digestJson(bundle.job) : null,
+    bootProof: bundle.boot ? digestJson(bundle.boot) : null,
+    runProof: bundle.run ? digestJson(bundle.run) : null,
+    verifierEvidence: bundle.verifierEvidence ? digestJson(bundle.verifierEvidence) : null,
+    completionClaim: bundle.claim ? digestJson(bundle.claim) : null,
+    tenantBoundary: bundle.tenantBoundary ? digestJson(bundle.tenantBoundary) : null,
+    providerPolicy: bundle.providerPolicy ? digestJson(bundle.providerPolicy) : null,
+    processRecord: bundle.processRecord ? digestJson(bundle.processRecord) : null,
+    processIndex: bundle.processIndex ? digestJson(bundle.processIndex) : null,
+  };
+}
+
+function historicalEvidenceValidation(root, bundle) {
+  const verifierAtMs = Date.parse(String(bundle.verifierEvidence?.generatedAt || ''));
+  if (!Number.isFinite(verifierAtMs)) {
+    return {
+      ok: false,
+      verifierValidation: { ok: false, errors: [{ code: 'AIOS_REFRESH_VERIFIER_TIMESTAMP_INVALID' }], binding: null },
+      claimBindingOk: false,
+    };
+  }
+  const verifierValidation = bundle.job
+    && bundle.boot
+    && bundle.run
+    && bundle.verifierEvidence
+    && bundle.tenantBoundary
+    && bundle.providerPolicy
+    ? validateBoundVerifierEvidence({
+      artifactRoot: root,
+      job: bundle.job,
+      bootProof: bundle.boot,
+      runProof: bundle.run,
+      verifierEvidence: bundle.verifierEvidence,
+      providerPolicy: bundle.providerPolicy,
+      tenantBoundary: bundle.tenantBoundary,
+      now: new Date(verifierAtMs),
+    })
+    : { ok: false, errors: [{ code: 'AIOS_REFRESH_REQUIRED_BOUND_EVIDENCE_MISSING' }], binding: null };
+  const claimBindingOk = claimBindingMatches({
+    claim: bundle.claim,
+    job: bundle.job,
+    boot: bundle.boot,
+    run: bundle.run,
+    verifierEvidence: bundle.verifierEvidence,
+    verifierValidation,
+  });
+  return { ok: verifierValidation.ok === true && claimBindingOk, verifierValidation, claimBindingOk };
+}
+
+function evidenceRefreshHashInput(packet) {
+  const { packetHash: _packetHash, ...hashInput } = packet || {};
+  return hashInput;
+}
+
+function validateEvidenceRefresh(artifactRoot, { now = new Date() } = {}) {
+  const root = resolveAiOsArtifactRoot(artifactRoot, { mustExist: true });
+  const refreshPath = path.join(root, EVIDENCE_REFRESH_FILE);
+  const packet = readJson(refreshPath, null);
+  const bundle = evidenceBundle(root);
+  const historical = historicalEvidenceValidation(root, bundle);
+  const expectedDigests = bundleDigests(bundle);
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(String(now));
+  const checks = [
+    { name: 'refresh_packet_schema_valid', ok: packet?.schemaVersion === EVIDENCE_REFRESH_SCHEMA && packet?.packetType === 'aios.evidence.refresh' },
+    { name: 'refresh_packet_green', ok: packet?.ok === true && packet?.status === 'green' },
+    { name: 'refresh_root_bound', ok: packet?.artifactRoot === root },
+    { name: 'refresh_packet_hash_valid', ok: typeof packet?.packetHash === 'string' && packet.packetHash === digestJson(evidenceRefreshHashInput(packet)) },
+    { name: 'refresh_is_current', ok: packet !== null && artifactFreshness(packet, nowMs).stale === false },
+    { name: 'historical_bound_evidence_was_valid', ok: historical.verifierValidation.ok === true },
+    { name: 'historical_completion_claim_bound', ok: historical.claimBindingOk === true },
+    { name: 'artifact_digests_unchanged', ok: digestJson(packet?.artifactDigests ?? null) === digestJson(expectedDigests) },
+    { name: 'adapter_source_bound', ok: packet?.adapterSourceSha256 === digestFile(fileURLToPath(import.meta.url)) },
+    { name: 'authority_not_expanded', ok: packet?.effectBoundary?.authorityExpanded === false && Array.isArray(packet?.effectBoundary?.capabilities) && packet.effectBoundary.capabilities.length === 0 },
+    { name: 'external_writes_not_performed', ok: packet?.effectBoundary?.externalWritesPerformed === false && packet?.effectBoundary?.providerCallsPerformed === false },
+  ];
+  return {
+    ok: checks.every((check) => check.ok),
+    status: checks.every((check) => check.ok) ? 'green' : 'red',
+    artifactRoot: root,
+    refreshPath,
+    packet,
+    checks,
+    historical,
+    freshness: artifactFreshness(packet, nowMs),
+  };
+}
+
+function commandEvidenceRefresh(args, { now = new Date() } = {}) {
+  const requestedRoot = resolveAiOsArtifactRoot(
+    args.artifactRoot || (args.last ? lastRoot() : null) || defaultAdapterRoot({ mustExist: true }),
+    { mustExist: true },
+  );
+  const destination = requireLocalRefreshDestination(requestedRoot);
+  const artifactRoot = destination.root;
+  const bundle = evidenceBundle(artifactRoot);
+  const historical = historicalEvidenceValidation(artifactRoot, bundle);
+  const checks = [
+    { name: 'historical_bound_evidence_was_valid', ok: historical.verifierValidation.ok === true },
+    { name: 'historical_completion_claim_bound', ok: historical.claimBindingOk === true },
+    { name: 'process_record_present', ok: bundle.processRecord !== null },
+    { name: 'process_index_present', ok: bundle.processIndex !== null },
+    { name: 'local_revalidation_only', ok: true },
+  ];
+  const ok = checks.every((check) => check.ok);
+  const packet = {
+    schemaVersion: EVIDENCE_REFRESH_SCHEMA,
+    packetType: 'aios.evidence.refresh',
+    ok,
+    status: ok ? 'green' : 'red',
+    generatedAt: (now instanceof Date ? now : new Date(now)).toISOString(),
+    adapter: ADAPTER_VERSION,
+    adapterSourceSha256: digestFile(fileURLToPath(import.meta.url)),
+    artifactRoot,
+    verificationMode: 'local_immutable_evidence_revalidation',
+    sourceEvidence: {
+      bootGeneratedAt: bundle.boot?.generatedAt || null,
+      runGeneratedAt: bundle.run?.generatedAt || null,
+      verifierGeneratedAt: bundle.verifierEvidence?.generatedAt || null,
+      claimGeneratedAt: bundle.claim?.generatedAt || null,
+      processCompletedAt: Array.isArray(bundle.processRecord?.lifecycle)
+        ? bundle.processRecord.lifecycle.filter((entry) => entry?.state === 'completed').at(-1)?.at || null
+        : null,
+    },
+    artifactDigests: bundleDigests(bundle),
+    checks,
+    verifierErrors: historical.verifierValidation.errors || [],
+    effectBoundary: {
+      authorityExpanded: false,
+      capabilities: [],
+      providerCallsPerformed: false,
+      externalWritesPerformed: false,
+      localWrites: [path.join(artifactRoot, EVIDENCE_REFRESH_FILE)],
+    },
+    truthBoundary: 'Freshness applies only to this local integrity revalidation. The underlying execution remains historical; this packet cannot authorize promotion, claim a fresh provider execution, expand AI OS authority, or prove remote side effects.',
+  };
+  packet.packetHash = digestJson(evidenceRefreshHashInput(packet));
+  const refreshPath = destination.refreshPath;
+  writeJsonAtomic(refreshPath, packet);
+  return { ...packet, refreshPath };
+}
+
 function validatePromotionApproval({ smoke }) {
   const artifactRoot = resolveAiOsArtifactRoot(smoke?.artifactRoot, { mustExist: true });
   const claimPath = path.join(artifactRoot, 'packets', 'completion-claim.packet.json');
@@ -331,10 +634,11 @@ function validatePromotionApproval({ smoke }) {
   };
 }
 
-function compactStatus(artifactRoot) {
+function compactStatus(artifactRoot, { now = new Date() } = {}) {
   const config = readDefaultConfig();
   const root = resolveAiOsArtifactRoot(artifactRoot || defaultAdapterRoot({ mustExist: true }), { mustExist: true });
-  const processIndex = readJson(path.join(root, 'processes', 'process-index.json'), {});
+  const bundle = evidenceBundle(root);
+  const processIndex = bundle.processIndex || {};
   const adapterReportPath = path.join(root, 'adapter-report.json');
   const statusReportPath = path.join(root, 'reports', 'status-report.json');
   const recoveryReportPath = path.join(root, 'reports', 'recovery-report.json');
@@ -342,19 +646,13 @@ function compactStatus(artifactRoot) {
   const statusReport = readJson(statusReportPath, null);
   const recoveryReport = readJson(recoveryReportPath, null);
   const adapterReport = adapterReportDirect || statusReport || recoveryReport;
-  const claim = readJson(path.join(root, 'packets', 'completion-claim.packet.json'), null);
-  const boot = readJson(path.join(root, 'packets', 'boot-proof.packet.json'), null);
-  const run = readJson(path.join(root, 'packets', 'run-proof.packet.json'), null);
-  const verifierEvidence = readJson(path.join(root, 'packets', 'verifier-evidence.packet.json'), null);
+  const { claim, boot, run, verifierEvidence, tenantBoundary, job, providerPolicy } = bundle;
   const languageCompile = readJson(path.join(root, 'packets', 'language-compile.packet.json'), null);
   const languageSources = fs.readdirSync(root).filter((entry) => entry.endsWith('.aios')).sort();
   const rollbackPlanPath = path.join(root, 'reports', 'rollback-plan.md');
   const recoveryPlanPath = path.join(root, 'reports', 'recovery-plan.md');
-  const tenantBoundary = readJson(path.join(root, '.aios-tenant-boundary.json'), null);
-  const jobPath = run?.job?.path || null;
-  const job = jobPath ? readJson(jobPath, null) : null;
-  const providerPolicyPath = run?.providerPolicy?.path || DEFAULT_PROVIDER_POLICY;
-  const providerPolicy = readJson(providerPolicyPath, null);
+  const nowDate = now instanceof Date ? now : new Date(now);
+  const nowMs = nowDate.getTime();
   const verifierValidation = job && boot && run && verifierEvidence && tenantBoundary && providerPolicy
     ? validateBoundVerifierEvidence({
       artifactRoot: root,
@@ -363,30 +661,40 @@ function compactStatus(artifactRoot) {
       runProof: run,
       verifierEvidence,
       providerPolicy,
-      tenantBoundary
+      tenantBoundary,
+      now: nowDate,
     })
     : { ok: false, errors: [{ code: 'AIOS_STATUS_REQUIRED_BOUND_EVIDENCE_MISSING' }], binding: null };
-  const claimBindingOk = verifierValidation.ok === true
-    && job !== null
-    && verifierValidation.binding !== null
-    && claim?.claimStatus === 'allowed'
-    && claim?.claimHash === expectedClaimHash(claim)
-    && claim?.job?.hash === run?.job?.hash
-    && claim?.requiredArtifacts?.bootProof?.hash === (boot ? digestJson(boot) : null)
-    && claim?.requiredArtifacts?.runProof?.hash === (run ? digestJson(run) : null)
-    && claim?.requiredArtifacts?.verifierEvidence?.hash === (verifierEvidence ? digestJson(verifierEvidence) : null)
-    && digestJson(claim?.evidenceBinding ?? null) === digestJson(verifierValidation.binding);
+  const claimBindingOk = claimBindingMatches({
+    claim,
+    job,
+    boot,
+    run,
+    verifierEvidence,
+    verifierValidation,
+  });
+  const refresh = validateEvidenceRefresh(root, { now: nowDate });
+  const bootCurrent = boot?.ok === true && artifactFreshness(boot, nowMs).stale === false;
+  const runCurrent = run?.ok === true
+    && run?.process?.state === 'completed'
+    && artifactFreshness(run, nowMs).stale === false;
+  const currentQualificationOk = bootCurrent
+    && runCurrent
+    && verifierValidation.ok === true
+    && claimBindingOk;
+  const operationalEvidenceOk = currentQualificationOk || refresh.ok === true;
   const processCount = Array.isArray(processIndex.processes) ? processIndex.processes.length : (processIndex.count ?? null);
   const languageRequired = languageSources.length > 0;
   const readinessChecks = [
-    { name: 'boot_proof_current_and_valid', ok: boot?.ok === true && artifactFreshness(boot).stale === false },
-    { name: 'run_proof_current_and_valid', ok: run?.ok === true && run?.process?.state === 'completed' && artifactFreshness(run).stale === false },
-    { name: 'bound_verifier_replay_current', ok: verifierValidation.ok === true },
-    { name: 'completion_claim_bound', ok: claimBindingOk },
+    { name: 'bounded_status_evidence_current', ok: operationalEvidenceOk },
+    { name: 'boot_proof_current_or_integrity_refreshed', ok: bootCurrent || refresh.ok === true },
+    { name: 'run_proof_current_or_integrity_refreshed', ok: runCurrent || refresh.ok === true },
+    { name: 'bound_verifier_current_or_integrity_refreshed', ok: verifierValidation.ok === true || refresh.ok === true },
+    { name: 'completion_claim_bound_or_integrity_refreshed', ok: claimBindingOk || refresh.ok === true },
     { name: 'process_index_present', ok: Number.isInteger(processCount) && processCount > 0 },
     { name: 'canonical_language_compile_current', ok: languageRequired ? languageCompile?.ok === true : true }
   ];
-  const passedChecks = readinessChecks.slice(0, 5).filter((check) => check.ok).length;
+  const passedChecks = readinessChecks.slice(0, 6).filter((check) => check.ok).length;
   const ok = readinessChecks.every((check) => check.ok);
   const status = ok ? 'green' : passedChecks > 0 ? 'degraded' : 'red';
   return {
@@ -411,24 +719,34 @@ function compactStatus(artifactRoot) {
     rollbackPlanPresent: fs.existsSync(rollbackPlanPath),
     recoveryReportPresent: Boolean(recoveryReport),
     recoveryPlanPresent: fs.existsSync(recoveryPlanPath),
+    currentQualificationOk,
+    operationalEvidenceOk,
+    evidenceMode: currentQualificationOk ? 'fresh_execution_evidence' : refresh.ok ? 'fresh_local_integrity_refresh' : 'unqualified',
+    evidenceRefreshOk: refresh.ok,
+    evidenceRefreshPath: refresh.refreshPath,
+    evidenceRefreshChecks: refresh.checks,
     verifierEvidenceOk: verifierValidation.ok === true,
     verifierEvidenceErrors: verifierValidation.errors,
-    bootOk: readinessChecks[0].ok,
-    runOk: readinessChecks[1].ok,
+    bootOk: bootCurrent,
+    runOk: runCurrent,
+    bootProofGreen: boot?.ok === true,
+    runProofGreen: run?.ok === true && run?.process?.state === 'completed',
+    verifierPacketGreen: verifierEvidence?.ok === true && verifierEvidence?.status === 'green',
     claimStatus: claim?.claimStatus || null,
     claimBindingOk,
     processCount,
     freshness: {
-      boot: artifactFreshness(boot),
-      run: artifactFreshness(run),
-      verifier: artifactFreshness(verifierEvidence),
-      claim: artifactFreshness(claim)
+      boot: artifactFreshness(boot, nowMs),
+      run: artifactFreshness(run, nowMs),
+      verifier: artifactFreshness(verifierEvidence, nowMs),
+      claim: artifactFreshness(claim, nowMs),
+      refresh: refresh.freshness,
     },
     historicalQualification: adapterReport ? {
       present: true,
-      freshness: artifactFreshness(adapterReport),
+      freshness: artifactFreshness(adapterReport, nowMs),
       currentReadiness: ok
-    } : { present: false, freshness: artifactFreshness(null), currentReadiness: ok },
+    } : { present: false, freshness: artifactFreshness(null, nowMs), currentReadiness: ok },
     adapterReport
   };
 }
@@ -464,6 +782,7 @@ function writeRecoveryPlan({ artifactRoot, report }) {
     '',
     '- Provider read/compute results remain inside the local AIOS artifact root.',
     '- Does not replace OpenClaw/Cortex routing.',
+    '- Evidence refresh performs local integrity reads and one local report write only; it grants no capability and performs no provider call.',
     '- Provider calls perform external network POST writes; returned results remain in local artifacts and remote side effects are not observable here.',
   ];
   const recoveryPlanPath = path.join(artifactRoot, 'reports', 'recovery-plan.md');
@@ -483,10 +802,10 @@ function commandRecover(args) {
   const relJob = jobPath ? path.relative(WORKSPACE_ROOT, jobPath) : '<job.json>';
   const checks = [
     recoveryCheck('artifact_root_inside_ai_os_workspace', artifactRoot.startsWith(AI_OS_ROOT + path.sep) || artifactRoot === AI_OS_ROOT, { artifactRoot }),
-    recoveryCheck('boot_proof_green', status.bootOk, { packet: path.join(artifactRoot, 'packets', 'boot-proof.packet.json') }),
-    recoveryCheck('run_proof_green', status.runOk, { packet: path.join(artifactRoot, 'packets', 'run-proof.packet.json') }),
-    recoveryCheck('verifier_evidence_green', status.verifierEvidenceOk, { packet: path.join(artifactRoot, 'packets', 'verifier-evidence.packet.json') }),
-    recoveryCheck('completion_claim_bound', status.claimStatus === 'allowed' && status.claimBindingOk, { claimStatus: status.claimStatus, claimBindingOk: status.claimBindingOk }),
+    recoveryCheck('boot_proof_current_or_integrity_refreshed', status.bootOk || status.evidenceRefreshOk, { packet: path.join(artifactRoot, 'packets', 'boot-proof.packet.json') }),
+    recoveryCheck('run_proof_current_or_integrity_refreshed', status.runOk || status.evidenceRefreshOk, { packet: path.join(artifactRoot, 'packets', 'run-proof.packet.json') }),
+    recoveryCheck('verifier_current_or_integrity_refreshed', status.verifierEvidenceOk || status.evidenceRefreshOk, { packet: path.join(artifactRoot, 'packets', 'verifier-evidence.packet.json') }),
+    recoveryCheck('completion_claim_current_or_integrity_refreshed', (status.claimStatus === 'allowed' && status.claimBindingOk) || status.evidenceRefreshOk, { claimStatus: status.claimStatus, claimBindingOk: status.claimBindingOk, evidenceRefreshOk: status.evidenceRefreshOk }),
     recoveryCheck('process_index_present', fs.existsSync(processIndexPath), { processIndexPath, processCount: status.processCount }),
     recoveryCheck('status_or_adapter_report_present_or_generated', true, {
       source: status.adapterReportSource,
@@ -512,10 +831,11 @@ function commandRecover(args) {
   ];
   const statusLabel = checks.every((check) => check.ok) ? 'green' : checks.some((check) => check.ok) ? 'degraded' : 'red';
   const actions = [
-    recoveryAction('boot', !status.bootOk, `node scripts/aios-adapter.mjs boot --artifact-root ${relRoot}`, 'Boot proof is missing or not green.'),
-    recoveryAction('run', !status.runOk, `node scripts/aios-adapter.mjs run ${relJob} --artifact-root ${relRoot}`, 'Run proof is missing or not green.'),
-    recoveryAction('verify', !status.verifierEvidenceOk, `node ai-os/apps/aios-verifier.mjs --job ${relJob} --artifact-root ${relRoot}`, 'Fresh exact job/run/process/tenant/policy-bound verifier-contract replay evidence is missing or invalid.'),
-    recoveryAction('claim', status.claimStatus !== 'allowed' || !status.claimBindingOk, `node scripts/aios-adapter.mjs claim ${relJob} --artifact-root ${relRoot}`, 'A current bound completion claim is not allowed yet.'),
+    recoveryAction('refresh-evidence', !status.currentQualificationOk && !status.evidenceRefreshOk, `node scripts/aios-adapter.mjs refresh-evidence --artifact-root ${relRoot}`, 'Current status evidence is expired or unqualified; locally revalidate the exact immutable proof set without running a job or provider call.'),
+    recoveryAction('boot', !status.bootProofGreen, `node scripts/aios-adapter.mjs boot --artifact-root ${relRoot}`, 'Boot proof is missing or not structurally green.'),
+    recoveryAction('run', !status.runProofGreen, `node scripts/aios-adapter.mjs run ${relJob} --artifact-root ${relRoot}`, 'Run proof is missing or not structurally green.'),
+    recoveryAction('verify', !status.verifierPacketGreen, `node ai-os/apps/aios-verifier.mjs --job ${relJob} --artifact-root ${relRoot}`, 'Bound verifier evidence is missing or not structurally green.'),
+    recoveryAction('claim', status.claimStatus !== 'allowed', `node scripts/aios-adapter.mjs claim ${relJob} --artifact-root ${relRoot}`, 'A completion claim is missing or was not allowed.'),
     recoveryAction('rollback-plan', false, `node scripts/aios-adapter.mjs recover --artifact-root ${relRoot}`, 'Recovery command writes a local recovery plan for this artifact root.')
   ];
   const report = {
@@ -778,6 +1098,10 @@ async function main() {
       output = compactStatus(args.artifactRoot || (args.last ? lastRoot() : null));
       if (output.ok !== true) process.exitCode = 1;
     }
+    else if (command === 'refresh-evidence') {
+      output = commandEvidenceRefresh(args);
+      if (output.ok !== true) process.exitCode = 1;
+    }
     else if (command === 'recover') output = commandRecover(args);
     else if (['compile', 'boot', 'run', 'ps', 'logs', 'claim'].includes(command)) output = commandForward(command, args);
     else usage(2);
@@ -788,6 +1112,13 @@ async function main() {
   }
 }
 
-export { commandForward, commandPromoteDefault, compactStatus, validatePromotionApproval };
+export {
+  commandEvidenceRefresh,
+  commandForward,
+  commandPromoteDefault,
+  compactStatus,
+  validateEvidenceRefresh,
+  validatePromotionApproval,
+};
 
 if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main();

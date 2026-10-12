@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "cortex.stale-job-quarantine-recovery.v1",
+  "surface": "OPS-2",
+  "mode": "declarative_source_only",
+  "liveMutationAuthorized": false,
+  "status": "awaiting_control_plane_inventory",
+  "quarantineRoot": "/root/clawd/_quarantine/cortex-repair-20261011/stale-jobs",
+  "targetContract": {
+    "minimumFields": [
+      "id",
+      "kind",
+      "scope",
+      "definitionSource",
+      "obsoleteReason",
+      "lastObservedState",
+      "recoveryOwner"
+    ],
+    "allowedKinds": [
+      "system_systemd_service",
+      "system_systemd_timer",
+      "user_systemd_service",
+      "user_systemd_timer",
+      "root_crontab_entry",
+      "user_crontab_entry",
+      "cortex_cron_job"
+    ],
+    "allowedScopes": [
+      "system",
+      "user",
+      "cortex_api"
+    ],
+    "targets": []
+  },
+  "selectionPolicy": {
+    "requiresExactIdentity": true,
+    "requiresReadOnlyInventorySnapshot": true,
+    "requiresObsolescenceEvidence": true,
+    "requiresReplacementOrRetirementDecision": true,
+    "forbidPatternOnlySelection": true,
+    "forbidUnknownOwnerSelection": true,
+    "preserveActiveUserReminders": true,
+    "protectedTargets": [
+      "active user reminder jobs",
+      "ops/systemd/cortex-owner-memory-index.service",
+      "ops/systemd/cortex-owner-memory-index.timer",
+      "units marked required in ops/release/runtime-surfaces.json"
+    ]
+  },
+  "preconditions": [
+    "Populate targetContract.targets from a fresh read-only control-plane inventory.",
+    "Record unit or job definition bytes, owner, scope, enablement, active state, schedule, last result, and dependency edges.",
+    "Hash the complete inventory and each exact target definition before any mutation.",
+    "Prove each target is obsolete and is not an active user reminder or required release surface.",
+    "Acquire explicit control-plane approval for the populated target list and inventory digest."
+  ],
+  "quarantineTransaction": {
+    "atomicPerTarget": true,
+    "stopOnDrift": true,
+    "steps": [
+      "Re-read the exact target and require its digest and state to match the approved inventory.",
+      "Copy the definition, schedule, state, dependency metadata, and recovery owner into the quarantine root.",
+      "Write and fsync a per-target manifest before disabling anything.",
+      "Disable and stop only the exact approved timer, service, or cron identity; do not delete its source or quarantine copy.",
+      "Verify the target is no longer scheduled and unrelated jobs are byte-for-byte and state-for-state unchanged.",
+      "Append the result to an immutable application receipt."
+    ],
+    "forbiddenActions": [
+      "recursive deletion",
+      "timer or cron wildcard mutation",
+      "editing user reminder payloads",
+      "deleting history or logs",
+      "mutating a target whose digest changed after approval"
+    ]
+  },
+  "recoveryTransaction": {
+    "requiresApplicationReceipt": true,
+    "requiresOperatorApproval": true,
+    "steps": [
+      "Verify the quarantine manifest and definition digests.",
+      "Refuse recovery if an active replacement owns the same schedule or identity.",
+      "Restore the exact definition to its recorded scope without changing payload bytes.",
+      "Reload only the affected scheduler and restore prior enabled and active states.",
+      "Run one bounded status check without triggering the recovered job payload.",
+      "Append a recovery receipt linking the quarantine and recovery digests."
+    ],
+    "successEvidence": [
+      "restored definition digest",
+      "restored scheduler scope",
+      "restored enabled and active states",
+      "bounded non-triggering status result",
+      "unrelated-job parity digest"
+    ]
+  },
+  "truthBoundary": "This file defines a later control-plane transaction. It does not identify live stale jobs, authorize live mutation, disable any timer or cron entry, or prove OPS-2 applied."
+}

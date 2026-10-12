@@ -1,18 +1,26 @@
 [Unit]
 Description=Cortex q9 immutable FastAPI runtime
-After=network-online.target redis-server.service cortex-ollama-tunnel.service
-Wants=network-online.target cortex-ollama-tunnel.service
+After=network-online.target redis-server.service cortex-ollama-tunnel.service cortex-oracle-executor.service
+Wants=network-online.target cortex-ollama-tunnel.service cortex-oracle-executor.service
 
 [Service]
 Type=simple
-User=root
-Group=root
+User=cortex
+Group=cortex
 WorkingDirectory=/opt/cortex/current/public/cortex_server
 EnvironmentFile=/etc/cortex/cortex.env
+EnvironmentFile=/etc/cortex/oracle-helper.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HOME=/var/lib/cortex
 Environment=CORTEX_HOST=127.0.0.1
 Environment=CORTEX_PORT=8000
+Environment=ORACLE_OPENCLAW_DIRECT_ENABLED=false
+Environment=ORACLE_BRIDGE_URL=http://127.0.0.1:18999/invoke
+Environment=ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT=true
+Environment=ORACLE_OPENCLAW_MODEL=openai-codex/gpt-5.6-sol
+Environment=ORACLE_OPENCLAW_THINKING=xhigh
+Environment=ORACLE_FALLBACKS_ENABLED=false
 Environment=MALLOC_ARENA_MAX=2
 Environment=MALLOC_TRIM_THRESHOLD_=131072
 Environment=MALLOC_TOP_PAD_=131072
@@ -25,28 +33,36 @@ KillSignal=SIGINT
 SendSIGKILL=yes
 FinalKillSignal=SIGKILL
 NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
 PrivateTmp=yes
+PrivateDevices=yes
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
 LockPersonality=yes
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/opt/cortex/releases /etc/cortex
-ReadWritePaths=/opt/clawdbot /var/lib/cortex /var/log/cortex /run/cortex
+ReadOnlyPaths=/opt/cortex/releases /etc/cortex /opt/clawdbot
+ReadWritePaths=/var/lib/cortex /var/log/cortex /run/cortex
+InaccessiblePaths=-/root/.openclaw
 RuntimeDirectory=cortex
 RuntimeDirectoryMode=0700
 StateDirectory=cortex
 StateDirectoryMode=0700
 LogsDirectory=cortex
 LogsDirectoryMode=0700
+UMask=0077
 CPUAccounting=yes
 TasksAccounting=yes
 CPUQuota=250%

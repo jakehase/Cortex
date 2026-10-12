@@ -1,0 +1,77 @@
+[Unit]
+Description=Cortex narrowly privileged Oracle executor
+Documentation=file:/opt/cortex/current/cortex-repair-20261011/SECURITY_POLICY_MIGRATION.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Root is retained only for the existing root-owned OpenClaw OAuth/profile
+# state. The capability set is empty and the home mount namespace exposes only
+# the Oracle workspace, config, session/auth paths, and service-owned state.
+User=root
+Group=root
+WorkingDirectory=/opt/cortex/current
+EnvironmentFile=/etc/cortex/oracle-helper.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=ORACLE_EXECUTOR_AGENT=oracle
+Environment=ORACLE_EXECUTOR_MODEL=gpt-5.6-sol
+Environment=ORACLE_EXECUTOR_THINKING=xhigh
+Environment=ORACLE_EXECUTOR_AUTH_POLICY=pmhnp_oauth_approved_2026-09-25
+Environment=ORACLE_EXECUTOR_SERVICE_TIER_POLICY=provider_default_no_override
+Environment=ORACLE_EXECUTOR_LOCAL=true
+Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
+Environment=ORACLE_EXECUTOR_SESSION_MODE=ephemeral
+Environment=ORACLE_EXECUTOR_SESSION_DIR=/root/.openclaw/agents/oracle/sessions
+Environment=ORACLE_EXECUTOR_WORKDIR=/root/clawd/deploy/oracle-workspace-lite
+ExecStart=/usr/bin/python3 -m uvicorn deploy.oracle_executor:app --host 127.0.0.1 --port 18999
+Restart=always
+RestartSec=3s
+TimeoutStartSec=90s
+TimeoutStopSec=20s
+KillSignal=SIGINT
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/opt/cortex/releases /etc/cortex
+ReadWritePaths=/var/lib/cortex-oracle /var/log/cortex-oracle /run/cortex-oracle
+BindReadOnlyPaths=/root/clawd/deploy/oracle-workspace-lite /root/.openclaw/openclaw.json
+BindPaths=/root/.openclaw/agents/oracle/sessions /root/.openclaw/agents/oracle/agent
+InaccessiblePaths=-/root/.ssh -/root/.aws -/root/.config/gh -/root/.kube -/opt/clawdbot
+RuntimeDirectory=cortex-oracle
+RuntimeDirectoryMode=0700
+StateDirectory=cortex-oracle
+StateDirectoryMode=0700
+LogsDirectory=cortex-oracle
+LogsDirectoryMode=0700
+UMask=0077
+CPUAccounting=yes
+TasksAccounting=yes
+CPUQuota=150%
+TasksMax=128
+MemoryHigh=1G
+MemoryMax=2G
+MemorySwapMax=256M
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

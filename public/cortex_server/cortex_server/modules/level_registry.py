@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from cortex_server.modules.health_status import STATUS_VOCABULARY_VERSION
 
-LEVEL_REGISTRY_VERSION = "cortex.level-registry.v2"
+LEVEL_REGISTRY_VERSION = "cortex.level-registry.v3"
 
 _ALWAYS_ON = frozenset({5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36})
 
@@ -91,6 +92,7 @@ def _row(
         "purpose": _PURPOSES[level],
         "always_on": level in _ALWAYS_ON,
         "registry_version": LEVEL_REGISTRY_VERSION,
+        "status_vocabulary_version": STATUS_VOCABULARY_VERSION,
     }
 
 

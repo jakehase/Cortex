@@ -41,6 +41,16 @@ from cortex_server.models.api_contracts import (
     RootResponse,
 )
 from cortex_server.modules.level_registry import get_level_registry
+from cortex_server.modules.health_status import (
+    FAILED,
+    OPERATIONAL,
+    RESTRICTED_BY_DESIGN,
+    aggregate_checks,
+    aggregate_status,
+    is_failure,
+    normalize_status,
+    vocabulary_payload,
+)
 from cortex_server.modules.route_inventory import iter_effective_routes
 
 from cortex_server.construction import (
@@ -702,14 +712,21 @@ def _public_readiness_view(payload: Mapping[str, Any]) -> Dict[str, Any]:
                 safe["degraded"] = bool(check.get("degraded"))
             status = str(check.get("status") or "")
             if re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", status):
-                safe["status"] = status
+                safe["status"] = normalize_status(
+                    status,
+                    default=FAILED if check.get("ok") is False else OPERATIONAL,
+                )
             safe_checks[name] = safe
     router_load = payload.get("routerLoad") if isinstance(payload, Mapping) else None
     router_load = router_load if isinstance(router_load, Mapping) else {}
     return {
-        "status": "ready" if bool(payload.get("ready")) else "not_ready",
+        "status": normalize_status(
+            payload.get("status"),
+            default=FAILED if not bool(payload.get("ready")) else OPERATIONAL,
+        ),
         "ready": bool(payload.get("ready")),
         "service": "cortex",
+        "status_vocabulary": vocabulary_payload(),
         "checks": safe_checks,
         "routerLoad": {
             "loadedCount": max(0, int(router_load.get("loadedCount") or 0)),
@@ -2776,7 +2793,15 @@ def _create_app(
             "runtimeDelivery": {
                 "ok": bool(runtime_delivery_check.get("ready")),
                 "required": production_environment,
-                "status": runtime_delivery_check.get("status"),
+                "status": normalize_status(
+                    runtime_delivery_check.get("status"),
+                    default=(
+                        OPERATIONAL
+                        if runtime_delivery_check.get("ready")
+                        else FAILED
+                    ),
+                ),
+                "sourceStatus": runtime_delivery_check.get("status"),
                 "checks": runtime_delivery_check.get("checks", {}),
                 "error": runtime_delivery_check.get("error"),
             },
@@ -2791,15 +2816,65 @@ def _create_app(
                 **execution_policy,
             },
         }
+        try:
+            from cortex_server.modules.kernel import kernel_level_status
+
+            level_snapshot = kernel_level_status(app)
+            required_level_ids = {
+                int(row["level"])
+                for row in get_level_registry()
+                if row.get("always_on")
+            }
+            required_level_rows = [
+                row
+                for row in level_snapshot.get("levels") or ()
+                if int(row.get("level", 0)) in required_level_ids
+            ]
+            level_failures = [
+                {
+                    "level": int(row["level"]),
+                    "status": row.get("status"),
+                    "reason": row.get("reason"),
+                }
+                for row in required_level_rows
+                if is_failure(row.get("status"))
+            ]
+            checks["requiredLevelHealth"] = {
+                "ok": not level_failures,
+                "required": True,
+                "status": aggregate_status(
+                    row.get("status") for row in required_level_rows
+                ),
+                "requiredLevels": sorted(required_level_ids),
+                "failures": level_failures,
+                "probeEvidenceStatus": level_snapshot.get("probe_evidence_status"),
+            }
+        except Exception as exc:
+            checks["requiredLevelHealth"] = {
+                "ok": False,
+                "required": True,
+                "status": FAILED,
+                "error": type(exc).__name__,
+            }
         ready = all(
             check["ok"]
             for check in checks.values()
             if check.get("required", True)
         )
+        readiness_status = aggregate_checks(checks)
+        safe_mode_restricted = bool(
+            router_load_report.get("safeModeSkipped")
+            or router_load_report.get("safeModePartial")
+        )
+        if ready and safe_mode_restricted:
+            readiness_status = aggregate_status(
+                [readiness_status, RESTRICTED_BY_DESIGN]
+            )
         return {
-            "status": "ready" if ready else "not_ready",
+            "status": readiness_status,
             "ready": ready,
             "service": "cortex",
+            "status_vocabulary": vocabulary_payload(),
             "checks": checks,
             "routerLoad": {
                 "loadedCount": len(router_load_report["loaded"]),
@@ -2841,9 +2916,18 @@ def _create_app(
             for check in checks.values()
             if check.get("required", True)
         )
+        readiness_status = aggregate_checks(checks)
+        router_load = payload.get("routerLoad") or {}
+        if ready and (
+            router_load.get("safeModeSkipped")
+            or router_load.get("safeModePartial")
+        ):
+            readiness_status = aggregate_status(
+                [readiness_status, RESTRICTED_BY_DESIGN]
+            )
         return {
             **dict(payload),
-            "status": "ready" if ready else "not_ready",
+            "status": readiness_status,
             "ready": ready,
             "checks": checks,
         }
@@ -2894,7 +2978,7 @@ def _create_app(
             payload = await asyncio.wait_for(asyncio.shield(probe), timeout=5.0)
         except asyncio.TimeoutError:
             return {
-                "status": "not_ready",
+                "status": FAILED,
                 "ready": False,
                 "service": "cortex",
                 "checks": {
@@ -2915,7 +2999,7 @@ def _create_app(
                 if readiness_probe_task is probe and probe.done():
                     readiness_probe_task = None
             return {
-                "status": "not_ready",
+                "status": FAILED,
                 "ready": False,
                 "service": "cortex",
                 "checks": {
@@ -3092,10 +3176,6 @@ def _create_app(
         from fastapi.responses import JSONResponse
 
         readiness = await async_readiness_payload()
-        safe_mode_restricted = bool(
-            readiness.get("routerLoad", {}).get("safeModeSkipped")
-            or readiness.get("routerLoad", {}).get("safeModePartial")
-        )
         readiness_checks = dict(readiness.get("checks") or {})
         event_ledger_ok = bool(
             (readiness_checks.get("eventLedgerDurability") or {}).get("ok")
@@ -3104,14 +3184,9 @@ def _create_app(
             (readiness_checks.get("memoryBackendDurability") or {}).get("ok")
         )
         payload = {
-            "status": (
-                "degraded"
-                if not readiness["ready"]
-                else "restricted"
-                if safe_mode_restricted
-                else "healthy"
-            ),
+            "status": readiness["status"],
             "service": "cortex",
+            "status_vocabulary": vocabulary_payload(),
             "checks": readiness_checks,
             "routerLoad": readiness.get("routerLoad", {}),
             "contract": {
