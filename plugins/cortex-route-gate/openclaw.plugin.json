@@ -140,7 +140,7 @@
       "timeoutMs": {
         "type": "number",
         "minimum": 100,
-        "maximum": 15000
+        "maximum": 60000
       },
       "maxCachedPlanAgeMs": {
         "type": "number",
@@ -318,7 +318,7 @@
     "timeoutMs": {
       "label": "Routing timeout (ms)",
       "advanced": true,
-      "help": "Hard deadline for required Nexus routing. Values are bounded to 100-15000 ms and time out even if the transport ignores AbortSignal."
+      "help": "Legacy values from 100-60000 ms remain schema-compatible; required Nexus routing is hard-capped at 15000 ms and times out even if the transport ignores AbortSignal."
     },
     "maxCachedPlanAgeMs": {
       "label": "Maximum cached plan age (ms)",

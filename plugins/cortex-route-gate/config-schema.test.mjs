@@ -137,7 +137,7 @@ test('route-gate validates scope credential identifiers during registration', ()
   assert.throws(() => registerHarness(invalid), /bounded opaque identifier/);
 });
 
-test('existing provisioned route-gate configuration remains valid', () => {
+test('legacy provisioned route-gate timeout remains schema-compatible while runtime stays hard-capped', () => {
   assert.equal(validateConfig({
     baseUrl: 'http://127.0.0.1:18888',
     enabled: true,
@@ -146,7 +146,7 @@ test('existing provisioned route-gate configuration remains valid', () => {
     ...PRODUCTION_SCOPE,
     writeToken: 'secret',
     writeTokenHeader: 'x-cortex-write-token',
-    timeoutMs: 8000,
+    timeoutMs: 20_000,
     maxRoutingPromptBytes: 262_144,
     maxLevels: 10,
     creativityGovernorEnabled: true,
@@ -157,6 +157,10 @@ test('existing provisioned route-gate configuration remains valid', () => {
     oracleSessionDir: '/tmp/openclaw-sessions',
     stateDir: '/tmp/cortex-route-gate',
   }), true);
+  assert.equal(validateConfig(productionConfig({ timeoutMs: 60_000 })), true);
+  assert.equal(validateConfig(productionConfig({ timeoutMs: 60_001 })), false);
+  assert.match(runtimeSource, /Math\.min\(15_000, Math\.max\(100, asNumber\(cfg\.timeoutMs, 8000\)\)\)/);
+  assert.match(manifest.uiHints.timeoutMs.help, /schema-compatible.*hard-capped at 15000 ms/i);
 });
 
 test('creativity audit options are declared with strict types and bounds', () => {
