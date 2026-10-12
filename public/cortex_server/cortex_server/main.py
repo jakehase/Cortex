@@ -783,6 +783,35 @@ def _knowledge_volume_identity_check(*, production: bool) -> Dict[str, Any]:
     return check
 
 
+def _probe_structural_graph(
+    knowledge_identity: Mapping[str, Any],
+) -> Tuple[Path, Optional[str], Optional[str]]:
+    """Verify the database selected by the validated knowledge-volume identity."""
+
+    graph_path = Path(str(knowledge_identity["path"]))
+    graph_error = knowledge_identity.get("error")
+    graph_quick_check = None
+    try:
+        if graph_error:
+            raise RuntimeError(str(graph_error))
+        if not graph_path.is_file() or graph_path.is_symlink():
+            raise RuntimeError("configured graph database is not a regular file")
+        # Production durability is established by the validated mount identity
+        # above, not by a legacy installation-prefix allowlist.
+        with sqlite3.connect(
+            f"file:{graph_path}?mode=ro", uri=True, timeout=2.0
+        ) as connection:
+            row = connection.execute("PRAGMA quick_check").fetchone()
+        graph_quick_check = str(row[0] if row else "")
+        if graph_quick_check != "ok":
+            raise RuntimeError(
+                f"graph database quick_check failed: {graph_quick_check}"
+            )
+    except (OSError, RuntimeError, sqlite3.Error) as exc:
+        graph_error = type(exc).__name__
+    return graph_path, graph_quick_check, graph_error
+
+
 def _principal_mutation_path_allowed(path: str) -> bool:
     normalized = str(path or "")
     if normalized in _PRINCIPAL_LEVEL_EXACT_PATHS:
@@ -2661,26 +2690,9 @@ def _create_app(
         knowledge_identity = _knowledge_volume_identity_check(
             production=production_environment
         )
-        graph_path = Path(str(knowledge_identity["path"]))
-        graph_error = knowledge_identity.get("error")
-        graph_quick_check = None
-        try:
-            if graph_error:
-                raise RuntimeError(str(graph_error))
-            if not graph_path.is_file() or graph_path.is_symlink():
-                raise RuntimeError("configured graph database is not a regular file")
-            if production_environment and not any(
-                durable_root in graph_path.parents
-                for durable_root in (Path("/opt/clawdbot/knowledge"), Path("/opt/clawdbot/state"))
-            ):
-                raise RuntimeError("production graph database is outside the durable state volume")
-            with sqlite3.connect(f"file:{graph_path}?mode=ro", uri=True, timeout=2.0) as connection:
-                row = connection.execute("PRAGMA quick_check").fetchone()
-            graph_quick_check = str(row[0] if row else "")
-            if graph_quick_check != "ok":
-                raise RuntimeError(f"graph database quick_check failed: {graph_quick_check}")
-        except (OSError, RuntimeError, sqlite3.Error) as exc:
-            graph_error = type(exc).__name__
+        graph_path, graph_quick_check, graph_error = _probe_structural_graph(
+            knowledge_identity
+        )
         try:
             from cortex_server.middleware.event_ledger_middleware import probe_event_ledger_durability
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +59,22 @@ def test_public_readiness_preserves_canonical_failure_and_restriction_truth():
     )
     assert failed["status"] == FAILED and failed["ready"] is False
     assert restricted["status"] == RESTRICTED_BY_DESIGN and restricted["ready"] is True
+
+
+def test_structural_graph_accepts_identity_validated_q9_volume(tmp_path):
+    knowledge_root = tmp_path / "var" / "lib" / "cortex" / "knowledge"
+    knowledge_root.mkdir(parents=True)
+    graph_path = knowledge_root / "cortex_graph.db"
+    with sqlite3.connect(graph_path) as connection:
+        connection.execute("CREATE TABLE readiness_probe (value TEXT NOT NULL)")
+
+    observed_path, quick_check, error = main._probe_structural_graph(
+        {"ok": True, "path": str(graph_path), "error": None}
+    )
+
+    assert observed_path == graph_path
+    assert quick_check == "ok"
+    assert error is None
 
 
 def test_meta_aggregate_does_not_turn_safe_mode_or_stale_evidence_into_failure():
