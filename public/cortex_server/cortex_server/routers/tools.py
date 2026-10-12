@@ -437,7 +437,7 @@ async def tools_status(request: Request = None):
         "success": True,
         "level": 17,
         "name": "Exoskeleton/Tools",
-        "status": "active" if read_only else ("limited" if report["capabilities"] else "unavailable"),
+        "status": "active" if read_only else ("limited" if report["capabilities"] else "restricted"),
         "tools": checks,
         "git_identity": {"inspected": False, "reason": "requires an explicit execution capability"},
         "capabilities": report["capabilities"],

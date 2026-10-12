@@ -96,6 +96,7 @@ def test_status_claims_only_mounted_and_enabled_read_only_actions(monkeypatch, t
     request = SimpleNamespace(app=SimpleNamespace(routes=routes))
     status = _run(tools_router.tools_status(request))
     assert status["capabilities"] == []  # nothing enabled by the operator
+    assert status["status"] == "restricted"  # default-deny policy is not component failure
     assert all(row["capability"] != "docker_run" or row["reason"] for row in status["unavailable"])
 
     root = tmp_path / "exec-root"
