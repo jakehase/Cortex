@@ -229,6 +229,13 @@ def test_q9_runtime_surface_contract_has_no_live_secret_values():
     assert "10.0.0." not in encoded
 
 
+def test_cortex_service_proc_hardening_preserves_onnx_cpu_discovery():
+    unit = (SOURCE_ROOT / "ops/systemd/cortex.service").read_text(encoding="utf-8")
+    assert "ProtectProc=invisible" in unit
+    assert "ProcSubset=all" in unit
+    assert "ProcSubset=pid" not in unit
+
+
 def test_release_supervisor_derives_a_terminal_blocker_from_matrix_and_missing_receipts(tmp_path, monkeypatch):
     source = tmp_path / "source"
     matrix_path = source / "cortex-repair-20261011" / "surface-matrix.json"

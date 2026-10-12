@@ -46,7 +46,10 @@ ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
-ProcSubset=pid
+# ONNX Runtime performs CPU feature discovery through /proc/cpuinfo.  The
+# pid-only proc subset hides that kernel API and can abort the native runtime;
+# keep peer-process details hidden while preserving non-process proc metadata.
+ProcSubset=all
 LockPersonality=yes
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
