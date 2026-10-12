@@ -1,13 +1,18 @@
 # Cortex Post-Audit Repair — STATUS
 
-**Updated:** 2026-10-11 23:00 CDT
+**Updated:** 2026-10-11 23:18 CDT
 
 ## Current checkpoint
 
 - User approved remediation of every finding in the October 11 read-only audit.
 - Detailed repair contract created at `plan.md`.
-- Current phase: **Phase 0 — Freeze and reproducibility**.
-- No live Cortex behavior has been changed yet.
+- Phase 0 live source capture passed its focused parity/secret/plan smoke.
+- Exact live source was reconciled into clean branch `repair/cortex-20261011` at commit `9fb3be1d4` and pushed.
+- Canonical worker launcher now honors the approved xhigh policy at commit `15d1ee5c0`; its focused test passed 4/4 plus remote preflight.
+- Current phase: **Phases 1–4 remote implementation wave running on Hetzner**.
+- Five isolated workers own routing/memory, health/parser, security/policy, memory/ops, and release/provenance.
+- Independent worker-wave supervisor and direct detached notifier are running.
+- No worker-wave change has been integrated or deployed yet.
 
 ## Verified starting facts
 
@@ -20,7 +25,7 @@
 
 ## Active blockers
 
-None yet. Phase 0 must establish the candidate and rollback before behavioral changes.
+None currently. Worker results remain untrusted until the independent supervisor verifies completion artifacts and remote branch heads.
 
 ## Truth boundary
 
@@ -28,6 +33,6 @@ Planning and a live-source snapshot are not repaired behavior. No green claim is
 
 ## Next actions
 
-1. Create the clean canonical repair worktree from the accepted source.
-2. Capture exact live files, configuration metadata, units, and hashes into a no-secret baseline artifact.
-3. Reconcile the live delta into source and commit a non-green `live-reconciled` baseline.
+1. Independently review each worker commit and reject incomplete or over-scoped patches.
+2. Integrate accepted commits serially into `repair/cortex-20261011` and run one focused integration smoke.
+3. Stage and deploy independently verified safe fixes, then continue through full remote qualification and immutable release promotion.
