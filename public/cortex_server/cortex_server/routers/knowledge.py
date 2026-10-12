@@ -32,6 +32,7 @@ from cortex_server.routers.librarian import (
     _authenticated_memory_principal_scope,
     collection,
     parse_memory_search_filters,
+    resolve_request_memory_filters,
     robust_search,
 )
 from cortex_server.knowledge.graph import NodeType, EdgeType
@@ -53,6 +54,7 @@ from cortex_server.runtime.memory_governance import (
     MemoryFilterError,
     MemoryGovernanceError,
 )
+from cortex_server.runtime.temporal_contract import temporal_search_echo
 
 router = APIRouter(dependencies=[Depends(require_authenticated_memory_principal)])
 service = KnowledgeService()
@@ -185,6 +187,9 @@ class KnowledgeSearchRequest(BaseModel):
     query: str = Field(..., max_length=16_384)
     n_results: int = Field(5, ge=1, le=100)
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1844,16 +1849,41 @@ def _knowledge_status_payload(
 ) -> Dict[str, Any]:
     semantic = _principal_semantic_memory_probe(principal)
     available = bool(semantic.get("available"))
+    # Capabilities are claimed only from measured state.  The structural
+    # graph is populated solely by parser ingestion (unmounted in safe mode)
+    # and nothing extracts entities/relationships from memories, so
+    # "knowledge_graph" is listed only when this principal's graph namespace
+    # actually holds at least one node.
+    graph_populated: Optional[bool]
+    graph_error: Optional[str] = None
+    try:
+        graph_populated = bool(_principal_graph_nodes(principal, limit=1))
+    except Exception as exc:  # status must never fail on the graph probe
+        graph_populated = None
+        graph_error = f"graph_probe_failed:{type(exc).__name__}"
+    capabilities: List[str] = []
+    if available:
+        capabilities.extend(["semantic_search", "memory_persistence"])
+    if graph_populated:
+        capabilities.append("knowledge_graph")
+    unavailable_capabilities: Dict[str, str] = {
+        "entity_relationships": "not_implemented: no entity extraction from memories",
+    }
+    if not available:
+        unavailable_capabilities["semantic_search"] = "semantic_memory_backend_unavailable"
+        unavailable_capabilities["memory_persistence"] = "semantic_memory_backend_unavailable"
+    if not graph_populated:
+        unavailable_capabilities["knowledge_graph"] = (
+            graph_error or "graph_empty_for_principal"
+        )
     payload = {
         "success": available,
         "level": 22,
         "name": "Mnemosyne",
         "status": "active" if available else "unavailable",
-        "capabilities": [
-            "knowledge_graph",
-            "semantic_search",
-            "memory_persistence",
-        ],
+        "capabilities": capabilities,
+        "unavailable_capabilities": unavailable_capabilities,
+        "knowledge_graph_populated": graph_populated,
         "memory_count": semantic.get("count"),
         "memory_count_is_lower_bound": bool(semantic.get("countIsLowerBound")),
         "memory_scan_limit": semantic.get("scanLimit"),
@@ -1967,7 +1997,7 @@ async def search_knowledge(
             tenant_id=tenant,
             workspace_id=workspace,
             memory_principal_key=principal.memory_principal_key,
-            filters=parse_memory_search_filters(request.filters),
+            filters=resolve_request_memory_filters(request),
         )
         return {
             "query": request.query,
@@ -1976,6 +2006,7 @@ async def search_knowledge(
             "degraded": bool(result.get("degraded", False)),
             "available": bool(result.get("available", True)),
             "warning": result.get("warning"),
+            **temporal_search_echo(result),
         }
     except HTTPException:
         raise

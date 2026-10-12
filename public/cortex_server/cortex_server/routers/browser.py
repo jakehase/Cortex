@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Iterable, Optional
+from typing import List, Dict, Any, Iterable, Mapping, Optional
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 import base64
@@ -8,7 +8,9 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, urlsplit
-from collections import Counter
+from collections import Counter, OrderedDict
+import ipaddress
+from html import escape as html_escape
 import hashlib
 import hmac
 import json
@@ -17,12 +19,13 @@ import os
 import time
 
 # Consciousness integration
-from cortex_server.modules.consciousness_integration import conscious_action, chain_to
+from cortex_server.modules.consciousness_integration import conscious_action
 from cortex_server.modules.action_capabilities import (
     ActionAuthorization,
     assert_action_authorized,
     require_action_capability,
 )
+from cortex_server.modules.route_inventory import iter_effective_routes
 from cortex_server.modules.sensitive_data_redaction import (
     REDACTION_MARKER,
     redact_sensitive_data,
@@ -30,16 +33,21 @@ from cortex_server.modules.sensitive_data_redaction import (
     redact_url_query_value,
 )
 from cortex_server.outbound_egress import (
+    EgressCapacityError,
     EgressError,
     EgressPolicy,
     EgressPolicyError,
+    EgressResponseTooLarge,
+    EgressUpstreamError,
     request as outbound_request,
     validate_destination,
 )
 
-# Simple in-memory cache for L2 Ghost
-_cache: Dict[str, Dict[str, Any]] = {}
+# Simple bounded in-memory cache for L2 Ghost (public page text only).  The
+# lock guards only dictionary operations; no I/O ever runs while it is held.
+_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _cache_lock = asyncio.Lock()
+MAX_BROWSER_CACHE_ENTRIES = 256
 
 router = APIRouter()
 
@@ -120,21 +128,27 @@ async def _get_from_cache(key: str, ttl_seconds: int) -> Optional[Any]:
 
 
 async def _store_in_cache(key: str, data: Any):
+    """Cache fetched public text.
+
+    Deliberately performs no memory write: the former best-effort embed stored
+    a content-free "Ghost cache entry" string in Librarian while holding the
+    global cache lock, serialising every concurrent browse behind a 5 s
+    self-HTTP call.  Durable memory of page content belongs to the governed
+    memory path, not to a cache side effect.
+    """
+
     async with _cache_lock:
         _cache[key] = {"data": data, "stored": datetime.now()}
-        # Best-effort memory indexing
         try:
-            await chain_to(
-                "ghost",
-                "librarian/embed",
-                {
-                    "text": f"Ghost cache entry: {key[:16]}...",
-                    "metadata": {"type": "ghost_cache", "key": key, "timestamp": datetime.now().isoformat()},
-                },
-                timeout=5.0,
-            )
-        except Exception:
+            _cache.move_to_end(key)
+        except (AttributeError, KeyError):
             pass
+        while len(_cache) > MAX_BROWSER_CACHE_ENTRIES:
+            try:
+                oldest = next(iter(_cache))
+            except StopIteration:
+                break
+            del _cache[oldest]
 
 
 def _state_path(name: str) -> Path:
@@ -469,7 +483,9 @@ def _browser_public_read_policy(url: str) -> EgressPolicy:
 
     An explicit server allowlist remains authoritative when configured.  The
     public-read mode is narrower than a wildcard: it grants only the hostname
-    in this request, then the existing egress broker still rejects credentials,
+    in this request plus its ``www.``/apex sibling (so ordinary same-site
+    redirects such as example.com -> www.example.com work), then the existing
+    egress broker still re-validates every hop and rejects credentials,
     non-HTTP(S) schemes, any non-global DNS answer, unsafe redirects, excess
     bytes, and timeouts.
     """
@@ -477,12 +493,7 @@ def _browser_public_read_policy(url: str) -> EgressPolicy:
     policy = _browser_policy()
     if policy.allowed_hosts:
         return policy
-    if os.getenv(BROWSER_PUBLIC_READ_ENV, "false").strip().lower() not in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }:
+    if not _browser_public_read_enabled():
         return policy
     try:
         hostname = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
@@ -490,7 +501,46 @@ def _browser_public_read_policy(url: str) -> EgressPolicy:
         raise EgressPolicyError("destination hostname is invalid") from exc
     if not hostname:
         raise EgressPolicyError("destination hostname is invalid")
-    return EgressPolicy(capability="browser_public_read", allowed_hosts=(hostname,))
+    return EgressPolicy(
+        capability="browser_public_read",
+        allowed_hosts=_same_site_hosts(hostname),
+    )
+
+
+def _browser_public_read_enabled(environ: Optional[Dict[str, str]] = None) -> bool:
+    source = os.environ if environ is None else environ
+    return str(source.get(BROWSER_PUBLIC_READ_ENV, "false") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _same_site_hosts(hostname: str) -> tuple:
+    """Return the requested host plus its ``www.``/apex sibling.
+
+    Public read already lets the caller pick any globally routable hostname, so
+    admitting the ``example.com`` <-> ``www.example.com`` sibling for redirects
+    grants nothing the caller could not request directly.  The broker still
+    re-validates every hop (scheme, credentials, global-only pinned DNS,
+    timeouts, size) and strips caller headers on any cross-origin hop.  IP
+    literals and single-label names get no sibling.
+    """
+
+    try:
+        ipaddress.ip_address(hostname.strip("[]"))
+        return (hostname,)
+    except ValueError:
+        pass
+    hosts = [hostname]
+    if hostname.startswith("www."):
+        apex = hostname[4:]
+        if "." in apex:
+            hosts.append(apex)
+    elif "." in hostname:
+        hosts.append(f"www.{hostname}")
+    return tuple(hosts)
 
 
 def _domain_allowed(url: str, allowed_domains: Optional[List[str]]) -> bool:
@@ -665,8 +715,160 @@ def _public_search_result_url(value: Any) -> Optional[str]:
     return raw
 
 
-async def _search_public_web(query: str, limit: int = 5) -> Dict[str, Any]:
-    search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+SEARCH_UPSTREAM_HOST = "html.duckduckgo.com"
+
+# Primary search provider: Tavily's REST API (key from the TAVILY_API_KEY
+# environment variable, never logged or returned). DuckDuckGo HTML remains the
+# fallback when no key is configured, the quota is used up, or Tavily fails.
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+TAVILY_SEARCH_HOST = "api.tavily.com"
+TAVILY_TIMEOUT_S = 5.0
+_TAVILY_POLICY = EgressPolicy(capability="tavily_search", allowed_hosts=(TAVILY_SEARCH_HOST,))
+# Provider answers that mean "stop asking for a while" (seconds).
+_TAVILY_COOLDOWNS = {401: 3600.0, 403: 3600.0, 429: 60.0, 432: 3600.0, 433: 3600.0}
+_tavily_state: Dict[str, Any] = {"disabled_until": 0.0, "last_status": None, "calls": 0, "fallbacks": 0}
+
+
+def _tavily_api_key() -> str:
+    key = str(os.getenv("TAVILY_API_KEY", "") or "").strip()
+    return key if re.fullmatch(r"[A-Za-z0-9_\-]{16,200}", key) else ""
+
+
+def search_provider_status() -> Dict[str, Any]:
+    """Non-secret view of the search provider state (no key material)."""
+
+    now = time.monotonic()
+    return {
+        "primary": "tavily" if _tavily_api_key() else "duckduckgo",
+        "tavily_configured": bool(_tavily_api_key()),
+        "tavily_cooling_down_s": max(0, int(_tavily_state["disabled_until"] - now)),
+        "tavily_last_status": _tavily_state["last_status"],
+        "tavily_calls": _tavily_state["calls"],
+        "fallbacks_to_duckduckgo": _tavily_state["fallbacks"],
+    }
+
+
+async def _search_tavily(query: str, limit: int, include_snippets: bool) -> Optional[Dict[str, Any]]:
+    """One Tavily search, or None when the caller should fall back."""
+
+    key = _tavily_api_key()
+    if not key or time.monotonic() < float(_tavily_state["disabled_until"]):
+        return None
+    _tavily_state["calls"] += 1
+    try:
+        response = await outbound_request(
+            "POST",
+            TAVILY_SEARCH_URL,
+            policy=_TAVILY_POLICY,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "query": query,
+                "max_results": max(1, min(int(limit), 10)),
+                "search_depth": "basic",
+                "include_answer": False,
+                "include_raw_content": False,
+                "include_images": False,
+            },
+            timeout=TAVILY_TIMEOUT_S,
+            max_redirects=0,
+            max_response_bytes=2_000_000,
+        )
+    except EgressError as exc:
+        _tavily_state["last_status"] = type(exc).__name__
+        return None
+    status = int(response.status_code)
+    _tavily_state["last_status"] = status
+    if status in _TAVILY_COOLDOWNS:
+        _tavily_state["disabled_until"] = time.monotonic() + _TAVILY_COOLDOWNS[status]
+        return None
+    if status != 200:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    rows = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None
+    results: List[Dict[str, str]] = []
+    for row in rows:
+        if len(results) >= limit or not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or "").strip()[:300]
+        href = _public_search_result_url(str(row.get("url") or ""))
+        if not (title and href):
+            continue
+        item = {"title": title, "link": href}
+        if include_snippets:
+            item["snippet"] = re.sub(r"\s+", " ", str(row.get("content") or "")).strip()[:MAX_SEARCH_SNIPPET_CHARS]
+        results.append(item)
+    return {
+        "results": results,
+        "navigation": {"provider": "tavily", "status_code": status, "final_url": TAVILY_SEARCH_URL},
+        "reason": "ok" if results else "no_results",
+        "provider": "tavily",
+    }
+_SEARCH_BLOCK_MARKERS = re.compile(
+    r"anomaly-modal|anomaly\.js|bots use duckduckgo|captcha|challenge-form|unusual traffic",
+    re.IGNORECASE,
+)
+MAX_SEARCH_SNIPPET_CHARS = 400
+
+
+class SearchUpstreamBlocked(EgressUpstreamError):
+    """The search upstream served an anti-bot/challenge page instead of results."""
+
+
+def _classify_empty_search(
+    html: str,
+    soup: Any,
+    containers: int,
+    status_code: Any,
+    query: str = "",
+) -> str:
+    scrubbed = html or ""
+    # The upstream echoes the query; never let a query such as "captcha"
+    # masquerade as an anti-bot page.
+    for variant in {query, html_escape(query), quote_plus(query)}:
+        if variant and variant.strip():
+            scrubbed = re.sub(re.escape(variant), " ", scrubbed, flags=re.IGNORECASE)
+    if _SEARCH_BLOCK_MARKERS.search(scrubbed):
+        return "upstream_blocked"
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        code = 200
+    if code == 202 or code >= 400:
+        return "upstream_blocked"
+    if soup.select_one(".no-results") is not None or re.search(
+        r"\bno results\b", scrubbed, re.IGNORECASE
+    ):
+        return "no_results"
+    return "parse_failed" if containers else "no_results_or_parse_failed"
+
+
+async def _search_public_web(
+    query: str,
+    limit: int = 5,
+    *,
+    include_snippets: bool = False,
+) -> Dict[str, Any]:
+    """Search through the pinned broker.
+
+    ``results`` keeps the historical ``{title, link}`` shape unless
+    ``include_snippets`` is requested (in-process callers only).  ``reason``
+    explains an empty list: ``ok`` | ``no_results`` | ``upstream_blocked`` |
+    ``parse_failed`` | ``no_results_or_parse_failed``.
+    """
+
+    tavily = await _search_tavily(query, limit, include_snippets)
+    if tavily is not None:
+        return tavily
+    fallback_from = "tavily" if _tavily_api_key() else None
+    if fallback_from:
+        _tavily_state["fallbacks"] += 1
+
+    search_url = f"https://{SEARCH_UPSTREAM_HOST}/html/?q={quote_plus(query)}"
     policy = _browser_public_read_policy(search_url)
     html, nav_meta = await _fetch_browser_document(
         search_url,
@@ -675,7 +877,8 @@ async def _search_public_web(query: str, limit: int = 5) -> Dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
 
     results: List[Dict[str, str]] = []
-    for container in soup.select(".result"):
+    containers = soup.select(".result")
+    for container in containers:
         if len(results) >= limit:
             break
         link_el = (
@@ -688,9 +891,20 @@ async def _search_public_web(query: str, limit: int = 5) -> Dict[str, Any]:
         title = link_el.get_text(strip=True)
         href = _public_search_result_url(link_el.get("href"))
         if title and href:
-            results.append({"title": title, "link": href})
+            row = {"title": title, "link": href}
+            if include_snippets:
+                snippet_el = container.select_one(".result__snippet")
+                snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+                row["snippet"] = snippet[:MAX_SEARCH_SNIPPET_CHARS]
+            results.append(row)
 
-    return {"results": results, "navigation": nav_meta}
+    reason = "ok" if results else _classify_empty_search(
+        html, soup, len(containers), nav_meta.get("status_code"), query
+    )
+    out = {"results": results, "navigation": nav_meta, "reason": reason, "provider": "duckduckgo"}
+    if fallback_from:
+        out["fallback_from"] = fallback_from
+    return out
 
 
 async def _capture_screenshot(
@@ -763,36 +977,234 @@ _CAPABILITY_DETAILS = {
 }
 
 
-@router.get("/status")
-async def browser_status(request: Request):
+# Which egress grant each capability needs to do real work.  "browse" and
+# "search" are satisfied by the allowlist or by public-read mode; "allowlist"
+# capabilities fetch through the strict server allowlist only.
+_CAPABILITY_EGRESS_REQUIREMENTS = {
+    "web_search": "search",
+    "web_browse": "browse",
+    "screenshot": "allowlist",
+    "temporal_cache_ingest": "allowlist",
+    "local_change_radar": "allowlist",
+    "evidence_packet_notary": "allowlist",
+    "domain_limited_web_action_sandbox": "search_or_allowlist",
+}
+
+
+def browser_egress_state(environ: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Describe what the configured outbound policy actually permits.
+
+    Exposes only counts and booleans (``/browser/status`` is public-redacted),
+    never the allowlisted host names.
+    """
+
+    public_read = _browser_public_read_enabled(environ)
+    try:
+        policy = EgressPolicy.from_environment("browser", environ)
+    except EgressPolicyError:
+        return {
+            "mode": "misconfigured",
+            "allowed_hosts_count": 0,
+            "public_read_enabled": public_read,
+            "browse_available": False,
+            "search_available": False,
+            "allowlist_fetch_available": False,
+            "reason": "CORTEX_BROWSER_EGRESS_ALLOWED_HOSTS contains an invalid rule",
+        }
+    if policy.allowed_hosts:
+        search_ok = policy.permits_hostname(SEARCH_UPSTREAM_HOST)
+        return {
+            "mode": "allowlist",
+            "allowed_hosts_count": len(policy.allowed_hosts),
+            "public_read_enabled": public_read,
+            "public_read_overridden_by_allowlist": public_read,
+            "browse_available": True,
+            "search_available": search_ok,
+            "allowlist_fetch_available": True,
+            "reason": None if search_ok else f"search upstream {SEARCH_UPSTREAM_HOST} is not allowlisted",
+        }
+    if public_read:
+        return {
+            "mode": "public_read",
+            "allowed_hosts_count": 0,
+            "public_read_enabled": True,
+            "browse_available": True,
+            "search_available": True,
+            "allowlist_fetch_available": False,
+            "reason": None,
+        }
+    return {
+        "mode": "denied",
+        "allowed_hosts_count": 0,
+        "public_read_enabled": False,
+        "browse_available": False,
+        "search_available": False,
+        "allowlist_fetch_available": False,
+        "reason": (
+            "no outbound browser egress is configured: set "
+            f"{BROWSER_PUBLIC_READ_ENV}=true or CORTEX_BROWSER_EGRESS_ALLOWED_HOSTS"
+        ),
+    }
+
+
+def _egress_unavailable_reason(
+    name: str,
+    egress: Mapping[str, Any],
+    *,
+    notary_configured: Optional[bool],
+) -> Optional[str]:
+    requirement = _CAPABILITY_EGRESS_REQUIREMENTS.get(name)
+    if requirement == "search" and not egress.get("search_available"):
+        return "search_egress_not_permitted"
+    if requirement == "browse" and not egress.get("browse_available"):
+        return "browse_egress_not_permitted"
+    if requirement == "allowlist" and not egress.get("allowlist_fetch_available"):
+        return "requires_server_egress_allowlist"
+    if requirement == "search_or_allowlist" and not (
+        egress.get("search_available") or egress.get("allowlist_fetch_available")
+    ):
+        return "browse_egress_not_permitted"
+    if name == "evidence_packet_notary" and notary_configured is False:
+        return "notary_secret_not_configured"
+    return None
+
+
+def browser_capability_contract(
+    routes: Iterable[Any],
+    *,
+    environ: Optional[Dict[str, str]] = None,
+    notary_configured: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Derive Browser/Ghost truth from mounted routes AND egress configuration.
+
+    A capability is advertised only when its routes are mounted in this ASGI
+    app and the outbound policy lets it actually fetch something.
+    """
+
     mounted_paths = {
         str(getattr(route, "path", "") or "")
-        for route in request.app.routes
+        for route in iter_effective_routes(routes)
         if str(getattr(route, "path", "") or "").startswith("/browser/")
     }
-    capabilities = [
+    egress = browser_egress_state(environ)
+    mounted = [
         name
         for name, required_paths in _CAPABILITY_ROUTE_REQUIREMENTS.items()
         if required_paths.issubset(mounted_paths)
     ]
+    unmounted = [name for name in _CAPABILITY_ROUTE_REQUIREMENTS if name not in mounted]
+    unavailable: Dict[str, str] = {}
+    capabilities: List[str] = []
+    for name in mounted:
+        reason = _egress_unavailable_reason(
+            name, egress, notary_configured=notary_configured
+        )
+        if reason:
+            unavailable[name] = reason
+        else:
+            capabilities.append(name)
     restricted_capabilities = [
         name for name in _CAPABILITY_ROUTE_REQUIREMENTS if name not in capabilities
     ]
     return {
-        "success": True,
-        "level": 2,
-        "name": "Ghost (Browser)",
-        "status": "active",
-        "mode": "read_only_safe_mode" if restricted_capabilities else "full_router",
+        "mode": "read_only_safe_mode" if unmounted else "full_router",
         "capabilities": capabilities,
         "restricted_capabilities": restricted_capabilities,
+        "unmounted_capabilities": unmounted,
+        "unavailable_capabilities": unavailable,
         "mounted_routes": sorted(mounted_paths),
         "capability_details": {
             name: _CAPABILITY_DETAILS[name] for name in capabilities
         },
-        "honesty": "Advanced Ghost endpoints are local/heuristic helpers unless the detail explicitly says otherwise.",
+        "egress": egress,
+    }
+
+
+def _app_notary_configured(app: Any) -> bool:
+    value = getattr(getattr(app, "state", None), "browser_notary_secret", None)
+    return isinstance(value, bytes) and len(value) >= MIN_NOTARY_SECRET_BYTES
+
+
+def browser_status_payload(app: Any) -> Dict[str, Any]:
+    """Shared /browser/status and /ghost/status body derived from real state."""
+
+    contract = browser_capability_contract(
+        getattr(app, "routes", ()),
+        notary_configured=_app_notary_configured(app),
+    )
+    web_ready = any(
+        name in contract["capabilities"] for name in ("web_browse", "web_search")
+    )
+    if web_ready:
+        status = "active"
+    elif contract["capabilities"]:
+        status = "degraded"
+    else:
+        status = "unavailable"
+    reason = None
+    if not web_ready:
+        if {"web_browse", "web_search"}.issubset(set(contract["unmounted_capabilities"])):
+            reason = "web_browse/web_search routes are not mounted"
+        else:
+            reason = contract["egress"].get("reason") or "web egress unavailable"
+    return {
+        "success": web_ready,
+        "available": web_ready,
+        "level": 2,
+        "name": "Ghost (Browser)",
+        "status": status,
+        "reason": reason,
+        **contract,
+        "honesty": "Capabilities are listed only when mounted and permitted by the configured egress policy; advanced Ghost endpoints are local/heuristic helpers unless the detail explicitly says otherwise.",
         "engine": "pinned_http_broker",
     }
+
+
+def _browser_http_error(operation: str, exc: BaseException) -> HTTPException:
+    """Map a browse/search failure to an honest HTTP status.
+
+    Policy denials are client errors (422), an unconfigured egress policy is a
+    service condition (503), upstream failures are 502/504, and only genuine
+    internal faults are 500 (without echoing raw exception text).
+    """
+
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, SearchUpstreamBlocked):
+        return HTTPException(
+            status_code=502,
+            detail=f"{operation} failed: search upstream returned an anti-bot challenge instead of results",
+        )
+    if isinstance(exc, EgressPolicyError):
+        if browser_egress_state()["mode"] in {"denied", "misconfigured"}:
+            return HTTPException(
+                status_code=503,
+                detail=f"{operation} unavailable: browser egress is not configured",
+            )
+        return HTTPException(
+            status_code=422,
+            detail=f"{operation} rejected by egress policy: {exc}",
+        )
+    if isinstance(exc, EgressCapacityError):
+        return HTTPException(status_code=503, detail=f"{operation} unavailable: {exc}")
+    if isinstance(exc, EgressResponseTooLarge):
+        return HTTPException(status_code=502, detail=f"{operation} failed: {exc}")
+    if isinstance(exc, EgressUpstreamError):
+        status = 504 if "timed out" in str(exc) else 502
+        return HTTPException(status_code=status, detail=f"{operation} failed: {exc}")
+    if isinstance(exc, EgressError):
+        return HTTPException(status_code=502, detail=f"{operation} failed: {exc}")
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return HTTPException(status_code=504, detail=f"{operation} failed: upstream timed out")
+    return HTTPException(
+        status_code=500,
+        detail=f"{operation} failed: internal error ({type(exc).__name__})",
+    )
+
+
+@router.get("/status")
+async def browser_status(request: Request):
+    return browser_status_payload(request.app)
 
 
 @router.post("/browse")
@@ -823,7 +1235,7 @@ async def browser_browse(
             )
             return result
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Browse failed: {e}")
+            raise _browser_http_error("Browse", e) from e
 
 
 @router.post("/screenshot")
@@ -848,7 +1260,7 @@ async def browser_screenshot(
             ctx.set_result({"url": req.url, "size_bytes": len(screenshot_bytes), "navigation": nav_meta})
             return result
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Screenshot failed: {e}")
+            raise _browser_http_error("Screenshot", e) from e
 
 
 @router.post("/search")
@@ -865,10 +1277,13 @@ async def browser_search(
             assert_action_authorized(authorization)
             out = await _search_public_web(req.query, limit=5)
             results = out["results"]
-            ctx.set_result({"query": req.query, "results_count": len(results), "navigation": out.get("navigation", {})})
+            if not results and out.get("reason") == "upstream_blocked":
+                # An anti-bot page is a failed search, not "no results".
+                raise SearchUpstreamBlocked("search upstream blocked")
+            ctx.set_result({"query": req.query, "results_count": len(results), "reason": out.get("reason"), "navigation": out.get("navigation", {})})
             return results
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+            raise _browser_http_error("Search", e) from e
 
 
 # 1) Temporal Web Twin --------------------------------------------------------

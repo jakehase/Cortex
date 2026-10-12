@@ -3,6 +3,12 @@
   "name": "Cortex Browser Bridge",
   "version": "0.1.0",
   "entry": "./index.ts",
+  "contracts": {
+    "tools": [
+      "cortex_browse",
+      "cortex_browser_status"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -18,25 +24,89 @@
       "sessionIdentityHmacSecret"
     ],
     "properties": {
-      "baseUrl": { "type": "string", "default": "http://127.0.0.1:18888" },
-      "writeToken": { "type": "string", "minLength": 1 },
-      "writeTokenHeader": { "type": "string", "minLength": 1, "default": "x-cortex-write-token" },
-      "tenantId": { "type": "string", "minLength": 1 },
-      "workspaceId": { "type": "string", "minLength": 1 },
-      "agentId": { "type": "string", "minLength": 1 },
-      "userId": { "type": "string", "minLength": 1 },
-      "channelId": { "type": "string", "minLength": 1 },
-      "scopeCredentialId": { "type": "string", "minLength": 1 },
-      "scopeHmacSecret": { "type": "string", "minLength": 16 },
-      "sessionIdentityHmacSecret": { "type": "string", "minLength": 16 },
-      "timeoutMs": { "type": "number", "minimum": 1000, "maximum": 60000, "default": 15000 },
-      "maxResponseBytes": { "type": "number", "minimum": 1024, "maximum": 16777216, "default": 1048576 }
+      "baseUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:18888"
+      },
+      "writeToken": {
+        "type": "string",
+        "minLength": 1
+      },
+      "writeTokenHeader": {
+        "type": "string",
+        "minLength": 1,
+        "default": "x-cortex-write-token"
+      },
+      "tenantId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "workspaceId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "agentId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "userId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "channelId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "scopeCredentialId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "scopeHmacSecret": {
+        "type": "string",
+        "minLength": 16
+      },
+      "sessionIdentityHmacSecret": {
+        "type": "string",
+        "minLength": 16
+      },
+      "timeoutMs": {
+        "type": "number",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 15000
+      },
+      "maxResponseBytes": {
+        "type": "number",
+        "minimum": 1024,
+        "maximum": 16777216,
+        "default": 1048576
+      },
+      "ownerSenderId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Explicit WhatsApp owner sender mapped to the configured owner user."
+      }
     }
   },
   "uiHints": {
-    "writeToken": { "label": "Cortex write token", "sensitive": true, "advanced": true },
-    "writeTokenHeader": { "label": "Cortex write token header", "advanced": true },
-    "scopeHmacSecret": { "label": "Principal/action HMAC secret", "sensitive": true, "advanced": true },
-    "sessionIdentityHmacSecret": { "label": "Session identity HMAC secret", "sensitive": true, "advanced": true }
+    "writeToken": {
+      "label": "Cortex write token",
+      "sensitive": true,
+      "advanced": true
+    },
+    "writeTokenHeader": {
+      "label": "Cortex write token header",
+      "advanced": true
+    },
+    "scopeHmacSecret": {
+      "label": "Principal/action HMAC secret",
+      "sensitive": true,
+      "advanced": true
+    },
+    "sessionIdentityHmacSecret": {
+      "label": "Session identity HMAC secret",
+      "sensitive": true,
+      "advanced": true
+    }
   }
 }

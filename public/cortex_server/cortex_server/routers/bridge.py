@@ -7,6 +7,12 @@ Minimal safe remediation:
 - Optional persistence of connections
 
 Design goal: This should be safe enough to be callable by Nexus/Orchestrator/Oracle *behind feature flags*.
+
+Honesty: disabled by default (BRIDGE_ENABLED=false).  /bridge/status reports
+``disabled``/``misconfigured`` with an empty capability list unless the relay is
+actually usable, and never claims AI federation: the relay is a plain
+allowlisted JSON POST.  Relaying user content is an external disclosure, so the
+ExecutionEngine adapter (modules/level_adapters/bridge.py) never auto-runs it.
 """
 
 from __future__ import annotations
@@ -15,15 +21,21 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import os
 import json
+import secrets
 import time
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, HttpUrl
+
+from cortex_server.outbound_egress import (
+    EgressError,
+    EgressPolicy,
+    request as outbound_request,
+)
 
 
 @asynccontextmanager
@@ -61,6 +73,7 @@ RESPONSE_MAX_CHARS = int(os.getenv("BRIDGE_RESPONSE_MAX_CHARS", "8000"))
 
 _connections: Dict[str, dict] = {}
 _relay_events: deque = deque(maxlen=500)  # timestamps
+_RESERVED_RELAY_KEYS = frozenset({"query", "source"})
 
 
 def _require_enabled():
@@ -72,7 +85,7 @@ def _require_token(x_bridge_token: Optional[str]):
     # If token isn't configured, treat as disabled for safety.
     if not BRIDGE_TOKEN:
         raise HTTPException(status_code=503, detail="Bridge token not configured")
-    if not x_bridge_token or x_bridge_token != BRIDGE_TOKEN:
+    if not x_bridge_token or not secrets.compare_digest(x_bridge_token, BRIDGE_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid bridge token")
 
 
@@ -118,11 +131,13 @@ def _allowlisted(url: str) -> bool:
         host = (urlparse(url).hostname or "").lower()
     except Exception:
         return False
-    # exact match or subdomain match
-    for allowed in BRIDGE_ALLOWLIST:
-        if host == allowed or host.endswith("." + allowed):
-            return True
-    return False
+    try:
+        return EgressPolicy(
+            capability="bridge",
+            allowed_hosts=tuple(BRIDGE_ALLOWLIST),
+        ).permits_hostname(host)
+    except EgressError:
+        return False
 
 
 def _clamp_timeout(t: float) -> float:
@@ -169,14 +184,59 @@ class RelayResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+def bridge_configuration_state() -> Dict[str, Any]:
+    """Derive Bridge readiness from real configuration (never a literal)."""
+
+    missing: List[str] = []
+    if not BRIDGE_TOKEN:
+        missing.append("BRIDGE_TOKEN")
+    if not BRIDGE_ALLOWLIST:
+        missing.append("BRIDGE_ALLOWLIST")
+    if not BRIDGE_ENABLED:
+        status, reason = "disabled", "BRIDGE_ENABLED is false"
+    elif missing:
+        status, reason = "misconfigured", "missing " + ", ".join(missing)
+    else:
+        status, reason = "active", None
+    return {
+        "enabled": BRIDGE_ENABLED,
+        "configured": status == "active",
+        "status": status,
+        "reason": reason,
+        "missing_configuration": missing,
+    }
+
+
+# What the relay really does when enabled: an allowlisted, token-gated HTTP
+# JSON POST.  It speaks no AI protocol (OpenAI/Anthropic/MCP/A2A), so it is
+# not advertised as "external AI federation" or "multi-agent communication".
+_ACTIVE_CAPABILITIES = (
+    "endpoint_registration",
+    "allowlisted_http_json_relay",
+    "token_auth",
+    "global_rate_limit",
+)
+_LIMITATIONS = (
+    "relay posts an ad-hoc JSON body {query, source, ...payload}; no AI protocol adapters",
+    "connection registry is in memory unless BRIDGE_PERSIST_ENABLED=true",
+    "rate limit is global, not per principal",
+    "relaying user content is an external disclosure; never auto-run without approval",
+)
+
+
 @router.get("/status")
 async def bridge_status():
+    state = bridge_configuration_state()
+    configured = state["configured"]
     return {
-        "success": True,
+        "success": configured,
         "level": 25,
         "name": "Bridge",
-        "status": "active" if BRIDGE_ENABLED else "disabled",
+        "status": state["status"],
+        "reason": state["reason"],
         "enabled": BRIDGE_ENABLED,
+        "configured": configured,
+        "missing_configuration": state["missing_configuration"],
         "registered_connections": len(_connections),
         "persist_enabled": BRIDGE_PERSIST_ENABLED,
         "allowlist": BRIDGE_ALLOWLIST,
@@ -186,22 +246,23 @@ async def bridge_status():
             "rate_window_s": RATE_LIMIT_WINDOW_S,
             "rate_max": RATE_LIMIT_MAX,
         },
-        "capabilities": [
-            "external_ai_federation",
-            "endpoint_registration",
-            "query_relay",
-            "multi_agent_communication",
-            "allowlist",
-            "token_auth",
-            "rate_limit",
-        ],
+        "capabilities": list(_ACTIVE_CAPABILITIES) if configured else [],
+        "unavailable_capabilities": {
+            "external_ai_federation": "not_implemented",
+            "multi_agent_communication": "not_implemented",
+        },
+        "limitations": list(_LIMITATIONS),
+        "auto_run": "never (approval required)",
     }
 
 
 @router.get("/health")
 async def bridge_health():
+    state = bridge_configuration_state()
     return {
-        "success": True,
+        "success": state["configured"],
+        "status": state["status"],
+        "reason": state["reason"],
         "enabled": BRIDGE_ENABLED,
         "connections": len(_connections),
         "timestamp": datetime.now().isoformat(),
@@ -269,31 +330,46 @@ async def relay_query(request: RelayRequest, x_bridge_token: Optional[str] = Hea
     timeout_s = _clamp_timeout(request.timeout_seconds)
 
     start = time.time()
+    # Reserved keys are server-owned: caller payload cannot override the
+    # relayed query or the source label.
+    extra = {
+        str(key): value
+        for key, value in (request.payload or {}).items()
+        if str(key) not in _RESERVED_RELAY_KEYS
+    }
     payload = {
+        **extra,
         "query": request.query,
         "source": "cortex-bridge-l25",
-        **(request.payload or {}),
     }
 
     _relay_events.append(time.time())
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
-            resp = await client.post(conn["url"], json=payload)
-            resp.raise_for_status()
-            # try json, else text
-            try:
-                data = resp.json()
-            except Exception:
-                data = (resp.text or "")[:RESPONSE_MAX_CHARS]
-    except httpx.HTTPStatusError as exc:
+        response = await outbound_request(
+            "POST",
+            conn["url"],
+            policy=EgressPolicy(
+                capability="bridge",
+                allowed_hosts=tuple(BRIDGE_ALLOWLIST),
+            ),
+            json=payload,
+            timeout=timeout_s,
+            max_response_bytes=RESPONSE_MAX_CHARS,
+            max_redirects=2,
+        )
+        if response.status_code >= 400:
+            latency = (time.time() - start) * 1000
+            err = f"upstream_http_{response.status_code}"
+            conn["last_error"] = err
+            return RelayResponse(success=False, connection_id=request.connection_id, error=err, latency_ms=round(latency, 2))
+        try:
+            data = response.json()
+        except Exception:
+            data = response.text
+    except EgressError as exc:
         latency = (time.time() - start) * 1000
-        err = f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
-        conn["last_error"] = err
-        return RelayResponse(success=False, connection_id=request.connection_id, error=err, latency_ms=round(latency, 2))
-    except Exception as exc:
-        latency = (time.time() - start) * 1000
-        err = str(exc)
+        err = type(exc).__name__
         conn["last_error"] = err
         return RelayResponse(success=False, connection_id=request.connection_id, error=err, latency_ms=round(latency, 2))
 

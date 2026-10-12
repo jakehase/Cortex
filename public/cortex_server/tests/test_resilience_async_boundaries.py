@@ -171,45 +171,39 @@ async def test_cron_capacity_exhaustion_reports_not_dispatched(
 @pytest.mark.parametrize(
     ("failure", "status_code", "submission"),
     [
-        (
-            async_offload.BlockingCallCapacityExceeded("celery.send_swarm", 1),
-            503,
-            "not_dispatched",
-        ),
-        (
-            async_offload.BlockingCallDeadlineExceeded("celery.send_swarm", 0.05),
-            504,
-            "tracked_pending_completion",
-        ),
+        (hive.hive_swarm.HiveBusy("2 background swarms already running"), 503, "not_dispatched"),
+        (OSError("read-only state volume"), 503, "not_dispatched"),
     ],
 )
 async def test_hive_submission_reports_dispatch_truth(
     monkeypatch, failure, status_code, submission
 ):
-    async def fail_submission(*_args, **_kwargs):
+    def fail_submission(*_args, **_kwargs):
         raise failure
 
-    monkeypatch.setattr(hive, "run_blocking", fail_submission)
+    monkeypatch.setattr(hive.hive_swarm, "start_background_run", fail_submission)
 
     with pytest.raises(HTTPException) as caught:
         await hive.swarm_orchestrate(hive.SwarmRequest(goal="bounded swarm"))
 
     assert caught.value.status_code == status_code
     assert caught.value.detail["submission"] == submission
-    assert caught.value.detail["task_id"]
 
 
 @pytest.mark.asyncio
-async def test_hive_admitted_submission_forwards_action_authorization(monkeypatch):
+async def test_hive_admitted_submission_runs_in_process_not_celery(monkeypatch):
     captured = {}
     authorization = object()
 
-    async def admitted(request, authorization=None, idempotency_key=None):
-        captured["request"] = request
-        captured["authorization"] = authorization
-        return queue.TaskResponse(task_id="task-hive", status="scheduled")
+    def start(goal, *, context, idempotency_key, max_subtasks):
+        captured.update(goal=goal, context=context, key=idempotency_key, max_subtasks=max_subtasks)
+        return {"run_id": "hive_run_1", "status": "running", "reused": False}
 
-    monkeypatch.setattr(hive, "schedule_task", admitted)
+    async def must_not_queue(*_args, **_kwargs):
+        raise AssertionError("hive must not dispatch the legacy Celery process_swarm task")
+
+    monkeypatch.setattr(hive.hive_swarm, "start_background_run", start)
+    monkeypatch.setattr(queue, "schedule_task", must_not_queue)
 
     response = await hive.swarm_orchestrate(
         hive.AdmittedSwarmRequest(
@@ -219,10 +213,12 @@ async def test_hive_admitted_submission_forwards_action_authorization(monkeypatc
         authorization=authorization,
     )
 
-    assert response.task_id == "task-hive"
-    assert captured["authorization"] is authorization
-    assert captured["request"].task == "cortex_tasks.process_swarm"
-    assert captured["request"].idempotency_key == "hive-integration-1"
+    assert response.task_id == "hive_run_1"
+    assert response.status == "queued"
+    assert response.execution == "in_process"
+    assert captured["key"] == "hive-integration-1"
+    assert captured["goal"] == "bounded admitted swarm"
+    assert captured["context"]["principal_scope_key"] == "admin:level.hive"
 
 
 @pytest.mark.asyncio
@@ -240,7 +236,10 @@ async def test_hive_dependency_failure_is_unavailable_not_active(monkeypatch):
     async def failed_celery(*_args, **_kwargs):
         raise RuntimeError("broker unavailable")
 
-    monkeypatch.setattr(hive.httpx, "AsyncClient", lambda **_kwargs: OfflineClient())
+    async def offline_dependencies():
+        return {"oracle": "offline", "librarian": "offline"}
+
+    monkeypatch.setattr(hive, "_dependency_states", offline_dependencies)
     monkeypatch.setattr(hive, "run_blocking", failed_celery)
 
     result = await hive.hive_status()
@@ -293,6 +292,9 @@ async def test_oracle_status_offloads_http_probes_without_starting_provider_cli(
     monkeypatch.setattr(oracle.shutil, "which", lambda _value: "/opt/bin/openclaw")
     monkeypatch.setattr(oracle.os, "access", lambda *_args: True)
     monkeypatch.setattr(oracle, "OLLAMA_ENABLED", True)
+    # The bridge is opt-in (no default host): configure one so its probe runs.
+    monkeypatch.setattr(oracle, "BRIDGE_URL", "http://bridge.test/invoke")
+    monkeypatch.setattr(oracle, "ORACLE_FALLBACKS_ENABLED", True)
     monkeypatch.setattr(
         oracle,
         "load_config",

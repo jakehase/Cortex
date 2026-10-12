@@ -13,15 +13,28 @@ def test_number_only_fastpath_arithmetic():
     assert out == "4"
 
 
-def test_yes_no_fastpath_water_wet():
-    out = _strict_micro_fast_answer("Is water wet? Reply yes/no.")
-    assert out in {"yes", "no"}
-    assert out == "yes"
+def test_number_only_fastpath_keeps_decimals_and_signs():
+    assert _strict_micro_fast_answer("What is 12.5 * 4? Reply with the number only.") == "50"
+    assert _strict_micro_fast_answer("Compute 7 - 10. digits only") == "-3"
+    assert _strict_micro_fast_answer("What is 10/0? Reply number only.") is None
 
 
-def test_one_word_fastpath_planet():
-    out = _strict_micro_fast_answer("Reply one word naming a planet.")
-    assert out == "earth"
+def test_yes_no_fastpath_only_answers_bare_numeric_comparisons():
+    assert _strict_micro_fast_answer("Is 3 > 2? Reply yes/no.") == "yes"
+    assert _strict_micro_fast_answer("Is 2.5 = 3? Reply yes/no.") == "no"
+
+
+@pytest.mark.parametrize("prompt", [
+    "Is water wet? Reply yes/no.",
+    "Is it safe to drink bleach? Reply yes/no.",
+    "Reply one word naming a planet.",
+    "What color is the sky? one word",
+    "7 squared, number only",
+    "When did WW2 end? digits only",
+])
+def test_open_questions_with_strict_formats_go_to_the_model(prompt):
+    # A format constraint is not an answer; never return a canned value.
+    assert _strict_micro_fast_answer(prompt) is None
 
 
 def test_openclaw_model_identity_prefers_oracle_agent_without_exposing_config(

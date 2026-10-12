@@ -1,151 +1,85 @@
-"""The Council - Adversarial Safety Layer for The Cortex.
+"""The Council - legacy synchronous facade for Level 15.
 
-Level 15: Automated Code Review and Safety Checks.
-Reviews skill proposals before materialization to ensure safety.
+Used by ``modules/geneticist.py`` to review evolution proposals. It no longer
+has its own model calls (the old version posted unauthenticated requests to
+``/oracle/chat`` pinned to ``tinyllama`` and treated any response containing
+"YES" as approval). It delegates to the one Council review implementation,
+``routers.council.council_review_sync``: deterministic hard gate + strict,
+receipt-validated model decision. Approval requires an explicit APPROVE
+verdict from a validated model decision; anything else (including the model
+being unavailable) is a rejection.
 """
-import requests
-from typing import Dict, List
+from __future__ import annotations
 
-from cortex_server.internal_addressing import internal_url
+from typing import Any, Dict, List
+
+_LEGACY_SCOPE_KEY = "admin:level.council.legacy_review"
 
 
 class TheCouncil:
-    """Adversarial review board for evolution proposals.
-    
-    The Council consists of:
-    1. The Critic - Identifies risks (Security, Stability, Redundancy)
-    2. The Judge - Makes final YES/NO decision
-    
-    If both approve, the proposal proceeds to materialization.
-    """
-    
-    ORACLE_URL = internal_url("/oracle/chat")
-    
+    """Adversarial review board for evolution proposals (delegating)."""
+
     def __init__(self):
-        self.critique_history: List[Dict] = []
-    
+        self.critique_history: List[Dict[str, Any]] = []
+
     def review_proposal(self, proposal: Dict) -> bool:
-        """Review a skill proposal through adversarial process.
-        
-        Args:
-            proposal: The skill proposal dictionary
-            
-        Returns:
-            True if approved, False if rejected
-        """
-        skill_name = proposal.get('proposed_module', 'unknown')
-        gap_summary = proposal.get('gap_summary', '')
-        detected_from = proposal.get('detected_from', '')
-        
-        # Build proposal text for review
-        proposal_text = f"""Skill Proposal: {skill_name}
+        """Review a skill proposal. Returns True only on a validated model APPROVE."""
 
-Detected From: {detected_from}
+        from cortex_server.routers.council import council_review_sync
 
-Gap Summary: {gap_summary}
-
-This skill would be auto-generated and installed into modules/extensions/.
-"""
-        
-        # Step 1: The Critic - Identify risks
-        critique = self._call_critic(proposal_text)
-        
-        # Step 2: The Judge - Make decision
-        decision = self._call_judge(proposal_text, critique)
-        
-        # Record in history
-        review_record = {
-            'skill_name': skill_name,
-            'critique': critique,
-            'decision': decision,
-            'approved': decision == "YES"
-        }
-        self.critique_history.append(review_record)
-        
-        return decision == "YES"
-    
-    def _call_critic(self, proposal_text: str) -> str:
-        """Call Oracle as Senior Code Reviewer to critique proposal."""
-        critic_prompt = f"""You are a Senior Code Reviewer. Critique this feature proposal:
-
-{proposal_text}
-
-List exactly 3 risks:
-1. SECURITY: What security concerns exist?
-2. STABILITY: What could break or cause failures?
-3. REDUNDANCY: Does this duplicate existing functionality?
-
-Be concise. 1-2 sentences per risk."""
-
+        proposal = proposal if isinstance(proposal, dict) else {}
+        skill_name = str(proposal.get("proposed_module") or "unknown")[:200]
+        context = (
+            f"Detected from: {str(proposal.get('detected_from') or '')[:1000]}\n"
+            f"Gap summary: {str(proposal.get('gap_summary') or '')[:3000]}\n"
+            "This skill would be auto-generated and installed into modules/extensions/."
+        )
+        code = proposal.get("code") or proposal.get("source")
         try:
-            response = requests.post(
-                self.ORACLE_URL,
-                json={
-                    "prompt": critic_prompt,
-                    "system": "You are a cautious, experienced code reviewer focused on safety.",
-                    "model": "tinyllama"
-                },
-                timeout=60
+            decision = council_review_sync(
+                kind="evolution_skill_proposal",
+                title=f"Skill proposal: {skill_name}",
+                context=context,
+                code=str(code) if code else None,
+                risk_tolerance="low",
+                principal_scope_key=_LEGACY_SCOPE_KEY,
             )
-            return response.json().get('response', 'Critique failed')
-        except Exception as e:
-            return f"Critique error: {str(e)}"
-    
-    def _call_judge(self, proposal_text: str, critique: str) -> str:
-        """Call Oracle as Judge to make final YES/NO decision."""
-        judge_prompt = f"""You are the Judge. Review this proposal and critique:
+        except Exception as exc:
+            decision = {"success": False, "verdict": "NEEDS_CHANGES", "error": f"{type(exc).__name__}"}
 
-PROPOSAL:
-{proposal_text}
+        approved = bool(
+            decision.get("success")
+            and decision.get("decision_source") == "model"
+            and decision.get("verdict") == "APPROVE"
+        )
+        self.critique_history.append({
+            "skill_name": skill_name,
+            "verdict": decision.get("verdict"),
+            "decision_source": decision.get("decision_source"),
+            "risk_score": decision.get("risk_score"),
+            "top_concerns": decision.get("top_concerns") or [],
+            "receipt_id": decision.get("receipt_id"),
+            "error": decision.get("error"),
+            "approved": approved,
+        })
+        del self.critique_history[:-100]
+        return approved
 
-CRITIQUE:
-{critique}
-
-Given the proposal and the critique above, should we proceed with auto-generating and installing this skill?
-
-Answer with ONLY ONE WORD: YES or NO.
-
-YES = Acceptable risk, proceed with materialization
-NO = Too risky, reject proposal"""
-
-        try:
-            response = requests.post(
-                self.ORACLE_URL,
-                json={
-                    "prompt": judge_prompt,
-                    "system": "You are a conservative judge focused on system safety. Only say YES if the proposal is safe and useful.",
-                    "model": "tinyllama"
-                },
-                timeout=30
-            )
-            decision = response.json().get('response', 'NO').strip().upper()
-            
-            # Extract YES/NO from response
-            if 'YES' in decision:
-                return "YES"
-            else:
-                return "NO"
-        except Exception as e:
-            # On error, default to NO (safe)
-            return "NO"
-    
     def get_last_review(self) -> Dict:
         """Get the most recent review record."""
         if self.critique_history:
             return self.critique_history[-1]
         return {}
-    
+
     def get_review_stats(self) -> Dict:
-        """Get statistics on Council decisions."""
+        """Get statistics on Council decisions (this process)."""
         total = len(self.critique_history)
-        approved = sum(1 for r in self.critique_history if r.get('approved'))
-        rejected = total - approved
-        
+        approved = sum(1 for r in self.critique_history if r.get("approved"))
         return {
-            'total_reviewed': total,
-            'approved': approved,
-            'rejected': rejected,
-            'approval_rate': approved / total if total > 0 else 0
+            "total_reviewed": total,
+            "approved": approved,
+            "rejected": total - approved,
+            "approval_rate": approved / total if total > 0 else 0,
         }
 
 

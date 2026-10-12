@@ -82,6 +82,9 @@ def test_corrected_hive_and_sentinel_payload_identity(monkeypatch):
     class Response:
         status_code = 200
 
+        def json(self):
+            return {"status": "active"}
+
     class Client:
         async def __aenter__(self):
             return self
@@ -92,7 +95,10 @@ def test_corrected_hive_and_sentinel_payload_identity(monkeypatch):
         async def get(self, _url):
             return Response()
 
-    monkeypatch.setattr(hive.httpx, "AsyncClient", lambda **_kwargs: Client())
+    async def online_dependencies():
+        return {"oracle": "online", "librarian": "online"}
+
+    monkeypatch.setattr(hive, "_dependency_states", online_dependencies)
 
     async def celery_online(*_args, **_kwargs):
         return None
@@ -121,6 +127,9 @@ def test_synthesist_status_derives_integrated_total_from_registry(tmp_path):
 
     status = synthesist.status()
 
-    assert status["levels_integrated"] == len(get_level_registry()) == 38
+    # levels_integrated counts levels that actually reported; the registry
+    # total is reported separately.
+    assert status["levels_integrated"] == 0
+    assert status["registry_levels_total"] == len(get_level_registry()) == 38
     assert status["registry_version"] == LEVEL_REGISTRY_VERSION
     assert status["registry_source"] == "cortex_server.modules.level_registry"

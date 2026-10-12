@@ -445,6 +445,82 @@ class ParserService:
         payload.update(nodes_added=committed["nodes"], edges_added=committed["edges"])
         return payload
     
+    # ------------------------------------------------------------------
+    # Inline (side-effect free) parsing
+    # ------------------------------------------------------------------
+
+    INLINE_LANGUAGES = ("python", "javascript", "typescript")
+    MAX_INLINE_BYTES = 1_000_000
+    MAX_SUMMARY_ITEMS = 200
+
+    def js_backend(self) -> str:
+        """Backend used for inline JS/TS parsing (no Node subprocess inline)."""
+        parser = getattr(self, "js_parser", None)
+        if parser is not None and getattr(parser, "_tree_sitter_available", False):
+            return "tree_sitter"
+        return "regex_lightweight"
+
+    async def parse_inline(self, language: str, content: str) -> Dict[str, Any]:
+        """Parse caller-supplied source text without any persistent write.
+
+        Never reads files and never touches the knowledge graph: the result
+        reports ``persisted: false`` and ``nodes_added == edges_added == 0``.
+        JavaScript/TypeScript use tree-sitter when installed; otherwise the
+        regex fallback is used and labelled (no Node subprocess is spawned
+        for inline input).
+        """
+        lang = str(language or "").strip().lower()
+        aliases = {"py": "python", "js": "javascript", "jsx": "javascript",
+                   "ts": "typescript", "tsx": "typescript", "node": "javascript"}
+        lang = aliases.get(lang, lang)
+        if lang not in self.INLINE_LANGUAGES:
+            return {"error": "Unsupported inline language"}
+        if not isinstance(content, str) or not content.strip():
+            return {"error": "Inline content must be a non-empty string"}
+        raw = content.encode("utf-8")
+        if len(raw) > self.MAX_INLINE_BYTES:
+            return {"error": "Inline content exceeds byte limit"}
+        deadline = time.monotonic() + self.MAX_SECONDS
+        if lang == "python":
+            result = await self._run_with_deadline(
+                self.python_parser.parse_bytes, raw, "<input>.py", deadline=deadline
+            )
+            backend = "python_ast"
+            errors = [
+                {"message": e.message, "lineno": e.lineno, "col": e.col}
+                for e in result.errors
+            ]
+        else:
+            filename = "<input>.ts" if lang == "typescript" else "<input>.js"
+            config = copy.deepcopy(self.js_parser.config)
+            result = await self._run_with_deadline(
+                _parse_js_inline, config, raw, filename, deadline=deadline
+            )
+            backend = _js_result_backend(result)
+            errors = [
+                {"message": e.message, "lineno": e.lineno, "col": None}
+                for e in result.errors
+            ]
+        summary = summarize_parse(result.nodes, result.edges, limit=self.MAX_SUMMARY_ITEMS)
+        payload = self._cap_response_collections(
+            {
+                "nodes": result.nodes,
+                "edges": result.edges,
+                "errors": errors,
+                "ok": result.ok,
+                "language": lang,
+                "backend": backend,
+                "persisted": False,
+                "nodes_added": 0,
+                "edges_added": 0,
+                "summary": summary,
+            },
+            ("nodes", "edges", "errors"),
+            reserved_fields={"success": True, "parsed": "inline"},
+            deadline=deadline,
+        )
+        return payload
+
     async def parse_directory(self, request: ParseDirectoryRequest) -> Dict[str, Any]:
         """Parse all files in a directory."""
         try:
@@ -735,3 +811,93 @@ class ParserService:
                     raise TimeoutError("graph commit deadline exceeded")
                 return {"nodes": 0, "edges": 0}
         return {"nodes": len(nodes), "edges": len(edges)}
+
+
+def _parse_js_inline(config: JSParserConfig, raw: bytes, filename: str):
+    """Parse inline JS/TS with tree-sitter, or the labelled regex fallback.
+
+    Inline (principal-supplied) content never spawns the Node/Babel
+    subprocess: when tree-sitter is not installed the lightweight parser runs
+    and its module node carries ``parser: lightweight-js`` plus the reason.
+    """
+    parser = JSParser(config)
+    parser._node_parser_available = False
+    return parser.parse_bytes(raw, filename)
+
+
+def _js_result_backend(result) -> str:
+    for node in getattr(result, "nodes", ()) or ():
+        if node.get("type") == "Module":
+            meta = node.get("metadata") or {}
+            if meta.get("parser") == "lightweight-js":
+                return "regex_lightweight"
+            return "tree_sitter"
+    return "unknown"
+
+
+def summarize_parse(nodes, edges, *, limit: int = 200) -> Dict[str, Any]:
+    """Deterministic symbol summary built only from parsed nodes/edges."""
+    functions: List[Dict[str, Any]] = []
+    classes: List[Dict[str, Any]] = []
+    routes: List[Dict[str, Any]] = []
+    imports: List[Dict[str, Any]] = []
+    calls: List[Dict[str, Any]] = []
+    names_by_id = {}
+    for node in nodes or ():
+        meta = node.get("metadata") or {}
+        kind = node.get("type")
+        names_by_id[node.get("id")] = meta.get("qualified_name") or node.get("name")
+        if kind == "Function" and len(functions) < limit:
+            functions.append({
+                "name": node.get("name"),
+                "qualified_name": meta.get("qualified_name") or node.get("name"),
+                "line": meta.get("start_line"),
+                "end_line": meta.get("end_line"),
+                "is_async": bool(meta.get("is_async")),
+                "is_method": bool(meta.get("is_method")),
+            })
+        elif kind == "Class" and len(classes) < limit:
+            classes.append({
+                "name": node.get("name"),
+                "line": meta.get("start_line"),
+                "end_line": meta.get("end_line"),
+                "bases": meta.get("bases") or ([meta["superclass"]] if meta.get("superclass") else []),
+            })
+        elif kind == "Route" and len(routes) < limit:
+            routes.append({"method": meta.get("method"), "path": meta.get("path"), "line": meta.get("start_line")})
+    counts = {"IMPORTS": 0, "CALLS": 0}
+    for edge in edges or ():
+        kind = edge.get("type")
+        meta = edge.get("metadata") or {}
+        if kind == "IMPORTS":
+            counts["IMPORTS"] += 1
+            if len(imports) < limit:
+                imports.append({
+                    "target": meta.get("source") or meta.get("module") or names_by_id.get(edge.get("target_id"), edge.get("target_id")),
+                    "name": meta.get("name"),
+                    "line": meta.get("line"),
+                })
+        elif kind == "CALLS":
+            counts["CALLS"] += 1
+            if len(calls) < limit:
+                calls.append({
+                    "caller": names_by_id.get(edge.get("source_id"), edge.get("source_id")),
+                    "callee": names_by_id.get(edge.get("target_id"), edge.get("target_id")),
+                    "line": meta.get("line"),
+                })
+    return {
+        "functions": functions,
+        "classes": classes,
+        "routes": routes,
+        "imports": imports,
+        "calls": calls,
+        "counts": {
+            "functions": sum(1 for n in nodes or () if n.get("type") == "Function"),
+            "classes": sum(1 for n in nodes or () if n.get("type") == "Class"),
+            "imports": counts["IMPORTS"],
+            "calls": counts["CALLS"],
+            "nodes": len(nodes or ()),
+            "edges": len(edges or ()),
+        },
+        "truncated": any(len(items) >= limit for items in (functions, classes, imports, calls, routes)),
+    }

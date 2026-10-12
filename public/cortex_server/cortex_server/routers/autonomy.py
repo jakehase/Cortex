@@ -770,18 +770,21 @@ async def immune_trigger(
             actions.append({"action": "oracle_warmup", "ok": False, "error": str(exc)[:200]})
 
         try:
-            out = await run_in_threadpool(
-                lambda: _post_local_json(
-                    "/mediator/mediate",
-                    {
-                        "position_a": "Ship quickly.",
-                        "position_b": "Stabilize before shipping.",
-                        "context": "immune warmup",
-                    },
-                    timeout_s=12.0,
-                )
+            # In-process (no unauthenticated HTTP self-call). OK only when the
+            # Mediator produced a real, receipt-validated model mediation.
+            from cortex_server.routers import mediator as mediator_router
+
+            med = await mediator_router.mediate_core(
+                "Ship quickly.",
+                "Stabilize before shipping.",
+                "immune warmup",
+                principal_scope_key="admin:level.mediator.immune_warmup",
             )
-            actions.append({"action": "mediator_warmup", "ok": bool(out.get("success", False))})
+            actions.append({
+                "action": "mediator_warmup",
+                "ok": bool(med.success and not med.degraded and med.origin == "model"),
+                "status": med.status,
+            })
         except Exception as exc:
             actions.append({"action": "mediator_warmup", "ok": False, "error": str(exc)[:200]})
 

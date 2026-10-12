@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import AsyncIterator, Dict, List, Optional, Sequence, Tuple, Any
 from pydantic import BaseModel, Field
 from .subprocess_lifecycle import (
+    wait_for_owned_spawn,
     close_process_transports,
     observe_task,
     spawn_owned,
@@ -207,13 +208,14 @@ async def _run_cmd(
     """Run a Docker CLI command."""
     deadline = time.monotonic() + (timeout or DEFAULT_TIMEOUT)
     try:
-        proc = await asyncio.wait_for(
+        proc = await wait_for_owned_spawn(
             _spawn_owned(
                 *args,
                 stdout=asyncio.subprocess.PIPE if capture else None,
                 stderr=asyncio.subprocess.PIPE,
             ),
             max(0.0, deadline - time.monotonic()),
+            _stop_process,
         )
     except asyncio.TimeoutError:
         raise DockerError("Docker command timed out") from None
@@ -295,13 +297,14 @@ async def _stream_cmd(args: List[str]) -> AsyncIterator[str]:
     """Stream bounded, line-framed output under one total command deadline."""
     deadline = time.monotonic() + DEFAULT_TIMEOUT
     try:
-        proc = await asyncio.wait_for(
+        proc = await wait_for_owned_spawn(
             _spawn_owned(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             ),
             max(0.0, deadline - time.monotonic()),
+            _stop_process,
         )
     except asyncio.TimeoutError:
         raise DockerError("Docker command timed out") from None

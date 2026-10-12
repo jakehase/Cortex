@@ -9,6 +9,13 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+import os as _os
+import tempfile as _tempfile
+
+# Default every test session to a private, fresh data dir so no test can
+# touch production state under /var/lib/cortex or reuse a previous run's
+# durable state. Tests that need a specific dir still set their own.
+_os.environ.setdefault("CORTEX_CHROMA_DIR", _tempfile.mkdtemp(prefix="cortex-test-chroma-"))
 
 import fastapi.testclient
 import httpx
@@ -352,3 +359,16 @@ def isolate_generated_homeostasis_artifacts(tmp_path, monkeypatch):
         monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", reasoning_db)
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_librarian_local_file_roots(monkeypatch, tmp_path_factory):
+    """Never let tests read the host's real memory or client files.
+
+    librarian's local-file fallback defaults to /root/clawd/memory and
+    /root/clawd/clients. Point it at an empty directory; tests that exercise
+    the fallback set their own roots and override this.
+    """
+    root = tmp_path_factory.mktemp("isolated-local-file-memory")
+    monkeypatch.setenv("LIBRARIAN_LOCAL_FILE_MEMORY_ROOTS", str(root))
+    monkeypatch.delenv("LIBRARIAN_SCOPED_LOCAL_FILE_MEMORY_ROOTS", raising=False)

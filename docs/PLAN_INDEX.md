@@ -1,6 +1,6 @@
 # Workspace Plan Index
 
-Last updated: 2026-07-11
+Last updated: 2026-10-11
 
 Purpose: make the active plans obvious and keep historical/artifact plans from becoming accidental roadmaps.
 
@@ -17,11 +17,13 @@ Purpose: make the active plans obvious and keep historical/artifact plans from b
 
 | Project | Status | Canonical plan | Status file | Decisions log | Active path | Latest verified commit/artifact | Current milestone | Notes |
 |---|---|---|---|---|---|---|---|---|
+| Cortex post-audit repair | active | `/root/clawd/cortex-repair-20261011/plan.md` | `/root/clawd/cortex-repair-20261011/STATUS.md` | `/root/clawd/cortex-repair-20261011/DECISIONS.md` | `/root/clawd/_worktrees/cortex-repair-20261011` | accepted baseline `a828d0a027753c4ad089343ed7c599f3bc1cf26f`; Phase 0 live-source snapshot `/root/clawd/artifacts/cortex-repair-20261011/phase0/` | Phase 0 — freeze and reproducibility | Repairs every October 11 audit finding; no whole-system green claim until exact-candidate qualification, deployment parity, and rollback proof pass. |
 | AI OS | active | `/root/clawd/ai-os/plan.md` | `/root/clawd/ai-os/STATUS.md` | `/root/clawd/ai-os/DECISIONS.md` | `/root/clawd/ai-os` | commit `13aa9a3ef` source sync; commit `b815dcb0a` plan/FPE map; 6h promotion `/root/clawd/artifacts/ai-os/orchestration/latest-6h-continuation-green.json` | hosted/platform hardening after 6h continuation; next runtime claims still gated | Default-on adapter remains bounded internal substrate, not runtime replacement. |
 | Full Parity Engine | active | `/root/clawd/full-parity-engine/plan.md` | `/root/clawd/full-parity-engine/STATUS.md` | `/root/clawd/full-parity-engine/DECISIONS.md` | `/root/clawd/full-parity-engine` + shared stack adapters | commit `b815dcb0a` initial plan | FPE-0 matrix contract dry run | Cross-repo parity/clone objective engine. Planned, not implemented. |
 | Mailchimp clone | active | `/root/clawd/mailchimp-clone/plan.md` | `/root/clawd/mailchimp-clone/STATUS.md` | `/root/clawd/mailchimp-clone/DECISIONS.md` | `/root/clawd/mailchimp-clone` | latest no-holdback artifact root in `STATUS.md`; see `memory/projects/mailchimp.md` for detailed history | audit before resume / fresh FPE parity matrix | Product clone/parity proving ground. Treat older Mailchimp docs as historical unless referenced by canonical plan or project memory. |
 | Agent Work v1 orchestration | maintenance | `/root/clawd/large-project-capability-stack/plan.md` | `/root/clawd/large-project-capability-stack/STATUS.md` | `/root/clawd/large-project-capability-stack/DECISIONS.md` | `/root/clawd/large-project-capability-stack` | commit `4a2cc317e`; semantic-workforce suite `17/17` and full local suite `433/433` on `2026-07-11` | v1.1 semantic-workforce amendment locally green; v1.0.0 remains release tag | Automatic bounded per-wave sizing is canonical; selected count is not physical-concurrency proof. Public GA, deployment, universal parity, and higher physical-worker claims remain out of scope. |
 | Cortex Learning OS | active | `/root/clawd/cortex-learning-os/plan.md` | `/root/clawd/cortex-learning-os/STATUS.md` | `/root/clawd/cortex-learning-os/DECISIONS.md` | `/root/clawd/cortex-learning-os` | implementation commit `b03add355`; qualified run `artifacts/math-foundations-smoke-20260725-052939567Z`; tests `14/14` | equal-difficulty randomized A/B transfer retests | First bounded learning loop is green for one exact-arithmetic lesson. Broad/durable learning and retrieval causality remain unproven. |
+| Cortex 164-entry functional qualification | completed | `/root/clawd/cortex-functional-qualification-164/plan.md` | `/root/clawd/cortex-functional-qualification-164/STATUS.md` | `/root/clawd/cortex-functional-qualification-164/DECISIONS.md` | `/root/clawd/cortex-functional-qualification-164` | green supervisor and acknowledged delivery under `/root/clawd/artifacts/cortex-functional-qualification-164-20260919`; report SHA `9b1db045c336a3a6ca471243ffb9b94ef44f4773344b8b498c8e0b22d19ce591` | 164/164 audit rows dispositioned | Audit complete; 91 pass, 16 fail, 23 blocked, 27 insufficient, 7 historical N/A. |
 
 ## Evidence-only plan-like files
 
@@ -70,3 +72,9 @@ cd /root/clawd && node scripts/plan-doctor.mjs --include-evidence
 - Keep `plan.md` strategic; update `STATUS.md` for current checkpoint; append `DECISIONS.md` for durable choices.
 - If a project changes direction, update the canonical `plan.md`, `STATUS.md`, `DECISIONS.md` when needed, and this index in the same commit.
 - If a path is superseded, quarantine or label it; do not leave ambiguous scratch plans in active paths.
+
+## PMHNP five-point design preview — 2026-09-08
+- Plan: `/root/clawd/worktrees/pmhnp-design-refinement-preview-20260908/plan.md`
+- Status: V2 visual-design revision verified across all three pages, preserving the original five refinements and 199 content blocks; 12 final responsive browser cases passed, with direct visual review. Current local commit `91b8e483f40115fad7dd0c83cf0f77b0012c91a1`; production unchanged.
+- Evidence: `/root/clawd/artifacts/pmhnp-design-refinement-preview-20260908/completion.json`
+- Public preview: https://directions-represents-probe-dividend.trycloudflare.com/?v=visual-2 (temporary, until approximately 2026-09-09 13:10 CDT).

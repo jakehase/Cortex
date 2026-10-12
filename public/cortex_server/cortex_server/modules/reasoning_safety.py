@@ -83,7 +83,6 @@ DEFAULT_ACTION_POLICIES = {
     "POST /oracle/chat": "low",
     "GET /oracle/status": "low",
     "GET /oracle/kernel/status": "low",
-    "POST /users/get": "low",
     "POST /librarian/search": "low",
     "GET /librarian/search": "low",
     "POST /knowledge/search": "low",
@@ -92,6 +91,9 @@ DEFAULT_ACTION_POLICIES = {
     "POST /council/deliberate": "medium",
 }
 _ALLOWED_METHODS = frozenset({"GET", "POST"})
+# Workflow steps must not drive the orchestrator itself (re-entrant ticks,
+# workflow creation from inside a workflow, approval laundering).
+RECURSIVE_PREFIXES = ("/orchestrator", "/conductor")
 _ALLOWED_RISKS = frozenset({"low", "medium", "high"})
 
 
@@ -126,6 +128,9 @@ def classify_action(step: Dict[str, Any]) -> Dict[str, Any]:
     if method not in _ALLOWED_METHODS:
         return {"known": False, "risk": "unknown", "matched_prefix": None, "reason": "unsupported_method"}
 
+    for prefix in RECURSIVE_PREFIXES:
+        if _matches_path_prefix(endpoint_path, prefix):
+            return {"known": False, "risk": "unknown", "matched_prefix": prefix, "reason": "recursive_orchestrator_action"}
     for prefix in HIGH_RISK_PREFIXES:
         if _matches_path_prefix(endpoint_path, prefix):
             return {

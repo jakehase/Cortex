@@ -165,10 +165,18 @@ async def darwin_status():
         except Exception:
             services["lab"] = "offline"
 
+    # Status follows the probes instead of being hard-coded.  The legacy
+    # evolve path still calls /oracle/chat without principal credentials, so
+    # its model consult is reported as unavailable rather than advertised.
+    status = "active" if services.get("oracle") == "online" else "degraded"
     return {
-        "status": "active",
+        "success": status == "active",
+        "status": status,
         "services": services,
-        "capabilities": ["capability_scoped_code_read", "oracle_consult", "syntax_validate", "proposal_only"],
+        "capabilities": ["capability_scoped_code_read", "syntax_validate", "proposal_only"],
+        "unavailable_capabilities": {
+            "oracle_consult": "legacy unauthenticated /oracle/chat call; rejected under production write auth",
+        },
         "security": "CAPABILITY_AND_TRUSTED_APPROVAL_REQUIRED",
         "deployment_available": False,
         "version": "12.2-ASYNC-SAFE",

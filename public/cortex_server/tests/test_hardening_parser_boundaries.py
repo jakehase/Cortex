@@ -1599,7 +1599,7 @@ async def test_extract_auto_index_is_bounded_awaited_and_best_effort(monkeypatch
 
     monkeypatch.setattr(router, "_auto_index", slow_index)
     requests = [
-        asyncio.create_task(router.extract(router.ExtractRequest(html=f"<p>{i}</p>")))
+        asyncio.create_task(router.extract(router.ExtractRequest(html=f"<p>{i}</p>", persist=True)))
         for i in range(router.MAX_AUTO_INDEX_ADMISSIONS * 2)
     ]
     await asyncio.sleep(0.05)
@@ -1624,7 +1624,7 @@ async def test_extract_index_timeout_leaves_no_pending_task(monkeypatch):
 
     monkeypatch.setattr(router, "MAX_EXTRACT_SECONDS", 0.02)
     monkeypatch.setattr(router, "_auto_index", never_index)
-    result = await router.extract(router.ExtractRequest(html="<p>ok</p>"))
+    result = await router.extract(router.ExtractRequest(html="<p>ok</p>", persist=True))
 
     assert result["success"] is True
     assert cancelled.is_set()

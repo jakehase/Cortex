@@ -2,7 +2,16 @@
 Level 26: The Orchestrator / Conductor — Real Workflow Execution
 
 Coordinates multi-level workflows by accepting step definitions, executing
-them sequentially via async HTTP, and storing results for replay.
+them in dependency order, and storing results for replay.
+
+Steps that call Cortex endpoints are dispatched in process (ASGI) with fresh
+credentials derived at send time for the workflow's sealed creator authority
+(``modules/orchestrator_auth``); credential headers are rejected at creation
+and never persisted.  Top-level ``success`` is true only when every step
+succeeded.  Managed runtime processes advance only when ``/runtime/tick`` is
+called (operator/release tooling) or when the opt-in scheduler driver
+(``ORCHESTRATOR_RUNTIME_DRIVER_ENABLED``) is on; status reports which.
+``POST /plan/propose`` turns a goal into a PROPOSED DAG of safe step types.
 
 NOTE: This is L26 Workflow Conductor, NOT L36 Meta-Conductor.
 """
@@ -38,6 +47,9 @@ from cortex_server.modules import reasoning_runtime_explain as runtime_explain
 from cortex_server.modules import reasoning_runtime_service as runtime_service
 from cortex_server.modules import reasoning_runtime_workflows as runtime_workflows
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session
+from cortex_server.modules import orchestrator_auth
+from cortex_server.modules import orchestrator_planner
+from cortex_server.modules.level_model import scope_key_for_request
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_lineage_bundle
 from cortex_server.modules.reasoning_kernel import model_dump_compat
@@ -1407,8 +1419,11 @@ def _refresh_runtime_session_plane(
     return recorded
 
 
-def _runtime_session_plane_status(*, stores: Dict[str, Any], process_id: Optional[str] = None) -> Dict[str, Any]:
-    _refresh_runtime_session_plane(stores=stores, process_id=process_id)
+def _runtime_session_plane_status(*, stores: Dict[str, Any], process_id: Optional[str] = None, reconcile: bool = True) -> Dict[str, Any]:
+    # Mutating callers retain reconciliation; monitoring must not replay every
+    # process, acquire mutation locks, or write notes merely to read counters.
+    if reconcile:
+        _refresh_runtime_session_plane(stores=stores, process_id=process_id)
     sessions = stores["session_registry"].list(process_id=process_id)
     watchers = stores["watcher_store"].list(process_id=process_id)
     by_status: Dict[str, int] = {}
@@ -4247,6 +4262,7 @@ async def _execute_single_step(
         validate_endpoint_fn=_validate_endpoint,
         payload_size_ok_fn=_payload_size_ok,
         step_belief_context_fn=_step_belief_context,
+        execution_headers_fn=orchestrator_auth.execution_headers,
     )
 
 
@@ -4323,9 +4339,44 @@ async def _execute_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
         workflow_policy_settings_fn=_workflow_policy_settings,
         cancelled_step_result_fn=_cancelled_step_result,
         redact_headers_fn=_redact_headers,
+        client_factory=orchestrator_auth.internal_client,
     )
+    execution.setdefault("execution_authority", orchestrator_auth.authority_summary(workflow.get("metadata")))
     _stats["workflows_executed"] += 1
     return execution
+
+
+def _reject_credential_headers(steps: List[Any]) -> None:
+    rows = [model_dump_compat(step) if hasattr(step, "model_dump") or hasattr(step, "dict") else step for step in steps or []]
+    found = orchestrator_auth.find_credential_headers(rows)
+    if found:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "credential headers are not allowed in workflow steps",
+                "headers": found[:10],
+                "hint": "steps run with the creator's authority, derived server-side at execution time",
+            },
+        )
+
+
+def _execution_status(execution: Dict[str, Any]) -> str:
+    status = str((execution or {}).get("status") or "")
+    if status == "success":
+        return "succeeded"
+    steps = list((execution or {}).get("steps") or [])
+    if any(str(s.get("error") or "").startswith("safety_block:approval") for s in steps):
+        return "awaiting_approval"
+    if steps and not any(s.get("success") for s in steps):
+        return "failed"
+    return "partial_failure" if status else "unknown"
+
+
+def _truthful_result(body: Dict[str, Any], execution: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(body)
+    out["success"] = str((execution or {}).get("status") or "") == "success"
+    out["status"] = _execution_status(execution)
+    return out
 
 
 
@@ -4434,7 +4485,62 @@ async def _execute_runtime_batch(*, limit: int = 25, now_iso: Optional[str] = No
         workflow_policy_settings_fn=_workflow_policy_settings,
         scheduler_error_cls=ReasoningSchedulerError,
         process_execution_fence_fn=_execution_fence,
+        client_factory=orchestrator_auth.internal_client,
     )
+
+
+_runtime_driver_state: Dict[str, Any] = {
+    "last_tick_at": None,
+    "last_tick_source": None,
+    "last_executed_count": None,
+    "last_error": None,
+    "ticks": 0,
+}
+
+
+def _record_runtime_tick(source: str, *, executed_count: Optional[int], error: Optional[str] = None) -> None:
+    _runtime_driver_state.update(
+        last_tick_at=datetime.now().astimezone().isoformat(),
+        last_tick_source=source,
+        last_executed_count=executed_count,
+        last_error=error,
+        ticks=int(_runtime_driver_state.get("ticks") or 0) + 1,
+    )
+
+
+async def run_runtime_driver_tick(*, limit: int = 10, source: str = "scheduler_driver") -> Dict[str, Any]:
+    """One driver tick: execute due ready nodes (used by the opt-in scheduler job)."""
+
+    try:
+        batch = await _execute_runtime_batch(limit=max(1, min(int(limit), 50)))
+    except Exception as exc:
+        _record_runtime_tick(source, executed_count=None, error=type(exc).__name__)
+        return {"success": False, "error": type(exc).__name__}
+    _record_runtime_tick(source, executed_count=int(batch.get("executed_count") or 0))
+    return {"success": True, "executed_count": batch.get("executed_count")}
+
+
+def runtime_driver_status() -> Dict[str, Any]:
+    """Who advances managed processes, from real configuration and tick history."""
+
+    try:
+        from cortex_server.scheduler import get_internal_job_status, orchestrator_runtime_driver_config
+
+        config = orchestrator_runtime_driver_config()
+        registered = bool((get_internal_job_status().get("orchestrator_runtime_driver") or {}).get("registered"))
+    except Exception as exc:  # scheduler unavailable in this process
+        config, registered = {"enabled": False, "error": type(exc).__name__}, False
+    return {
+        "driver_enabled": bool(config.get("enabled")),
+        "driver_registered": registered,
+        "interval_seconds": config.get("interval_seconds"),
+        "advanced_by": (
+            "scheduler driver job + manual POST /orchestrator/runtime/tick"
+            if registered
+            else "manual POST /orchestrator/runtime/tick only (operator or release tooling); nothing ticks automatically"
+        ),
+        **{k: v for k, v in _runtime_driver_state.items()},
+    }
 
 
 
@@ -4941,23 +5047,62 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
 
 @router.get("/status")
 async def conductor_status():
-    """Get Conductor status — L26 Workflow Orchestration."""
+    """Get Conductor status — L26 Workflow Orchestration (derived from stored state)."""
+    error = None
+    try:
+        stored = _list_workflows()
+    except Exception as exc:
+        stored, error = [], f"workflow store unavailable: {type(exc).__name__}"
+    executions = [row for wf in stored for row in (wf.get("executions") or []) if isinstance(row, dict)]
+    last = max((str(row.get("completed_at") or row.get("started_at") or "") for row in executions), default="") or None
+    succeeded = sum(1 for row in executions if row.get("status") == "success")
+    status = "active" if error is None else "degraded"
     return {
-        "success": True,
+        "success": error is None,
         "data": {
             "level": 26,
             "name": "The Orchestrator",
             "role": "Workflow Orchestration",
             "description": "Coordinates multi-level execution workflows (NOT L36 Meta-Conductor)",
-            "status": "active",
+            "status": status,
+            # Process-local counters (reset on restart) kept for compatibility.
             "workflows_created": _stats["workflows_created"],
             "workflows_executed": _stats["workflows_executed"],
-            "workflows_stored": len(_list_workflows()),
-            "always_on": True,
+            "workflows_stored": len(stored),
+            "executions_recorded": len(executions),
+            "executions_succeeded": succeeded,
+            "last_execution_at": last,
+            "always_on": False,
+            "step_transport": "in_process_asgi" if orchestrator_auth._cortex_app() is not None else "loopback_http",
+            "step_authority": "sealed creator authority; credentials derived at send time, never stored",
+            "runtime_driver": runtime_driver_status(),
+            "planner": {"endpoint": "/orchestrator/plan/propose", "model_backed": True, "proposal_only": True,
+                        "step_types": sorted(orchestrator_planner.SAFE_STEP_CATALOG)},
             "timestamp": datetime.now().isoformat(),
         },
-        "error": None,
+        "error": error,
     }
+
+
+class PlanProposeRequest(BaseModel):
+    goal: str = Field(..., min_length=1, max_length=4000)
+    context: Optional[str] = Field(default=None, max_length=2000)
+    max_nodes: int = Field(default=6, ge=1, le=orchestrator_planner.MAX_PLAN_NODES)
+
+
+@router.post("/plan/propose")
+async def propose_plan(request: PlanProposeRequest, http_request: Request = None):
+    """Model-backed goal -> PROPOSED workflow DAG over safe step types. Executes nothing."""
+    result = await orchestrator_planner.propose_plan(
+        request.goal,
+        principal_scope_key=(
+            scope_key_for_request(http_request, "orchestrator") if http_request is not None else "admin:level.orchestrator"
+        ),
+        context=request.context,
+        max_nodes=request.max_nodes,
+    )
+    result.update({"level": 26, "name": "Orchestrator"})
+    return result
 
 
 @router.post("/plan")
@@ -5010,26 +5155,28 @@ async def create_agent_work_handoff(request: AgentWorkPlanRequest):
 
 
 @router.post("/plan/execute")
-async def create_and_run_plan(graph: ReasoningPlanGraph):
+async def create_and_run_plan(graph: ReasoningPlanGraph, http_request: Request = None):
     """Store a plan graph as a workflow, then execute it in dependency order."""
+    _reject_credential_headers([model_dump_compat(node) for node in graph.nodes])
+    graph.metadata = orchestrator_auth.bind_execution_authority(graph.metadata, http_request)
     workflow = _store_workflow_from_plan(graph)
     execution = await _execute_workflow(workflow)
     runtime_workflows.apply_execution_result(workflow, execution, max_executions=MAX_EXECUTIONS_PER_WORKFLOW)
     _persist_workflow(workflow)
 
-    return {
-        "success": True,
+    return _truthful_result({
         "workflow_id": workflow["workflow_id"],
         "name": workflow["name"],
         "plan_graph": workflow.get("plan_graph"),
         "kernel_task": workflow.get("kernel_task"),
         "execution": execution,
-    }
+    }, execution)
 
 
 @router.post("/runtime/plan")
 async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Request = None):
     """Store a plan graph as a managed reasoning process without executing it yet."""
+    _reject_credential_headers([model_dump_compat(node) for node in request.graph.nodes])
     principal = getattr(getattr(http_request, "state", None), "cortex_principal", None)
     quota_principal_hash = hashlib.sha256(b"cortex-reasoning-plan-quota:unbound").hexdigest()
     if principal is not None and getattr(principal, "role", "") == "principal":
@@ -5061,6 +5208,7 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
             **dict(request.graph.metadata or {}),
             "_reasoning_quota_principal_hash": quota_principal_hash,
         }
+    request.graph.metadata = orchestrator_auth.bind_execution_authority(request.graph.metadata, http_request)
     for approval in request.options.approval_grants or []:
         if isinstance(approval, dict):
             approval["metadata"] = {
@@ -5120,6 +5268,8 @@ async def schedule_plan_runtime(request: RuntimePlanRequest, http_request: Reque
         if bootstrap is not None:
             scheduled["session_plane"] = bootstrap
         _stats["workflows_created"] += 1
+        if isinstance(scheduled, dict):
+            scheduled["execution_driver"] = runtime_driver_status()
         return scheduled
     except ReasoningPlanQuotaError as exc:
         raise HTTPException(
@@ -5164,16 +5314,36 @@ async def tick_runtime(request: RuntimeTickRequest):
             return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
         batch = await _execute_runtime_batch(limit=request.limit, now_iso=request.now_iso)
     except RuntimeError as exc:
+        _record_runtime_tick("manual_tick", executed_count=None, error=type(exc).__name__)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _record_runtime_tick("manual_tick", executed_count=int((batch or {}).get("executed_count") or 0))
     watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
     session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
     return {"success": True, **batch, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
 
 
+def _runtime_scheduler_status_snapshot() -> Dict[str, Any]:
+    stores = _runtime_delivery_stores()
+    return {"success": True, "runtime": {**get_runtime_status(), "session_plane": _runtime_session_plane_status(stores=stores, reconcile=False), "driver": runtime_driver_status()}}
+
+
 @router.get("/runtime/status")
 async def get_runtime_scheduler_status():
-    stores = _runtime_delivery_stores()
-    return {"success": True, "runtime": {**get_runtime_status(), "session_plane": _runtime_session_plane_status(stores=stores)}}
+    from cortex_server.modules.async_offload import (
+        BlockingCallDeadlineExceeded,
+        run_blocking,
+    )
+
+    try:
+        return await run_blocking(
+            "orchestrator.runtime.status",
+            _runtime_scheduler_status_snapshot,
+            timeout_seconds=3.0,
+        )
+    except BlockingCallDeadlineExceeded as exc:
+        raise HTTPException(
+            status_code=503, detail="runtime_status_temporarily_unavailable"
+        ) from exc
 
 
 @router.get("/runtime/processes")
@@ -7129,15 +7299,16 @@ async def get_runtime_beliefs(http_request: Request = None, query: Optional[str]
 
 
 @router.post("/workflow")
-async def create_and_run_workflow(request: CreateWorkflowRequest):
+async def create_and_run_workflow(request: CreateWorkflowRequest, http_request: Request = None):
     """Create a workflow, store it, then execute it immediately."""
     if len(request.steps) > MAX_WORKFLOW_STEPS:
         raise HTTPException(status_code=400, detail=f"too many steps (max {MAX_WORKFLOW_STEPS})")
+    _reject_credential_headers(list(request.steps))
 
     workflow = runtime_service.build_workflow_request_record(
         name=request.name,
         steps=request.steps,
-        metadata=request.metadata,
+        metadata=orchestrator_auth.bind_execution_authority(request.metadata, http_request),
         model_dump_compat_fn=model_dump_compat,
         build_workflow_record_fn=runtime_workflows.build_workflow_record,
     )
@@ -7159,23 +7330,23 @@ async def create_and_run_workflow(request: CreateWorkflowRequest):
         max_executions=MAX_EXECUTIONS_PER_WORKFLOW,
     )
 
-    return {
-        "success": True,
+    return _truthful_result({
         "workflow_id": workflow["workflow_id"],
         "name": request.name,
         "execution": execution,
-    }
+    }, execution)
 
 @router.post("/workflow_async")
-async def create_and_run_workflow_async(request: CreateWorkflowRequest):
+async def create_and_run_workflow_async(request: CreateWorkflowRequest, http_request: Request = None):
     """Create a workflow, store it, then execute it in the background."""
     if len(request.steps) > MAX_WORKFLOW_STEPS:
         raise HTTPException(status_code=400, detail=f"too many steps (max {MAX_WORKFLOW_STEPS})")
+    _reject_credential_headers(list(request.steps))
 
     workflow = runtime_service.build_workflow_request_record(
         name=request.name,
         steps=request.steps,
-        metadata=request.metadata,
+        metadata=orchestrator_auth.bind_execution_authority(request.metadata, http_request),
         model_dump_compat_fn=model_dump_compat,
         build_workflow_record_fn=runtime_workflows.build_workflow_record,
     )
@@ -7203,6 +7374,8 @@ async def create_and_run_workflow_async(request: CreateWorkflowRequest):
         "workflow_id": workflow["workflow_id"],
         "name": request.name,
         "scheduled": True,
+        "status": "scheduled",
+        "note": f"execution result is not known yet; poll GET /orchestrator/workflow/{workflow['workflow_id']}",
     }
 
 
@@ -7243,13 +7416,33 @@ async def get_execution(execution_id: str):
 
 
 @router.post("/run/{workflow_id}")
-async def rerun_workflow(workflow_id: str):
-    """Re-run an existing stored workflow by ID."""
-    return await runtime_service.rerun_workflow_or_404(
+async def rerun_workflow(workflow_id: str, http_request: Request = None):
+    """Re-run an existing stored workflow by ID (as its sealed creator authority)."""
+
+    def load_for_rerun(wid: str) -> Optional[Dict[str, Any]]:
+        workflow = _load_workflow(wid)
+        if not workflow:
+            return workflow
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        # Legacy workflows created before authority binding: an administrator
+        # re-running one lends only the administrator's own authority.
+        if orchestrator_auth.verified_authority(metadata) is None:
+            if orchestrator_auth.authority_from_request(http_request).get("kind") == "admin":
+                workflow["metadata"] = orchestrator_auth.bind_execution_authority(metadata, http_request)
+        if orchestrator_auth.find_credential_headers(workflow.get("steps") or []):
+            workflow["steps"] = [
+                {**dict(step), "headers": orchestrator_auth.strip_credential_headers(step.get("headers"))}
+                for step in workflow.get("steps") or []
+                if isinstance(step, dict)
+            ]
+        return workflow
+
+    result = await runtime_service.rerun_workflow_or_404(
         workflow_id,
-        load_workflow_fn=_load_workflow,
+        load_workflow_fn=load_for_rerun,
         execute_workflow_fn=_execute_workflow,
         apply_execution_result_fn=runtime_workflows.apply_execution_result,
         persist_workflow_fn=_persist_workflow,
         max_executions=MAX_EXECUTIONS_PER_WORKFLOW,
     )
+    return _truthful_result(result, result.get("execution") or {})

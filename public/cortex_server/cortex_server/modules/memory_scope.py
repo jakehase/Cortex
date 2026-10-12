@@ -332,6 +332,28 @@ class AuthenticatedMemoryPrincipal:
         return self.isolation_key("semantic-memory")
 
     @property
+    def file_memory_grant_key(self) -> str:
+        """Return a stable, session-independent key for local-file grants.
+
+        Semantic rows remain isolated by the full principal, including the
+        session.  Durable project files need a separately configured grant that
+        can survive a new conversation without broadening to every principal in
+        the tenant/workspace.  Bind that grant to the credential and every
+        fixed principal dimension; deliberately omit only ``session_id``.
+        """
+
+        canonical = "\0".join((
+            "local-file-memory",
+            self.credential_id,
+            self.tenant_id,
+            self.workspace_id,
+            self.agent_id,
+            self.user_id,
+            self.channel_id,
+        ))
+        return f"principal-fixed:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+    @property
     def codec_session_key(self) -> str:
         """Opaque server-derived Codec key; never accept a caller-selected key."""
 

@@ -38,12 +38,16 @@ from cortex_server.routers.librarian import (
     _normalize_memory_metadata,
     _add_memory_with_supersession,
     FactSupersessionError,
+    SupersessionValidationError,
+    validate_temporal_write_supersession,
     MemoryTag,
     _validate_memory_metadata,
     prepare_memory_metadata_for_storage,
     prepare_governed_memory_write,
     finalize_governed_memory_write,
     parse_memory_search_filters,
+    resolve_request_memory_filters,
+    _temporal_write_metadata_or_422,
     _supersession_recovery_metadata,
     _memory_scope,
     _authenticated_memory_principal_scope,
@@ -62,6 +66,11 @@ from cortex_server.runtime.memory_governance import (
     MemoryPromotionError,
     evaluate_recall,
     refresh_temporal_verification,
+)
+from cortex_server.runtime.temporal_contract import (
+    TemporalMemoryContract,
+    stamp_temporal_ingestion,
+    temporal_search_echo,
 )
 from cortex_server.modules.sensitive_data_redaction import redact_sensitive_text
 from cortex_server.modules.memory_scope import (
@@ -2451,6 +2460,16 @@ def store_memory_record(
     principal_key = _memory_store_operation_principal_key(
         record_metadata, tenant, workspace
     )
+    # Explicit temporal-v1 supersedes are validated (read-only) before any
+    # operation, quota or governance state is staged; a no-op otherwise.
+    try:
+        validate_temporal_write_supersession(
+            record_metadata, tenant_id=tenant, workspace_id=workspace
+        )
+    except SupersessionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FactSupersessionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if normalized_idempotency_key:
         memory_id = str(uuid.uuid5(
             uuid.NAMESPACE_URL,
@@ -2497,6 +2516,11 @@ def store_memory_record(
         # Every retry of one idempotent operation must stage the same governed
         # payload hash. ``recorded_at`` is server authority, while caller-
         # supplied observed/known times remain meaningful and are preserved.
+        # An explicit temporal contract is stamped with the operation's
+        # durable creation time so retries stage an identical payload.
+        record_metadata = stamp_temporal_ingestion(
+            record_metadata, ingested_at=operation_time
+        )
         record_metadata["recorded_at"] = operation_time
         record_metadata.setdefault("observed_at", operation_time)
         record_metadata.setdefault("known_at", operation_time)
@@ -2610,6 +2634,8 @@ def store_memory_record(
                             workspace_id=workspace,
                         )
                         durable_record = True
+                    except SupersessionValidationError as exc:
+                        raise HTTPException(status_code=422, detail=str(exc)) from exc
                     except FactSupersessionError as exc:
                         raise HTTPException(status_code=503, detail=str(exc)) from exc
                 result = {
@@ -2704,6 +2730,7 @@ def store_memory_record(
 
     memory_id = str(uuid.uuid4())
     governance_operation_id = "l22:" + memory_id
+    record_metadata = stamp_temporal_ingestion(record_metadata)
     try:
         record_metadata = prepare_governed_memory_write(
             principal_key=principal_key,
@@ -2743,6 +2770,9 @@ def store_memory_record(
             operation_id=governance_operation_id,
             receipt_id=memory_id,
         )
+    except SupersessionValidationError as exc:
+        _settle_failed_memory_write(memory_id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except FactSupersessionError as exc:
         _settle_failed_memory_write(memory_id)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -2856,6 +2886,7 @@ class L22StoreRequest(BaseModel):
     content: str = Field(..., max_length=1_000_000)
     tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     metadata: Optional[dict] = None
+    temporal: Optional[TemporalMemoryContract] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -2884,6 +2915,9 @@ class L22SearchRequest(BaseModel):
     query: str = Field(..., max_length=16_384)
     n_results: int = Field(5, ge=1, le=100)
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -2896,6 +2930,7 @@ class L22NovelStoreRequest(BaseModel):
     content: str = Field(..., max_length=1_000_000)
     tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     metadata: Optional[dict] = None
+    temporal: Optional[TemporalMemoryContract] = None
     novelty_tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     compare_window: int = Field(40, ge=1, le=500)
     min_novelty: float = 0.0
@@ -2916,6 +2951,9 @@ class L22NovelSearchRequest(BaseModel):
     semantic_weight: float = 0.65
     min_novelty: float = 0.0
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -3429,6 +3467,8 @@ def _l22_status_payload(principal) -> Dict[str, Any]:
             "fact_conflict_edges",
             "review_gated_promotion",
             "recall_evaluation",
+            "temporal_memory_v1",
+            "valid_time_and_knowledge_time_recall",
         ],
         "memory_count": semantic.get("count"),
         "memory_count_is_lower_bound": bool(semantic.get("countIsLowerBound")),
@@ -3488,11 +3528,13 @@ async def l22_store(
 ):
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    # Ingestion is stamped inside store_memory_record (idempotency-stable).
+    request_metadata = _temporal_write_metadata_or_422(request, stamp=False)
     return store_memory_record(
         content=request.content,
         memory_type=request.type,
         tags=request.tags,
-        metadata=scoped_memory_metadata(principal, request.metadata),
+        metadata=scoped_memory_metadata(principal, request_metadata),
         tenant_id=tenant,
         workspace_id=workspace,
         idempotency_key=(
@@ -3600,13 +3642,27 @@ async def l22_store_novel(
             ),
         )
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
-    metadata = scoped_memory_metadata(principal, request.metadata)
+    request_metadata = _temporal_write_metadata_or_422(request)
+    metadata = scoped_memory_metadata(principal, request_metadata)
     metadata.setdefault("type", request.type or "memory")
     if request.tags:
         metadata.setdefault("tags", request.tags)
 
     memory_id = str(uuid.uuid4())
     governance_operation_id = "l22-novel:" + memory_id
+    try:
+        if request.temporal is not None:
+            validate_temporal_write_supersession(
+                _normalize_memory_metadata(
+                    metadata, tenant_id=tenant, workspace_id=workspace
+                ),
+                tenant_id=tenant,
+                workspace_id=workspace,
+            )
+    except SupersessionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FactSupersessionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         metadata = prepare_governed_memory_write(
             principal_key=principal.memory_principal_key,
@@ -3663,6 +3719,9 @@ async def l22_store_novel(
             operation_id=governance_operation_id,
             receipt_id=memory_id,
         )
+    except SupersessionValidationError as exc:
+        _settle_failed_memory_write(memory_id)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
         _settle_failed_memory_write(memory_id)
         raise
@@ -4004,7 +4063,7 @@ async def l22_search(
             tenant_id=tenant,
             workspace_id=workspace,
             memory_principal_key=principal.memory_principal_key,
-            filters=parse_memory_search_filters(request.filters),
+            filters=resolve_request_memory_filters(request),
         )
     except MemoryFilterError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -4016,6 +4075,7 @@ async def l22_search(
         "search_mode": result.get("search_mode", "semantic"),
         "degraded": bool(result.get("degraded", False)),
         "warning": result.get("warning"),
+        **temporal_search_echo(result),
     }
 
 
@@ -4036,7 +4096,7 @@ async def l22_search_novel(
             tenant_id=tenant,
             workspace_id=workspace,
             memory_principal_key=principal.memory_principal_key,
-            filters=parse_memory_search_filters(request.filters),
+            filters=resolve_request_memory_filters(request),
         )
     except MemoryFilterError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -4047,4 +4107,5 @@ async def l22_search_novel(
         "novelty_weight": ranked.get("novelty_weight"),
         "semantic_weight": ranked.get("semantic_weight"),
         "results": ranked.get("results", []),
+        **temporal_search_echo(ranked),
     }

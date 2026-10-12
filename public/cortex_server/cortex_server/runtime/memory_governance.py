@@ -65,6 +65,23 @@ _OPERATIONAL_TYPES = frozenset(
 )
 _MIN_TEMPORAL_EPOCH = -62_135_596_800
 _MAX_TEMPORAL_EPOCH = 253_402_300_799
+# Explicit temporal memory contract (opt-in per write). Rows without this
+# schema marker keep the legacy temporal semantics implemented below.
+TEMPORAL_MEMORY_SCHEMA_VERSION = "cortex.memory.temporal.v1"
+LEGACY_TEMPORAL_ADMISSION = "legacy_temporal_unknown"
+TEMPORAL_UNKNOWN_ADMISSIONS = frozenset(
+    {
+        LEGACY_TEMPORAL_ADMISSION,
+        "ingestion_time_unknown",
+        "lifecycle_time_unknown",
+        "event_time_unknown",
+        "valid_from_unknown",
+        "supersession_boundary_unknown",
+        "occurrence_date_invalid",
+        "date_boundary_indeterminate",
+    }
+)
+_TEMPORAL_INACTIVE_STATUSES = frozenset({"superseded", "tombstoned", "expired", "historical"})
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@/ -]{0,255}$")
 _HIGH_RISK_MEMORY_RE = re.compile(
     r"(?:\b(?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|"
@@ -374,6 +391,225 @@ class TemporalDecision:
     freshness_state: str
     valid_time_state: str
     reason: str
+    # Set only for explicit temporal queries over temporal-v1 rows.
+    admission: Optional[str] = None
+    query_match: Optional[bool] = None
+
+
+def is_temporal_v1_metadata(metadata: Optional[Mapping[str, Any]]) -> bool:
+    return bool(
+        isinstance(metadata, Mapping)
+        and metadata.get("temporal_schema_version") == TEMPORAL_MEMORY_SCHEMA_VERSION
+    )
+
+
+def _stored_temporal_instant(meta: Mapping[str, Any], field_name: str) -> Optional[datetime]:
+    """Lenient read of a stored instant: stored rows are never re-validated."""
+
+    try:
+        return parse_timestamp(meta.get(field_name), field_name=field_name)
+    except MemoryGovernanceError:
+        return None
+
+
+def _temporal_lifecycle_status(meta: Mapping[str, Any]) -> str:
+    status = str(meta.get("memory_status") or meta.get("status") or "active").strip().lower()
+    if bool(meta.get("tombstoned")):
+        return "tombstoned"
+    if bool(meta.get("superseded")) and status == "active":
+        return "superseded"
+    return status if status in _TEMPORAL_INACTIVE_STATUSES | {"active"} else "active"
+
+
+def temporal_v1_admission(
+    metadata: Optional[Mapping[str, Any]],
+    *,
+    as_of: Optional[datetime],
+    as_known_at: Optional[datetime],
+    include_temporally_unknown: bool,
+) -> tuple[bool, str]:
+    """Valid-time and knowledge-time admission for temporal-v1 rows.
+
+    Valid time is ``[valid_from, valid_to)`` (exclusive end); events use their
+    occurrence time; knowledge time uses the system-owned ``ingested_at`` and
+    lifecycle timestamps. A row whose time cannot be decided is admitted only
+    when unknown time is explicitly included, with a machine-readable reason.
+    """
+
+    if as_of is None and as_known_at is None:
+        return True, "current_view"
+
+    def unknown(reason: str) -> tuple[bool, str]:
+        return bool(include_temporally_unknown), reason
+
+    meta = dict(metadata or {})
+    if not is_temporal_v1_metadata(meta):
+        return unknown(LEGACY_TEMPORAL_ADMISSION)
+    memory_status = _temporal_lifecycle_status(meta)
+
+    if as_known_at is not None:
+        known_cutoff = as_known_at
+        ingested_at = _stored_temporal_instant(meta, "ingested_at")
+        observed_at = _stored_temporal_instant(meta, "observed_at")
+        if ingested_at is None:
+            return unknown("ingestion_time_unknown")
+        if ingested_at > known_cutoff:
+            return False, "ingested_after_as_known_at"
+        if observed_at is not None and observed_at > known_cutoff:
+            return False, "observed_after_as_known_at"
+        lifecycle_times = [
+            value
+            for value in (
+                _stored_temporal_instant(meta, "superseded_at"),
+                _stored_temporal_instant(meta, "tombstoned_at"),
+                _stored_temporal_instant(meta, "expired_at"),
+            )
+            if value is not None
+        ]
+        if lifecycle_times and min(lifecycle_times) <= known_cutoff:
+            return False, "inactive_by_as_known_at"
+        if memory_status in _TEMPORAL_INACTIVE_STATUSES and not lifecycle_times:
+            return unknown("lifecycle_time_unknown")
+
+    if as_of is not None:
+        valid_cutoff = as_of
+        valid_from = _stored_temporal_instant(meta, "valid_from")
+        valid_to = _stored_temporal_instant(meta, "valid_to")
+        if valid_from is not None and valid_cutoff < valid_from:
+            return False, "validity_not_started"
+        if valid_to is not None and valid_cutoff >= valid_to:
+            return False, "validity_ended"
+        # A row retired by the existing same-fact_key replacement carries the
+        # legacy inclusive retirement boundary; keep honouring it.
+        retired_until = _stored_temporal_instant(meta, "valid_until")
+        if (
+            memory_status in _TEMPORAL_INACTIVE_STATUSES
+            and retired_until is not None
+            and valid_cutoff > retired_until
+        ):
+            return False, "retired_before_as_of"
+
+        kind = str(meta.get("temporal_kind") or "fact")
+        occurred_at = _stored_temporal_instant(meta, "occurred_at")
+        occurred_on = str(meta.get("occurred_on") or "").strip()
+        if occurred_at is not None and occurred_at > valid_cutoff:
+            return False, "occurs_after_as_of"
+        if occurred_on:
+            try:
+                occurred_date = datetime.strptime(occurred_on, "%Y-%m-%d").date()
+            except ValueError:
+                return unknown("occurrence_date_invalid")
+            if occurred_date > valid_cutoff.date():
+                return False, "occurs_after_as_of"
+            if occurred_date == valid_cutoff.date():
+                # A date-only occurrence has no clock time; never fabricate
+                # one at the boundary merely because the query has an instant.
+                return unknown("date_boundary_indeterminate")
+
+        if kind == "event":
+            if occurred_at is None and not occurred_on:
+                return unknown("event_time_unknown")
+        else:
+            if valid_from is None:
+                return unknown("valid_from_unknown")
+            if memory_status in _TEMPORAL_INACTIVE_STATUSES and valid_to is None:
+                return unknown("supersession_boundary_unknown")
+
+    if as_of is not None and as_known_at is not None:
+        return True, "valid_and_known"
+    if as_of is not None:
+        return True, "valid_at_as_of"
+    return True, "known_by_as_known_at"
+
+
+def _temporal_v1_visibility(
+    meta: Mapping[str, Any],
+    *,
+    as_of: Optional[datetime],
+    as_known_at: Optional[datetime],
+    current: datetime,
+    include_stale: bool,
+    include_unknown_time: bool,
+) -> TemporalDecision:
+    valid_from = _stored_temporal_instant(meta, "valid_from")
+    valid_to = _stored_temporal_instant(meta, "valid_to")
+    occurred = bool(meta.get("occurred_at") or meta.get("occurred_on"))
+    valid_state = (
+        "bounded" if valid_from is not None and valid_to is not None
+        else "open_ended" if valid_from is not None
+        else "occurrence" if occurred
+        else "unknown"
+    )
+    admission: Optional[str] = None
+    query_match: Optional[bool] = None
+    if as_of is not None or as_known_at is not None:
+        allowed, admission = temporal_v1_admission(
+            meta,
+            as_of=as_of,
+            as_known_at=as_known_at,
+            include_temporally_unknown=include_unknown_time,
+        )
+        if not allowed:
+            return TemporalDecision(
+                False, "excluded", valid_state, admission, admission=admission, query_match=False
+            )
+        query_match = admission not in TEMPORAL_UNKNOWN_ADMISSIONS
+        reason = admission
+    else:
+        # Current view keeps the legacy current-time checks, with the v1
+        # exclusive ``valid_to`` end.
+        first_known = _stored_temporal_instant(meta, "known_at") or _stored_temporal_instant(
+            meta, "observed_at"
+        )
+        if first_known is not None and first_known > current:
+            return TemporalDecision(False, "not_yet_known", "known_later", "not_known_at_requested_time")
+        if valid_from is not None and current < valid_from:
+            return TemporalDecision(False, "not_yet_valid", "future", "not_valid_at_requested_time")
+        if valid_to is not None and current >= valid_to:
+            return TemporalDecision(False, "expired", "historical", "validity_window_ended")
+        retired_until = _stored_temporal_instant(meta, "valid_until")
+        if retired_until is not None and current > retired_until:
+            return TemporalDecision(False, "expired", "historical", "validity_window_ended")
+        if valid_state == "unknown" and not include_unknown_time:
+            return TemporalDecision(False, "unknown", valid_state, "unknown_valid_time_excluded")
+        reason = "visible"
+    stale_after = _stored_temporal_instant(meta, "stale_after")
+    last_verified = _stored_temporal_instant(meta, "last_verified_at")
+    freshness_reference = max(as_of or current, as_known_at or current)
+    if stale_after is not None and freshness_reference > stale_after:
+        return TemporalDecision(
+            include_stale,
+            "stale",
+            valid_state,
+            "stale_record_included" if include_stale else "stale_record_excluded",
+            admission=admission,
+            query_match=query_match,
+        )
+    freshness = "fresh" if last_verified is not None else "unknown"
+    return TemporalDecision(True, freshness, valid_state, reason, admission=admission, query_match=query_match)
+
+
+def temporal_admission_annotations(
+    decision: TemporalDecision,
+    *,
+    as_of: Optional[str],
+    as_known_at: Optional[str],
+) -> dict[str, Any]:
+    """Machine-readable admission labels for an explicit temporal query."""
+
+    admission = decision.admission or LEGACY_TEMPORAL_ADMISSION
+    exact_match = decision.query_match is True
+    annotations: dict[str, Any] = {
+        "temporal_admission": admission,
+        "temporal_query_match": exact_match,
+    }
+    if as_of:
+        annotations["temporal_as_of"] = as_of
+        annotations["temporal_as_of_match"] = exact_match
+    if as_known_at:
+        annotations["temporal_as_known_at"] = as_known_at
+        annotations["temporal_as_known_at_match"] = exact_match
+    return annotations
 
 
 def temporal_visibility(
@@ -386,9 +622,20 @@ def temporal_visibility(
     now: Optional[datetime] = None,
 ) -> TemporalDecision:
     current = _utc_now(now)
-    effective_at = parse_timestamp(as_of, field_name="as_of") or current
-    known_at = parse_timestamp(as_known_at, field_name="as_known_at") or current
+    as_of_at = parse_timestamp(as_of, field_name="as_of")
+    as_known_cutoff = parse_timestamp(as_known_at, field_name="as_known_at")
+    effective_at = as_of_at or current
+    known_at = as_known_cutoff or current
     meta = dict(metadata or {})
+    if is_temporal_v1_metadata(meta):
+        return _temporal_v1_visibility(
+            meta,
+            as_of=as_of_at,
+            as_known_at=as_known_cutoff,
+            current=current,
+            include_stale=include_stale,
+            include_unknown_time=include_unknown_time,
+        )
     if not any(
         key in meta
         for key in (
@@ -586,8 +833,15 @@ class MemorySearchFilters:
         allowed_statuses = {"active", "superseded", "tombstoned", "historical", "conflicted"}
         if any(item not in allowed_statuses for item in statuses):
             raise MemoryFilterError("unsupported memory status filter")
-        as_of_dt = parse_timestamp(raw.get("as_of"), field_name="as_of")
-        known_dt = parse_timestamp(raw.get("as_known_at"), field_name="as_known_at")
+        try:
+            as_of_dt = parse_timestamp(raw.get("as_of"), field_name="as_of")
+            known_dt = parse_timestamp(raw.get("as_known_at"), field_name="as_known_at")
+        except MemoryFilterError:
+            raise
+        except (MemoryGovernanceError, OverflowError, ValueError) as exc:
+            # A malformed or date-only cutoff is a caller error (422), not a
+            # backend/governance outage (503).
+            raise MemoryFilterError(str(exc)) from exc
         return cls(
             source_ids=_bounded_filter_values("source_ids", raw.get("source_ids")),
             source_paths=_bounded_filter_values("source_paths", raw.get("source_paths")),
@@ -696,22 +950,32 @@ def compile_chroma_where(
         current = _utc_now()
         effective_at = as_of or current
         freshness_at = as_known_at or as_of or current
-        clauses.extend(
-            [
-                {"temporal_index_version": 1},
-                {"valid_time_known": True},
-                {"valid_from_epoch": {"$lte": int(effective_at.timestamp())}},
-                {"valid_until_epoch": {"$gte": int(effective_at.timestamp())}},
-            ]
-        )
+        temporal_clauses: list[dict[str, Any]] = [
+            {"temporal_index_version": 1},
+            {"valid_time_known": True},
+            {"valid_from_epoch": {"$lte": int(effective_at.timestamp())}},
+            {"valid_until_epoch": {"$gte": int(effective_at.timestamp())}},
+        ]
         if as_known_at is not None:
-            clauses.append(
+            temporal_clauses.append(
                 {"known_at_epoch": {"$lte": int(as_known_at.timestamp())}}
             )
         if not filters.include_stale:
-            clauses.append(
+            temporal_clauses.append(
                 {"stale_after_epoch": {"$gte": int(freshness_at.timestamp())}}
             )
+        # Temporal-v1 rows use an exclusive valid_to, occurrence time and
+        # ingestion time that the legacy epoch columns cannot express. Never
+        # prefilter them away; the post-fetch recheck (temporal_visibility)
+        # is authoritative for them.
+        clauses.append(
+            {
+                "$or": [
+                    {"$and": temporal_clauses},
+                    {"temporal_schema_version": TEMPORAL_MEMORY_SCHEMA_VERSION},
+                ]
+            }
+        )
     if not clauses:
         return None
     if len(clauses) == 1:
@@ -1184,8 +1448,19 @@ class MemoryGovernanceStore:
             confidence = max(0.0, min(1.0, float(normalized.get("confidence", 0.5))))
         except (TypeError, ValueError):
             confidence = 0.5
+        raw_authority = normalized.get("authority_rank")
+        source_authority = normalized.get("source_authority")
+        if (
+            raw_authority is None
+            and is_temporal_v1_metadata(normalized)
+            and isinstance(source_authority, int)
+            and not isinstance(source_authority, bool)
+        ):
+            # Same rule as the librarian ranking: an explicit source authority
+            # counts only on a temporal-v1 row and never over authority_rank.
+            raw_authority = source_authority
         try:
-            authority = max(0, min(100, int(normalized.get("authority_rank", 0))))
+            authority = max(0, min(100, int(raw_authority if raw_authority is not None else 0)))
         except (TypeError, ValueError):
             authority = 0
         now = _iso(_utc_now())

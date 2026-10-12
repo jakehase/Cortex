@@ -1846,3 +1846,9 @@ def test_restart_reconciliation_finalizes_uncertain_fallback_publication(
     finally:
         connection.close()
     assert status == "committed"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_l22_governance_db(monkeypatch, tmp_path):
+    """Each test gets its own memory-governance DB (outbox identities are per test)."""
+    monkeypatch.setenv("CORTEX_MEMORY_GOVERNANCE_DB", str(tmp_path / "memory_governance.sqlite3"))

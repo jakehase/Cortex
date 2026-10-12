@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 
@@ -9,6 +10,7 @@ import pytest
 import cortex_server.main as main
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.memory_scope import AuthenticatedMemoryPrincipal, memory_scope_signature
+import cortex_server.routers.homeassistant as homeassistant
 import cortex_server.routers.orchestrator as orchestrator
 
 
@@ -238,6 +240,56 @@ async def test_kernel_telemetry_requires_authentication_and_is_operationally_red
         {"CortexAdminToken": []},
         {"CortexPrincipalSignature": []},
     ]
+
+
+def test_homeassistant_is_unmounted_in_safe_mode_and_never_leaks_state(
+    monkeypatch,
+):
+    monkeypatch.setenv("CORTEX_SAFE_MODE", "true")
+    app = _configured_app(monkeypatch)
+    monkeypatch.setattr(
+        homeassistant,
+        "_ha_cfg",
+        lambda: {"configured": True, "url": "https://ha.example", "token": "fixture", "verify_ssl": True},
+    )
+    monkeypatch.setattr(
+        homeassistant,
+        "_ha_request",
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "configured": True,
+            "status": 200,
+            "data": {"message": "API running."},
+        },
+    )
+
+    async def exercise() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Production safe mode does not mount the Home Assistant router at
+            # all, so nothing (availability or entity state) is reachable and the
+            # configured token can never leak.
+            unsigned = await client.get("/homeassistant/status")
+            assert unsigned.status_code in {403, 404}
+
+            available = await client.get(
+                "/homeassistant/status", headers=_principal_headers(ALICE_SCOPE)
+            )
+            assert available.status_code in {403, 404}
+            assert "fixture" not in available.text
+
+            private_state = await client.get(
+                "/homeassistant/states/calendar.family",
+                headers=_principal_headers(ALICE_SCOPE),
+            )
+            assert private_state.status_code in {403, 404}
+            assert "fixture" not in private_state.text
+
+    asyncio.run(exercise())
+
+    paths = app.openapi()["paths"]
+    assert "/homeassistant/status" not in paths
+    assert "/homeassistant/states/{entity_id}" not in paths
 
 
 @pytest.mark.asyncio

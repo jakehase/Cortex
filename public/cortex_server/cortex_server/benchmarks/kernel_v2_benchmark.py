@@ -90,7 +90,7 @@ class BenchmarkHarness:
             patch.object(nexus, "analyze_intent_with_oracle", lambda q, **_kwargs: {"confidence": 0.0, "levels": [], "reasoning": "benchmark-stub", "method": "benchmark_stub"}),
             patch.object(nexus, "gather_live_evidence", lambda *a, **k: {"required": False, "mode": "not_required", "evidence_count": 0, "degraded": False}),
             patch.object(nexus, "_architect_healthy", lambda *_args, **_kwargs: True),
-            patch.object(meta_conductor, "_probe_level", self._fake_probe_level),
+            patch.object(meta_conductor, "_probe_targets", self._fake_probe_targets),
         ]
         for item in self._patches:
             item.start()
@@ -173,6 +173,8 @@ class BenchmarkHarness:
         adaptive_policies=None,
         backend_policy_override: Optional[JsonDict] = None,
         principal_scope_key: str = "benchmark-principal",
+        origin_channel: Optional[str] = None,
+        request_prompt: Optional[str] = None,
     ):
         normalized = self._normalize(prompt)
         tail = normalized[-320:]
@@ -195,6 +197,9 @@ class BenchmarkHarness:
         if "capital of texas" in tail:
             return ("Austin.", "benchmark-model", "fallback_fact")
         return (f"Benchmark stub response: {prompt[:120]}", "benchmark-model", "stub")
+
+    async def _fake_probe_targets(self, app, levels, timeout_seconds: float):
+        return [await self._fake_probe_level(None, level, timeout_seconds) for level in levels]
 
     async def _fake_probe_level(self, client, level: int, timeout_seconds: float):
         return {

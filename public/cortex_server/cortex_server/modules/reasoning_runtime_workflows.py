@@ -351,6 +351,7 @@ async def execute_runtime_batch(
     workflow_policy_settings_fn: WorkflowPolicySettingsFn,
     scheduler_error_cls: type[Exception],
     process_execution_fence_fn: Optional[Callable[[str], Any]] = None,
+    client_factory: Optional[Callable[[], httpx.AsyncClient]] = None,
 ) -> JsonDict:
     executed: List[JsonDict] = []
     remaining = max(0, int(limit))
@@ -358,7 +359,7 @@ async def execute_runtime_batch(
     if remaining <= 0 or not list(initial.get("runnable") or []):
         return {"tick": initial, "executed": executed, "executed_count": 0}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with (client_factory() if client_factory is not None else httpx.AsyncClient(timeout=30.0)) as client:
         while remaining > 0:
             tick = scheduler_tick_fn(now_iso=now_iso, limit=remaining)
             runnable = list(tick.get("runnable") or [])

@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Callable, Any
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
-from .subprocess_lifecycle import spawn_owned, stop_process
+from .subprocess_lifecycle import spawn_owned, stop_process, wait_for_owned_spawn
 
 
 class FFmpegError(Exception):
@@ -141,9 +141,10 @@ async def _spawn_owned(*args: str, **kwargs: Any) -> Any:
 
 async def _spawn_before(deadline: float, *args: str, **kwargs: Any) -> Any:
     """Spawn within a deadline while retaining ownership on cancellation."""
-    return await asyncio.wait_for(
+    return await wait_for_owned_spawn(
         _spawn_owned(*args, **kwargs),
         max(0.0, deadline - asyncio.get_running_loop().time()),
+        _stop_process,
     )
 
 

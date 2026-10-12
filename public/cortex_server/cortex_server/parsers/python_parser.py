@@ -136,6 +136,19 @@ class PythonParser(ast.NodeVisitor):
         # Visit all nodes
         self.visit(tree)
         
+        # Atomic graph storage requires every edge endpoint to exist. References
+        # are not declarations: represent unresolved symbols explicitly, just as
+        # the JavaScript parser does, without weakening storage scope checks.
+        missing = sorted({edge[key] for edge in self.edges
+                          for key in ("source_id", "target_id")
+                          if edge[key] not in self._node_ids})
+        if len(self.nodes) + len(self.edges) + len(missing) > self.config.max_records:
+            result.errors.append(ParseError(filepath, "Python reference nodes exceed record limit"))
+        else:
+            for reference in missing:
+                self._add_node({"id": reference, "type": "Entity", "name": reference,
+                                "uri": reference, "language": "python",
+                                "metadata": {"inferred": True}})
         result.nodes = self.nodes
         result.edges = self.edges
         return result

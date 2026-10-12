@@ -262,7 +262,20 @@ type RunState = {
   creativity?: CreativityProfile;
   creativityAudit?: CreativityAudit | CreativityRetryMetadata;
   statePaths: PrincipalStatePaths;
+  semantic?: { method: string; selected: number[]; needs: string[]; executed?: number[] };
 };
+
+// Tool name -> Cortex level it exercises (for routing feedback telemetry).
+function levelsForToolName(toolName: string): number[] {
+  const name = String(toolName || '').toLowerCase();
+  const levels: number[] = [];
+  if (/web_search|web_fetch|browse|browser|ghost/.test(name)) levels.push(2);
+  if (/memory|recall|librarian|mnemosyne/.test(name)) levels.push(7);
+  if (/(^|_)(exec|bash|shell|python|run_code|code_interpreter|process)($|_)/.test(name)) levels.push(4);
+  if (/read|pdf|parse|document|file/.test(name) && !levels.includes(7)) levels.push(3);
+  if (/cron|schedule|remind/.test(name)) levels.push(8);
+  return levels;
+}
 
 type RouteOutcomeReceipt = {
   schemaVersion: 'cortex.route-gate.outcome.v1';
@@ -546,6 +559,34 @@ function latestUserTurnText(messages: unknown[]): string {
   }
   return '';
 }
+// The text of the turn being answered. Live channel runs pass the new message
+// only in `prompt`, and `messages` holds earlier history, whose last user entry
+// is the PREVIOUS turn (an assistant reply follows it). Some runtime paths
+// instead put a wrapper in `prompt` and the real ask as the final history
+// entry. So: if the history ends on a user entry with no reply after it, that
+// entry is the current turn; otherwise the current turn is the prompt itself.
+function structuredCurrentTurn(messages: unknown[]): string {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const item = list[i];
+    if (!item || typeof item !== 'object') continue;
+    const role = String((item as any).role || '').toLowerCase();
+    if (!role || role === 'system' || role === 'developer') continue;
+    if (role === 'user') {
+      const text = flattenMessageText(item).trim();
+      if (text) return text;
+      continue;
+    }
+    return ''; // assistant / tool output after the last user entry: that entry is stale
+  }
+  return '';
+}
+function currentTurnText(prompt: string, messages: unknown[]): string {
+  const structured = structuredCurrentTurn(messages);
+  if (structured) return structured;
+  const text = String(prompt || '').trim();
+  return text.length > 12_000 ? text.slice(-12_000) : text;
+}
 function tailIntentText(prompt: string): string {
   const tokens = normalizePrompt(prompt).split(' ').filter(Boolean);
   return tokens.slice(-48).join(' ').trim();
@@ -778,6 +819,410 @@ async function postJson(url: string, body: unknown, timeoutMs: number, maxRespon
     }
   } finally { clearTimeout(t); }
 }
+const ORACLE_BRIEF_HEADINGS = ['NEEDS', 'SUBSTANCE', 'RISKS', 'REPLY SHAPE', 'FACTS', 'ASSUMPTIONS', 'UNKNOWNS', 'VERIFY', 'CONFIDENCE', 'STAKES', 'NEEDS CHECK', 'LEVELS', 'AGENT WORK', 'CHANGES'];
+
+// Cortex levels Oracle may select semantically for a turn (canonical registry,
+// cortex_server/modules/level_registry.py). Always-on levels are added by Nexus
+// regardless, so only these are choosable. Each entry: [level, name, use when / not for].
+const ORACLE_ALWAYS_ON_LEVELS = new Set([5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]);
+const ORACLE_SELECTABLE_LEVELS: Array<[number, string, string]> = [
+  [1, 'Kernel', 'use when the user asks about the health, load or status of their own servers, containers or Cortex itself. Not for general tech questions.'],
+  [2, 'Ghost', 'use when the answer depends on facts that can change or need a source: current versions, prices, rules, payer or coding policy, news, weather, products, anything "latest" or "still". Not for timeless explanations.'],
+  [3, 'Parser', 'use when a document, file, PDF, spreadsheet, ERA/EOB or long pasted text must be read or extracted. Not for short messages.'],
+  [4, 'Lab', 'use when numbers must be calculated, data analyzed, or code run or tested. Not for reading code or simple mental arithmetic.'],
+  [6, 'Bard', 'use only when audio or speech output is requested.'],
+  [7, 'Librarian', 'use when the reply depends on the user\'s own past work, decisions, preferences, people, clients or earlier conversations ("what did we decide", "where did we leave", "my contact"). Not for general knowledge.'],
+  [8, 'Cron', 'use when the user wants something scheduled, recurring, reminded or monitored over time.'],
+  [9, 'Architect', 'use when designing a system, app, data model or infrastructure. Not for small edits.'],
+  [10, 'Listener', 'use only when audio must be transcribed or analyzed.'],
+  [11, 'Catalyst', 'use when diagnosing slowness or optimizing performance or cost.'],
+  [12, 'Hive', 'use when work should be split across many parallel workers.'],
+  [13, 'Dreamer', 'use when looking for gaps, improvements or what-if scenarios.'],
+  [14, 'Chronos', 'use for maintenance windows and coordinating timing of system work.'],
+  [15, 'Council', 'use when a decision has real trade-offs, risks or several options to weigh. Not for simple factual questions.'],
+  [16, 'Academy', 'use when the user wants to learn or be taught a topic step by step.'],
+  [19, 'Geneticist', 'use when refactoring or evolving existing code across several options.'],
+  [26, 'Orchestrator', 'use when the work is a multi-step workflow, rollout, pipeline or multi-part build.'],
+  [28, 'Polyglot', 'use when text must be translated or written in another language.'],
+  [29, 'Muse', 'use when original ideas, names, creative copy or brainstorming are wanted. Not for routine drafting or edits.'],
+  [30, 'Seer', 'use when the user wants a prediction, forecast or trend judgement.'],
+  [31, 'Mediator', 'use when resolving a conflict or disagreement between people.'],
+  [37, 'Awareness', 'use only for questions about Cortex\'s own internal state or self-reflection.'],
+  [38, 'Augmenter', 'use only when the request is unclear and must be reinterpreted or repaired.'],
+];
+const ORACLE_SELECTABLE_LEVEL_NAMES = new Map(ORACLE_SELECTABLE_LEVELS.map(([level, name]) => [level, name]));
+const ORACLE_MAX_SEMANTIC_LEVELS = 6;
+const ORACLE_LEVEL_CATALOG = ORACLE_SELECTABLE_LEVELS.map(([level, name, guide]) => `L${level} ${name}: ${guide}`).join('\n');
+
+// Needs checklist: Oracle answers fixed yes/no questions about the turn; each
+// "yes" deterministically adds the level that serves that need.
+const ORACLE_NEEDS_CHECK: Array<[string, number[], string]> = [
+  ['current_info', [2], 'the core answer itself depends on information that changes over time or must come from a current outside source (latest versions, prices, current rules or payer policy, news, weather, product comparisons). Not for timeless explanations, the user\'s own data, builds or internal tasks'],
+  ['past_context', [7], 'a correct reply needs the user\'s own earlier work, decisions, preferences, people, clients or conversations that are not in the visible conversation. Not merely because the topic is the user\'s business'],
+  ['computation', [4], 'the user asks for a calculation, data analysis, or for code to be run or tested to answer. Not for writing, planning or explaining'],
+  ['documents', [3], 'the user provided or points to a specific document, file, PDF or long pasted text that must be read or extracted'],
+  ['scheduling', [8], 'the user wants something scheduled, recurring, reminded or monitored over time'],
+  ['deliberation', [15], 'the user faces a decision or risk question with real trade-offs to weigh'],
+  ['creative', [29], 'the user wants original ideas, names or creative copy (not routine drafting or edits)'],
+  ['forecasting', [30], 'the user asks for a prediction or how something will likely change'],
+  ['translation', [28], 'text must be translated or written in another language'],
+  ['system_health', [1], 'the user asks about the health, load or status of their own servers or Cortex'],
+  ['system_design', [9], 'the user wants a software system, app, data model or infrastructure designed or built (not process or business planning)'],
+  ['multi_step_build', [26], 'the work is a substantial multi-part build, workflow or multi-step rollout to plan or orchestrate'],
+];
+const ORACLE_NEEDS_CHECK_KEYS = new Map(ORACLE_NEEDS_CHECK.map(([key, levels]) => [key, levels]));
+const ORACLE_NEEDS_CHECK_TEXT = ORACLE_NEEDS_CHECK.map(([key, , meaning]) => `- ${key}: yes if ${meaning}`).join('\n');
+
+// Non-sensitive profile so stakes, verification and level choices fit the
+// owner's actual work. Overridable via plugin config `oracleOwnerContext`.
+const ORACLE_DEFAULT_OWNER_CONTEXT = [
+  'The user is Jake. He runs PMHNP Billing, a medical billing service for psychiatric mental-health nurse practitioners (claims, CPT/ICD coding, payer rules, credentialing, denials, invoices).',
+  'He also builds Cortex, his self-hosted AI system (an OpenClaw gateway with a WhatsApp front end on a Proxmox container), and related agent-orchestration projects.',
+  'He values correctness and quality over speed. Billing, coding, payer, credentialing and compliance facts change often and are costly to get wrong: treat them as needing current verification.',
+  'Never include patient-identifying details.',
+].join(' ');
+
+function buildOracleConsultSystem(ownerContext: string): string {
+  return [
+    'You are Oracle, the L5 deep-reasoning layer of Cortex.',
+    'A separate main assistant will write the actual reply to the user; you are briefing that assistant, not the user.',
+    ...(ownerContext ? [`OWNER CONTEXT: ${ownerContext}`] : []),
+    'Think carefully about the latest user message in the context of the recent conversation, then write the brief using exactly these section headings, each starting its own line:',
+    'NEEDS: what the user actually needs, including any implicit need.',
+    'SUBSTANCE: the key reasoning, answer, facts, numbers, steps or edge cases a strong reply must get right.',
+    'RISKS: likely mistakes, ambiguities and traps.',
+    'REPLY SHAPE: the recommended structure, length and tone of the reply.',
+    'FACTS: bullet list of points you are confident are true and current.',
+    'ASSUMPTIONS: bullet list of things you are assuming but were not told.',
+    'UNKNOWNS: bullet list of things you do not know or that may have changed (write "none" if there are none).',
+    'VERIFY: bullet list of specific claims the assistant should check with its tools or current sources before stating them (write "none" if there are none).',
+    'CONFIDENCE: a decimal between 0 and 1 (for example 0.75) for how likely it is that SUBSTANCE is correct and complete.',
+    'STAKES: low, medium or high, then a short reason. Use high only when a factual mistake in the reply would directly cause a wrong claim, payment, billing code, deadline, legal or regulatory problem, or harm to someone. A business topic alone is not high stakes; brainstorming, drafting, ideas and general advice are usually low or medium.',
+    'NEEDS CHECK: answer every line below with exactly "yes" or "no", one per line as "<key>: yes" or "<key>: no". Be strict: answer yes only when a correct reply cannot be produced without that capability; when in doubt answer no. Most messages have zero or one yes; small talk and simple edits have none. Decide from what a correct reply requires, not from the words used.',
+    ORACLE_NEEDS_CHECK_TEXT,
+    'LEVELS: any further Cortex level from the catalog below that is clearly required and not already implied by a NEEDS CHECK yes (usually "none"). One per line as "L<number> <name> - <short reason>", at most 2, or "none".',
+    'AGENT WORK: "recommended - <one-line reason and rough shape>" when the user wants a substantial software product or system built, cloned or overhauled that has several distinct parts (for example a full web app with portals, scheduling, billing and reminders, or a platform with many interlocking features), even if they did not mention agents; otherwise "none". Questions, advice, planning discussions and small or single-file changes are "none".',
+    'Judge confidence, stakes, needs, levels and agent work honestly from the meaning of the request, not from its wording.',
+    'If a SESSION CONTINUITY section is given, use it to resolve references (it, that, the earlier plan) and to stay consistent with prior decisions; it can be stale, so prefer the conversation where they conflict.',
+    'Be specific and correct. Say plainly when you are unsure. Do not address the user and do not write the final reply. Stay under about 500 words.',
+    '',
+    'LEVEL CATALOG (use when / not for; always-on levels such as Oracle, Mnemosyne memory, Validator and Synthesist are added automatically, do not list them):',
+    ORACLE_LEVEL_CATALOG,
+  ].join('\n');
+}
+
+function buildOracleCriticSystem(ownerContext: string): string {
+  return [
+    'You are the critique pass of Oracle, the L5 deep-reasoning layer of Cortex. Your output is read only by the main assistant, never by the user, so do not write a reply to the user.',
+    ...(ownerContext ? [`OWNER CONTEXT: ${ownerContext}`] : []),
+    'You are given a conversation and a draft brief that another Oracle pass wrote for the main assistant. The draft was flagged as high stakes or low confidence.',
+    'Attack the draft: find claims that are wrong, unsupported, outdated, overconfident or missing an important caveat, and anything important it left out. Check every number, rule, deadline, code and requirement it states.',
+    'Move anything you cannot confirm into UNKNOWNS or VERIFY instead of stating it as fact. Do not invent certainty.',
+    'OUTPUT FORMAT (mandatory): begin your output with the line "NEEDS:" and use exactly these section headings in this order, each at the start of its own line: NEEDS, SUBSTANCE, RISKS, REPLY SHAPE, FACTS, ASSUMPTIONS, UNKNOWNS, VERIFY, CONFIDENCE, STAKES, NEEDS CHECK, LEVELS, AGENT WORK, CHANGES.',
+    'CONFIDENCE is a decimal between 0 and 1. STAKES is low, medium or high plus a short reason. NEEDS CHECK, LEVELS and AGENT WORK keep the draft\'s format (correct them if they do not fit the request). CHANGES is a bullet list of each correction you made and why (write "none" if the draft was already right). No other headings, no preamble and no suggested reply. Stay under about 550 words.',
+    '',
+    'NEEDS CHECK keys:',
+    ORACLE_NEEDS_CHECK_TEXT,
+    '',
+    'LEVEL CATALOG for LEVELS:',
+    ORACLE_LEVEL_CATALOG,
+  ].join('\n');
+}
+
+const ORACLE_CONSULT_SYSTEM = buildOracleConsultSystem(ORACLE_DEFAULT_OWNER_CONTEXT);
+const ORACLE_CRITIC_SYSTEM = buildOracleCriticSystem(ORACLE_DEFAULT_OWNER_CONTEXT);
+
+function isOracleInternalRun(ctx: any, rawSessionKey: string): boolean {
+  const agent = String(ctx?.agentId || '').trim().toLowerCase();
+  if (agent === 'oracle') return true;
+  return /(^|:)agent:oracle:|oracle-gateway-|oracle-prod-bridge-/i.test(String(rawSessionKey || ''));
+}
+
+function oracleConversationExcerpt(messages: unknown[], maxMessages = 8, maxCharsEach = 1_500, maxTotal = 9_000): string {
+  const picked: string[] = [];
+  let total = 0;
+  for (let index = messages.length - 1; index >= 0 && picked.length < maxMessages; index -= 1) {
+    const message = messages[index];
+    if (!isRecord(message) || (message.role !== 'user' && message.role !== 'assistant')) continue;
+    const text = visibleMessageText(message);
+    if (!text || isInternalContextText(text)) continue;
+    const line = `${message.role === 'user' ? 'USER' : 'ASSISTANT'}: ${boundedText(text, maxCharsEach)}`;
+    if (total + line.length > maxTotal) break;
+    picked.push(line);
+    total += line.length;
+  }
+  return picked.reverse().join('\n\n');
+}
+
+type OracleSemanticLevel = { level: number; name: string; reason: string };
+type OracleAgentWork = { recommended: boolean; note: string };
+
+type OracleBriefParse = {
+  sections: Record<string, string>;
+  sectionCount: number;
+  confidence: number | null;
+  stakes: string;
+  counts: { facts: number; assumptions: number; unknowns: number; verify: number };
+  changes: number;
+  // null = section missing or unparseable (fall back to Nexus routing);
+  // [] = Oracle explicitly chose no optional levels.
+  levels: OracleSemanticLevel[] | null;
+  agentWork: OracleAgentWork | null;
+  needsCheck: Record<string, boolean> | null;
+};
+
+type OracleConsultResult = {
+  ok: boolean;
+  text: string;
+  model: string;
+  reason: string;
+  ms: number;
+  lane?: string;
+  stakes?: string;
+  confidence?: number | null;
+  sectionCount?: number;
+  counts?: { facts: number; assumptions: number; unknowns: number; verify: number };
+  critique?: { fired: boolean; ok: boolean; ms: number; changes: number; reason: string; lane?: string };
+  levels?: OracleSemanticLevel[] | null;
+  agentWork?: OracleAgentWork | null;
+  needsCheck?: Record<string, boolean> | null;
+  codecChars?: number;
+  codecReason?: string;
+};
+
+function oracleHeadingMatch(line: string): { heading: string; rest: string } | null {
+  const m = /^\s*(?:[#>*\-]+\s*)?\**\s*(NEEDS[ _]CHECK|NEEDS|SUBSTANCE|RISKS|REPLY SHAPE|FACTS|ASSUMPTIONS|UNKNOWNS|VERIFY|CONFIDENCE|STAKES|LEVELS|AGENT[ _]WORK|CHANGES)\s*\**\s*:\s*\**\s*(.*)$/i.exec(line);
+  return m ? { heading: m[1].toUpperCase().replace('_', ' '), rest: m[2] } : null;
+}
+
+function parseOracleLevels(raw: string | undefined): OracleSemanticLevel[] | null {
+  if (raw === undefined) return null;
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  if (/^\**\s*(none|n\/a|no levels?|nothing)\b/i.test(text)) return [];
+  const picked: OracleSemanticLevel[] = [];
+  const seen = new Set<number>();
+  for (const line of text.split('\n')) {
+    const pattern = /\bL\s?(\d{1,2})\b/g;
+    let match: RegExpExecArray | null;
+    let first = true;
+    // "L7 Librarian - reason mentioning L2" names one level; "L2, L7" names several.
+    const singleLevelLine = /^\s*(?:[-*•]|\d+[.)])?\s*L\s?\d{1,2}\b[^,;]*?\s[-:—–]\s+\S/.test(line);
+    while ((match = pattern.exec(line)) !== null) {
+      if (!first && singleLevelLine) break;
+      const level = Number(match[1]);
+      if (!ORACLE_SELECTABLE_LEVEL_NAMES.has(level) || seen.has(level)) continue;
+      seen.add(level);
+      const reason = first ? line.replace(/^\s*(?:[-*•]|\d+[.)])?\s*/, '').replace(/^\s*L\s?\d{1,2}\s*[A-Za-z_ ]{0,24}?\s*[-:—–]\s*/, '').trim() : '';
+      first = false;
+      picked.push({ level, name: ORACLE_SELECTABLE_LEVEL_NAMES.get(level) || `L${level}`, reason: boundedText(reason, 200) });
+      if (picked.length >= ORACLE_MAX_SEMANTIC_LEVELS) return picked;
+    }
+  }
+  // Text present but no catalog level found: treat as unparseable, not "none".
+  return picked.length ? picked : null;
+}
+
+function parseOracleAgentWork(raw: string | undefined): OracleAgentWork | null {
+  if (raw === undefined) return null;
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  if (/^\**\s*(none|n\/a|no|not recommended)\b/i.test(text)) return { recommended: false, note: '' };
+  if (/^\**\s*recommended\b/i.test(text)) {
+    return { recommended: true, note: boundedText(text.replace(/^\**\s*recommended\s*[-:—–]?\s*/i, '').trim(), 400) };
+  }
+  return null;
+}
+
+function parseOracleNeedsCheck(raw: string | undefined): Record<string, boolean> | null {
+  if (raw === undefined) return null;
+  const flags: Record<string, boolean> = {};
+  for (const line of String(raw || '').split('\n')) {
+    const m = /^\s*(?:[-*•]\s*)?\**\s*([a-z_ ]{3,40}?)\s*\**\s*[:=-]\s*\**\s*(yes|no|true|false|y|n)\b/i.exec(line);
+    if (!m) continue;
+    const key = m[1].trim().toLowerCase().replace(/\s+/g, '_');
+    if (!ORACLE_NEEDS_CHECK_KEYS.has(key)) continue;
+    flags[key] = /^(yes|true|y)$/i.test(m[2]);
+  }
+  // Require most of the checklist so a garbled section never drives routing.
+  return Object.keys(flags).length >= Math.ceil(ORACLE_NEEDS_CHECK.length * 0.6) ? flags : null;
+}
+
+// Combine the needs checklist (each "yes" adds its level) with any extra LEVELS
+// picks. Returns null only when neither part is usable (Nexus routing stays).
+function combineOracleSemanticLevels(needs: Record<string, boolean> | null | undefined, extra: OracleSemanticLevel[] | null | undefined): OracleSemanticLevel[] | null {
+  if (!needs && !Array.isArray(extra)) return null;
+  const out: OracleSemanticLevel[] = [];
+  const seen = new Set<number>();
+  if (needs) {
+    for (const [key, levels] of ORACLE_NEEDS_CHECK) {
+      if (!needs[key]) continue;
+      for (const level of levels) {
+        if (seen.has(level) || !ORACLE_SELECTABLE_LEVEL_NAMES.has(level)) continue;
+        seen.add(level);
+        out.push({ level, name: ORACLE_SELECTABLE_LEVEL_NAMES.get(level) || `L${level}`, reason: `needs check: ${key}` });
+      }
+    }
+  }
+  for (const item of Array.isArray(extra) ? extra : []) {
+    if (seen.has(item.level)) continue;
+    seen.add(item.level);
+    out.push(item);
+  }
+  return out.slice(0, ORACLE_MAX_SEMANTIC_LEVELS);
+}
+
+// Semantic routing: Oracle's level choice (made from the meaning of the turn)
+// replaces Nexus's provider-selected optional levels, which today come from
+// keyword markers because Nexus's own semantic step has no compatible provider.
+// Always-on, local-mandatory and local-governor levels are kept unchanged.
+function applyOracleSemanticRouting(plan: RoutePlan, levels: OracleSemanticLevel[] | null | undefined): { plan: RoutePlan; applied: boolean; added: number[]; removed: number[] } {
+  if (!Array.isArray(levels)) return { plan, applied: false, added: [], removed: [] };
+  const keep = plan.recommendedLevels.filter((level) => level.alwaysOn === true || level.origin === 'local_mandatory' || level.origin === 'local_governor' || ORACLE_ALWAYS_ON_LEVELS.has(level.level) || level.level === 24 || level.level === 5);
+  const keptLevels = new Set(keep.map((level) => level.level));
+  const selected = new Set(levels.map((item) => item.level));
+  const removed = plan.recommendedLevels.filter((level) => !keptLevels.has(level.level) && !selected.has(level.level)).map((level) => level.level);
+  const additions: RouteLevel[] = levels
+    .filter((item) => !keptLevels.has(item.level))
+    .map((item) => ({
+      level: item.level,
+      name: item.name,
+      reason: boundedText(`L5 Oracle semantic selection${item.reason ? `: ${item.reason}` : ''}`, 600),
+      method: 'oracle_semantic',
+      alwaysOn: false,
+      origin: 'provider' as const,
+    }));
+  const recommendedLevels = uniqueLevels([...keep, ...additions]).slice(0, 64);
+  const next: RoutePlan = {
+    ...plan,
+    recommendedLevels,
+    routingMethod: 'oracle_semantic',
+    reasoning: [
+      `L5 Oracle semantic routing selected ${levels.length ? levels.map((item) => `L${item.level} ${item.name}`).join(', ') : 'no optional levels'} from the meaning of the request.`,
+      ...(plan.reasoning || []),
+    ].slice(0, 128),
+    routingMarkers: {
+      ...(plan.routingMarkers || {}),
+      oracleSemanticRouting: {
+        version: 'cortex.route-gate.oracle-semantic.v1',
+        previousRoutingMethod: String(plan.routingMethod || 'nexus_orchestration').slice(0, 200),
+        selected: levels.map((item) => item.level),
+        removed,
+      },
+    },
+  };
+  if (!isRoutePlan(next) || next.recommendedLevels.length < 1) return { plan, applied: false, added: [], removed: [] };
+  return { plan: next, applied: true, added: additions.map((item) => item.level), removed };
+}
+
+function oracleListCount(body: string): number {
+  const text = String(body || '').trim();
+  if (!text || /^(none|n\/a|nothing|-)\.?$/i.test(text)) return 0;
+  const items = text.split('\n').filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+\S/.test(line));
+  if (items.length) return items.filter((line) => !/^\s*(?:[-*•]|\d+[.)])\s+(none|n\/a)\.?\s*$/i.test(line)).length;
+  return 1;
+}
+
+function oracleConsultTriggerAllowed(ctx: any): boolean {
+  // Only real user turns get an Oracle brief; heartbeat, cron and other
+  // system-triggered runs skip it (cost and latency with no reader).
+  const trigger = String(ctx?.trigger || '').trim().toLowerCase();
+  return !trigger || trigger === 'user';
+}
+
+function parseOracleConfidence(raw: string): number | null {
+  const text = String(raw || '').trim().toLowerCase();
+  if (!text) return null;
+  const outOfTen = /(\d+(?:\.\d+)?)\s*\/\s*10\b/.exec(text);
+  if (outOfTen) {
+    const value = Number(outOfTen[1]) / 10;
+    if (Number.isFinite(value) && value >= 0 && value <= 1) return value;
+  }
+  const num = /(\d*\.\d+|\d+)\s*(%)?/.exec(text);
+  if (num) {
+    let value = Number(num[1]);
+    if (num[2] === '%' || value > 1) value = value / 100;
+    if (Number.isFinite(value) && value >= 0 && value <= 1) return value;
+  }
+  const words: Array<[RegExp, number]> = [
+    [/very\s+high|near(?:ly)?\s+certain|\bcertain\b/, 0.95],
+    [/very\s+low/, 0.2],
+    [/\bhigh\b/, 0.85],
+    [/moderate|medium|\bfair\b/, 0.65],
+    [/\blow\b/, 0.4],
+  ];
+  for (const [pattern, value] of words) if (pattern.test(text)) return value;
+  return null;
+}
+
+function parseOracleBrief(text: string): OracleBriefParse {
+  const sections: Record<string, string> = {};
+  let current = '';
+  for (const line of String(text || '').split('\n')) {
+    const hit = oracleHeadingMatch(line);
+    if (hit) {
+      current = hit.heading;
+      sections[current] = hit.rest.trim();
+      continue;
+    }
+    if (current) sections[current] = `${sections[current]}\n${line}`.trim();
+  }
+  const confidence = parseOracleConfidence(sections.CONFIDENCE || '');
+  const stakesMatch = /\b(low|medium|high)\b/i.exec(sections.STAKES || '');
+  return {
+    sections,
+    sectionCount: Object.keys(sections).filter((key) => key !== 'CHANGES').length,
+    confidence,
+    stakes: stakesMatch ? stakesMatch[1].toLowerCase() : '',
+    counts: {
+      facts: oracleListCount(sections.FACTS || ''),
+      assumptions: oracleListCount(sections.ASSUMPTIONS || ''),
+      unknowns: oracleListCount(sections.UNKNOWNS || ''),
+      verify: oracleListCount(sections.VERIFY || ''),
+    },
+    changes: oracleListCount(sections.CHANGES || ''),
+    levels: parseOracleLevels(sections.LEVELS),
+    agentWork: parseOracleAgentWork(sections['AGENT WORK']),
+    needsCheck: parseOracleNeedsCheck(sections['NEEDS CHECK']),
+  };
+}
+
+// Remove sections that are routing metadata or critique bookkeeping, not
+// guidance for the main assistant (CHANGES, LEVELS, AGENT WORK).
+function stripOracleChangesSection(text: string): string {
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of String(text || '').split('\n')) {
+    const hit = oracleHeadingMatch(line);
+    if (hit) skipping = hit.heading === 'CHANGES' || hit.heading === 'LEVELS' || hit.heading === 'AGENT WORK' || hit.heading === 'NEEDS CHECK';
+    if (!skipping) out.push(line);
+  }
+  return out.join('\n').trim();
+}
+
+function renderOracleBrief(result: OracleConsultResult): string {
+  if (!result.ok) {
+    return 'CORTEX_L5_ORACLE_BRIEF: unavailable for this turn (Cortex Oracle did not return a verified answer). Do the deep reasoning yourself with full care.';
+  }
+  const tags: string[] = [];
+  if (result.model) tags.push(result.model);
+  tags.push(`stakes=${result.stakes || 'unrated'}`);
+  tags.push(`confidence=${typeof result.confidence === 'number' ? result.confidence.toFixed(2) : 'unrated'}`);
+  if (result.critique?.ok) tags.push(`checked by Oracle critique pass, ${result.critique.changes} correction(s)`);
+  const lines = [
+    `CORTEX_L5_ORACLE_BRIEF (from Cortex Oracle; ${tags.join('; ')}; advisory):`,
+    result.text,
+    'How to use this brief: it is expert input from the Cortex reasoning layer. Weigh it against the conversation. Items under UNKNOWNS and VERIFY are things Oracle could not confirm: check them with your tools (memory, web) before stating them as fact, or say plainly that they are unconfirmed. Where the brief conflicts with the user\'s instructions or with what you can verify, follow the user and the evidence. Do not mention the brief unless asked.',
+  ];
+  if (result.agentWork?.recommended) {
+    lines.push(
+      `CORTEX_AGENT_WORK_SUGGESTION (from Cortex Oracle): this request looks like a large multi-part build that suits a coordinated multi-agent Agent Work run${result.agentWork.note ? ` (${result.agentWork.note})` : ''}.`,
+      'In your reply, after answering what you can, briefly offer the user a multi-agent run: what it would build, the main parts it would split into, and a rough agent count. Do not start, schedule or launch any run, and do not say one is running, unless the user explicitly says yes in a later message.',
+    );
+  }
+  return lines.join('\n');
+}
+
 function hasLevel(plan: RoutePlan, level: number): boolean { return plan.recommendedLevels.some((x) => x.level === level); }
 function classifyTask(prompt: string): string {
   const p = normalizePrompt(prompt);
@@ -1344,7 +1789,66 @@ function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
     '- Do not quietly collapse all buckets into adjacent ideas.',
   ].join('\n');
 }
-function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityRetryMetadata, taskClassOverride?: string): string {
+type LevelExecutionRow = {
+  level: number; name: string; status: string; reason: string; summary: string;
+  origin: string; model: string; elapsedMs: number; receiptId: string;
+};
+type LevelExecutionResult = { ok: boolean; rows: LevelExecutionRow[]; reason: string; ms: number };
+
+const LEVEL_DISPLAY_NAMES: Record<number, string> = {
+  1: 'Kernel', 2: 'Ghost', 3: 'Parser', 4: 'Lab', 6: 'Bard', 7: 'Librarian', 8: 'Cron', 9: 'Architect',
+  10: 'Listener', 11: 'Catalyst', 12: 'Hive', 13: 'Dreamer', 14: 'Chronos', 15: 'Council', 16: 'Academy',
+  17: 'Exoskeleton', 18: 'Diplomat', 19: 'Geneticist', 20: 'Simulator', 21: 'Sentinel', 22: 'Mnemosyne',
+  23: 'Cartographer', 25: 'Bridge', 26: 'Orchestrator', 27: 'Forge', 28: 'Polyglot', 29: 'Muse', 30: 'Seer',
+  31: 'Mediator', 32: 'Synthesist', 33: 'Ethicist', 34: 'Validator', 35: 'Singularity', 36: 'Meta Conductor',
+  37: 'Awareness', 38: 'Augmenter',
+};
+
+function parseLevelExecutionResponse(response: any): LevelExecutionRow[] | null {
+  if (!isRecord(response) || response.success !== true || !Array.isArray(response.executed)) return null;
+  const rows: LevelExecutionRow[] = [];
+  for (const item of response.executed.slice(0, 12)) {
+    if (!isRecord(item)) continue;
+    const level = Number(item.level);
+    if (!Number.isInteger(level) || level < 1 || level > 38) continue;
+    rows.push({
+      level,
+      name: boundedText(String(item.name || LEVEL_DISPLAY_NAMES[level] || `L${level}`), 40),
+      status: ['succeeded', 'blocked', 'failed'].includes(String(item.status)) ? String(item.status) : 'failed',
+      reason: boundedText(String(item.reason || ''), 80),
+      summary: boundedText(String(item.summary || ''), 1_500),
+      origin: boundedText(String(item.origin || ''), 24),
+      model: boundedText(String(item.model || ''), 60),
+      elapsedMs: Number.isFinite(Number(item.elapsed_ms)) ? Number(item.elapsed_ms) : 0,
+      receiptId: boundedText(String(item.receipt_id || ''), 80),
+    });
+  }
+  return rows;
+}
+
+function renderLevelResults(result: LevelExecutionResult | null): string {
+  if (!result) return '';
+  if (!result.ok) return `CORTEX_LEVEL_RESULTS\nexecution: unavailable (${result.reason || 'error'}); selected levels did not run this turn — do not imply they did.`;
+  if (!result.rows.length) return '';
+  const lines = [
+    'CORTEX_LEVEL_RESULTS',
+    'These Cortex levels actually ran for this turn (observed output). Use them as evidence and advice; verify before relying on them, keep what is useful, ignore what is not, and do not mention level names to the user unless asked. A blocked or failed level produced nothing — never present its absence as a finding.',
+  ];
+  let budget = 7_000;
+  for (const row of result.rows) {
+    const label = `L${row.level} ${LEVEL_DISPLAY_NAMES[row.level] || row.name}`;
+    if (row.status !== 'succeeded') {
+      lines.push(`- ${label}: ${row.status}${row.reason ? ` (${row.reason})` : ''}`);
+      continue;
+    }
+    const summary = row.summary.slice(0, Math.max(0, Math.min(1_500, budget)));
+    budget -= summary.length;
+    lines.push(`- ${label} [${row.origin || 'unknown'}${row.model ? `, ${row.model}` : ''}, ${(row.elapsedMs / 1000).toFixed(1)}s]: ${summary || '(no summary)'}`);
+  }
+  return lines.join('\n');
+}
+
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityRetryMetadata, taskClassOverride?: string, executedLevels: Set<number> = new Set()): string {
   const renderedTaskClass = taskClassOverride || classifyTask(prompt);
   const locallyMandatory = new Set<number>([24, 5]);
   if (renderedTaskClass === 'coding') { locallyMandatory.add(4); locallyMandatory.add(27); locallyMandatory.add(34); }
@@ -1365,7 +1869,7 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
         : (origin === 'local_mandatory' || locallyMandatory.has(x.level))
           ? 'local_mandatory'
           : 'optional';
-    return `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''} [origin=${origin}; policy=${policy}; execution=not_observed]`;
+    return `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''} [origin=${origin}; policy=${policy}; execution=${executedLevels.has(x.level) ? 'observed' : 'not_observed'}]`;
   }).join('\n');
   const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
   const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3 };
@@ -1378,7 +1882,7 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
     'CORTEX_ROUTE_GATE',
     `routing_method: ${plan.routingMethod || 'nexus_orchestration'}`,
     `routing_provenance: ${cachedFallback ? 'authenticated_cache_plus_local_policy' : (reusedLivePlan ? 'principal_scoped_validated_live_plan_reuse_plus_local_policy' : 'live_provider_plus_local_policy')}`,
-    'execution_evidence: recommendations_only_not_observed_by_route_gate',
+    executedLevels.size ? `execution_evidence: levels_executed_this_turn=${[...executedLevels].sort((a, b) => a - b).map((n) => `L${n}`).join(',')}; others_recommendation_only` : 'execution_evidence: recommendations_only_not_observed_by_route_gate',
     `level_cap: scope=${String(levelPolicy.capScope || 'optional_only')} optional_limit=${String(levelPolicy.optionalLimit ?? 'unknown')} mandatory_count=${String(levelPolicy.mandatoryCount ?? 'unknown')} all_mandatory_retained=${String(levelPolicy.allMandatoryRetained ?? 'unknown')}`,
     'Before answering, apply the following routed recommendations and local policy for this turn:',
     levels || '- L24 Nexus\n- L5 Oracle',
@@ -1413,6 +1917,25 @@ export default function register(api: any) {
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
   const maxResponseBytes = asNumber(cfg.maxResponseBytes, 1_048_576);
+  const oracleConsultEnabled = asBool(cfg.oracleConsultEnabled, false);
+  const oracleConsultRequired = asBool(cfg.oracleConsultRequired, false);
+  const oracleConsultTimeoutMs = Math.min(600_000, Math.max(5_000, asNumber(cfg.oracleConsultTimeoutMs, 180_000)));
+  const oracleConsultMaxBriefChars = Math.min(20_000, Math.max(500, asNumber(cfg.oracleConsultMaxBriefChars, 6_000)));
+  const oracleCritiqueEnabled = asBool(cfg.oracleCritiqueEnabled, true);
+  const oracleCritiqueConfidenceThreshold = Math.min(1, Math.max(0, asNumber(cfg.oracleCritiqueConfidenceThreshold, 0.6)));
+  const oracleCritiqueMinBudgetMs = 90_000;
+  // Oracle's semantic level choice replaces Nexus's keyword-derived optional levels.
+  const oracleSemanticRoutingEnabled = asBool(cfg.oracleSemanticRoutingEnabled, true);
+  // Selection is not execution: run the levels Oracle selected for this turn
+  // (server-side, principal-scoped, side-effect free) and inject their output.
+  const levelExecutionEnabled = asBool(cfg.levelExecutionEnabled, true);
+  const levelExecutionTimeoutMs = Math.min(150_000, Math.max(10_000, asNumber(cfg.levelExecutionTimeoutMs, 90_000)));
+  const oracleCodecContextEnabled = asBool(cfg.oracleCodecContextEnabled, true);
+  const oracleOwnerContext = typeof cfg.oracleOwnerContext === 'string' && cfg.oracleOwnerContext.trim()
+    ? boundedText(cfg.oracleOwnerContext.trim(), 1_500)
+    : ORACLE_DEFAULT_OWNER_CONTEXT;
+  const oracleConsultSystem = buildOracleConsultSystem(oracleOwnerContext);
+  const oracleCriticSystem = buildOracleCriticSystem(oracleOwnerContext);
   const maxRoutingPromptBytes = asNumber(cfg.maxRoutingPromptBytes, 262_144);
   const writeToken = typeof cfg.writeToken === 'string' && cfg.writeToken.length > 0 ? String(cfg.writeToken) : null;
   const writeTokenHeader = normalizeWriteTokenHeader(cfg.writeTokenHeader);
@@ -1757,8 +2280,10 @@ export default function register(api: any) {
   async function getPlan(prompt: string, messages: unknown[], sessionKey: string | undefined, trustedContext: any): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string; statePaths: PrincipalStatePaths; stateKey: string }> {
     const principal = principalState(trustedContext, String(sessionKey || ''));
     const { statePaths } = principal;
-    const isolatedUserIntent = latestUserTurnText(messages);
-    const intentText = isolatedUserIntent || tailIntentText(prompt);
+    // Only a structured, current user turn may feed private retrieval; the raw
+    // prompt can carry accumulated context. Intent falls back to the prompt.
+    const isolatedUserIntent = structuredCurrentTurn(messages);
+    const intentText = currentTurnText(prompt, messages) || tailIntentText(prompt);
     const fingerprint = opaquePromptFingerprint(prompt, sessionIdentityHmacSecret);
     const reuseFingerprint = livePlanFingerprint(prompt);
     let plan: RoutePlan | null = reusableLivePlan(principal.stateKey, reuseFingerprint);
@@ -1917,6 +2442,215 @@ export default function register(api: any) {
     return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey: principal.stateKey };
   }
 
+  async function callOracleOnce(promptText: string, systemText: string, principal: any, timeoutMs: number, withCodec = false): Promise<{ text: string; model: string; lane: string; reason: string; codecChars?: number }> {
+    try {
+      const response: any = await postJson(
+        `${baseUrl}/oracle/chat`,
+        { prompt: promptText, system: systemText, model: 'auto', response_mode: 'final_only' },
+        Math.max(1_000, timeoutMs),
+        maxResponseBytes,
+        { ...nexusPrincipalHeaders(principal.scope, principal.sessionIdentity), 'x-augmenter-bypass': '1', 'x-cortex-oracle-consult': '1', ...(withCodec ? { 'x-cortex-oracle-codec': '1' } : {}) },
+      );
+      const text = typeof response?.response === 'string' ? response.response.trim() : '';
+      const model = String(response?.model || '').slice(0, 80);
+      const origin = String(response?.origin || '').slice(0, 60);
+      const lane = String(response?.lane || '').slice(0, 60);
+      if (!text) return { text: '', model, lane, reason: 'empty_response' };
+      if (response?.done !== true || response?.provider_invoked !== true || response?.degraded === true
+        || /tinyllama|ollama|emergency|static|deterministic/i.test(`${model} ${origin}`)) {
+        return { text: '', model, lane, reason: `unverified_completion origin=${origin || 'unknown'} model=${model || 'unknown'}` };
+      }
+      const codecChars = Number(response?.routing_trace?.codec_chars);
+      return { text, model, lane, reason: '', codecChars: Number.isFinite(codecChars) ? codecChars : 0 };
+    } catch (error) {
+      return { text: '', model: '', lane: '', reason: safeErrorSummary(error) };
+    }
+  }
+
+  function recordOracleTelemetry(result: OracleConsultResult): void {
+    try {
+      const file = path.join(stateDir, 'oracle-consult-telemetry.jsonl');
+      const row = {
+        ts: new Date().toISOString(),
+        ok: result.ok,
+        ms: result.ms,
+        model: result.model || '',
+        lane: result.lane || '',
+        stakes: result.stakes || '',
+        confidence: typeof result.confidence === 'number' ? Number(result.confidence.toFixed(3)) : null,
+        sections: result.sectionCount || 0,
+        counts: result.counts || null,
+        critique: result.critique || null,
+        semanticLevels: Array.isArray(result.levels) ? result.levels.map((item) => item.level) : null,
+        needs: result.needsCheck ? Object.entries(result.needsCheck).filter(([, value]) => value).map(([key]) => key) : null,
+        agentWork: result.agentWork ? result.agentWork.recommended : null,
+        codecChars: result.codecChars ?? 0,
+        codecReason: String(result.codecReason || '').slice(0, 120),
+        reason: String(result.reason || '').slice(0, 160),
+      };
+      fs.appendFileSync(file, `${JSON.stringify(row)}\n`, { mode: 0o600 });
+      const stat = fs.statSync(file);
+      if (stat.size > 1_048_576) {
+        const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+        fs.writeFileSync(file, `${lines.slice(-2_000).join('\n')}\n`, { mode: 0o600 });
+      }
+    } catch (error) {
+      api.logger.warn?.(`cortex-route-gate: oracle telemetry not recorded ${safeErrorSummary(error)}`);
+    }
+  }
+
+  // Routing feedback: which levels Oracle selected vs which tools the main
+  // assistant actually used. Metadata only (no message text).
+  function recordSemanticFeedback(rs: RunState, success: boolean): void {
+    if (!rs.semantic) return;
+    try {
+      const tools = Array.from(new Set(rs.toolCalls.map((call) => /^[A-Za-z0-9_.:-]{1,128}$/.test(call.toolName) ? call.toolName : 'opaque_tool')));
+      const used = Array.from(new Set(tools.flatMap((tool) => levelsForToolName(tool)))).sort((a, b) => a - b);
+      const row = {
+        ts: new Date().toISOString(),
+        method: rs.semantic.method,
+        selected: rs.semantic.selected,
+        needs: rs.semantic.needs,
+        executed: rs.semantic.executed || [],
+        tools,
+        usedLevels: used,
+        missed: used.filter((level) => !rs.plan.recommendedLevels.some((item) => item.level === level)),
+        unused: rs.semantic.selected.filter((level) => !used.includes(level)),
+        success,
+        outputObserved: rs.outputObserved,
+      };
+      const file = path.join(stateDir, 'semantic-routing-feedback.jsonl');
+      fs.appendFileSync(file, `${JSON.stringify(row)}\n`, { mode: 0o600 });
+      const stat = fs.statSync(file);
+      if (stat.size > 2_097_152) {
+        const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+        fs.writeFileSync(file, `${lines.slice(-5_000).join('\n')}\n`, { mode: 0o600 });
+      }
+    } catch (error) {
+      api.logger.warn?.(`cortex-route-gate: semantic feedback not recorded ${safeErrorSummary(error)}`);
+    }
+  }
+
+  async function executeSelectedLevels(levels: number[], currentIntent: string, messages: unknown[], oracle: OracleConsultResult, needs: string[], routingMethod: string, rawSessionKey: string, ctx: any): Promise<LevelExecutionResult> {
+    const started = Date.now();
+    try {
+      const principal = principalState(ctx, rawSessionKey);
+      const response = await postJson(
+        `${baseUrl}/nexus/execute`,
+        {
+          query: boundedText(currentIntent, 8_000),
+          levels: levels.slice(0, 8),
+          conversation: boundedText(oracleConversationExcerpt(messages) || '', 6_000),
+          oracle_brief: boundedText(stripOracleChangesSection(oracle.text || ''), 12_000),
+          needs: needs.slice(0, 16),
+          routing_method: routingMethod.slice(0, 64),
+          deadline_s: Math.max(5, Math.floor((levelExecutionTimeoutMs - 5_000) / 1000)),
+        },
+        levelExecutionTimeoutMs,
+        1_048_576,
+        nexusPrincipalHeaders(principal.scope, principal.sessionIdentity),
+      );
+      const rows = parseLevelExecutionResponse(response);
+      if (!rows) return { ok: false, rows: [], reason: 'invalid_response', ms: Date.now() - started };
+      return { ok: true, rows, reason: '', ms: Date.now() - started };
+    } catch (error) {
+      return { ok: false, rows: [], reason: safeErrorSummary(error).slice(0, 120), ms: Date.now() - started };
+    }
+  }
+
+  async function consultOracle(currentIntent: string, messages: unknown[], rawSessionKey: string, ctx: any): Promise<OracleConsultResult> {
+    const started = Date.now();
+    const result: OracleConsultResult = {
+      ok: false, text: '', model: '', reason: '', ms: 0, lane: '', stakes: '', confidence: null, sectionCount: 0,
+      counts: { facts: 0, assumptions: 0, unknowns: 0, verify: 0 },
+      critique: { fired: false, ok: false, ms: 0, changes: 0, reason: '' },
+    };
+    try {
+      const principal = principalState(ctx, rawSessionKey);
+      const context = [
+        'RECENT CONVERSATION (oldest first):',
+        oracleConversationExcerpt(messages) || '(none)',
+        '',
+        'LATEST USER MESSAGE:',
+        boundedText(currentIntent, 8_000),
+      ].join('\n');
+      const first = await callOracleOnce(
+        [oracleConsultSystem, '', context, '', 'Write the brief for the main assistant now, using the section headings above.'].join('\n'),
+        oracleConsultSystem,
+        principal,
+        oracleConsultTimeoutMs,
+        // Cortex Codec: Oracle adds this principal's session-continuity packet server-side.
+        oracleCodecContextEnabled,
+      );
+      result.codecChars = first.codecChars ?? 0;
+      if (oracleCodecContextEnabled && !result.codecChars) result.codecReason = first.text ? 'codec_empty' : 'no_response';
+      if (!oracleCodecContextEnabled) result.codecReason = 'disabled';
+      if (!first.text) {
+        result.reason = first.reason;
+        result.model = first.model;
+        result.lane = first.lane;
+      } else {
+        let finalText = first.text;
+        let parsed = parseOracleBrief(first.text);
+        const draftParsed = parsed;
+        result.ok = true;
+        result.model = first.model;
+        result.lane = first.lane;
+        const flagged = parsed.stakes === 'high' || (parsed.confidence !== null && parsed.confidence < oracleCritiqueConfidenceThreshold);
+        if (oracleCritiqueEnabled && flagged) {
+          const remaining = oracleConsultTimeoutMs - (Date.now() - started);
+          result.critique!.fired = true;
+          if (remaining < oracleCritiqueMinBudgetMs) {
+            result.critique!.reason = 'no_time_budget';
+          } else {
+            const critiqueStarted = Date.now();
+            const second = await callOracleOnce(
+              [oracleCriticSystem, '', context, '', 'DRAFT BRIEF TO REVIEW:', boundedText(first.text, 12_000), '', 'Now write the corrected brief for the main assistant. Begin your output with "NEEDS:" and follow the OUTPUT FORMAT above exactly; do not write a reply to the user.'].join('\n'),
+              oracleCriticSystem,
+              principal,
+              remaining - 5_000,
+            );
+            result.critique!.ms = Date.now() - critiqueStarted;
+            result.critique!.lane = second.lane;
+            if (!second.text) {
+              result.critique!.reason = second.reason.slice(0, 160);
+            } else {
+              const revised = parseOracleBrief(second.text);
+              if (revised.sectionCount >= 3 && revised.sections.SUBSTANCE) {
+                finalText = second.text;
+                parsed = revised;
+                result.critique!.ok = true;
+                result.critique!.changes = revised.changes;
+              } else {
+                result.critique!.reason = 'critique_unparsed';
+              }
+            }
+          }
+        }
+        result.text = boundedText(stripOracleChangesSection(finalText), oracleConsultMaxBriefChars);
+        result.stakes = parsed.stakes;
+        result.confidence = parsed.confidence;
+        result.sectionCount = parsed.sectionCount;
+        result.counts = parsed.counts;
+        // A critique pass that drops the routing sections must not erase the
+        // draft's semantic choice.
+        result.needsCheck = parsed.needsCheck ?? draftParsed.needsCheck;
+        result.levels = combineOracleSemanticLevels(result.needsCheck, parsed.levels ?? draftParsed.levels);
+        result.agentWork = parsed.agentWork ?? draftParsed.agentWork;
+      }
+    } catch (error) {
+      result.ok = false;
+      result.text = '';
+      result.reason = safeErrorSummary(error);
+    }
+    result.ms = Date.now() - started;
+    if (result.ok) {
+      api.logger.info?.(`cortex-route-gate: oracle brief stakes=${result.stakes || 'unrated'} confidence=${typeof result.confidence === 'number' ? result.confidence.toFixed(2) : 'unrated'} sections=${result.sectionCount} unknowns=${result.counts?.unknowns ?? 0} verify=${result.counts?.verify ?? 0} needs=${result.needsCheck ? (Object.entries(result.needsCheck).filter(([, value]) => value).map(([key]) => key).join(',') || 'none') : 'unparsed'} levels=${Array.isArray(result.levels) ? (result.levels.map((item) => item.level).join(',') || 'none') : 'unparsed'} agent_work=${result.agentWork ? result.agentWork.recommended : 'unparsed'} codec_chars=${result.codecChars ?? 0}${result.codecReason ? ` codec_reason=${result.codecReason}` : ''} lane=${result.lane || 'unknown'} critique=${result.critique?.fired ? (result.critique.ok ? `ok changes=${result.critique.changes} ms=${result.critique.ms}` : `skipped:${result.critique.reason}`) : 'not_needed'}`);
+    }
+    recordOracleTelemetry(result);
+    return result;
+  }
+
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
@@ -1928,6 +2662,10 @@ export default function register(api: any) {
       api.logger.info?.(`cortex-route-gate: bypassed internal oracle session_type=internal_oracle principal_hash=${bypassStateKey || sha256Metadata(rawSessionKey)}`);
       return;
     }
+    // Cortex L5: consult Oracle on every user turn, in parallel with live routing.
+    const oracleConsultPromise: Promise<OracleConsultResult> | null = oracleConsultEnabled && oracleConsultTriggerAllowed(ctx) && !isOracleInternalRun(ctx, rawSessionKey)
+      ? consultOracle(currentTurnText(prompt, eventMessages) || tailIntentText(prompt), eventMessages, rawSessionKey, ctx)
+      : null;
     let route;
     try {
       route = await getPlan(prompt, eventMessages, rawSessionKey, ctx);
@@ -1936,7 +2674,39 @@ export default function register(api: any) {
       api.logger.warn?.(`cortex-route-gate: optional routing skipped ${safeErrorSummary(error)}`);
       return;
     }
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
+    const { plan: routedPlan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText, statePaths, stateKey } = route;
+    // Wait for the parallel Oracle consult before recording run state, so the
+    // plan the outcome receipt is checked against is the one actually rendered.
+    let oracleBlock = '';
+    let plan = routedPlan;
+    let semanticNeeds: string[] = [];
+    let levelExecution: LevelExecutionResult | null = null;
+    const executedLevels = new Set<number>();
+    if (oracleConsultPromise) {
+      const oracle = await oracleConsultPromise;
+      api.logger.info?.(`cortex-route-gate: oracle consult ${oracle.ok ? 'ok' : 'unavailable'} ms=${oracle.ms} chars=${oracle.text.length}${oracle.ok ? ` model=${oracle.model}` : ` reason=${oracle.reason.slice(0, 200)}`}`);
+      if (!oracle.ok && oracleConsultRequired) throw new Error(`required Cortex Oracle consult failed: ${oracle.reason.slice(0, 200)}`);
+      oracleBlock = renderOracleBrief(oracle);
+      if (oracle.needsCheck) semanticNeeds = Object.entries(oracle.needsCheck).filter(([, value]) => value).map(([key]) => key);
+      if (oracle.ok && oracleSemanticRoutingEnabled) {
+        const semantic = applyOracleSemanticRouting(routedPlan, oracle.levels);
+        if (semantic.applied) {
+          plan = semantic.plan;
+          api.logger.info?.(`cortex-route-gate: oracle semantic routing applied added=${semantic.added.join(',') || 'none'} removed=${semantic.removed.join(',') || 'none'} total=${plan.recommendedLevels.length}`);
+        } else {
+          api.logger.info?.(`cortex-route-gate: oracle semantic routing not applied (levels ${Array.isArray(oracle.levels) ? 'invalid plan' : 'unparsed'}); keeping Nexus plan method=${routedPlan.routingMethod || 'unknown'}`);
+        }
+        const selectedForExecution = Array.isArray(oracle.levels)
+          ? oracle.levels.map((item) => item.level).filter((level) => level !== 5 && level !== 24)
+          : [];
+        if (levelExecutionEnabled && selectedForExecution.length) {
+          const promptIntent = currentTurnText(prompt, eventMessages) || tailIntentText(prompt);
+          levelExecution = await executeSelectedLevels(selectedForExecution, promptIntent, eventMessages, oracle, semanticNeeds, String(plan.routingMethod || ''), rawSessionKey, ctx);
+          for (const row of levelExecution.rows) if (row.status === 'succeeded') executedLevels.add(row.level);
+          api.logger.info?.(`cortex-route-gate: level execution ${levelExecution.ok ? 'ok' : `unavailable reason=${levelExecution.reason}`} ms=${levelExecution.ms} ran=${levelExecution.rows.map((row) => `L${row.level}:${row.status}${row.status === 'succeeded' ? '' : `(${row.reason})`}`).join(',') || 'none'}`);
+        }
+      }
+    }
     const priorContinuity = stateKey ? continuityByKey.get(stateKey) : undefined;
     const recentUsers = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'user', 6);
     const currentIntent = intentText || prompt;
@@ -1965,6 +2735,12 @@ export default function register(api: any) {
         creativity,
         creativityAudit: retryAudit,
         statePaths,
+        semantic: {
+          method: String(plan.routingMethod || 'nexus_orchestration').slice(0, 80),
+          selected: plan.recommendedLevels.filter((level) => level.method === 'oracle_semantic').map((level) => level.level),
+          needs: semanticNeeds,
+          executed: [...executedLevels],
+        },
       });
       const nextContinuity: ContinuityState = priorContinuity || { latestUserPrompt: '', artifacts: [], updatedAt: 0, compactionRisk: false };
       nextContinuity.latestUserPrompt = boundedText(currentIntent, 4_000);
@@ -1977,7 +2753,8 @@ export default function register(api: any) {
     if (stateKey && retryAudit && creativity.requested) updateCreativityMetrics(statePaths.creativityMetrics, (metrics) => { metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; });
     api.logger.info?.(`cortex-route-gate: appended self-model block principal=${stateKey || 'unknown'} degraded_count=${(selfModel.degraded || []).length} predicted_count=${predictedChecks.length} creativity=${creativity.requested} intent_chars=${intentText.length} intent_hash=${crypto.createHmac('sha256', sessionIdentityHmacSecret).update(intentText, 'utf8').digest('hex')}`);
     const requestLock = renderActiveRequestLock(currentIntent, priorRequest, baseArtifact, Boolean(priorContinuity?.compactionRisk));
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}` };
+    const levelResultsBlock = renderLevelResults(levelExecution);
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}` };
   });
 
   api.on('after_compaction', async (event: any, ctx: any) => {
@@ -2126,6 +2903,7 @@ export default function register(api: any) {
     const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
+    recordSemanticFeedback(rs, Boolean(event?.success));
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const runCompleted = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
     // `agent_end.success` only means the runtime stopped normally. It does not

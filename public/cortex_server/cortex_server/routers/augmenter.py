@@ -1,29 +1,30 @@
-"""L38 Augmenter — Model-Adaptive Guardrails (Real-World)
+"""L38 Augmenter — output-contract guardrails around an Oracle answer.
 
-CLEAR GOAL
-- Make the *current* base model (as configured in Cortex) more reliable in real-world use
-  by compensating for known failure modes (formatting, tool-json, numeric), while keeping
-  average latency close to baseline.
+What it does (POST /augmenter/chat):
 
-PURPOSE
-- Provide a distinct, HUD-visible layer that decides *how hard to push* the model per request.
-- Use canonical model identity from config (runtime.base_model) — no behavioral guessing.
+1. Infers the output contract the prompt asks for (``tool_json``,
+   ``choice_letter``, ``numeric``, ``code``, ``freeform``) and any required
+   ``Source: path#Lx`` citations (``modules.augmenter``).
+2. For clearly operational prompts (multi-word ops intents such as "database
+   migration" or "rollback plan") it adds two in-process inputs: a read-only
+   Sentinel health snapshot and an L20 Simulator run. No watchers are
+   registered and no HTTP self-calls are made.
+3. Generates the answer through ``/oracle/chat`` with the caller's forwarded
+   principal and write token (completion receipt required).
+4. Validates the answer deterministically; at most one model repair.
+5. Returns ``ok: true`` only when the final answer passes its contract. A
+   failing answer is still returned in ``response`` but with ``ok: false``.
+   Missing citations are reported, never appended.
 
-METHOD (AUTO, latency-aware)
-- Fast path: 1x Oracle call → validate → return.
-- Repair path (gated): if risk is high or validation fails → 1x repair call → validate → return.
-- Future escalation hooks: self-consistency / judge loops, but only when explicitly needed.
-
-Endpoints
-- POST /augmenter/chat   (returns {response, augmenter{decision,risk,validation,...}})
-- GET  /augmenter/status (reports base_model + enabled)
+GET /augmenter/status reports measured counters and honours AUGMENTER_ENABLED
+(when false, /chat answers 503 ``augmenter_disabled``).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,22 +32,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from cortex_server.internal_addressing import internal_url
+from cortex_server.modules import augmenter as core
+from cortex_server.modules import level_model
 
 router = APIRouter(tags=["augmenter"])
-
-SENTINEL_WATCH_URL = internal_url("/sentinel/watch")
-SENTINEL_SCAN_URL = internal_url("/sentinel/scan")
-
-BRIDGE_DELEGATION_ENABLED = os.getenv('BRIDGE_DELEGATION_ENABLED','false').lower() in ('1','true','yes')
-BRIDGE_TOKEN = os.getenv('BRIDGE_TOKEN','')
 
 CONFIG_PATHS = [
     Path("/app/config/openclaw_config.json"),
     Path("/opt/clawdbot/openclaw_config.json"),
 ]
+DEGRADED_FAILURE_RATE = 0.5
+SIMULATOR_DEADLINES_S = {"fast": 30.0, "deep": 45.0}
 
 
 @dataclass
@@ -56,17 +56,20 @@ class PolicyDecision:
     kind: str  # freeform|choice_letter|tool_json|numeric|code
     level: int  # 0 fast, 1 repair
     reason: str
+    risk_basis: str = "routing_heuristic"
+
 
 class AugmenterChatRequest(BaseModel):
     prompt: str = Field(min_length=1)
+    system: Optional[str] = None
     response_mode: str = "final_only"
     priority: str = "normal"
     latency_budget_ms: Optional[int] = None
+    # Accepted for compatibility. External bridge delegation was removed: it
+    # forwarded the user's prompt to an external connection and discarded the reply.
     allow_external: bool = False
     external_connection_id: Optional[str] = None
     simulator_mode: Optional[str] = None
-
-
 
 
 def _load_openclaw_config() -> Dict[str, Any]:
@@ -81,271 +84,62 @@ def _load_openclaw_config() -> Dict[str, Any]:
 
 def _get_base_model() -> str:
     cfg = _load_openclaw_config()
-    return (
-        cfg.get("runtime", {}).get("base_model")
-        or cfg.get("runtime", {}).get("model")
-        or "unknown"
-    )
+    return cfg.get("runtime", {}).get("base_model") or cfg.get("runtime", {}).get("model") or "unknown"
 
 
-_STRICT_MARKERS = re.compile(
-    r"\b(only|exactly|must|do not|dont|json|single|uppercase|lowercase|letter)\b",
-    re.I,
-)
-
-_CITATION_PATTERN = re.compile(r"Source:\s*([A-Za-z0-9_./-]+#L?\d+(?:-\d+)?)", re.I)
-
-
-def _classify_kind(prompt: str) -> str:
-    p = (prompt or "").lower()
-
-    json_intent = any(k in p for k in ["json", "strict json", "valid json", "json only", "no prose", "no markdown"])
-    tool_intent = any(k in p for k in ["tool", "tool call", "function", "function call", "invocation", "arguments", "args", "params", "parameters", "schema", "keys"])
-    key_pair_hint = bool(
-        re.search(
-            r"keys?\s+['\"]?(tool|function|name)['\"]?\s*(?:and|,|&)\s*['\"]?(args|arguments|params|parameters)['\"]?",
-            p,
-            re.I,
-        )
-    )
-
-    if (json_intent and (tool_intent or key_pair_hint)):
-        return "tool_json"
-    if "{" in p and "}" in p and any(k in p for k in ["json", "tool", "function", "arguments", "args", "params"]):
-        return "tool_json"
-    if "option" in p and any(x in p for x in ["a)", "b)", "c)", "d)"]):
-        return "choice_letter"
-    if "letter only" in p or "option letter" in p:
-        return "choice_letter"
-    if any(w in p for w in ["compute", "solve", "seconds", "hours", "minutes", "area", "sum", "convert"]):
-        return "numeric"
-    if any(w in p for w in ["write a function", "python", "javascript", "typescript", "sql", "code"]):
-        return "code"
-    return "freeform"
+# Backward-compatible names for the deterministic helpers.
+_classify_kind = core.classify_kind
+_validate = core.validate
+_extract_requested_citations = core.requested_citations
+_extract_citations = core.answer_citations
+_citation_gap = core.citation_gap
 
 
-
-
-_OPS_RISK_MARKERS = re.compile(
-    r"\b(deploy|deployment|rollout|rollback|release|hotfix|incident|outage|downtime|slo|sla|latency|ops|operational|risk|blast radius|canary|feature flag|migrate|migration|database|schema|prod|production)\b",
-    re.I,
-)
-
-async def _sentinel_preflight_ops() -> Dict[str, Any]:
-    """Run a fast Sentinel preflight for ops/deploy prompts."""
-    targets = [
-        internal_url("/health"),
-        internal_url("/oracle/status"),
-        internal_url("/augmenter/status"),
-    ]
-    try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            for t in targets:
-                await client.post(SENTINEL_WATCH_URL, json={
-                    'name': 'preflight',
-                    'watch_type': 'endpoint',
-                    'target': t,
-                    'timeout_seconds': 1.5,
-                })
-            r = await client.post(SENTINEL_SCAN_URL, json={})
-            r.raise_for_status()
-            return r.json()
-    except Exception as e:
-        return {'success': False, 'error': f'sentinel_preflight_failed:{type(e).__name__}:{e}'}
-
-
-async def _bridge_relay(connection_id: str, query: str) -> Dict[str, Any]:
-    url = internal_url("/bridge/relay")
-    headers = {'x-bridge-token': BRIDGE_TOKEN} if BRIDGE_TOKEN else {}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.post(url, json={'connection_id': connection_id, 'query': query, 'timeout_seconds': 8.0}, headers=headers)
-        return r.json()
-
+def _risk_score(prompt: str, kind: str) -> float:
+    return core.routing_risk(prompt, kind)
 
 
 def _is_ops_risk_prompt(prompt: str) -> bool:
-    return bool(_OPS_RISK_MARKERS.search(prompt or ""))
+    return core.is_ops_intent(prompt)
 
 
-def _wants_deep_sim(prompt: str, payload: Dict[str, Any]) -> bool:
-    # explicit user request wins
-    if isinstance(getattr(payload, 'simulator_mode', None), str) and payload.simulator_mode.lower() == 'deep':
+def _wants_deep_sim(prompt: str, payload: Any) -> bool:
+    mode = getattr(payload, "simulator_mode", None)
+    if isinstance(mode, str) and mode.lower() == "deep":
         return True
-    p=(prompt or '').lower()
-    return ('deep sim' in p) or ('deep simulation' in p) or ('simulate deeply' in p)
+    p = (prompt or "").lower()
+    return ("deep sim" in p) or ("deep simulation" in p) or ("simulate deeply" in p)
 
 
-async def _call_simulator(scenario: str, mode: str, timeout_s: float) -> Dict[str, Any]:
-    url = internal_url("/simulator/run")
-    async with httpx.AsyncClient(timeout=timeout_s) as client:
-        r = await client.post(url, json={'scenario': scenario, 'mode': mode})
-        r.raise_for_status()
-        return r.json()
-def _risk_score(prompt: str, kind: str) -> float:
-    risk = 0.05
-    if kind == "tool_json":
-        risk += 0.35
-    elif kind == "choice_letter":
-        risk += 0.25
-    elif kind == "numeric":
-        risk += 0.25
-    elif kind == "code":
-        risk += 0.15
-
-    if _STRICT_MARKERS.search(prompt or ""):
-        risk += 0.20
-
-    n = len(prompt or "")
-    if n > 800:
-        risk += 0.15
-    elif n > 300:
-        risk += 0.08
-
-    return min(1.0, risk)
-
-
-def _extract_choice_letter(text: str) -> Optional[str]:
-    if not text:
-        return None
-    t = text.strip().upper()
-    m = re.search(r"\b([ABCD])\b", t)
-    return m.group(1) if m else None
-
-
-def _extract_json_obj(text: str) -> Optional[dict]:
-    if not text:
-        return None
-    t = text.strip()
+async def _sentinel_snapshot() -> Optional[Dict[str, Any]]:
+    """Read-only, in-process Sentinel health snapshot (no watcher registration)."""
     try:
-        obj = json.loads(t)
-        return obj if isinstance(obj, dict) else None
-    except Exception:
-        pass
-    m = re.search(r"\{[\s\S]*\}", t)
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group(0))
-        return obj if isinstance(obj, dict) else None
+        from cortex_server.routers import sentinel
+
+        status = await sentinel.sentinel_status()
     except Exception:
         return None
+    if not isinstance(status, dict):
+        return None
+    return {
+        "status": status.get("status"),
+        "health_reason": status.get("health_reason"),
+        "active_watchers": status.get("active_watchers"),
+        "latest_scan_issues": status.get("latest_scan_issues"),
+        "last_scan_age_seconds": status.get("last_scan_age_seconds"),
+    }
 
 
-def _validate(kind: str, text: str) -> Tuple[bool, str]:
-    if kind == "choice_letter":
-        letter = _extract_choice_letter(text)
-        if letter and text.strip().upper() == letter:
-            return True, "ok"
-        if letter:
-            return False, "format:must_be_single_letter"
-        return False, "format:no_letter_found"
+async def _simulate_in_process(prompt: str, mode: str, scope_key: str) -> Dict[str, Any]:
+    """L20 Simulator via its in-process core (principal-scoped model call)."""
+    from cortex_server.routers.simulator import simulate_core
 
-    if kind == "tool_json":
-        obj = _extract_json_obj(text)
-        if not obj:
-            return False, "format:invalid_json"
-        if "function" not in obj or "arguments" not in obj:
-            return False, "format:missing_keys"
-        if not isinstance(obj.get("arguments"), dict):
-            return False, "format:arguments_not_object"
-        return True, "ok"
-
-    return True, "ok"
-
-
-def _normalize_citation(citation: str) -> str:
-    return str(citation or "").strip().lower()
-
-
-def _extract_requested_citations(prompt: str) -> List[str]:
-    if not prompt:
-        return []
-    out: List[str] = []
-    seen = set()
-    for raw in _CITATION_PATTERN.findall(prompt):
-        original = str(raw or "").strip()
-        norm = _normalize_citation(original)
-        if not norm or norm in seen:
-            continue
-        seen.add(norm)
-        out.append(original)
-    return out
-
-
-def _extract_citations(text: str) -> List[str]:
-    if not text:
-        return []
-    found = [_normalize_citation(x) for x in _CITATION_PATTERN.findall(text)]
-    out: List[str] = []
-    seen = set()
-    for c in found:
-        if not c or c in seen:
-            continue
-        seen.add(c)
-        out.append(c)
-    return out
-
-
-def _citation_gap(required: List[str], text: str) -> Tuple[bool, List[str], List[str]]:
-    if not required:
-        return True, [], _extract_citations(text)
-    predicted = _extract_citations(text)
-    pred_set = set(predicted)
-
-    missing: List[str] = []
-    for original in required:
-        norm = _normalize_citation(original)
-        if norm not in pred_set:
-            missing.append(original)
-
-    return len(missing) == 0, missing, predicted
-
-
-def _ensure_citations(text: str, required: List[str]) -> str:
-    if not required:
-        return text
-    ok, missing, _ = _citation_gap(required, text)
-    if ok:
-        return text
-    base = (text or "").strip()
-    suffix = " ".join(f"Source: {c}" for c in missing)
-    if not base:
-        return suffix
-    if base.endswith('.'):
-        return f"{base} {suffix}"
-    return f"{base}. {suffix}"
-
-
-def _citation_repair_prompt(original_prompt: str, required: List[str], model_answer: str) -> str:
-    req = " | ".join(f"Source: {c}" for c in required)
-    return (
-        "Answer the task in one concise sentence and include ALL required citations exactly as written.\n"
-        f"Required citations: {req}\n"
-        "Do not omit or alter citation paths/line ranges.\n"
-        f"Task: {original_prompt}\n"
-        "Previous output (for reference):\n"
-        f"{model_answer}"
+    return await simulate_core(
+        f"{prompt}\n\nFocus on operational risks and failure modes of executing this.",
+        mode=mode,
+        principal_scope_key=scope_key,
+        deadline_s=SIMULATOR_DEADLINES_S.get(mode, 30.0),
     )
-
-
-def _repair_prompt(kind: str, original_prompt: str, failure: str, model_answer: str) -> str:
-    if kind == "choice_letter":
-        return (
-            "Return ONLY a single letter: A, B, C, or D. No punctuation, no words.\n"
-            f"Question: {original_prompt}"
-        )
-
-    if kind == "tool_json":
-        return (
-            "Return ONLY valid JSON. No markdown. Must be an object with keys: "
-            "function (string) and arguments (object).\n"
-            f"Validation failure: {failure}\n"
-            f"Task: {original_prompt}\n"
-            "Your previous output (for reference):\n"
-            f"{model_answer}"
-        )
-
-    return original_prompt
 
 
 async def _call_oracle(
@@ -355,18 +149,25 @@ async def _call_oracle(
     timeout_s: float,
     *,
     headers: Optional[Dict[str, str]] = None,
+    system: Optional[str] = None,
 ) -> str:
     url = internal_url("/oracle/chat")
-    payload = {"prompt": prompt, "response_mode": response_mode, "priority": priority}
+    payload = {"prompt": prompt, "response_mode": response_mode, "priority": priority, "system": system}
     async with httpx.AsyncClient(timeout=timeout_s) as client:
-        r = await client.post(
-            url,
-            json=payload,
-            headers={**dict(headers or {}), "x-augmenter-bypass": "1"},
-        )
+        r = await client.post(url, json=payload, headers={**dict(headers or {}), "x-augmenter-bypass": "1"})
         r.raise_for_status()
         data = r.json()
-        return str(data.get("response") or "")
+        text = str(data.get("response") or "")
+        from cortex_server.routers.oracle import _EvidenceText, _upstream_completion
+
+        completion = _upstream_completion(data, response=text, default_origin="oracle_child")
+        if completion["done"] and data.get("degraded") is not True and data.get("ok") is not False:
+            return _EvidenceText(
+                text, completion_receipt=completion["completion_receipt"],
+                origin=completion["origin"], provider_invoked=completion["provider_invoked"],
+                selected_model=completion["model"], selected_provider=completion["provider"],
+            )
+        return text
 
 
 async def _call_oracle_with_retry(
@@ -376,330 +177,241 @@ async def _call_oracle_with_retry(
     timeout_s: float,
     *,
     headers: Optional[Dict[str, str]] = None,
-) -> Tuple[str, list[str]]:
-    notes: list[str] = []
-    attempts = [timeout_s, max(8.0, timeout_s - 4.0)]
-    last_err = None
-    for idx, t in enumerate(attempts, start=1):
+    system: Optional[str] = None,
+) -> Tuple[str, List[str]]:
+    notes: List[str] = []
+    last_err: Optional[Exception] = None
+    for idx, t in enumerate([timeout_s, max(8.0, timeout_s - 4.0)], start=1):
         try:
             if idx > 1:
                 notes.append(f"oracle_retry_attempt:{idx}")
-            return await _call_oracle(
-                prompt,
-                response_mode=response_mode,
-                priority=priority,
-                timeout_s=t,
-                headers=headers,
-            ), notes
+            return await _call_oracle(prompt, response_mode=response_mode, priority=priority,
+                                      timeout_s=t, headers=headers, system=system), notes
         except Exception as e:
             last_err = e
             notes.append(f"oracle_attempt_failed:{idx}:{type(e).__name__}")
-    raise last_err
+    raise last_err if last_err else RuntimeError("oracle_call_failed")
 
-async def _oracle_ready() -> bool:
+
+def _completion_fields(answer: str, final_answer: str, *, validation_ok: bool) -> Dict[str, Any]:
+    """Forward only verified evidence; formatting does not invent a provider call."""
+    from cortex_server.routers.oracle import _upstream_completion
+
+    original = str(answer)
+    fields = _upstream_completion({
+        "done": bool(getattr(answer, "completion_receipt", None)),
+        "completion_receipt": getattr(answer, "completion_receipt", None),
+        "provider_invoked": getattr(answer, "provider_invoked", False),
+        "model": getattr(answer, "selected_model", None),
+        "origin": getattr(answer, "origin", None),
+    }, response=original, default_origin="augmenter")
+    if not validation_ok:
+        fields.update(done=False, degraded=True, origin="augmenter_validation_failed")
+        return fields
+    if fields["done"]:
+        receipt = dict(fields["completion_receipt"])
+        receipt["delivered_response_sha256"] = hashlib.sha256(final_answer.encode("utf-8")).hexdigest()
+        fields["completion_receipt"] = receipt
+        fields["origin"] = "augmenter_verified_transform" if final_answer != original else "augmenter_verified_passthrough"
+    return fields
+
+
+def _check(kind: str, text: str, prompt: str, required: List[str]) -> Tuple[bool, str, List[str], List[str]]:
+    ok, why = core.validate(kind, text, prompt)
+    cited_ok, missing, predicted = core.citation_gap(required, text)
+    if ok and not cited_ok:
+        ok, why = False, "citation:missing_required"
+    return ok, why, missing, predicted
+
+
+def _forwarded_headers(http_request: Request, session_id: str) -> Dict[str, str]:
+    names = {
+        "x-cortex-tenant-id", "x-cortex-workspace-id", "x-cortex-agent-id", "x-cortex-user-id",
+        "x-cortex-channel-id", "x-cortex-session-id", "x-cortex-scope-credential-id",
+        "x-cortex-scope-signature", "x-session-id", "x-chat-id",
+        os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower(),
+    }
+    headers = {n: str(http_request.headers.get(n) or "") for n in names if str(http_request.headers.get(n) or "").strip()}
+    headers["x-session-id"] = session_id
+    return headers
+
+
+def _track(http_request: Request, level: int, name: str, *, status: Optional[str] = None,
+           always_on: Optional[bool] = None, **extra: Any) -> None:
     try:
-        async with httpx.AsyncClient(timeout=4.0) as client:
-            r = await client.get(internal_url("/oracle/status"))
-            return r.status_code == 200
-    except Exception:
-        return False
+        from cortex_server.middleware.hud_middleware import track_attempt, track_level
 
+        if status is not None:
+            track_attempt(http_request, level, name, status=status, **extra)
+        if always_on is not None:
+            track_level(http_request, level, name, always_on=always_on)
+    except Exception:
+        pass
 
 
 @router.post("/chat")
 async def chat(payload: AugmenterChatRequest, http_request: Request):
+    if not core.augmenter_enabled():
+        core.STATS.record_disabled()
+        return JSONResponse(status_code=503, content={
+            "ok": False, "error": "augmenter_disabled", "response": "",
+            "detail": "AUGMENTER_ENABLED is false",
+        })
+
     from cortex_server.routers.nexus import _authenticated_nexus_principal
 
-    transport_session = str(
-        http_request.headers.get("x-session-id")
-        or http_request.headers.get("x-chat-id")
-        or ""
-    ).strip()
-    principal, _ = _authenticated_nexus_principal(
-        http_request,
-        session_hint=transport_session,
-    )
-    forwarded_names = {
-        "x-cortex-tenant-id",
-        "x-cortex-workspace-id",
-        "x-cortex-agent-id",
-        "x-cortex-user-id",
-        "x-cortex-channel-id",
-        "x-cortex-session-id",
-        "x-cortex-scope-credential-id",
-        "x-cortex-scope-signature",
-        "x-session-id",
-        "x-chat-id",
-        os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").strip().lower(),
-    }
-    oracle_headers = {
-        name: str(http_request.headers.get(name) or "")
-        for name in forwarded_names
-        if str(http_request.headers.get(name) or "").strip()
-    }
-    oracle_headers["x-session-id"] = principal.session_id
+    transport_session = str(http_request.headers.get("x-session-id") or http_request.headers.get("x-chat-id") or "").strip()
+    principal, _ = _authenticated_nexus_principal(http_request, session_hint=transport_session)
+    oracle_headers = _forwarded_headers(http_request, principal.session_id)
     prompt = payload.prompt
-    response_mode = payload.response_mode
-    priority = payload.priority
     latency_budget_ms = payload.latency_budget_ms
-    allow_external = payload.allow_external
-    external_connection_id = payload.external_connection_id
 
-    base_model = _get_base_model()
-    kind = _classify_kind(prompt)
-    risk = _risk_score(prompt, kind)
-
-    # default decision
-    decision = PolicyDecision(
-        base_model=base_model,
-        risk=risk,
-        kind=kind,
-        level=0,
-        reason="fast_path",
-    )
-
-    allow_repair = risk >= 0.45 or kind in ("tool_json", "choice_letter")
-    if isinstance(latency_budget_ms, int) and latency_budget_ms > 0 and latency_budget_ms < 1200:
+    kind = core.classify_kind(prompt)
+    decision = PolicyDecision(base_model=_get_base_model(), risk=core.routing_risk(prompt, kind),
+                              kind=kind, level=0, reason="fast_path")
+    allow_repair = decision.risk >= 0.45 or kind in ("tool_json", "choice_letter", "code")
+    tight_budget = isinstance(latency_budget_ms, int) and 0 < latency_budget_ms < 1200
+    if tight_budget:
         allow_repair = False
-
-    required_citations = _extract_requested_citations(prompt)
-    if required_citations:
-        # Citation compliance is a correctness requirement, not optional formatting.
+    required = core.requested_citations(prompt)
+    if required and not tight_budget:
         allow_repair = True
 
     t0 = time.time()
-    notes: list[str] = []
-    if required_citations:
-        notes.append(f"citation_required:{len(required_citations)}")
+    notes: List[str] = []
+    if required:
+        notes.append(f"citation_required:{len(required)}")
+    if payload.allow_external or payload.external_connection_id:
+        notes.append("bridge_delegation_removed")
 
-    # Ops/deploy/change-management prompts: always run L20 Simulator (fast by default)
-    sim_summary = None
     sentinel_summary = None
-    if _is_ops_risk_prompt(prompt):
-        sentinel = await _sentinel_preflight_ops()
-        if isinstance(sentinel, dict) and sentinel.get('success') and isinstance(sentinel.get('scan'), dict):
-            sc = sentinel['scan']
-            sentinel_summary = {
-                'issues_found': sc.get('issues_found'),
-                'watchers_checked': sc.get('watchers_checked'),
-                'results': (sc.get('results') or [])[:6],
-            }
-            notes.append('sentinel_preflight_ok')
-        else:
-            notes.append('sentinel_preflight_failed')
-
-        ext_summary = None
-        if allow_external and BRIDGE_DELEGATION_ENABLED and external_connection_id:
-            try:
-                ext = await _bridge_relay(str(external_connection_id), prompt)
-                if isinstance(ext, dict):
-                    ext_summary = {
-                        'ok': ext.get('success'),
-                        'latency_ms': ext.get('latency_ms'),
-                        'error': ext.get('error'),
-                        'response': ext.get('response'),
-                    }
-                    notes.append('bridge_delegation_attempted')
-            except Exception:
-                notes.append('bridge_delegation_failed')
-
-    if _is_ops_risk_prompt(prompt):
-        sim_mode = 'deep' if _wants_deep_sim(prompt, payload) else 'fast'
+    sim_summary = None
+    if core.is_ops_intent(prompt) and not tight_budget:
+        sentinel_summary = await _sentinel_snapshot()
+        notes.append("sentinel_snapshot_ok" if sentinel_summary is not None else "sentinel_snapshot_unavailable")
+        sim_mode = "deep" if _wants_deep_sim(prompt, payload) else "fast"
         try:
-            sim = await _call_simulator(
-                scenario=f"{prompt}\n\nReturn risks and failure modes for operational execution.",
-                mode=sim_mode,
-                timeout_s=12.0 if sim_mode=='fast' else 18.0,
-            )
-            if isinstance(sim, dict) and sim.get('success') and sim.get('outcomes'):
-                # compress outcomes to a small summary for the model
-                outs = sim.get('outcomes')[:3]
-                parts=[]
-                for o in outs:
-                    parts.append({
-                        'label': o.get('label'),
-                        'probability': o.get('probability'),
-                        'key_events': (o.get('key_events') or [])[:4],
-                        'timeline': o.get('timeline'),
-                        'impact_assessment': o.get('impact_assessment'),
-                    })
-                sim_summary = {'mode': sim_mode, 'outcomes': parts}
+            sim = await _simulate_in_process(prompt, sim_mode, level_model.scope_key_for_request(http_request, "augmenter"))
+            if isinstance(sim, dict) and sim.get("success") and sim.get("outcomes"):
+                sim_summary = {
+                    "mode": sim_mode,
+                    "probability_basis": sim.get("probability_basis"),
+                    "outcomes": [{k: o.get(k) for k in ("label", "probability", "key_events", "timeline", "impact_assessment")}
+                                 for o in sim["outcomes"][:3]],
+                }
                 notes.append(f"simulator_ok:{sim_mode}")
+                _track(http_request, 20, "Simulator", status="success", always_on=True)
             else:
-                notes.append(f"simulator_failed:{sim_mode}:{sim.get('error') if isinstance(sim, dict) else 'unknown'}")
-
-            # Truthful activation group: record L20 dependency for this request
-            try:
-                from cortex_server.middleware.hud_middleware import track_level, track_attempt
-                track_level(http_request, 20, 'Simulator', always_on=True)
-                track_attempt(http_request, 20, 'Simulator', status='success')
-            except Exception:
-                pass
+                notes.append(f"simulator_unavailable:{sim_mode}:{(sim or {}).get('status') if isinstance(sim, dict) else 'unknown'}")
         except Exception as e:
             notes.append(f"simulator_exception:{type(e).__name__}")
 
-    oracle_ready = await _oracle_ready()
-    if not oracle_ready:
-        notes.append("oracle_preflight_unhealthy")
+    final_system = payload.system
+    if sentinel_summary is not None or sim_summary is not None:
+        header = ""
+        if sentinel_summary is not None:
+            header += "[L21 Sentinel — read-only health snapshot]\n" + json.dumps(sentinel_summary) + "\n\n"
+        if sim_summary is not None:
+            header += "[L20 Simulator — model-estimated operational outcomes]\n" + json.dumps(sim_summary) + "\n\n"
+        final_system = header + (payload.system or "")
 
+    _track(http_request, 5, "Oracle", status="attempted")
     try:
-        final_prompt = prompt
-        if sentinel_summary is not None or sim_summary is not None:
-            header = ''
-            if sentinel_summary is not None:
-                header += '[L21 Sentinel — preflight health]\n' + json.dumps(sentinel_summary) + '\n\n'
-            if sim_summary is not None:
-                header += '[L20 Simulator — ops risk simulation summary]\n' + json.dumps(sim_summary) + '\n\n'
-            final_prompt = header + '[Task]\n' + prompt
-        try:
-            from cortex_server.middleware.hud_middleware import track_attempt
-            track_attempt(http_request, 5, "Oracle", status="attempted")
-        except Exception:
-            pass
-        answer, retry_notes = await _call_oracle_with_retry(final_prompt, response_mode=response_mode, priority=priority, timeout_s=18.0, headers=oracle_headers)
+        answer, retry_notes = await _call_oracle_with_retry(
+            prompt, response_mode=payload.response_mode, priority=payload.priority, timeout_s=18.0,
+            headers=oracle_headers, system=final_system)
         notes.extend(retry_notes)
-        try:
-            from cortex_server.middleware.hud_middleware import track_attempt
-            track_attempt(http_request, 5, "Oracle", status="success")
-        except Exception:
-            pass
+        _track(http_request, 5, "Oracle", status="success")
     except Exception as e:
-        try:
-            from cortex_server.middleware.hud_middleware import track_attempt
-            track_attempt(http_request, 5, "Oracle", status="failed", error=f"{type(e).__name__}:{e}")
-        except Exception:
-            pass
+        _track(http_request, 5, "Oracle", status="failed", error=type(e).__name__)
+        core.STATS.record(kind=kind, oracle_ok=False, final_ok=False, initial_ok=False,
+                          repaired=False, repair_ok=False, error_type=type(e).__name__)
         return {
             "ok": False,
-            "error": f"oracle_call_failed:{type(e).__name__}:{e}",
+            "error": f"oracle_call_failed:{type(e).__name__}",
             "response": "",
             "augmenter": {"decision": decision.__dict__, "notes": notes, "elapsed_ms": int((time.time() - t0) * 1000)},
         }
 
-    # Truthful activation group: Augmenter depends on Oracle for generation
-    try:
-        from cortex_server.middleware.hud_middleware import track_level
-        track_level(http_request, 5, 'Oracle', always_on=True)
-        track_level(http_request, 38, 'Augmenter', always_on=False)
-    except Exception:
-        pass
+    _track(http_request, 5, "Oracle", always_on=True)
+    _track(http_request, 38, "Augmenter", always_on=False)
 
-    ok, why = _validate(kind, answer)
-    citation_ok, missing_citations, predicted_citations = _citation_gap(required_citations, answer)
-    if ok and not citation_ok:
-        ok = False
-        why = "citation:missing_required"
-        notes.append(f"citation_missing_initial:{len(missing_citations)}")
-
-    if ok:
-        final_answer = _ensure_citations(answer, required_citations)
+    def body(ok: bool, final_text: str, source_answer: str, why: str, missing: List[str],
+             predicted: List[str], repairs: int) -> Dict[str, Any]:
         return {
-            "ok": True,
-            "response": final_answer,
+            "ok": ok,
+            "response": final_text,
+            **_completion_fields(source_answer, final_text, validation_ok=ok),
             "augmenter": {
                 "decision": decision.__dict__,
+                "contract": core.contract_guidance(kind, required),
                 "validation": {
-                    "ok": True,
+                    "ok": ok,
                     "why": why,
-                    "citation_required": required_citations,
-                    "citation_missing": [],
-                    "citation_predicted": _extract_citations(final_answer),
+                    "citation_required": required,
+                    "citation_missing": missing,
+                    "citation_predicted": predicted,
                 },
-                "repairs": 0,
+                "repairs": repairs,
                 "notes": notes,
                 "elapsed_ms": int((time.time() - t0) * 1000),
             },
         }
+
+    ok, why, missing, predicted = _check(kind, answer, prompt, required)
+    if ok:
+        core.STATS.record(kind=kind, oracle_ok=True, final_ok=True, initial_ok=True, repaired=False, repair_ok=False)
+        return body(True, answer, answer, why, [], predicted, 0)
 
     notes.append(f"initial_validation_failed:{why}")
     if not allow_repair:
-        fallback_answer = _ensure_citations(answer, required_citations)
-        return {
-            "ok": True,
-            "response": fallback_answer,
-            "augmenter": {
-                "decision": decision.__dict__,
-                "validation": {
-                    "ok": False,
-                    "why": why,
-                    "citation_required": required_citations,
-                    "citation_missing": missing_citations,
-                    "citation_predicted": predicted_citations,
-                },
-                "repairs": 0,
-                "notes": notes,
-                "elapsed_ms": int((time.time() - t0) * 1000),
-            },
-        }
+        core.STATS.record(kind=kind, oracle_ok=True, final_ok=False, initial_ok=False, repaired=False,
+                          repair_ok=False, error_type=why)
+        return body(False, answer, answer, why, missing, predicted, 0)
 
-    # one-shot repair
     decision.level = 1
     decision.reason = "repair"
-    if required_citations:
-        repair_prompt = _citation_repair_prompt(prompt, required_citations, answer)
-    else:
-        repair_prompt = _repair_prompt(kind, prompt, why, answer)
     try:
-        repaired, retry_notes = await _call_oracle_with_retry(repair_prompt, response_mode="final_only", priority=priority, timeout_s=12.0, headers=oracle_headers)
+        repaired, retry_notes = await _call_oracle_with_retry(
+            core.repair_prompt(kind, prompt, why, str(answer), required), response_mode="final_only",
+            priority=payload.priority, timeout_s=12.0, headers=oracle_headers, system=final_system)
         notes.extend(retry_notes)
-        repaired = _ensure_citations(repaired, required_citations)
-        ok2, why2 = _validate(kind, repaired)
-        citation_ok2, missing2, predicted2 = _citation_gap(required_citations, repaired)
-        if ok2 and not citation_ok2:
-            ok2 = False
-            why2 = "citation:missing_after_repair"
-        notes.append(f"repair_validation:{why2}")
-        return {
-            "ok": True,
-            "response": repaired,
-            "augmenter": {
-                "decision": decision.__dict__,
-                "validation": {
-                    "ok": ok2,
-                    "why": why2,
-                    "citation_required": required_citations,
-                    "citation_missing": missing2,
-                    "citation_predicted": predicted2,
-                },
-                "repairs": 1,
-                "notes": notes,
-                "elapsed_ms": int((time.time() - t0) * 1000),
-            },
-        }
     except Exception as e:
-        notes.append(f"repair_failed:{type(e).__name__}:{e}")
-        fallback_answer = _ensure_citations(answer, required_citations)
-        citation_ok_fallback, missing_fallback, predicted_fallback = _citation_gap(required_citations, fallback_answer)
-        return {
-            "ok": True,
-            "response": fallback_answer,
-            "augmenter": {
-                "decision": decision.__dict__,
-                "validation": {
-                    "ok": False if not citation_ok_fallback else True,
-                    "why": "citation:forced_append_after_repair_failure" if citation_ok_fallback else why,
-                    "citation_required": required_citations,
-                    "citation_missing": missing_fallback,
-                    "citation_predicted": predicted_fallback,
-                },
-                "repairs": 0,
-                "notes": notes,
-                "elapsed_ms": int((time.time() - t0) * 1000),
-            },
-        }
+        notes.append(f"repair_failed:{type(e).__name__}")
+        core.STATS.record(kind=kind, oracle_ok=True, final_ok=False, initial_ok=False, repaired=True,
+                          repair_ok=False, error_type=f"repair_failed:{type(e).__name__}")
+        return body(False, answer, answer, why, missing, predicted, 0)
+
+    ok2, why2, missing2, predicted2 = _check(kind, repaired, prompt, required)
+    if not ok2 and why2 == "citation:missing_required":
+        why2 = "citation:missing_after_repair"
+    notes.append(f"repair_validation:{why2}")
+    core.STATS.record(kind=kind, oracle_ok=True, final_ok=ok2, initial_ok=False, repaired=True,
+                      repair_ok=ok2, error_type=None if ok2 else why2)
+    return body(ok2, repaired, repaired, why2, missing2, predicted2, 1)
 
 
 @router.get("/status")
 async def status():
+    enabled = core.augmenter_enabled()
+    stats = core.STATS.snapshot()
+    reasons: List[str] = []
+    if not enabled:
+        reasons.append("disabled_by_AUGMENTER_ENABLED")
+    rate = stats.get("recent_oracle_failure_rate")
+    if rate is not None and rate >= DEGRADED_FAILURE_RATE:
+        reasons.append(f"oracle_failure_rate_{rate}_over_last_{stats.get('recent_window')}_calls")
     return {
         "level": 38,
         "name": "Augmenter",
-        "goal": "Improve real-world reliability of the configured base model with minimal latency impact",
-        "purpose": "Model-adaptive guardrail layer (validate + one-shot repair) with clear HUD visibility",
+        "purpose": "Output-contract validation with at most one model repair around Oracle answers",
         "base_model": _get_base_model(),
-        "enabled": os.getenv("AUGMENTER_ENABLED", "true").lower() in ("1","true","yes"),
-        "degraded": False,
-        "degraded_reasons": [],
+        "enabled": enabled,
+        "degraded": bool(reasons),
+        "degraded_reasons": reasons,
+        "health_basis": "measured" if stats.get("recent_window") else "no_calls_observed_since_boot",
+        "stats": stats,
+        "validated_contracts": ["tool_json", "choice_letter", "numeric", "code(python)", "citations"],
         "escalation": {
             "level0": "single_call_then_validate",
             "level1": "one_shot_repair_then_validate (gated)",

@@ -115,3 +115,28 @@ async def spawn_owned(
             spawn_task.add_done_callback(lambda task: _clean_up_late_spawn(task, stop))
             spawn_task.cancel()
         raise
+
+
+def _cancel_requests() -> int:
+    task = asyncio.current_task()
+    return task.cancelling() if task is not None else 0
+
+
+async def wait_for_owned_spawn(
+    owned_spawn: Awaitable[Any],
+    timeout: float,
+    stop: Callable[[Any], Awaitable[None]],
+) -> Any:
+    """asyncio.wait_for() around spawn_owned() that never loses a cancellation.
+
+    On CPython 3.11, wait_for() returns the inner result when it completes in
+    the same loop iteration as the caller's cancellation, dropping the
+    CancelledError. A child spawned in that window would then run until its
+    full timeout. Reap the child and re-raise the cancellation instead.
+    """
+    baseline = _cancel_requests()
+    proc = await asyncio.wait_for(owned_spawn, timeout)
+    if _cancel_requests() > baseline:
+        await asyncio.shield(stop(proc))
+        raise asyncio.CancelledError()
+    return proc

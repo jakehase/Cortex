@@ -79,7 +79,10 @@ def _test_only(module: str, tag: str | None = None) -> RouterCapability:
 # enter the ASGI routing table at all unless safe mode is explicitly disabled.
 ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("academy"),
-    _unsafe("architect"),
+    _unsafe(
+        "architect",
+        safe_mode_routes=(("GET", "/status"), ("GET", "/geneticist_contract"), ("POST", "/design")),
+    ),
     _service("augmenter"),
     _service("automation"),
     _service("autonomy"),
@@ -105,14 +108,31 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("council"),
     _service("cron"),
     _unsafe("darwin"),
-    _unsafe("diplomat"),
+    _unsafe(
+        "diplomat",
+        safe_mode_routes=(("GET", "/status"), ("POST", "/draft")),
+    ),
     _service("dreamer"),
     _service("ethicist"),
     _service("everyday_intel", "Everyday Intel"),
     _unsafe("evolution"),
     _service("fallback"),
-    _unsafe("forge"),
-    _unsafe("geneticist"),
+    _unsafe(
+        "forge",
+        safe_mode_routes=(
+            ("GET", "/status"), ("GET", "/health"), ("GET", "/templates"),
+            ("POST", "/generate"), ("POST", "/review"),
+            ("GET", "/proposals"), ("GET", "/proposals/{proposal_id}"),
+        ),
+    ),
+    _unsafe(
+        "geneticist",
+        safe_mode_routes=(
+            ("GET", "/status"), ("GET", "/contract"),
+            ("POST", "/propose"), ("POST", "/mutate"), ("POST", "/evolve"), ("POST", "/apply_plan"),
+            ("GET", "/proposal/{proposal_id}"),
+        ),
+    ),
     _service("ghost"),
     _service("guard"),
     _service("hive"),
@@ -122,7 +142,10 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("kernel"),
     _service("knowledge"),
     _service("l22", "L22"),
-    _unsafe("lab"),
+    _unsafe(
+        "lab",
+        safe_mode_routes=(("GET", "/status"), ("POST", "/compute"), ("POST", "/transcend/plan")),
+    ),
     _service("librarian"),
     _service("listener"),
     _service("mediator"),
@@ -136,7 +159,10 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("oracle"),
     _service("oracle_sandbox", "Oracle Sandbox"),
     _service("orchestrator"),
-    _unsafe("parsers"),
+    _unsafe(
+        "parsers",
+        safe_mode_routes=(("GET", "/status"), ("POST", "/parse")),
+    ),
     _service("polyglot"),
     _service("queue"),
     _service("seer"),
@@ -145,7 +171,10 @@ ROUTER_CAPABILITIES: tuple[RouterCapability, ...] = (
     _service("singularity"),
     _service("synthesist_api", "Synthesist"),
     _service("system", "System Attestation"),
-    _unsafe("tools"),
+    _unsafe(
+        "tools",
+        safe_mode_routes=(("GET", "/status"), ("POST", "/git/status"), ("POST", "/git/log")),
+    ),
     _service("validator"),
     _service("websockets", "WebSockets", kind="websocket"),
 )

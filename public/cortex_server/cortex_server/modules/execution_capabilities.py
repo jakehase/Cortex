@@ -68,26 +68,53 @@ def capability_header_name() -> str:
     return value or DEFAULT_CAPABILITY_HEADER
 
 
-def execution_capability_status() -> dict:
+def execution_capability_status(
+    *,
+    required_actions: Iterable[str] = (),
+    required_action_prefixes: Iterable[str] = (),
+) -> dict:
+    """Project the exact execution policy for one product surface.
+
+    A global token/root configured for an unrelated action must not make every
+    execution-backed level report active.  Callers can bind status to exact
+    actions or prefixes while legacy callers retain the global projection.
+    """
     roots = configured_roots()
     actions = configured_actions()
+    exact = tuple(dict.fromkeys(str(action).strip() for action in required_actions if str(action).strip()))
+    prefixes = tuple(dict.fromkeys(str(prefix).strip() for prefix in required_action_prefixes if str(prefix).strip()))
+    scoped = tuple(
+        action for action in actions
+        if (not exact and not prefixes)
+        or action in exact
+        or any(action.startswith(prefix) for prefix in prefixes)
+    )
     executable_actions = tuple(
         action
-        for action in actions
+        for action in scoped
         if action not in _UNISOLATED_ACTIONS
         and not any(action.startswith(prefix) for prefix in _UNISOLATED_ACTION_PREFIXES)
     )
+    requirements_met = all(action in actions for action in exact) and all(
+        any(action.startswith(prefix) for action in actions) for prefix in prefixes
+    )
+    token_configured = bool(os.getenv("CORTEX_EXECUTION_CAPABILITY_TOKEN", "").strip())
     return {
-        "enabled": bool(executable_actions and roots and os.getenv("CORTEX_EXECUTION_CAPABILITY_TOKEN", "").strip()),
-        "allowedActions": list(actions),
+        "enabled": bool(requirements_met and executable_actions and roots and token_configured),
+        "allowedActions": list(scoped),
         "executableActions": list(executable_actions),
         "allowedRoots": [str(root) for root in roots],
         "allowedGitHosts": list(configured_git_hosts()),
         "degradedActionPrefixes": list(_UNISOLATED_ACTION_PREFIXES),
         "degradedActions": sorted(_UNISOLATED_ACTIONS),
-        "capabilityTokenConfigured": bool(os.getenv("CORTEX_EXECUTION_CAPABILITY_TOKEN", "").strip()),
+        "capabilityTokenConfigured": token_configured,
         "capabilityHeader": capability_header_name(),
         "defaultDeny": True,
+        "actionScope": {
+            "requiredActions": list(exact),
+            "requiredActionPrefixes": list(prefixes),
+            "requirementsMet": requirements_met,
+        },
     }
 
 

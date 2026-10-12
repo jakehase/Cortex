@@ -18,6 +18,9 @@ from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.models.api_contracts import NexusOrchestrationResponse
 
 
+# Unsafe routers that safe mode loads partially (declared safe_mode_routes only).
+PARTIAL_SAFE_MODE_ROUTERS = {"browser"}
+
 EXPECTED_UNSAFE_ROUTERS = {
     "architect",
     "browser",
@@ -83,29 +86,48 @@ def test_core_provider_and_queue_routes_remain_under_request_deadline(monkeypatc
 
 
 def test_safe_mode_manifest_explicitly_deny_loads_action_routers(monkeypatch):
+    from cortex_server.capability_manifest import CAPABILITY_BY_MODULE
+
     assert UNSAFE_ACTION_MODULES == EXPECTED_UNSAFE_ROUTERS
     assert all(row.safety_class in {"service", "unsafe_action", "test_only"} for row in ROUTER_CAPABILITIES)
 
     def fake_import(module_name):
+        short = module_name.rsplit(".", 1)[-1]
+        capability = CAPABILITY_BY_MODULE.get(short)
+        declared = set(capability.safe_mode_routes) if capability is not None else set()
         router = APIRouter()
-
-        @router.get("/status")
-        async def status():
-            return {"status": "active"}
-
+        # Every fake router also carries an undeclared action route that must
+        # never be mounted in safe mode.
+        for method, path in sorted(declared | {("GET", "/status"), ("POST", "/unsafe-action")}):
+            router.add_api_route(path, lambda: {"ok": True}, methods=[method])
         return SimpleNamespace(router=router)
 
     monkeypatch.setattr(main.importlib, "import_module", fake_import)
     app = FastAPI()
     report = main.load_dynamic_routers(app, safe_mode=True)
 
-    assert set(report["safeModeSkipped"]) == EXPECTED_UNSAFE_ROUTERS
+    partial = {name for name in EXPECTED_UNSAFE_ROUTERS if CAPABILITY_BY_MODULE[name].safe_mode_routes}
+    assert set(report["safeModeSkipped"]) == EXPECTED_UNSAFE_ROUTERS - partial
+    assert {row["router"] for row in report["safeModePartial"]} == partial
     assert "inbox_test" not in report["loaded"]
     assert any(
         row["router"] == "inbox_test" and row["reason"] == "not_production"
         for row in report["disabled"]
     )
-    assert not (set(report["loaded"]) & EXPECTED_UNSAFE_ROUTERS)
+    assert not (set(report["loaded"]) & (EXPECTED_UNSAFE_ROUTERS - partial))
+    mounted = {
+        (method, getattr(route, "path", ""))
+        for route in app.routes
+        for method in (getattr(route, "methods", None) or ())
+    }
+    for name in partial:
+        capability = CAPABILITY_BY_MODULE[name]
+        assert ("POST", f"{capability.prefix}/unsafe-action") not in mounted, name
+        for method, path in capability.safe_mode_routes:
+            assert (method, f"{capability.prefix}{path}") in mounted, (name, method, path)
+    for name in EXPECTED_UNSAFE_ROUTERS - partial:
+        prefix = CAPABILITY_BY_MODULE[name].prefix
+        assert not any(path.startswith(prefix + "/") for _method, path in mounted), name
 
 
 def test_manifest_reconciliation_rejects_an_undeclared_router(monkeypatch):

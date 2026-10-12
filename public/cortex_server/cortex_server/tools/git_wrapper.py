@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
-from .subprocess_lifecycle import spawn_owned, stop_process
+from .subprocess_lifecycle import spawn_owned, stop_process, wait_for_owned_spawn
 
 DEFAULT_TIMEOUT = 60.0
 MAX_OUTPUT_CHARS = 1024 * 1024
@@ -51,6 +51,7 @@ def _bounded_sync_command(
     cwd: Optional[str] = None,
     timeout: float = DEFAULT_TIMEOUT,
     env: Optional[Dict[str, str]] = None,
+    strip: bool = True,
 ) -> "GitResult":
     """Run with concurrent fixed-capacity pipe drains and a hard deadline."""
     proc = subprocess.Popen(
@@ -108,8 +109,11 @@ def _bounded_sync_command(
         raise GitError("Git command timed out")
     if any(overflowed):
         raise GitError(OUTPUT_LIMIT_ERROR)
+    stdout_text = bytes(tails[0]).decode(errors="replace")
     return GitResult(success=proc.returncode == 0,
-                     stdout=bytes(tails[0]).decode(errors="replace").strip(),
+                     # Porcelain output is column-sensitive: a leading space is
+                     # data, so callers parsing it pass strip=False.
+                     stdout=stdout_text.strip() if strip else stdout_text,
                      stderr=bytes(tails[1]).decode(errors="replace").strip(),
                      returncode=proc.returncode)
 
@@ -156,6 +160,7 @@ async def run_git_async(
     cwd: Optional[str] = None,
     timeout: float = DEFAULT_TIMEOUT,
     env: Optional[Dict[str, str]] = None,
+    strip: bool = True,
 ) -> "GitResult":
     """Run Git without blocking, and retain ownership of the child until reaped."""
     deadline = asyncio.get_running_loop().time() + timeout
@@ -163,10 +168,10 @@ async def run_git_async(
     if remaining <= 0:
         raise GitError("Git command timed out")
     try:
-        proc = await asyncio.wait_for(spawn_owned(asyncio.create_subprocess_exec(
+        proc = await wait_for_owned_spawn(spawn_owned(asyncio.create_subprocess_exec(
             *cmd, cwd=cwd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=env,
-        ), TERMINATE_GRACE, _stop_process), remaining)
+        ), TERMINATE_GRACE, _stop_process), remaining, _stop_process)
     except asyncio.TimeoutError:
         raise GitError("Git command timed out")
     try:
@@ -183,9 +188,10 @@ async def run_git_async(
         raise
     if output_overflowed:
         raise GitError(OUTPUT_LIMIT_ERROR)
+    stdout_text = out.decode(errors="replace")
     return GitResult(
         success=proc.returncode == 0,
-        stdout=out.decode(errors="replace").strip(),
+        stdout=stdout_text.strip() if strip else stdout_text,
         stderr=err.decode(errors="replace").strip(),
         returncode=proc.returncode,
     )
@@ -219,6 +225,46 @@ class FileChange(BaseModel):
     additions: int = 0
     deletions: int = 0
     status: str = Field(..., description="Git status code: M, A, D, R, ??, etc.")
+    original_path: Optional[str] = None
+
+
+def parse_porcelain_z(output: str) -> Dict[str, List[FileChange]]:
+    """Parse ``git status --porcelain=v1 -z`` exactly (no whitespace stripping).
+
+    Entries are ``XY<space>PATH`` separated by NUL; renames/copies are followed
+    by a second NUL-terminated field holding the original path.
+    """
+    staged: List[FileChange] = []
+    unstaged: List[FileChange] = []
+    untracked: List[FileChange] = []
+    fields = output.split("\0")
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if not entry:
+            continue
+        if len(entry) < 4 or entry[2] != " ":
+            raise GitError("Unexpected git status record")
+        x, y, path = entry[0], entry[1], entry[3:]
+        original = None
+        if x in "RC" or y in "RC":
+            original = fields[index] if index < len(fields) else None
+            index += 1
+        if x == "?" and y == "?":
+            untracked.append(FileChange(path=path, status="??"))
+            continue
+        if x == "!" and y == "!":
+            continue
+        if x != " ":
+            staged.append(FileChange(path=path, status=x, original_path=original))
+        if y != " ":
+            unstaged.append(FileChange(path=path, status=y, original_path=original if x == " " else None))
+    return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
+
+
+def _within(candidate: Path, root: Path) -> bool:
+    return candidate == root or root in candidate.parents
 
 
 class CommitInfo(BaseModel):
@@ -240,8 +286,9 @@ class BranchInfo(BaseModel):
 class GitRepo:
     """Git repository interface."""
     
-    def __init__(self, path: str):
+    def __init__(self, path: str, *, boundary: Optional[str] = None):
         self.path = Path(path).resolve()
+        self.boundary = self._discovery_boundary(self.path, boundary)
         self.repo_root = self._discover_repo_root(self.path)
 
     @staticmethod
@@ -271,41 +318,94 @@ class GitRepo:
             "GIT_ASKPASS": "/bin/false",
         }
     
+    @staticmethod
+    def _discovery_boundary(path: Path, boundary: Optional[str]) -> Path:
+        """Highest directory repository discovery may reach.
+
+        An explicit boundary wins; otherwise the deepest configured execution
+        root containing ``path``; otherwise ``path`` itself (no upward walk).
+        This prevents a request for ``<root>/sub`` from silently operating on a
+        parent repository that lives outside the authorized root.
+        """
+        if boundary is not None:
+            limit = Path(boundary).resolve()
+            if not _within(path, limit):
+                raise GitError("Repository path is outside the authorized root", cwd=str(path))
+            return limit
+        try:
+            from cortex_server.modules.execution_capabilities import configured_roots
+
+            roots = [root for root in configured_roots() if _within(path, root)]
+        except Exception:
+            roots = []
+        if roots:
+            return max(roots, key=lambda root: len(root.parts))
+        return path
+
     def _discover_repo_root(self, path: Path) -> Path:
-        """Find the repository root by walking up directories."""
+        """Find the repository root without leaving the discovery boundary."""
+        limit = getattr(self, "boundary", path)
         cur = path
         for _ in range(50):  # Prevent infinite loops
-            if (cur / ".git").exists():
+            dot_git = cur / ".git"
+            if dot_git.exists():
+                target = dot_git.resolve()
+                if dot_git.is_file():
+                    try:
+                        line = dot_git.read_text(encoding="utf-8", errors="replace").strip()
+                    except OSError as exc:
+                        raise GitError("Unreadable git metadata", cwd=str(cur)) from exc
+                    if line.startswith("gitdir:"):
+                        target = (cur / line[len("gitdir:"):].strip()).resolve()
+                if not _within(target, limit):
+                    raise GitError("Repository metadata is outside the authorized root", cwd=str(path))
                 return cur
-            if cur.parent == cur:
+            if cur == limit or cur.parent == cur:
                 break
             cur = cur.parent
-        raise GitError("Not a git repository", cwd=str(path))
+        raise GitError("Not a git repository within the authorized root", cwd=str(path))
     
-    def _run(self, *args: str, check: bool = False, cwd: Optional[str] = None) -> GitResult:
+    def _run(self, *args: str, check: bool = False, cwd: Optional[str] = None, strip: bool = True) -> GitResult:
         """Run a git command."""
         cmd = self._command(*args)
-        result = _bounded_sync_command(
-            cmd,
-            cwd or str(self.repo_root),
-            env=self._environment(),
-        )
+        if strip:
+            result = _bounded_sync_command(
+                cmd,
+                cwd or str(self.repo_root),
+                env=self._environment(),
+            )
+        else:
+            result = _bounded_sync_command(
+                cmd,
+                cwd or str(self.repo_root),
+                env=self._environment(),
+                strip=False,
+            )
         
         if check and not result.success:
             raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), result)
         
         return result
     
-    async def _run_async(self, *args: str, check: bool = False, cwd: Optional[str] = None) -> GitResult:
+    async def _run_async(self, *args: str, check: bool = False, cwd: Optional[str] = None, strip: bool = True) -> GitResult:
         """Run a git command asynchronously."""
         cmd = self._command(*args)
         
-        result = await run_git_async(
-            cmd,
-            cwd or str(self.repo_root),
-            DEFAULT_TIMEOUT,
-            env=self._environment(),
-        )
+        if strip:
+            result = await run_git_async(
+                cmd,
+                cwd or str(self.repo_root),
+                DEFAULT_TIMEOUT,
+                env=self._environment(),
+            )
+        else:
+            result = await run_git_async(
+                cmd,
+                cwd or str(self.repo_root),
+                DEFAULT_TIMEOUT,
+                env=self._environment(),
+                strip=False,
+            )
         
         if check and not result.success:
             raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), result)
@@ -380,43 +480,33 @@ class GitRepo:
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
     
+    def _read_only_environment(self) -> Dict[str, str]:
+        # GIT_OPTIONAL_LOCKS=0 stops `git status` from opportunistically
+        # rewriting .git/index, so inspection really is read-only.
+        return {**self._environment(), "GIT_OPTIONAL_LOCKS": "0"}
+
     def status(self) -> Dict[str, List[FileChange]]:
-        """Get repository status."""
-        res = self._run("status", "--porcelain", check=True)
-        
-        staged, unstaged, untracked = [], [], []
-        
-        for line in res.stdout.splitlines():
-            if not line:
-                continue
-            
-            code = line[:2]
-            filepath = line[3:].strip()
-            
-            if code == "??":
-                untracked.append(FileChange(path=filepath, status="??"))
-            else:
-                if code[0] != " ":
-                    staged.append(FileChange(path=filepath, status=code[0]))
-                if code[1] != " ":
-                    unstaged.append(FileChange(path=filepath, status=code[1]))
-        
-        return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
+        """Get repository status (byte-exact porcelain v1 -z parsing, no index refresh)."""
+        cmd = self._command("status", "--porcelain=v1", "-z")
+        res = _bounded_sync_command(cmd, str(self.repo_root), env=self._read_only_environment(), strip=False)
+        if not res.success:
+            raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), res)
+        return parse_porcelain_z(res.stdout)
 
     async def status_async(self) -> Dict[str, List[FileChange]]:
-        res = await self._run_async("status", "--porcelain", check=True)
-        staged, unstaged, untracked = [], [], []
-        for line in res.stdout.splitlines():
-            if not line:
-                continue
-            code, filepath = line[:2], line[3:].strip()
-            if code == "??":
-                untracked.append(FileChange(path=filepath, status="??"))
-            else:
-                if code[0] != " ": staged.append(FileChange(path=filepath, status=code[0]))
-                if code[1] != " ": unstaged.append(FileChange(path=filepath, status=code[1]))
-        return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
-    
+        cmd = self._command("status", "--porcelain=v1", "-z")
+        res = await run_git_async(cmd, str(self.repo_root), DEFAULT_TIMEOUT,
+                                  env=self._read_only_environment(), strip=False)
+        if not res.success:
+            raise GitError("Git command failed", " ".join(cmd), str(self.repo_root), res)
+        return parse_porcelain_z(res.stdout)
+
+    async def head_async(self) -> Optional[str]:
+        """Current HEAD commit sha, or None for a repository with no commits."""
+        res = await self._run_async("rev-parse", "--verify", "--quiet", "HEAD")
+        value = res.stdout.strip()
+        return value if res.success and len(value) in (40, 64) else None
+
     def pull(self, remote: str = "origin", branch: Optional[str] = None, rebase: bool = False) -> GitResult:
         """Pull changes from remote."""
         cmd = ["pull"]
@@ -482,17 +572,21 @@ class GitRepo:
         return commits
 
     async def log_async(self, max_count: int = 10) -> List[CommitInfo]:
-        format_str = "%H|%an|%ad|%s"
-        res = await self._run_async("log", f"--max-count={max_count}", "--date=iso",
-                                    f"--pretty=format:{format_str}", check=True)
+        """Commit log with unambiguous separators; undated rows are skipped, never invented."""
+        max_count = max(1, min(int(max_count), 200))
+        res = await self._run_async("log", f"--max-count={max_count}",
+                                    "--pretty=format:%H%x1f%an%x1f%aI%x1f%s%x1e", check=True)
         commits = []
-        for line in res.stdout.splitlines():
-            parts = line.split("|", 3)
-            if len(parts) >= 4:
-                h, author, date_str, msg = parts
-                try: date = datetime.fromisoformat(date_str.replace(" ", "T"))
-                except ValueError: date = datetime.now()
-                commits.append(CommitInfo(hash=h, author=author, date=date, message=msg))
+        for record in res.stdout.split("\x1e"):
+            parts = record.strip("\n").split("\x1f")
+            if len(parts) != 4:
+                continue
+            h, author, date_str, msg = parts
+            try:
+                date = datetime.fromisoformat(date_str.strip())
+            except ValueError:
+                continue
+            commits.append(CommitInfo(hash=h.strip(), author=author, date=date, message=msg))
         return commits
     
     def diff(self, commit_a: str, commit_b: str, file_path: Optional[str] = None) -> GitResult:

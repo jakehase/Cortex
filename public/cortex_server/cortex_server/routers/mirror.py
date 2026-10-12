@@ -1,18 +1,22 @@
 """
-Level 23: The Cartographer / Mirror — Full System Dashboard & Self-Discovery
+Level 23: The Cartographer / Mirror — measured system map and topology.
 
-Provides a live HTML dashboard showing all registered Cortex levels with real-time
-status checks, plus structured JSON endpoints for system introspection.
+Availability is measured in-process (``modules.level_probe``): each level's
+mount state comes from the running app's route table and router load report,
+and its canonical status handler is invoked directly through its route object
+— no unauthenticated HTTP self-calls, so auth denials can no longer masquerade
+as "degraded" levels. Results are cached with timestamps; ``/mirror/status``
+reports the age of the last map instead of a hard-coded "active".
 """
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, JSONResponse
 from datetime import datetime
-from typing import Dict, List, Any
-import asyncio
-import time
-import httpx
+from html import escape
+from typing import Any, Dict, List, Optional
 
-from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
+
+from cortex_server.modules import level_probe
+from cortex_server.modules.cartographer import build_topology
 from cortex_server.modules.level_registry import (
     LEVEL_REGISTRY_VERSION,
     get_level_registry,
@@ -21,321 +25,233 @@ from cortex_server.modules.level_registry import (
 router = APIRouter()
 
 # ── Canonical Level Registry ────────────────────────────────────────────────
-# Source of truth for the entire Cortex topology.
 
 LEVEL_MAP: Dict[int, Dict[str, Any]] = {
     int(row["level"]): {**row, "path": row["route_prefix"]}
     for row in get_level_registry()
 }
 
-BASE_URL = CORTEX_INTERNAL_BASE_URL
+MAP_TTL_S = 30.0
+MAP_STALE_AFTER_S = 300.0
 
-CATEGORY_COLORS = {
-    "Foundation":    "#00ff41",
-    "Intelligence":  "#00bfff",
-    "Metacognition": "#ff6600",
-    "Singularity":   "#ff00ff",
+STATUS_COLORS = {
+    "online": "#00ff41",
+    "restricted": "#00bfff",
+    "degraded": "#ffcc00",
+    "unmounted": "#8a8a8a",
+    "failed": "#ff0040",
+    "unknown": "#666666",
 }
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-async def _probe_level(client: httpx.AsyncClient, level_num: int, info: Dict) -> Dict[str, Any]:
-    """Probe a single level's /status endpoint. Returns structured result."""
-    url = f"{BASE_URL}{info['canonical_status']}"
-    start = time.monotonic()
-    try:
-        resp = await client.get(url, timeout=3.0)
-        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
-        if resp.status_code == 200:
-            return {
-                "level": level_num,
-                "name": info["name"],
-                "status": "online",
-                "response_ms": elapsed_ms,
-                "category": info["category"],
-            }
-        else:
-            return {
-                "level": level_num,
-                "name": info["name"],
-                "status": "degraded",
-                "response_ms": elapsed_ms,
-                "category": info["category"],
-                "detail": f"HTTP {resp.status_code}",
-            }
-    except Exception as exc:
-        elapsed_ms = round((time.monotonic() - start) * 1000, 1)
-        return {
-            "level": level_num,
-            "name": info["name"],
-            "status": "offline",
-            "response_ms": elapsed_ms,
-            "category": info["category"],
-            "detail": str(exc)[:120],
-        }
+def _summary(levels: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {"total": len(levels)}
+    for row in levels:
+        key = str(row.get("status") or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
-async def _probe_all() -> List[Dict[str, Any]]:
-    """Probe every level concurrently and return sorted results."""
-    async with httpx.AsyncClient() as client:
-        tasks = [
-            _probe_level(client, num, info)
-            for num, info in LEVEL_MAP.items()
-        ]
-        results = await asyncio.gather(*tasks)
-    return sorted(results, key=lambda r: r["level"])
+def _compact(row: Dict[str, Any]) -> Dict[str, Any]:
+    probe = row.get("probe") or {}
+    return {
+        "level": row["level"],
+        "name": row["name"],
+        "category": LEVEL_MAP.get(row["level"], {}).get("category"),
+        "status": row["status"],
+        "reason": row.get("reason"),
+        "mount": row.get("mount"),
+        "router_module": row.get("router_module"),
+        "canonical_status": row.get("canonical_status"),
+        "canonical_status_mounted": row.get("canonical_status_mounted"),
+        "mounted_route_count": row.get("mounted_route_count"),
+        "probe": {
+            "outcome": probe.get("outcome"),
+            "status_code": probe.get("status_code"),
+            "latency_ms": probe.get("latency_ms"),
+            "reported_status": probe.get("reported_status"),
+        },
+    }
+
+
+async def _fresh_map(request: Request, max_age_s: float = MAP_TTL_S) -> Optional[Dict[str, Any]]:
+    level_probe.remember_app(request.app)
+    return await level_probe.refresh_probe_snapshot(request.app, max_age_s=max_age_s)
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)
-async def get_dashboard():
-    """Full HTML dashboard with live status for all registered levels."""
-    results = await _probe_all()
+async def get_dashboard(request: Request):
+    """HTML dashboard rendered from the measured (cached) level map."""
+    snapshot = await _fresh_map(request) or {"levels": []}
+    levels = snapshot.get("levels") or []
+    counts = _summary(levels)
 
-    online = sum(1 for r in results if r["status"] == "online")
-    offline = sum(1 for r in results if r["status"] == "offline")
-    degraded = sum(1 for r in results if r["status"] == "degraded")
-
-    # Build level cards
     cards_html = ""
-    for r in results:
-        if r["status"] == "online":
-            color = "#00ff41"
-            border = "#00ff41"
-            glow = "0 0 12px rgba(0,255,65,0.6)"
-            label = "ONLINE"
-        elif r["status"] == "degraded":
-            color = "#ffcc00"
-            border = "#ffcc00"
-            glow = "0 0 12px rgba(255,204,0,0.6)"
-            label = "DEGRADED"
-        else:
-            color = "#ff0040"
-            border = "#441111"
-            glow = "none"
-            label = "OFFLINE"
-
-        cat_color = CATEGORY_COLORS.get(r["category"], "#888")
-
+    for row in levels:
+        status = str(row.get("status") or "unknown")
+        color = STATUS_COLORS.get(status, "#666666")
+        probe = row.get("probe") or {}
+        latency = probe.get("latency_ms")
         cards_html += f"""
-        <div class="card" style="border-color:{border}; box-shadow:{glow};">
+        <div class="card" style="border-color:{color};">
             <div class="card-header">
-                <span class="level-num" style="color:{color};">L{r['level']:02d}</span>
-                <span class="cat-badge" style="background:{cat_color}22; color:{cat_color}; border:1px solid {cat_color}55;">{r['category']}</span>
+                <span class="level-num" style="color:{color};">L{int(row['level']):02d}</span>
+                <span class="cat-badge">{escape(str(row.get('mount') or ''))}</span>
             </div>
-            <div class="level-name">{r['name']}</div>
+            <div class="level-name">{escape(str(row.get('name') or ''))}</div>
             <div class="status-row">
                 <span class="status-dot" style="background:{color};"></span>
-                <span style="color:{color};">{label}</span>
-                <span class="latency">{r['response_ms']}ms</span>
+                <span style="color:{color};">{escape(status.upper())}</span>
+                <span class="latency">{escape(str(latency)) + 'ms' if latency is not None else escape(str(row.get('reason') or ''))}</span>
             </div>
         </div>"""
 
+    summary_html = " ".join(
+        f'<span style="color:{STATUS_COLORS.get(key, "#888")}">● {escape(key.upper())}: {value}</span>'
+        for key, value in counts.items()
+        if key != "total"
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>◈ THE MIRROR — Cortex Level Map ◈</title>
+    <title>THE MIRROR — Cortex Level Map</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            background: #0a0a0a;
-            color: #ccc;
-            font-family: 'Courier New', Courier, monospace;
-            min-height: 100vh;
-            padding: 30px 20px;
-        }}
-        body::before {{
-            content: "";
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: repeating-linear-gradient(0deg,
-                rgba(0,0,0,0.12), rgba(0,0,0,0.12) 1px,
-                transparent 1px, transparent 2px);
-            pointer-events: none; z-index: 1000;
-        }}
-        .header {{
-            text-align: center; margin-bottom: 30px;
-        }}
-        .header h1 {{
-            font-size: 2.2rem; letter-spacing: 10px; color: #00ff41;
-            text-shadow: 0 0 15px #00ff41, 0 0 30px #00ff4155;
-        }}
-        .summary {{
-            display: flex; justify-content: center; gap: 40px;
-            margin: 20px 0 30px; font-size: 14px; letter-spacing: 2px;
-        }}
-        .summary .s-online  {{ color: #00ff41; }}
-        .summary .s-degraded {{ color: #ffcc00; }}
-        .summary .s-offline  {{ color: #ff0040; }}
-        .grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 16px; max-width: 1600px; margin: 0 auto;
-        }}
-        .card {{
-            background: rgba(0,15,0,0.7);
-            border: 1.5px solid #333;
-            padding: 16px; border-radius: 6px;
-            transition: all 0.3s ease;
-        }}
-        .card:hover {{
-            transform: translateY(-2px);
-        }}
-        .card-header {{
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 6px;
-        }}
-        .level-num {{
-            font-size: 1.4rem; font-weight: bold;
-        }}
-        .cat-badge {{
-            font-size: 9px; padding: 2px 6px; border-radius: 3px;
-            letter-spacing: 1px; text-transform: uppercase;
-        }}
-        .level-name {{
-            font-size: 13px; color: #aaa; margin-bottom: 10px;
-            letter-spacing: 2px; text-transform: uppercase;
-        }}
-        .status-row {{
-            display: flex; align-items: center; gap: 8px;
-            font-size: 11px; letter-spacing: 1px;
-        }}
-        .status-dot {{
-            width: 8px; height: 8px; border-radius: 50%;
-            display: inline-block;
-        }}
-        .latency {{
-            margin-left: auto; color: #666; font-size: 10px;
-        }}
-        .footer {{
-            text-align: center; margin-top: 30px; color: #333;
-            font-size: 11px; letter-spacing: 3px;
-        }}
-        .refresh-btn {{
-            display: block; margin: 20px auto;
-            background: none; border: 1px solid #00ff41; color: #00ff41;
-            padding: 8px 24px; cursor: pointer; font-family: inherit;
-            letter-spacing: 2px; font-size: 12px; border-radius: 4px;
-        }}
-        .refresh-btn:hover {{ background: #00ff4122; }}
+        body {{ background: #0a0a0a; color: #ccc; font-family: 'Courier New', Courier, monospace; padding: 30px 20px; }}
+        .header {{ text-align: center; margin-bottom: 20px; }}
+        .header h1 {{ font-size: 2rem; letter-spacing: 8px; color: #00ff41; }}
+        .summary {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 16px 0 24px; font-size: 13px; }}
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; max-width: 1600px; margin: 0 auto; }}
+        .card {{ background: rgba(0,15,0,0.7); border: 1.5px solid #333; padding: 14px; border-radius: 6px; }}
+        .card-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
+        .level-num {{ font-size: 1.3rem; font-weight: bold; }}
+        .cat-badge {{ font-size: 9px; padding: 2px 6px; border-radius: 3px; color: #999; border: 1px solid #444; }}
+        .level-name {{ font-size: 12px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; }}
+        .status-row {{ display: flex; align-items: center; gap: 8px; font-size: 11px; }}
+        .status-dot {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; }}
+        .latency {{ margin-left: auto; color: #666; font-size: 10px; }}
+        .footer {{ text-align: center; margin-top: 24px; color: #444; font-size: 11px; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>◈ THE MIRROR ◈</h1>
-        <p style="color:#555; letter-spacing:3px; margin-top:8px; font-size:12px;">
-            CORTEX SYSTEM MAP — {len(LEVEL_MAP)} LEVELS
-        </p>
+        <h1>THE MIRROR</h1>
+        <p style="color:#555; margin-top:8px; font-size:12px;">CORTEX SYSTEM MAP — {len(LEVEL_MAP)} LEVELS — IN-PROCESS PROBES</p>
     </div>
-    <div class="summary">
-        <span class="s-online">● ONLINE: {online}</span>
-        <span class="s-degraded">● DEGRADED: {degraded}</span>
-        <span class="s-offline">● OFFLINE: {offline}</span>
-    </div>
-    <div class="grid">
-        {cards_html}
-    </div>
-    <button class="refresh-btn" onclick="location.reload()">⟳ REFRESH</button>
-    <div class="footer">
-        ◈ L23 CARTOGRAPHER — GENERATED {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ◈
-    </div>
+    <div class="summary">{summary_html}</div>
+    <div class="grid">{cards_html}</div>
+    <div class="footer">L23 CARTOGRAPHER — MEASURED {escape(str(snapshot.get('measured_at') or 'never'))} (age {escape(str(snapshot.get('age_s')))}s)</div>
 </body>
 </html>"""
 
 
 @router.get("/status")
-async def mirror_status(deep: bool = False):
-    """L23 status.
+async def mirror_status(request: Request, deep: bool = False):
+    """L23 status derived from the freshness of the last measured map.
 
-    deep=False (default): fast, non-blocking status for health checks.
-    deep=True: full per-level probe breakdown.
+    deep=False (default): cached summary only (a background refresh is
+    scheduled when stale). deep=True: refresh now and include per-level rows.
     """
-    if not deep:
-        return {
-            "success": True,
-            "data": {
-                "level": 23,
-                "name": "Cartographer",
-                "status": "active",
-                "total_levels": len(LEVEL_MAP),
-                "registry_version": LEVEL_REGISTRY_VERSION,
-                "probe_mode": "fast",
-                "timestamp": datetime.now().isoformat(),
-            },
-            "error": None,
-        }
-
-    results = await _probe_all()
-    online = [r for r in results if r["status"] == "online"]
-    offline = [r for r in results if r["status"] == "offline"]
-    degraded = [r for r in results if r["status"] == "degraded"]
-
-    return {
-        "success": True,
-        "data": {
-            "level": 23,
-            "name": "Cartographer",
-            "status": "active",
-            "total_levels": len(LEVEL_MAP),
-            "registry_version": LEVEL_REGISTRY_VERSION,
-            "online": len(online),
-            "offline": len(offline),
-            "degraded": len(degraded),
-            "levels": results,
-            "probe_mode": "deep",
-            "timestamp": datetime.now().isoformat(),
-        },
-        "error": None,
+    level_probe.remember_app(request.app)
+    if deep:
+        snapshot = await _fresh_map(request, max_age_s=5.0)
+    else:
+        snapshot = level_probe.cached_probe_snapshot(None)
+        level_probe.schedule_probe_refresh(request.app, max_age_s=MAP_TTL_S)
+    age = snapshot.get("age_s") if snapshot else None
+    if snapshot is None and level_probe.refresh_in_progress():
+        # The first map is being measured right now (this handler may itself
+        # be one of the probes); report that rather than a failure.
+        status, success = "measuring", True
+    elif snapshot is None or not snapshot.get("available", True):
+        status, success = "no_map", False
+    elif age is not None and age > MAP_STALE_AFTER_S:
+        status, success = "stale", False
+    else:
+        status, success = "active", True
+    levels = (snapshot or {}).get("levels") or []
+    data: Dict[str, Any] = {
+        "level": 23,
+        "name": "Cartographer",
+        "status": status,
+        "total_levels": len(LEVEL_MAP),
+        "registry_version": LEVEL_REGISTRY_VERSION,
+        "map_measured_at": (snapshot or {}).get("measured_at"),
+        "map_age_s": age,
+        "map_stale_after_s": MAP_STALE_AFTER_S,
+        "probe_mode": "in_process_route_handler",
+        "summary": _summary(levels) if levels else None,
+        "timestamp": datetime.now().isoformat(),
     }
+    if deep:
+        data["levels"] = [_compact(row) for row in levels]
+    return {"success": success, "status": status, "data": data, "error": None if success else status}
 
 
 @router.get("/state")
-async def mirror_state():
-    """Structured JSON state: full probe results + summary."""
-    results = await _probe_all()
-    online = sum(1 for r in results if r["status"] == "online")
-    offline = sum(1 for r in results if r["status"] == "offline")
-    degraded = sum(1 for r in results if r["status"] == "degraded")
+async def mirror_state(request: Request):
+    """Structured JSON state: measured per-level availability + summary."""
+    snapshot = await _fresh_map(request)
+    levels = (snapshot or {}).get("levels") or []
     return {
-        "success": True,
+        "success": bool(snapshot and snapshot.get("available", True)),
         "data": {
-            "summary": {
-                "total": len(results),
-                "online": online,
-                "offline": offline,
-                "degraded": degraded,
-            },
-            "levels": results,
+            "summary": _summary(levels),
+            "levels": [_compact(row) for row in levels],
+            "measured_at": (snapshot or {}).get("measured_at"),
+            "map_age_s": (snapshot or {}).get("age_s"),
         },
-        "error": None,
+        "error": None if snapshot else "app_unavailable",
         "timestamp": datetime.now().isoformat(),
     }
 
 
 @router.get("/map")
-async def level_map():
-    """Complete level map as structured JSON with live reachability."""
-    results = await _probe_all()
-    reachability = {r["level"]: r["status"] for r in results}
+async def level_map(request: Request):
+    """Complete level map: registry identity + mount state + measured availability."""
+    snapshot = await _fresh_map(request)
+    by_level = {row["level"]: row for row in (snapshot or {}).get("levels") or []}
 
     levels = []
     for num, info in sorted(LEVEL_MAP.items()):
+        observed = by_level.get(num, {})
         levels.append({
             "level": num,
             "name": info["name"],
             "router_path": info["path"],
             "category": info["category"],
             "always_on": info["always_on"],
-            "reachable": reachability.get(num, "unknown"),
+            "status": observed.get("status", "unknown"),
+            "mount": observed.get("mount"),
+            "mounted_routes": observed.get("mounted_routes", []),
+            "probe_outcome": (observed.get("probe") or {}).get("outcome"),
+            # Legacy field: now the measured status rather than an HTTP guess.
+            "reachable": observed.get("status", "unknown"),
         })
 
     return {
-        "success": True,
+        "success": bool(snapshot and snapshot.get("available", True)),
         "total": len(levels),
         "registry_version": LEVEL_REGISTRY_VERSION,
+        "measured_at": (snapshot or {}).get("measured_at"),
+        "map_age_s": (snapshot or {}).get("age_s"),
         "levels": levels,
         "generated_at": datetime.now().isoformat(),
+    }
+
+
+@router.get("/topology")
+async def topology(request: Request):
+    """Nodes (levels + external dependencies) and source-evidenced edges."""
+    snapshot = await _fresh_map(request)
+    graph = build_topology(probe_snapshot=snapshot)
+    return {
+        "success": True,
+        "registry_version": LEVEL_REGISTRY_VERSION,
+        "availability_measured_at": (snapshot or {}).get("measured_at"),
+        **graph,
     }

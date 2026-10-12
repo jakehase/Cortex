@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
+from cortex_server.modules.orchestrator_auth import strip_credential_headers
 from cortex_server.modules.reasoning_failures import enrich_failure
 from cortex_server.modules.reasoning_planner import dependency_failures, render_plan_templates
 from cortex_server.modules.reasoning_retry_policy import retry_settings
@@ -324,6 +325,7 @@ async def execute_single_step(
     validate_endpoint_fn: ValidateEndpointFn,
     payload_size_ok_fn: PayloadSizeOkFn,
     step_belief_context_fn: StepBeliefContextFn,
+    execution_headers_fn: Optional[Callable[[Optional[JsonDict]], Tuple[Dict[str, str], str]]] = None,
 ) -> JsonDict:
     step_id = str(step.get("node_id") or f"step_{step_index}")
     url = f"{base_url}{step['endpoint']}"
@@ -495,12 +497,21 @@ async def execute_single_step(
             return safety_block_result(consumed_safety)
         safety = consumed_safety
 
+    # Stored step headers never carry credentials to the sink (legacy rows may
+    # still contain them); fresh credentials for the workflow's sealed
+    # authority are attached only to this outgoing request.
+    send_headers = strip_credential_headers(headers)
+    authority_label = "unbound"
+    if execution_headers_fn is not None:
+        injected, authority_label = execution_headers_fn(workflow_metadata)
+        send_headers = {**send_headers, **dict(injected or {})}
+
     t0 = time.monotonic()
     try:
         if method == "GET":
-            resp = await client.get(url, params=resolved_payload, headers=headers, timeout=step_timeout)
+            resp = await client.get(url, params=resolved_payload, headers=send_headers, timeout=step_timeout)
         else:
-            resp = await client.post(url, json=resolved_payload, headers=headers, timeout=step_timeout)
+            resp = await client.post(url, json=resolved_payload, headers=send_headers, timeout=step_timeout)
 
         elapsed = round((time.monotonic() - t0) * 1000, 1)
         try:
@@ -519,6 +530,7 @@ async def execute_single_step(
             "response": trim_response_body(body, max_chars=max_step_response_chars),
             "elapsed_ms": elapsed,
             "success": 200 <= resp.status_code < 400,
+            "execution_authority": authority_label,
             "policy": policy_settings,
             "belief_context": compact_belief_context,
             "safety": safety,
@@ -823,6 +835,7 @@ async def execute_workflow(
     workflow_policy_settings_fn: Optional[WorkflowPolicySettingsFn] = None,
     cancelled_step_result_fn: Optional[Callable[..., JsonDict]] = None,
     redact_headers_fn: RedactHeadersFn,
+    client_factory: Optional[Callable[[], httpx.AsyncClient]] = None,
 ) -> JsonDict:
     execution_id = f"exec_{uuid.uuid4().hex[:8]}"
     results_by_node: Dict[str, JsonDict] = {}
@@ -843,7 +856,9 @@ async def execute_workflow(
     pending = {str((step or {}).get("node_id") or f"step_{idx}"): (idx, dict(step)) for idx, step in enumerate(steps, start=1)}
     cancelled_step = cancelled_step_result_fn or cancelled_step_result
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    transport = "loopback_http"
+    async with (client_factory() if client_factory is not None else httpx.AsyncClient(timeout=30.0)) as client:
+        transport = str(getattr(client, "cortex_transport", transport))
         while pending:
             if deadline_exceeded(deadline_at):
                 overall_status = "partial_failure"
@@ -923,6 +938,7 @@ async def execute_workflow(
         "results_by_node": results_by_node,
         "total_steps": len(step_results),
         "successful_steps": sum(1 for s in step_results if s.get("success")),
+        "transport": transport,
     }
 
 

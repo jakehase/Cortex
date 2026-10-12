@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { deriveCortexPrincipal } from '../cortex-principal-identity.mjs';
 
 type BridgeConfig = {
@@ -49,6 +50,7 @@ function cfg(pluginConfig?: Record<string, unknown>): Required<BridgeConfig> {
     workspaceId: String(c.workspaceId ?? '').trim(),
     agentId: String(c.agentId ?? '').trim(),
     userId: String(c.userId ?? '').trim(),
+    ownerSenderId: String((c as any).ownerSenderId ?? '').trim(),
     channelId: String(c.channelId ?? '').trim(),
     scopeCredentialId: String(c.scopeCredentialId ?? '').trim(),
     scopeHmacSecret: String(c.scopeHmacSecret ?? ''),
@@ -161,6 +163,19 @@ export async function requestText(url: string, init: RequestInit, timeoutMs: num
   }
 }
 
+function recordBridgeFailure(line: string) {
+  try {
+    const target = process.env.CORTEX_BROWSER_BRIDGE_FAILURE_LOG || '/tmp/openclaw/cortex-browser-bridge.log';
+    appendFileSync(target, `${new Date().toISOString()} ${line}\n`, { mode: 0o600 });
+  } catch { /* diagnostics must never break the tool */ }
+}
+
+function diagnosticForLog(text: string) {
+  let value: unknown = text;
+  try { const parsed = JSON.parse(text); value = parsed?.detail ?? parsed?.error ?? text; } catch { /* keep raw text */ }
+  return String(typeof value === 'string' ? value : JSON.stringify(value)).replace(/[^\x20-\x7E]+/g, ' ').slice(0, 240);
+}
+
 function maybeJson(text: string) {
   try { return JSON.parse(text); } catch { return text; }
 }
@@ -192,6 +207,7 @@ const plugin = {
           const headers = actionHeaders(c, trustedContext, 'POST', endpoint, body);
           const response = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', headers, body }, c.timeoutMs, c.maxResponseBytes);
           if (!response.ok) {
+            recordBridgeFailure(`cortex-browser-bridge: ${endpoint} failed status=${response.status} reason=${diagnosticForLog(response.text)}`);
             return JSON.stringify({
               ok: false,
               provider: 'cortex-browser',
@@ -204,6 +220,7 @@ const plugin = {
         } catch (error) {
           const message = error instanceof Error ? error.message : '';
           const boundedReadFailure = /^response exceeds \d+ bytes$/.test(message) ? message : 'Cortex browser request failed';
+          recordBridgeFailure(`cortex-browser-bridge: ${endpoint} failed before a response reason=${diagnosticForLog(message)}`);
           return JSON.stringify({ ok: false, provider: 'cortex-browser', endpoint, error: boundedReadFailure });
         }
       },

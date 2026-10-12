@@ -624,7 +624,8 @@ async def test_outcome_feedback_requires_provenance_control_replay_and_rate_limi
             secret="secret-other",
             outcome_token="feedback-control",
         ),
-        state=request.state,
+        # A different HTTP request: its own state (state caches the principal).
+        state=SimpleNamespace(cortex_write_authorization="write_token"),
     )
     with pytest.raises(HTTPException) as wrong_tenant:
         await nexus.outcome_feedback(nexus.OutcomeFeedbackReceiptRequest(receipt=issued["receipt"]), other_request)

@@ -186,6 +186,30 @@ def _set_text_ref(body: Dict[str, Any], ref: Optional[Dict[str, Any]], value: st
     return "response", "$.response"
 
 
+def _preserve_completion_binding(body: Dict[str, Any], original_response: Any) -> str:
+    """Rebind only already-verified evidence after this middleware formats text."""
+    response = body.get("response")
+    receipt = body.get("completion_receipt")
+    if not isinstance(original_response, str) or not isinstance(response, str) or response == original_response:
+        return "unchanged"
+    if not isinstance(receipt, dict):
+        return "no_receipt"
+    from cortex_server.routers.oracle import (
+        _completion_receipt_is_valid, _provider_completion_identity_is_valid,
+    )
+    valid = _completion_receipt_is_valid(receipt, response=original_response)
+    if body.get("provider_invoked"):
+        valid = valid and _provider_completion_identity_is_valid(receipt, model=str(body.get("model") or ""))
+    if not valid:
+        body.update(done=False, provider_invoked=False, degraded=True, completion_receipt=None)
+        return "rejected_invalid_input_receipt"
+    rebound = dict(receipt)
+    rebound["hud_input_response_sha256"] = hashlib.sha256(original_response.encode("utf-8")).hexdigest()
+    rebound["delivered_response_sha256"] = hashlib.sha256(response.encode("utf-8")).hexdigest()
+    body["completion_receipt"] = rebound
+    return "verified_hud_formatting"
+
+
 def _has_enhancement_preflight(text: str) -> bool:
     if not isinstance(text, str):
         return False
@@ -518,6 +542,7 @@ class HUDMiddleware(BaseHTTPMiddleware):
 
             response_ref = _find_primary_text_ref(body)
             response_text_key = str(response_ref.get("key")) if response_ref else None
+            original_receipted_response = body.get("response")
             response_text_path = str(response_ref.get("path")) if response_ref else None
             response_text = str(response_ref.get("text")) if response_ref else ""
             enhancement_reply_candidate = bool(response_text) and not _is_control_token_response(response_text)
@@ -621,6 +646,7 @@ class HUDMiddleware(BaseHTTPMiddleware):
                 if confidence_band is None:
                     confidence_band, _, _ = _estimate_confidence(response_text)
 
+            completion_binding = _preserve_completion_binding(body, original_receipted_response)
             contract = dict(existing_contract) if isinstance(existing_contract, dict) else {}
             contract.update({
                 "identity_phrase": existing_contract.get("identity_phrase", CONTRACT_IDENTITY_PHRASE),
@@ -643,6 +669,7 @@ class HUDMiddleware(BaseHTTPMiddleware):
                 "everyday_format_auto_injected": everyday_format_auto_injected,
                 "confidence_band": confidence_band,
                 "internal_machine_call_bypass": bool(internal_machine_call),
+                "completion_binding": completion_binding,
             })
 
             if (send_gate_reply or enhancement_reply_candidate) and has_activation_metadata:

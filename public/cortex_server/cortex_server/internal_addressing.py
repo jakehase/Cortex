@@ -183,3 +183,18 @@ __all__ = [
     "probe_internal_reachability",
     "resolve_internal_base_url",
 ]
+
+
+def health_probe_headers(http_request: Any = None) -> Dict[str, str]:
+    """Preserve caller authority for fixed self-calls; never supply ambient keys."""
+    if http_request is None:
+        return {}
+    from cortex_server.modules.memory_scope import MEMORY_PRINCIPAL_HEADERS
+
+    allowed = set(MEMORY_PRINCIPAL_HEADERS.values()) | {
+        "x-cortex-admin-token",
+        os.getenv("CORTEX_WRITE_TOKEN_HEADER", "x-cortex-write-token").lower(),
+        "x-cortex-scope-credential-id", "x-cortex-scope-signature",
+    }
+    return {name: http_request.headers[name] for name in allowed
+            if name in http_request.headers}

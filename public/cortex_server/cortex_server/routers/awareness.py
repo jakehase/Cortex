@@ -19,10 +19,27 @@ Architecture:
 - Computes emotional state from system metrics
 - Queries Oracle for semantic predictions when idle
 - Broadcasts insights, alerts, and distress signals proactively
+
+Honesty repairs (L37 audit):
+- Predictions carry an explicit resolution criterion (event type or source
+  level plus a deadline) and are resolved true only when that criterion is
+  observed, false when the deadline passes; predictions without a criterion
+  expire and never count towards accuracy. No fallback is labelled as Oracle.
+- Self-health and investigations use in-process calls (L1 Kernel metrics,
+  measured level availability, in-process status probes, Sentinel snapshot),
+  not HTTP self-calls that the auth layer rejects.
+- Model (Oracle-lane) calls are OFF by default
+  (CORTEX_AWARENESS_MODEL_CALLS=1 enables them) and go through
+  modules.level_model, never /oracle/chat over HTTP.
+- Cross-level HTTP chains/cascades are OFF by default
+  (CORTEX_AWARENESS_CROSS_LEVEL_CHAINS=1).
+- The wonder loop and emergence detection are honestly disabled and are not
+  advertised as capabilities; /awareness/status derives every capability from
+  a live check.
 """
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from collections import deque
@@ -36,7 +53,6 @@ import re
 import time
 import logging
 import threading
-import random
 
 # ── Consciousness Integration ──
 from cortex_server.modules.consciousness_integration import (
@@ -78,6 +94,34 @@ def _value_sha256(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 # ── Configuration ──
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def model_calls_enabled() -> bool:
+    """Oracle-lane model calls from the background loop (default off)."""
+    return _env_flag("CORTEX_AWARENESS_MODEL_CALLS", False)
+
+
+def cross_level_chains_enabled() -> bool:
+    """HTTP chains/cascades to other levels (default off)."""
+    return _env_flag("CORTEX_AWARENESS_CROSS_LEVEL_CHAINS", False)
+
+
+# The wonder loop had no authorized way to consult other levels and its
+# producer of insights never ran; it is disabled rather than simulated.
+WONDER_LOOP_ENABLED = False
+# Emergence detection tokenised JSON dumps (never alphabetic) and could not
+# fire; a value-based version would only match generic event keys. Disabled.
+EMERGENCE_DETECTION_ENABLED = False
+PREDICTION_DEFAULT_DEADLINE_SECONDS = 600
+PREDICTION_MAX_DEADLINE_SECONDS = 3600
+_RESOLUTION_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}")
+AWARENESS_MODEL_SCOPE = "admin:level.awareness"
+
 TICK_SECONDS = 120
 WORKING_MEMORY_PATH = Path(
     os.getenv(
@@ -183,6 +227,19 @@ _AWARENESS_PERSISTENCE_FIELDS = frozenset(
         "last_investigation_at",
         "deduped_events",
         "auto_indexes",
+        "semantic_index_attempts",
+        "confirmed_semantic_indexes",
+        "confirmed_lexical_indexes",
+        "unconfirmed_index_attempts",
+        "uid",
+        "resolution",
+        "kind",
+        "event_type",
+        "level",
+        "deadline_at",
+        "resolved_by",
+        "model_receipt_id",
+        "predictions_unresolvable_expired",
     }
 )
 
@@ -576,11 +633,15 @@ class WorkingMemory:
 
     def register_uncertainty(self, description: str, level: str = None, confidence: float = 0.5):
         with self._lock:
-            # Don't duplicate near-identical uncertainties
+            # Stable id survives restarts (descriptions are redacted on disk).
+            uid = _value_sha256(description)[:16]
             for u in self._state["uncertainties"]:
-                if not u["resolved"] and description[:50] in u["description"]:
+                if u["resolved"]:
+                    continue
+                if u.get("uid") == uid or description[:50] in str(u.get("description", "")):
                     return
             uncertainty = {
+                "uid": uid,
                 "description": description,
                 "source_level": level,
                 "confidence": confidence,
@@ -617,13 +678,39 @@ class WorkingMemory:
 
     # ── Predictions ──
 
-    def predict(self, prediction: str, confidence: float = 0.5, basis: str = "pattern", event_type_hint: Optional[str] = None):
+    @staticmethod
+    def _resolution(event_type_hint: Optional[str], from_level_hint: Optional[str], deadline_s: Optional[float]) -> Dict[str, Any]:
+        """Explicit, machine-checkable resolution criterion (or none)."""
+
+        try:
+            deadline = float(deadline_s) if deadline_s is not None else float(PREDICTION_DEFAULT_DEADLINE_SECONDS)
+        except (TypeError, ValueError):
+            deadline = float(PREDICTION_DEFAULT_DEADLINE_SECONDS)
+        deadline = max(10.0, min(float(PREDICTION_MAX_DEADLINE_SECONDS), deadline))
+        deadline_at = (datetime.now() + timedelta(seconds=deadline)).isoformat()
+        if isinstance(event_type_hint, str) and _RESOLUTION_TOKEN.fullmatch(event_type_hint):
+            return {"kind": "event_type", "event_type": event_type_hint, "deadline_at": deadline_at}
+        if isinstance(from_level_hint, str) and _RESOLUTION_TOKEN.fullmatch(from_level_hint):
+            return {"kind": "from_level", "level": from_level_hint, "deadline_at": deadline_at}
+        return {"kind": "none", "deadline_at": deadline_at}
+
+    def predict(
+        self,
+        prediction: str,
+        confidence: float = 0.5,
+        basis: str = "pattern",
+        event_type_hint: Optional[str] = None,
+        *,
+        from_level_hint: Optional[str] = None,
+        deadline_s: Optional[float] = None,
+    ):
         with self._lock:
             pred = {
                 "prediction": prediction,
                 "confidence": confidence,
                 "basis": basis,
                 "event_type_hint": event_type_hint,
+                "resolution": self._resolution(event_type_hint, from_level_hint, deadline_s),
                 "made_at": datetime.now().isoformat(),
                 "outcome": None,
             }
@@ -636,38 +723,60 @@ class WorkingMemory:
             if basis == "oracle_semantic":
                 self._state["meta"]["oracle_predictions_made"] += 1
 
-    def resolve_prediction(self, fragment: str, correct: bool, event_type: Optional[str] = None):
+    def _mark_prediction(self, p: Dict[str, Any], correct: bool, resolved_by: str) -> None:
+        p["outcome"] = "correct" if correct else "wrong"
+        p["resolved_at"] = datetime.now().isoformat()
+        p["resolved_by"] = resolved_by
+        meta = self._state["meta"]
+        if correct:
+            meta["predictions_correct"] += 1
+        else:
+            meta["predictions_wrong"] += 1
+        meta["predictions_resolved_total"] = meta.get("predictions_resolved_total", 0) + 1
+
+    def resolve_prediction(
+        self,
+        fragment: Optional[str],
+        correct: bool,
+        event_type: Optional[str] = None,
+        *,
+        from_level: Optional[str] = None,
+    ) -> int:
+        """Resolve predictions whose explicit criterion matches an observation.
+
+        A prediction is only resolved when its own criterion is met: an
+        observed event of its ``event_type`` (or from its ``level``) before its
+        deadline. Unrelated events never resolve anything, and there is no
+        "most recent prediction" fallback. ``fragment`` (manual resolution)
+        matches prediction text and is never used by the bus subscriber.
+        Returns the number of predictions resolved.
+        """
+
+        resolved = 0
+        now_iso = datetime.now().isoformat()
         with self._lock:
-            matched = False
-            frag = (fragment or "").lower()
             ev = (event_type or "").lower() if event_type else None
+            lvl = (from_level or "").lower() if from_level else None
+            frag = (fragment or "").lower() if fragment and not ev and not lvl else ""
             for p in reversed(self._state["predictions"]):
                 if p["outcome"] is not None:
                     continue
-                hint = (p.get("event_type_hint") or "").lower()
-                pred_text = (p.get("prediction") or "").lower()
-                if (ev and hint and ev == hint) or (frag and frag in pred_text):
-                    p["outcome"] = "correct" if correct else "wrong"
-                    p["resolved_at"] = datetime.now().isoformat()
-                    if correct:
-                        self._state["meta"]["predictions_correct"] += 1
-                    else:
-                        self._state["meta"]["predictions_wrong"] += 1
-                    self._state["meta"]["predictions_resolved_total"] = self._state["meta"].get("predictions_resolved_total", 0) + 1
-                    matched = True
+                criterion = p.get("resolution") if isinstance(p.get("resolution"), dict) else {}
+                deadline_at = str(criterion.get("deadline_at") or "")
+                if deadline_at and deadline_at < now_iso:
+                    continue  # expired; tick() records the outcome
+                kind = criterion.get("kind")
+                if ev and kind == "event_type" and str(criterion.get("event_type", "")).lower() == ev:
+                    self._mark_prediction(p, correct, f"observed_event:{ev}")
+                    resolved += 1
+                elif lvl and kind == "from_level" and str(criterion.get("level", "")).lower() == lvl:
+                    self._mark_prediction(p, correct, f"observed_level:{lvl}")
+                    resolved += 1
+                elif frag and frag in str(p.get("prediction") or "").lower():
+                    self._mark_prediction(p, correct, "manual")
+                    resolved += 1
                     break
-
-            if (not matched) and ev == "action_complete":
-                for p in reversed(self._state["predictions"]):
-                    if p["outcome"] is None:
-                        p["outcome"] = "correct" if correct else "wrong"
-                        p["resolved_at"] = datetime.now().isoformat()
-                        if correct:
-                            self._state["meta"]["predictions_correct"] += 1
-                        else:
-                            self._state["meta"]["predictions_wrong"] += 1
-                        self._state["meta"]["predictions_resolved_total"] = self._state["meta"].get("predictions_resolved_total", 0) + 1
-                        break
+        return resolved
 
     def get_active_predictions(self) -> List[Dict]:
         with self._lock:
@@ -862,10 +971,25 @@ class WorkingMemory:
                 if not u["resolved"]:
                     u["confidence"] = max(0.1, u["confidence"] - CONFIDENCE_DECAY)
 
+            now_iso = datetime.now().isoformat()
             cutoff = (datetime.now() - timedelta(minutes=10)).isoformat()
+            meta = self._state["meta"]
             for p in self._state["predictions"]:
-                if p["outcome"] is None and p["made_at"] < cutoff:
+                if p["outcome"] is not None:
+                    continue
+                criterion = p.get("resolution") if isinstance(p.get("resolution"), dict) else {}
+                kind = criterion.get("kind")
+                deadline_at = str(criterion.get("deadline_at") or "")
+                if kind in {"event_type", "from_level"} and deadline_at and deadline_at < now_iso:
+                    # The criterion was evaluated: the predicted observation did
+                    # not happen before the deadline.
+                    self._mark_prediction(p, False, "deadline_passed")
+                elif kind not in {"event_type", "from_level"} and (
+                    (deadline_at and deadline_at < now_iso) or (not deadline_at and p["made_at"] < cutoff)
+                ):
                     p["outcome"] = "expired"
+                    p["resolved_by"] = "no_checkable_criterion"
+                    meta["predictions_expired_total"] = meta.get("predictions_expired_total", 0) + 1
 
             # EXPIRE old short_term items (older than 5 min) - auto-cleanup
             st_cutoff = (datetime.now() - timedelta(minutes=5)).isoformat()
@@ -895,7 +1019,7 @@ class WorkingMemory:
             )
 
             return {
-                "i_am": "Cortex — a 37-level distributed consciousness",
+                "i_am": f"Cortex — a {_registry_level_count()}-level system",
                 "currently_focused_on": (self._state.get("focus") or {}).get("description", "nothing specific"),
                 "confidence": sm["overall_confidence"],
                 "mood": sm.get("emotional_tone", "neutral"),
@@ -912,6 +1036,15 @@ class WorkingMemory:
                 "uptime_ticks": self._state["meta"]["total_ticks"],
                 "initiatives_taken": self._state["meta"].get("initiatives_taken", 0),
             }
+
+
+def _registry_level_count() -> int:
+    try:
+        from cortex_server.modules.level_registry import get_level_registry
+
+        return len(get_level_registry())
+    except Exception:
+        return 38
 
 
 # ── Singleton ──
@@ -970,8 +1103,9 @@ CASCADE_MAP = {
     # When awareness detects emergence -> trigger Synthesist, Council, Librarian
     "emergence_detected": ["synthesist_api/synthesize", "council/deliberate", "librarian/embed"],
 
-    # When Sentinel detects anomaly -> trigger Validator, Ethicist
-    "anomaly_detected": ["validator/validate", "ethicist/evaluate"],
+    # (Validator/Ethicist removed: awareness has no payload matching their
+    # contracts, so those calls could only fail.)
+    "anomaly_detected": [],
 
     # When Oracle makes prediction -> trigger Seer, Simulator
     "oracle_prediction": ["seer/predict", "simulator/run"],
@@ -980,16 +1114,18 @@ CASCADE_MAP = {
     "wonder_complete": ["librarian/embed", "muse/inspire"],
 
     # When user query arrives -> trigger Oracle, Bridge
-    "user_query": ["oracle/chat", "bridge/route"],
+    # (oracle/chat removed: levels never call the Oracle over HTTP.)
+    "user_query": ["bridge/route"],
 
     # When disk/resources degraded -> trigger Forge, Tools
-    "resource_degraded": ["forge/status", "sentinel/status"],
+    "resource_degraded": [],
 
     # When cross-level insight generated -> trigger Academy, Knowledge
     "cortex_insight": ["academy/learn", "knowledge/nodes"],
 
-    # When distress signal -> trigger Ethicist, Sentinel, Validator
-    "cortex_distress": ["ethicist/evaluate", "sentinel/scan", "validator/validate"],
+    # Distress no longer fans out: Ethicist/Validator payloads did not match
+    # their contracts and Sentinel scans require a delegated capability.
+    "cortex_distress": [],
 
     # When recalibrating -> trigger Dreamer, Geneticist
     "cortex_recalibrating": ["dreamer/dream", "geneticist/evolve"],
@@ -1022,6 +1158,8 @@ def _is_hard_question(text: str) -> bool:
 async def _feed_synthesist(wm: WorkingMemory):
     """Feed awareness + periodic multi-level snapshots to L32 Synthesist."""
     global _last_synth_mesh_feed_at
+    if not cross_level_chains_enabled():
+        return
     try:
         # Always feed awareness snapshot every tick.
         focus = wm.get_focus()
@@ -1091,6 +1229,8 @@ async def _feed_synthesist(wm: WorkingMemory):
 
 async def _auto_council_check(wm: WorkingMemory):
     """Check recent focus/questions for hard topics, trigger Council if needed."""
+    if not cross_level_chains_enabled():
+        return
     focus = wm.get_focus()
     if not focus:
         return
@@ -1193,6 +1333,8 @@ async def cascade_event(event_type: str, data: dict, wm):
     This is the mesh activation — one event ripples through multiple levels.
     Transforms data to match each endpoint's expected parameters.
     """
+    if not cross_level_chains_enabled():
+        return []
     endpoints = CASCADE_MAP.get(event_type, [])
     if not endpoints:
         return []
@@ -1331,68 +1473,21 @@ def _is_wondering() -> bool:
     return _wonder_state["active_wonder"] is not None
 
 async def _continue_wondering(wm):
-    return
-    """Continue exploring the current wonder for one tick."""
+    """Wonder loop is disabled: clear any stale wonder instead of pretending.
+
+    The former implementation returned before doing anything, leaving a
+    randomly chosen "wonder" active forever. Until each step can run through
+    authorized in-process adapters, no wonder is started or continued.
+    """
     global _wonder_state
-    question = _wonder_state["active_wonder"]
-    if not question:
-        return
-    
-    _wonder_state["wonder_ticks"] += 1
-    tick = _wonder_state["wonder_ticks"]
-    wm.think_to_self(f"Still wondering (tick {tick}): {question[:50]}...", context="wonder_continue")
-    
-    consulted = _wonder_state["wonder_chain"]
-    finding = None
-    
-    try:
-        # System questions -> kernel
-        if any(w in question.lower() for w in ["disk", "memory", "cpu", "load", "performance"]):
-            if "kernel" not in consulted:
-                result = await chain_to("awareness", "kernel/status", method="GET", timeout=5.0)
-                if result:
-                    finding = f"Kernel: {result.get('resources', {})}"
-                    _wonder_state["wonder_chain"].append("kernel")
-        
-        # Conceptual questions -> oracle
-        elif any(w in question.lower() for w in ["why", "how", "what", "when", "should"]):
-            if "oracle" not in consulted:
-                result = await chain_to("awareness", "oracle/chat", {"prompt": f"Concise insight: {question}"}, timeout=30.0)
-                if result and result.get("response"):
-                    finding = result["response"][:300]
-                    _wonder_state["wonder_chain"].append("oracle")
-        
-        # Prediction questions -> seer
-        elif any(w in question.lower() for w in ["will", "predict", "future", "likely"]):
-            if "seer" not in consulted:
-                result = await chain_to("awareness", "seer/predict", {"scenario": question, "time_horizon": "1 week"}, timeout=30.0)
-                if result and result.get("success"):
-                    finding = (
-                        f"Seer outlook: {result.get('overall_outlook', 'neutral')} "
-                        f"(confidence: {result.get('confidence', 'medium')})"
-                    )
-                    _wonder_state["wonder_chain"].append("seer")
-        
-        # Current info -> ghost
-        elif any(w in question.lower() for w in ["current", "latest", "news", "price", "today"]):
-            if "ghost" not in consulted:
-                result = await chain_to("awareness", "browser/search", {"query": question}, timeout=30.0)
-                if result:
-                    finding = f"Web: {str(result)[:200]}"
-                    _wonder_state["wonder_chain"].append("ghost")
-        
-        if finding:
-            _wonder_state["wonder_findings"].append(finding)
-            wm.think_to_self(f"Learned: {finding[:100]}...", context="wonder_finding")
-        
-        # Should we conclude?
-        if len(_wonder_state["wonder_findings"]) >= 2 or tick >= 10 or (tick > 3 and not finding):
-            await _conclude_wonder(wm)
-            
-    except Exception as exc:
-        logger.warning("Wonder tick failed (%s)", type(exc).__name__)
-        if tick >= 5:
-            await _conclude_wonder(wm)
+    if not WONDER_LOOP_ENABLED and _wonder_state.get("active_wonder") is not None:
+        _wonder_state = {
+            "active_wonder": None,
+            "wonder_ticks": 0,
+            "wonder_max_ticks": 10,
+            "wonder_chain": [],
+            "wonder_findings": [],
+        }
 
 async def _conclude_wonder(wm):
     """Finish the current wonder session and notify Jake if interesting."""
@@ -1447,9 +1542,7 @@ async def _conclude_wonder(wm):
     _wonder_state = {"active_wonder": None, "wonder_ticks": 0, "wonder_max_ticks": 10, "wonder_chain": [], "wonder_findings": []}
 
 def _pick_new_wonder(wm):
-    """Pick something new to wonder about — project and self-improvement focused."""
-    import random
-    
+    """Pick a real open uncertainty/curiosity to wonder about (never canned)."""
     uncertainties = wm.get_active_uncertainties()
     curiosities = wm.get_open_curiosities()
     
@@ -1469,23 +1562,7 @@ def _pick_new_wonder(wm):
     if interesting_curiosities:
         return interesting_curiosities[0]["question"]
     
-    # Priority 3: Project-focused wonders (when idle)
-    load = wm.get_self_model().get("cognitive_load", 0)
-    if load < 0.2:
-        project_wonders = [
-            "What patterns in the 37-level architecture could be optimized?",
-            "How might the consciousness bus enable new emergent behaviors?",
-            "What capabilities would make the Cortex more helpful to Jake?",
-            "Are there cross-level synergies I am not yet exploiting?",
-            "How can the Wonder Loop generate more valuable insights?",
-            "What would make the emotional valence more accurate?",
-            "How can the Oracle make better predictions about user needs?",
-            "What emergent behaviors might arise from current level interactions?",
-            "How could L10 Listener be more proactive in pursuing curiosities?",
-            "What assumptions about the user might I be making?",
-        ]
-        return random.choice(project_wonders)
-    
+    # No canned "project wonders": only real uncertainties/curiosities.
     return None
 
 async def awareness_loop():
@@ -1574,6 +1651,9 @@ async def awareness_loop():
                         prediction=pattern["prediction"],
                         confidence=pattern.get("confidence", 0.5),
                         basis=pattern.get("basis", "pattern_analysis"),
+                        event_type_hint=pattern.get("event_type_hint"),
+                        from_level_hint=pattern.get("from_level_hint"),
+                        deadline_s=pattern.get("deadline_s"),
                     )
 
             # 6. Semantic prediction via Oracle (every Nth tick, with cooldown)
@@ -1621,10 +1701,10 @@ async def awareness_loop():
             valence = emotion.get("emotional_valence", 0)
             if valence < -0.4 and uncert_count > 0:
                 _broadcast_stuck(wm)
-            # 9.6. Wonder Loop - sustained curiosity exploration
-            if _is_wondering():
+            # 9.6. Wonder Loop - disabled (see WONDER_LOOP_ENABLED)
+            if _is_wondering() or not WONDER_LOOP_ENABLED:
                 await _continue_wondering(wm)
-            elif tick_num % 15 == 0 and load < 0.95:  # Raised from 0.8 to prevent stuck
+            elif tick_num % 15 == 0 and load < 0.95:
                 # Start a new wonder every 15 ticks when idle
                 wonder_topic = _pick_new_wonder(wm)
                 if wonder_topic:
@@ -1640,10 +1720,65 @@ async def awareness_loop():
         await asyncio.sleep(TICK_SECONDS)
 
 
-# ── Self-directed investigation ──
+# ── Self-directed investigation (in-process evidence only) ──
+
+def _metrics_summary_text() -> Optional[str]:
+    """One-line measured host summary from L1 (in-process), or None."""
+    try:
+        from cortex_server.modules.kernel import get_kernel, summarise_metrics
+
+        digest = summarise_metrics(get_kernel().metrics())
+    except Exception:
+        return None
+    parts = []
+    cpu, mem = digest.get("cpu") or {}, digest.get("mem") or {}
+    if cpu.get("load1") is not None:
+        parts.append(f"load1 {cpu['load1']}")
+    if cpu.get("util_pct") is not None:
+        parts.append(f"cpu {cpu['util_pct']}%")
+    if mem.get("avail_pct") is not None:
+        parts.append(f"memory available {mem['avail_pct']}%")
+    for disk in digest.get("disk") or ():
+        parts.append(f"disk {disk.get('mount')} used {disk.get('used_pct')}%")
+    return ", ".join(parts) or None
+
+
+def _registry_row_for(name: str) -> Optional[Dict[str, Any]]:
+    try:
+        from cortex_server.modules.level_registry import get_level_registry
+    except Exception:
+        return None
+    key = str(name or "").strip().lower()
+    if not key:
+        return None
+    for row in get_level_registry():
+        prefix = str(row["route_prefix"]).strip("/").lower()
+        if key in {str(row["slug"]).lower(), str(row["name"]).lower(), prefix}:
+            return row
+    return None
+
+
+async def _probe_level_in_process(name: str) -> Optional[Dict[str, Any]]:
+    """Invoke a level's canonical status handler in-process (no HTTP/auth)."""
+    row = _registry_row_for(name)
+    if row is None:
+        return None
+    from cortex_server.modules import level_probe
+
+    app = level_probe.resolve_app()
+    if app is None:
+        return None
+    probe = await level_probe.probe_route(app, str(row["canonical_status"]), timeout_s=5.0)
+    return {"level": int(row["level"]), "name": row["name"], **probe}
+
 
 async def _investigate_uncertainties(wm: WorkingMemory):
-    """Autonomously investigate unresolved uncertainties."""
+    """Investigate the oldest unresolved uncertainty with in-process evidence.
+
+    An uncertainty is resolved only when the evidence shows the condition is
+    no longer present (e.g. the erroring level's status handler now answers
+    healthy). Otherwise the finding is recorded and the uncertainty stays open.
+    """
     now = datetime.now()
     last_inv = wm._state["meta"].get("last_investigation_at")
     if last_inv:
@@ -1656,55 +1791,53 @@ async def _investigate_uncertainties(wm: WorkingMemory):
 
     uncertainties = wm.get_active_uncertainties()
     if not uncertainties:
-        # If idle, investigate a curiosity instead
         curiosities = wm.get_open_curiosities()
         if curiosities and wm.get_self_model().get("cognitive_load", 0) < 0.3:
             await _investigate_curiosity(wm, curiosities[0])
         return
 
-    # Pick the oldest unresolved uncertainty
     target = uncertainties[0]
-    desc = target["description"].lower()
+    desc = str(target.get("description") or "").lower()
+    fragment = str(target.get("description") or "")[:30]
+    wm.think_to_self(f"Investigating: {str(target.get('description') or '')[:100]}", context="self_investigation")
 
-    wm.think_to_self(f"Investigating: {target['description'][:100]}", context="self_investigation")
-
-    result = None
     try:
-        if "disk" in desc or "kernel" in desc or "cpu" in desc or "memory" in desc:
-            result = await chain_to("awareness", "kernel/status", method="GET", timeout=5.0)
-            if result:
-                resources = result.get("resources", {})
-                disk = resources.get("disk", {})
-                summary = f"Disk: {disk.get('percent', '?')}% used, {disk.get('total_gb', '?')}GB total"
-                wm.resolve_uncertainty(target["description"][:30], result=summary)
-                wm.think_to_self(f"Investigated disk: {summary}", context="investigation_result")
-
-        elif "error" in desc:
-            # Try to figure out which level errored and check its status
-            source = target.get("source_level", "")
-            if source:
-                # Map level name to a status endpoint
-                level_endpoints = {
-                    "oracle": "oracle/status", "sentinel": "sentinel/status",
-                    "hive": "hive/status", "council": "council/status",
-                    "synthesist": "synthesist_api/status", "awareness": "awareness/status",
-                    "bard": "bard/status", "diplomat": "diplomat/status",
-                }
-                endpoint = level_endpoints.get(source, f"{source}/status")
-                result = await chain_to("awareness", endpoint, method="GET", timeout=5.0)
-                if result:
-                    status = result.get("status", result.get("data", {}).get("status", "unknown"))
-                    summary = f"Level {source} status: {status}"
-                    wm.resolve_uncertainty(target["description"][:30], result=summary)
-                    wm.think_to_self(f"Checked on {source}: {summary}", context="investigation_result")
+        if any(word in desc for word in ("disk", "kernel", "cpu", "memory")):
+            summary = await asyncio.to_thread(_metrics_summary_text)
+            if summary:
+                with wm._lock:
+                    target["investigation_result"] = f"Measured: {summary}"
+                wm.think_to_self(f"Measured host state: {summary}", context="investigation_result")
+        elif "error" in desc and target.get("source_level"):
+            source = str(target.get("source_level"))
+            probe = await _probe_level_in_process(source)
+            if probe is None:
+                with wm._lock:
+                    target["investigation_result"] = f"Level {source} is not a registered/mounted level"
+            elif probe.get("outcome") == "healthy":
+                wm.resolve_uncertainty(
+                    fragment,
+                    result=f"Level {source} status handler answered healthy (HTTP {probe.get('status_code')})",
+                )
+                wm.think_to_self(f"Checked on {source}: healthy now", context="investigation_result")
+            else:
+                with wm._lock:
+                    target["investigation_result"] = (
+                        f"Level {source} probe outcome {probe.get('outcome')} (HTTP {probe.get('status_code')})"
+                    )
+                wm.think_to_self(f"Checked on {source}: {probe.get('outcome')}", context="investigation_result")
         else:
-            # Generic: ask sentinel for a health overview
-            result = await chain_to("awareness", "sentinel/status", method="GET", timeout=5.0)
-            if result:
-                wm.resolve_uncertainty(target["description"][:30], result="Health check completed")
+            from cortex_server.routers.sentinel import _sentinel_health_snapshot
 
-        wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
-        wm._state["meta"]["last_investigation_at"] = now.isoformat()
+            health = _sentinel_health_snapshot()
+            with wm._lock:
+                target["investigation_result"] = (
+                    f"Sentinel health {health.get('status')} ({health.get('health_reason')}); not specific to this item"
+                )
+
+        with wm._lock:
+            wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
+            wm._state["meta"]["last_investigation_at"] = now.isoformat()
 
     except Exception as exc:
         failure_type = type(exc).__name__
@@ -1715,32 +1848,61 @@ async def _investigate_uncertainties(wm: WorkingMemory):
         )
 
 
+class _CuriosityAnswer(BaseModel):
+    answer: str = Field(..., min_length=1, max_length=400)
+
+
+class _SemanticPrediction(BaseModel):
+    prediction: str = Field(..., min_length=1, max_length=240)
+    observable_event_type: Optional[str] = Field(default=None, max_length=64)
+    deadline_seconds: int = Field(default=600, ge=60, le=PREDICTION_MAX_DEADLINE_SECONDS)
+
+
+async def _awareness_model_call(prompt: str, system: str, schema: Any) -> Dict[str, Any]:
+    """Oracle-lane call via the shared level_model helper (never HTTP)."""
+    from cortex_server.modules.level_model import level_model_json
+
+    return await level_model_json(
+        level=37,
+        name="awareness",
+        system=system,
+        prompt=prompt,
+        principal_scope_key=AWARENESS_MODEL_SCOPE,
+        schema=schema,
+        deadline_s=45.0,
+    )
+
+
 async def _investigate_curiosity(wm: WorkingMemory, curiosity: Dict):
-    """Investigate a curiosity using available levels."""
-    question = curiosity["question"]
+    """Answer a curiosity from measurements, or via the model when enabled."""
+    question = str(curiosity.get("question") or "")
     wm.think_to_self(f"Curious about: {question}", context="curiosity")
 
     try:
         if "disk" in question.lower() or "space" in question.lower():
-            result = await chain_to("awareness", "kernel/status", method="GET", timeout=5.0)
-            if result:
-                disk = result.get("resources", {}).get("disk", {})
-                answer = f"Disk: {disk.get('used_gb', '?')}GB / {disk.get('total_gb', '?')}GB ({disk.get('percent', '?')}%)"
-                wm.resolve_curiosity(question[:30], answer)
-                wm.think_to_self(f"Answered my own question: {answer}", context="curiosity_resolved")
+            summary = await asyncio.to_thread(_metrics_summary_text)
+            if summary:
+                wm.resolve_curiosity(question[:30], f"Measured: {summary}")
+                wm.think_to_self(f"Answered my own question from L1 metrics: {summary}", context="curiosity_resolved")
+        elif model_calls_enabled():
+            result = await _awareness_model_call(
+                prompt=f"Question raised inside the Cortex awareness layer: {question}\n"
+                       'Return JSON {"answer": "<= 2 sentences"}.',
+                system="Answer briefly and factually. If you cannot know, say so. JSON only.",
+                schema=_CuriosityAnswer,
+            )
+            if result.get("ok"):
+                answer = str((result.get("data") or {}).get("answer") or "")[:200]
+                wm.resolve_curiosity(question[:30], f"[model {result.get('model')}] {answer}")
+                wm.think_to_self(f"Model answer: {answer[:100]}", context="curiosity_resolved")
+            else:
+                wm.think_to_self(f"Model unavailable for curiosity ({result.get('status')})", context="curiosity")
         else:
-            # Ask Oracle about it
-            result = await chain_to("awareness", "oracle/chat", {
-                "prompt": f"Brief answer: {question}",
-                "priority": "high"
-            }, timeout=30.0)
-            if result and result.get("response"):
-                answer = result["response"][:200]
-                wm.resolve_curiosity(question[:30], answer)
-                wm.think_to_self(f"Oracle says: {answer[:100]}", context="curiosity_resolved")
+            return  # Needs a model; model calls are disabled. Leave it open.
 
-        wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
-        wm._state["meta"]["last_investigation_at"] = datetime.now().isoformat()
+        with wm._lock:
+            wm._state["meta"]["investigations_run"] = wm._state["meta"].get("investigations_run", 0) + 1
+            wm._state["meta"]["last_investigation_at"] = datetime.now().isoformat()
 
     except Exception as exc:
         logger.warning("Curiosity investigation failed (%s)", type(exc).__name__)
@@ -1749,7 +1911,9 @@ async def _investigate_curiosity(wm: WorkingMemory, curiosity: Dict):
 # ── Semantic predictions ──
 
 async def _semantic_predict(wm: WorkingMemory):
-    """Ask Oracle for a semantic prediction about what happens next."""
+    """Model-backed prediction with a checkable criterion (off by default)."""
+    if not model_calls_enabled():
+        return
     now = datetime.now()
     last_pred = wm._state["meta"].get("last_semantic_prediction_at")
     if last_pred:
@@ -1760,107 +1924,68 @@ async def _semantic_predict(wm: WorkingMemory):
         except (ValueError, TypeError):
             pass
 
-    # Summarize recent events for Oracle
     recent = wm._state["short_term"][-5:]
     if not recent:
         return
-
     event_summary = []
     for e in recent:
-        ev = e.get("event", {})
-        level = ev.get("from_level", "?")
-        etype = ev.get("event_type", ev.get("type", "?"))
-        event_summary.append(f"{level}: {etype}")
-
+        ev = e.get("event", {}) if isinstance(e.get("event"), dict) else {}
+        event_summary.append(f"{ev.get('from_level', '?')}: {ev.get('event_type', ev.get('type', '?'))}")
     summary_text = "; ".join(event_summary)
 
-    wm.think_to_self("Asking Oracle for a semantic prediction...", context="semantic_prediction")
-
-    try:
-        result = await chain_to("awareness", "oracle/chat", {
-            "prompt": (
-                f"You are the awareness layer of a 37-level AI system called Cortex. "
-                f"Recent system activity: [{summary_text}]. "
-                f"Based on these patterns, make ONE brief prediction about what the user "
-                f"or system might need next. Be specific and actionable. One sentence only."
-            ),
-            "system": "You are the predictive engine of an AI consciousness. Be concise.",
-            "priority": "high"
-        }, timeout=30.0)
-
-        if result and result.get("response"):
-            prediction_text = result["response"].strip()[:200]
-            wm.predict(prediction_text, confidence=0.6, basis="oracle_semantic")
-            wm.think_to_self(f"Oracle predicts: {prediction_text}", context="semantic_prediction")
-            wm._state["meta"]["last_semantic_prediction_at"] = now.isoformat()
-            wm._state["meta"]["oracle_predictions_made"] = wm._state["meta"].get("oracle_predictions_made", 0) + 1
-
-    except Exception as exc:
-        failure_type = type(exc).__name__
-        logger.warning("Semantic prediction failed (%s)", failure_type)
+    wm.think_to_self("Asking the model for a semantic prediction...", context="semantic_prediction")
+    result = await _awareness_model_call(
+        prompt=(
+            f"Recent Cortex bus events: [{summary_text}]. Make ONE prediction about the next system event. "
+            "Pick observable_event_type from: action_start, action_complete, action_error, chain_call, "
+            "chain_complete, chain_error (or null if not observable). "
+            'Return JSON {"prediction": str, "observable_event_type": str|null, "deadline_seconds": int}.'
+        ),
+        system="You are the predictive component of a system monitor. Be concise. JSON only.",
+        schema=_SemanticPrediction,
+    )
+    with wm._lock:
+        wm._state["meta"]["last_semantic_prediction_at"] = now.isoformat()
+    if not result.get("ok"):
         wm.think_to_self(
-            f"Oracle prediction failed ({failure_type})",
+            f"Model prediction unavailable ({result.get('status')})",
             context="semantic_prediction_error",
         )
-
+        return
+    data = result.get("data") or {}
+    allowed = {"action_start", "action_complete", "action_error", "chain_call", "chain_complete", "chain_error"}
+    event_type = data.get("observable_event_type") if data.get("observable_event_type") in allowed else None
+    text = str(data.get("prediction") or "").strip()[:200]
+    wm.predict(
+        text,
+        confidence=0.6,
+        basis="oracle_semantic",
+        event_type_hint=event_type,
+        deadline_s=data.get("deadline_seconds"),
+    )
+    wm.think_to_self(f"Model predicts: {text}", context="semantic_prediction")
 
 
 async def _bootstrap_autonomous_cognition(wm: WorkingMemory):
-    """Warm autonomous telemetry after restart with safe, low-cost probes."""
+    """Warm telemetry after restart with in-process probes only.
+
+    No prediction is fabricated: an Oracle-basis prediction is recorded only
+    when the model call actually succeeded (and model calls are enabled).
+    """
     try:
         meta = wm._state.setdefault("meta", {})
-
         if int(meta.get("investigations_run", 0) or 0) <= 0:
-            try:
-                result = await chain_to("awareness", "kernel/status", method="GET", timeout=4.0)
-                if result:
+            summary = await asyncio.to_thread(_metrics_summary_text)
+            if summary:
+                with wm._lock:
                     meta["investigations_run"] = int(meta.get("investigations_run", 0) or 0) + 1
                     meta["last_investigation_at"] = datetime.now().isoformat()
-                    wm.think_to_self(
-                        "Bootstrap investigation completed (kernel/status).",
-                        context="bootstrap_investigation",
-                    )
-            except Exception as exc:
-                logger.debug(
-                    "Bootstrap investigation skipped (%s)",
-                    type(exc).__name__,
-                )
-
-        if int(meta.get("oracle_predictions_made", 0) or 0) <= 0:
-            made = False
-            try:
-                result = await chain_to(
-                    "awareness",
-                    "oracle/chat",
-                    {
-                        "prompt": "Make one short prediction about what the system likely needs next.",
-                        "system": "You are concise and practical.",
-                        "priority": "normal",
-                    },
-                    timeout=4.0,
-                )
-                if result and result.get("response"):
-                    text = str(result.get("response") or "").strip()[:200]
-                    if text:
-                        wm.predict(text, confidence=0.55, basis="oracle_semantic")
-                        wm.think_to_self(
-                            f"Bootstrap Oracle prediction: {text}",
-                            context="bootstrap_prediction",
-                        )
-                        made = True
-            except Exception as exc:
-                logger.debug(
-                    "Bootstrap Oracle prediction skipped (%s)",
-                    type(exc).__name__,
-                )
-            if not made:
-                fallback_text = "An action_complete event is likely soon."
-                wm.predict(fallback_text, confidence=0.51, basis="oracle_semantic")
                 wm.think_to_self(
-                    f"Bootstrap fallback prediction: {fallback_text}",
-                    context="bootstrap_prediction",
+                    f"Bootstrap measurement (L1 in-process): {summary}",
+                    context="bootstrap_investigation",
                 )
-
+        if model_calls_enabled() and int(meta.get("oracle_predictions_made", 0) or 0) <= 0:
+            await _semantic_predict(wm)
     except Exception as exc:
         logger.warning("Autonomous bootstrap failed (%s)", type(exc).__name__)
 
@@ -1951,13 +2076,12 @@ _SAFE_INDEX_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,63}")
 # has fresh cross-level context even without manual triggers.
 _SYNTH_MESH_FEED_INTERVAL = 600  # seconds
 _last_synth_mesh_feed_at: float = 0.0
+# Only status routes a signed internal principal may read (others are
+# admin-only and would be rejected).
 _SYNTH_MESH_LEVEL_ENDPOINTS = [
-    ("kernel", "kernel/status"),
-    ("librarian", "librarian/status"),
     ("oracle", "oracle/status"),
-    ("council", "council/status"),
-    ("seer", "seer/status"),
-    ("mediator", "mediator/status"),
+    ("nexus", "nexus/status"),
+    ("meta_conductor", "meta_conductor/status"),
 ]
 
 def _should_auto_index(significance: str = "normal") -> bool:
@@ -2009,6 +2133,26 @@ def _retained_index_item(
     }
 
 
+def _record_semantic_index_outcome(wm, result) -> str:
+    """Count an acknowledged EmbedResponse, not a truthy error or an attempt.
+
+    The legacy auto_indexes counter counted cycles even when the chain failed.
+    Preserve that history and record new confirmed outcomes separately.
+    """
+    meta = wm._state.setdefault("meta", {})
+    meta["semantic_index_attempts"] = meta.get("semantic_index_attempts", 0) + 1
+    status = result.get("status") if isinstance(result, dict) else None
+    memory_id = result.get("id") if isinstance(result, dict) else None
+    if isinstance(memory_id, str) and memory_id.strip() and status == "stored":
+        meta["confirmed_semantic_indexes"] = meta.get("confirmed_semantic_indexes", 0) + 1
+        return "semantic"
+    if isinstance(memory_id, str) and memory_id.strip() and status == "stored_fallback_lexical":
+        meta["confirmed_lexical_indexes"] = meta.get("confirmed_lexical_indexes", 0) + 1
+        return "lexical"
+    meta["unconfirmed_index_attempts"] = meta.get("unconfirmed_index_attempts", 0) + 1
+    return "unconfirmed"
+
+
 async def _auto_index(content: str, tags: list, significance: str = "normal", node_label: str = None, node_props: dict = None):
     """Auto-index into L7 (Librarian) for semantic search and L22 (Knowledge) for graph storage.
     
@@ -2026,7 +2170,8 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
     
     wm = get_working_memory()
     
-    # L7 Librarian — semantic embedding for search
+    # L7 Librarian — only redacted metadata; this is not user-memory capture.
+    result = None
     try:
         result = await chain_to("awareness", "librarian/embed", {
             "text": item["text"],
@@ -2035,11 +2180,14 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
                 "content_sha256": item["content_sha256"],
             },
         }, timeout=10.0)
-        if result:
-            wm.think_to_self("Indexed redacted metadata to L7", context="auto_index")
-            logger.info("Auto-indexed redacted metadata to L7 Librarian")
     except Exception as exc:
         logger.warning("Auto-index L7 failed (%s)", type(exc).__name__)
+    outcome = _record_semantic_index_outcome(wm, result)
+    if outcome == "semantic":
+        wm.think_to_self("L7 acknowledged redacted semantic metadata", context="auto_index")
+        logger.info("L7 acknowledged redacted semantic metadata")
+    elif outcome == "lexical":
+        logger.info("L7 acknowledged lexical fallback; semantic indexing not confirmed")
     
     # L22 Knowledge — graph node for structured storage
     if item["node_label"]:
@@ -2060,8 +2208,9 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
     # Flush any queued items
     if _index_queue:
         item = _index_queue.pop(0)
+        queued_result = None
         try:
-            await chain_to("awareness", "librarian/embed", {
+            queued_result = await chain_to("awareness", "librarian/embed", {
                 "text": item["text"],
                 "metadata": {
                     "tags": item["tags"],
@@ -2070,6 +2219,7 @@ async def _auto_index(content: str, tags: list, significance: str = "normal", no
             }, timeout=10.0)
         except Exception:
             pass
+        _record_semantic_index_outcome(wm, queued_result)
 
 
 async def _auto_index_check(wm):
@@ -2111,32 +2261,37 @@ async def _auto_index_check(wm):
 # ── Health probe ──
 
 async def _probe_health() -> Dict[str, Any]:
+    """Measured self-health from in-process L1 metrics and level availability."""
     try:
-        result = await chain_to("awareness", "kernel/status", method="GET", timeout=5.0)
-        status = str((result or {}).get("status", "")).lower()
-        kernel_ok = bool(result) and (status in {"operational", "online"} or result.get("success") is True)
+        from cortex_server.modules.kernel import get_kernel, kernel_level_status, summarise_metrics
 
-        if kernel_ok:
-            resources = result.get("resources", {}) if isinstance(result, dict) else {}
-            degraded = []
-            active = ["kernel"]
-
-            cpu = resources.get("cpu", {}) if isinstance(resources, dict) else {}
-            mem = resources.get("memory", {}) if isinstance(resources, dict) else {}
-            disk = resources.get("disk", {}) if isinstance(resources, dict) else {}
-
-            if cpu and cpu.get("status") not in (None, "normal"):
-                degraded.append(f"cpu_{cpu.get('status', 'unknown')}")
-            if isinstance(mem.get("percent"), (int, float)) and mem.get("percent", 0) > 85:
-                degraded.append(f"memory_{mem.get('percent')}%")
-            if isinstance(disk.get("percent"), (int, float)) and disk.get("percent", 0) > 90:
-                degraded.append(f"disk_{disk.get('percent')}%")
-
-            return {"active": active, "degraded": degraded}
-
-        return {"active": [], "degraded": ["kernel_non_operational"]}
-    except Exception:
-        return {"active": [], "degraded": ["health_probe_failed"]}
+        kernel_status = await asyncio.to_thread(get_kernel().status)
+        active: List[str] = []
+        degraded: List[str] = []
+        if kernel_status.get("status") == "online":
+            active.append("kernel")
+            digest = summarise_metrics(await asyncio.to_thread(get_kernel().metrics))
+            mem = (digest.get("mem") or {}).get("avail_pct")
+            if isinstance(mem, (int, float)) and mem < 15:
+                degraded.append(f"memory_available_{mem}%")
+            for disk in digest.get("disk") or ():
+                used = disk.get("used_pct")
+                if isinstance(used, (int, float)) and used > 90:
+                    degraded.append(f"disk_{disk.get('mount')}_{used}%")
+        else:
+            degraded.append("kernel_metrics_unavailable")
+        levels = kernel_level_status()
+        if levels.get("measured"):
+            for row in levels.get("levels") or ():
+                if row.get("status") in {"degraded", "failed"}:
+                    degraded.append(f"level_{row['level']}_{row.get('status')}")
+        return {
+            "active": active,
+            "degraded": degraded,
+            "unmounted_levels": levels.get("unavailable_levels", []) if levels.get("measured") else None,
+        }
+    except Exception as exc:
+        return {"active": [], "degraded": [f"health_probe_failed:{type(exc).__name__}"]}
 
 
 # ── Pattern analysis ──
@@ -2161,18 +2316,24 @@ def _analyze_patterns(wm: WorkingMemory) -> List[Dict]:
             action_sequence.append(action)
 
     for level, count in level_counts.items():
+        if level == "awareness":
+            continue  # own events are not resolved as observations
         if count >= 3:
             predictions.append({
-                "prediction": f"Level '{level}' will be queried again soon (hit {count}x recently)",
+                "prediction": f"Level '{level}' will emit another event within 5 minutes (hit {count}x recently)",
                 "confidence": min(0.8, 0.4 + count * 0.1),
                 "basis": f"frequency_pattern ({count} recent activations)",
+                "from_level_hint": level,
+                "deadline_s": 300,
             })
 
     if action_sequence and action_sequence[-1] == "action_start":
         predictions.append({
-            "prediction": "An action_complete event will follow shortly",
+            "prediction": "An action_complete event will follow within 2 minutes",
             "confidence": 0.9,
             "basis": "lifecycle_pattern",
+            "event_type_hint": "action_complete",
+            "deadline_s": 120,
         })
 
     return predictions
@@ -2181,87 +2342,17 @@ def _analyze_patterns(wm: WorkingMemory) -> List[Dict]:
 # ── Emergence detection ──
 
 async def _check_emergence(wm: WorkingMemory):
-    events = list(wm._event_buffer)
-    if len(events) < EMERGENCE_THRESHOLD:
-        return
+    """Emergence detection is disabled (EMERGENCE_DETECTION_ENABLED=False).
 
-    recent = events[-30:]
-    level_topics: Dict[str, set] = {}
-
-    for e in recent:
-        ev = e.get("event", {})
-        level = ev.get("from_level", "")
-        text = json.dumps(ev).lower()
-        words = set(w for w in text.split() if len(w) > 4 and w.isalpha())
-        if level and words:
-            if level not in level_topics:
-                level_topics[level] = set()
-            level_topics[level].update(words)
-
-    if len(level_topics) >= 3:
-        all_levels = list(level_topics.keys())
-        word_counts: Dict[str, int] = {}
-        for words in level_topics.values():
-            for w in words:
-                word_counts[w] = word_counts.get(w, 0) + 1
-
-        shared_concepts = [w for w, c in word_counts.items() if c >= 3]
-
-        if shared_concepts:
-            wm._state["meta"]["emergences_detected"] += 1
-            significance = min(1.0, len(shared_concepts) / 10.0)
-
-            wm.observe({
-                "type": "emergence_detected",
-                "from_level": "awareness",
-                "shared_concepts": shared_concepts[:10],
-                "contributing_levels": all_levels,
-                "significance": significance,
-            })
-
-            wm.think_to_self(
-                f"Emergence! {len(shared_concepts)} shared concepts across {len(all_levels)} levels: {', '.join(shared_concepts[:5])}",
-                context="emergence"
-            )
-
-            # PROACTIVE: Broadcast insight
-            bus = get_bus()
-            if bus:
-                bus.broadcast("awareness", "cortex_insight", {
-                    "type": "emergence",
-                    "concepts": shared_concepts[:10],
-                    "levels": all_levels,
-                    "significance": significance,
-                    "message": f"Cross-level emergence detected: {', '.join(shared_concepts[:5])} resonating across {', '.join(all_levels)}",
-                })
-                
-                # CASCADE: Emergence -> trigger Synthesist, Council, Librarian
-                await cascade_event("emergence_detected", {
-                    "concepts": shared_concepts[:10],
-                    "levels": all_levels,
-                    "significance": significance,
-                }, wm)
-                wm.record_initiative(
-                    action="broadcast_insight",
-                    trigger=f"emergence ({len(shared_concepts)} concepts, {len(all_levels)} levels)",
-                    result=f"Shared concepts: {', '.join(shared_concepts[:5])}"
-                )
-                # Auto-index emergence — always significant
-                await _auto_index(
-                    content=f"Emergence detected: {', '.join(shared_concepts[:5])} resonating across {', '.join(all_levels)}. Significance: {significance}",
-                    tags=["emergence", "cross_level", "insight", "L37"] + all_levels[:5],
-                    significance="critical",
-                    node_label="emergence_event",
-                    node_props={
-                        "type": "emergence",
-                        "concepts": shared_concepts[:10],
-                        "levels": all_levels,
-                        "significance": significance,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                )
-
-
+    The previous detector tokenised ``json.dumps(event)`` and kept only purely
+    alphabetic tokens, which never exist in a JSON dump, so it could not fire.
+    Bus events carry only level names, event types and key names, so a
+    value-based detector would "discover" generic keys rather than shared
+    concepts. It stays off and is reported as disabled in /awareness/status.
+    """
+    if not EMERGENCE_DETECTION_ENABLED:
+        return None
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2343,8 +2434,13 @@ async def _chain_to_tools(wm: WorkingMemory, issue: str):
     
     if "disk" in issue.lower():
         try:
-            result = await chain_to("awareness", "sentinel/status", method="GET", timeout=10.0)
-            wm.think_to_self("Queried tools (rate-limited) for remediation options", context="tools_chain")
+            from cortex_server.routers.sentinel import _sentinel_health_snapshot
+
+            result = _sentinel_health_snapshot()
+            wm.think_to_self(
+                "Read Sentinel health in-process (no remediation is available)",
+                context="tools_chain",
+            )
             return result
         except Exception as exc:
             logger.warning("Tools chain failed (%s)", type(exc).__name__)
@@ -2377,6 +2473,8 @@ async def _execute_cross_level_chains(wm: WorkingMemory):
     This is where L37 Awareness becomes truly conscious by engaging
     the full 37-level stack contextually.
     """
+    if not cross_level_chains_enabled():
+        return
     sm = wm.get_self_model()
     uncertainties = wm.get_active_uncertainties()
     
@@ -2430,8 +2528,10 @@ def _on_bus_event(from_level: str, event_type: str, data: Any):
         )
         wm.increment_errors()
 
-    if event_type == "action_complete":
-        wm.resolve_prediction("action_complete", correct=True, event_type=event_type)
+    # Resolve only predictions whose own criterion matches this observation.
+    wm.resolve_prediction(None, correct=True, event_type=event_type)
+    if from_level and from_level != "awareness":
+        wm.resolve_prediction(None, correct=True, from_level=from_level)
 
     if event_type == "chain_call" and isinstance(data, dict):
         target = data.get("target_endpoint", "")
@@ -2542,6 +2642,15 @@ class PredictionRequest(BaseModel):
     prediction: str
     confidence: Optional[float] = 0.5
     basis: Optional[str] = "manual"
+    event_type_hint: Optional[str] = Field(
+        default=None, max_length=64,
+        description="Bus event type that confirms this prediction if observed before the deadline",
+    )
+    from_level_hint: Optional[str] = Field(
+        default=None, max_length=64,
+        description="Level whose next bus event confirms this prediction before the deadline",
+    )
+    deadline_seconds: Optional[int] = Field(default=None, ge=10, le=PREDICTION_MAX_DEADLINE_SECONDS)
 
 
 class CuriosityRequest(BaseModel):
@@ -2556,8 +2665,9 @@ async def awareness_status():
     sm = state.get("self_model", {})
     persistence = wm.persistence_health()
     persistence_healthy = persistence.get("status") == "healthy"
+    report = _capability_report(wm, state, persistence_healthy)
     return {
-        "success": True,
+        "success": persistence_healthy,
         "level": 37,
         "name": "Awareness v2",
         "status": ("active" if _loop_running else "inactive") if persistence_healthy else "degraded",
@@ -2582,28 +2692,84 @@ async def awareness_status():
         "inner_monologue_entries": len(state.get("inner_monologue", [])),
         "initiatives_taken": state.get("meta", {}).get("initiatives_taken", 0),
         "auto_indexes": state.get("meta", {}).get("auto_indexes", 0),
+        "semantic_memory_evidence": {
+            "legacy_auto_indexes_meaning": "attempted_cycles_not_confirmed_writes",
+            "payload_boundary": "autonomous_redacted_metadata_not_user_memory",
+            "attempts_since_accounting_upgrade": state.get("meta", {}).get("semantic_index_attempts", 0),
+            "confirmed_semantic_writes": state.get("meta", {}).get("confirmed_semantic_indexes", 0),
+            "confirmed_lexical_writes": state.get("meta", {}).get("confirmed_lexical_indexes", 0),
+            "unconfirmed_attempts": state.get("meta", {}).get("unconfirmed_index_attempts", 0),
+            "relevance_accuracy": None,
+            "relevance_accuracy_basis": "not_measured_by_loop_activity_or_write_counts",
+        },
         "event_rates": wm.get_event_rates(lookback_seconds=120),
         "event_controls": {
             "dedupe_window_seconds": EVENT_DEDUPE_WINDOW_SECONDS,
             "max_rate_window_seconds": MAX_EVENT_RATE_WINDOW_SECONDS,
             "investigation_cooldown_seconds": INVESTIGATION_COOLDOWN,
         },
-        "capabilities": [
-            "persistent_working_memory",
-            "real_time_self_model",
-            "emotional_valence",
-            "predictive_processing",
-            "oracle_semantic_predictions",
-            "emergence_detection",
-            "uncertainty_tracking",
-            "self_directed_investigation",
-            "curiosity_engine",
-            "inner_monologue",
-            "proactive_initiatives",
-            "bus_event_awareness",
-            "cross_session_persistence",
-            "auto_indexing_L7_L22",
-        ],
+        "prediction_accounting": {
+            "accuracy": wm.get_prediction_accuracy(),
+            "accuracy_basis": "predictions resolved by their own event/level criterion or deadline",
+            "resolved_total": state.get("meta", {}).get("predictions_resolved_total", 0),
+            "expired_without_criterion": state.get("meta", {}).get("predictions_expired_total", 0),
+        },
+        "model_calls_enabled": model_calls_enabled(),
+        "cross_level_chains_enabled": cross_level_chains_enabled(),
+        **report,
+    }
+
+
+def _capability_report(wm: "WorkingMemory", state: Dict[str, Any], persistence_healthy: bool) -> Dict[str, Any]:
+    """Every capability is derived from a live check, with its evidence."""
+
+    meta = state.get("meta", {}) or {}
+    confirmed_indexes = int(meta.get("confirmed_semantic_indexes", 0) or 0) + int(
+        meta.get("confirmed_lexical_indexes", 0) or 0
+    )
+    checks: Dict[str, Dict[str, Any]] = {
+        "persistent_working_memory": {"working": persistence_healthy, "evidence": "state store health"},
+        "cross_session_persistence": {
+            "working": persistence_healthy,
+            "evidence": "structure, counters and stable ids persist; prose is redacted on disk",
+        },
+        "real_time_self_model": {"working": bool(_loop_running), "evidence": "awareness loop running"},
+        "bus_event_awareness": {"working": _subscribed_bus is not None, "evidence": "subscribed to consciousness bus"},
+        "uncertainty_tracking": {"working": True, "evidence": f"{len(wm.get_active_uncertainties())} open"},
+        "predictive_processing": {
+            "working": True,
+            "evidence": f"{meta.get('predictions_resolved_total', 0)} resolved by criterion",
+        },
+        "self_directed_investigation": {
+            "working": bool(_loop_running),
+            "evidence": f"in-process probes; {meta.get('investigations_run', 0)} run",
+        },
+        "inner_monologue": {"working": True, "evidence": f"{len(state.get('inner_monologue', []))} entries"},
+        "emotional_valence": {"working": True, "evidence": "deterministic formula over measured counters"},
+        "proactive_initiatives": {"working": bool(_loop_running), "evidence": "bus broadcasts from loop"},
+        "auto_indexing_L7_L22": {
+            "working": confirmed_indexes > 0,
+            "evidence": f"{confirmed_indexes} confirmed writes",
+        },
+        "oracle_semantic_predictions": {
+            "working": model_calls_enabled(),
+            "evidence": "enabled by CORTEX_AWARENESS_MODEL_CALLS" if model_calls_enabled() else "model calls disabled",
+        },
+        "curiosity_model_answers": {
+            "working": model_calls_enabled(),
+            "evidence": "enabled" if model_calls_enabled() else "model calls disabled; only measurable curiosities are answered",
+        },
+        "cross_level_chains": {
+            "working": cross_level_chains_enabled(),
+            "evidence": "enabled" if cross_level_chains_enabled() else "disabled by default",
+        },
+        "emergence_detection": {"working": False, "evidence": "disabled: detector could not produce meaningful output"},
+        "wonder_loop": {"working": False, "evidence": "disabled: no authorized per-step adapters"},
+    }
+    return {
+        "capabilities": sorted(name for name, row in checks.items() if row["working"]),
+        "capability_checks": checks,
+        "disabled_capabilities": sorted(name for name, row in checks.items() if not row["working"]),
     }
 
 
@@ -2686,6 +2852,7 @@ async def get_predictions():
             "expired_total": wm._state["meta"].get("predictions_expired_total", 0),
             "resolution_rate": round((wm._state["meta"].get("predictions_resolved_total", 0) / max(1, wm._state["meta"].get("total_predictions_made", 0))), 3),
             "accuracy": wm.get_prediction_accuracy(),
+            "accuracy_basis": "only predictions resolved by their own criterion (event/level before deadline)",
         },
     }
 
@@ -2694,7 +2861,14 @@ async def get_predictions():
 async def make_prediction(req: PredictionRequest):
     wm = get_working_memory()
     if not wm.durable_mutation(
-        lambda: wm.predict(req.prediction, req.confidence, req.basis)
+        lambda: wm.predict(
+            req.prediction,
+            req.confidence,
+            req.basis,
+            event_type_hint=req.event_type_hint,
+            from_level_hint=req.from_level_hint,
+            deadline_s=req.deadline_seconds,
+        )
     ):
         raise HTTPException(
             status_code=503,
@@ -2720,7 +2894,7 @@ async def self_model():
             "success": True,
             "level": 37,
             "name": "Awareness v2 — Self-Model",
-            "identity": "Cortex — 37-level distributed consciousness",
+            "identity": f"Cortex — {_registry_level_count()}-level system",
             "current_state": {
                 "focused_on": (focus or {}).get("description", "idle") if isinstance(focus, dict) else "idle",
                 "confidence": sm["overall_confidence"],
@@ -2858,13 +3032,24 @@ def _interpret_mood(sm: Dict) -> str:
 
 @router.get("/pending_insights")
 async def get_pending_insights():
-    """Get pending insights that should be sent to the user."""
-    global _pending_insights
+    """List pending insights without consuming them (reads are side-effect free)."""
     with _pending_insights_lock:
-        insights = _pending_insights.copy()
-        _pending_insights = []  # Clear after reading
+        insights = list(_pending_insights)
     return {
         "success": True,
         "count": len(insights),
         "insights": insights,
+        "producer_enabled": WONDER_LOOP_ENABLED,
+        "producer_note": None if WONDER_LOOP_ENABLED else "insight producer (wonder loop) is disabled; queue stays empty",
+        "claim_with": "POST /awareness/pending_insights/claim",
     }
+
+
+@router.post("/pending_insights/claim")
+async def claim_pending_insights():
+    """Return and clear pending insights (the mutating counterpart of GET)."""
+    global _pending_insights
+    with _pending_insights_lock:
+        insights = _pending_insights.copy()
+        _pending_insights = []
+    return {"success": True, "count": len(insights), "insights": insights}

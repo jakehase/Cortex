@@ -19,6 +19,14 @@ from cortex_server.modules.memory_scope import default_tenant_id, default_worksp
 
 CODEC_VERSION = "cortex.codec.v1"
 CODEC_SCHEMA_VERSION = "cortex.codec.schema.v1"
+CODEC_TEMPORAL_CONTRACT_VERSION = "cortex.memory.temporal.v1"
+CODEC_SOURCE_REF_MAX = 16
+_CODEC_RFC3339_INSTANT = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
+)
+_CODEC_TEMPORAL_REF_FIELDS = (
+    "occurred_at", "occurred_on", "observed_at", "ingested_at", "valid_from", "valid_to",
+)
 
 PREFERENCE_HINTS = (
     "prefer",
@@ -670,14 +678,26 @@ def _normalize_revision_log(value: Any) -> List[Dict[str, Any]]:
     for item in entries:
         if not isinstance(item, dict):
             continue
-        normalized.append({
+        row: Dict[str, Any] = {
             "bucket": _clean_text(item.get("bucket")),
             "superseded_text": _clean_state_text(item.get("superseded_text")),
             "replacement_text": _clean_state_text(item.get("replacement_text")),
             "claim_key": _clean_state_text(item.get("claim_key")),
             "reason": _clean_state_text(item.get("reason") or "revision"),
             "generated_at": _clean_text(item.get("generated_at")),
-        })
+        }
+        for field in ("superseded_memory_id", "replacement_memory_id"):
+            identifier = _bounded_codec_text(item.get(field), limit=256)
+            if identifier:
+                row[field] = identifier
+        for field in ("valid_from", "valid_to"):
+            instant = _normalize_codec_temporal_instant(item.get(field))
+            if instant:
+                row[field] = instant
+        source_refs = _normalize_codec_source_refs(item.get("source_refs"))
+        if source_refs:
+            row["source_refs"] = source_refs
+        normalized.append(row)
     return normalized[-REVISION_LOG_LIMIT:]
 
 
@@ -691,6 +711,94 @@ def _coerce_nonnegative_int(value: Any, default: int = 0, *, maximum: int = 2_14
 
 def _bounded_codec_text(value: Any, *, limit: int) -> str:
     return _clean_text(value)[: max(1, int(limit))]
+
+
+def _normalize_codec_temporal_instant(value: Any) -> str:
+    text = _bounded_codec_text(value, limit=64)
+    if not text or not _CODEC_RFC3339_INSTANT.fullmatch(text):
+        return ""
+    try:
+        parsed = datetime.fromisoformat(
+            text[:-1] + "+00:00" if text.endswith("Z") else text
+        )
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return ""
+    return (
+        parsed.astimezone(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _normalize_codec_source_refs(value: Any, *, limit: int = CODEC_SOURCE_REF_MAX) -> List[Dict[str, Any]]:
+    refs = value if isinstance(value, list) else []
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for raw in refs:
+        if not isinstance(raw, dict):
+            continue
+        row: Dict[str, Any] = {}
+        for field, bound in (
+            ("source_id", 1024), ("source_type", 128), ("memory_id", 256),
+            ("event_id", 1024), ("evidence_id", 1024), ("version_id", 1024),
+            ("session_key", 256), ("event_kind", 64), ("event_type", 128),
+            ("locator", 1024), ("missing_reason", 240), ("ts", 64),
+        ):
+            text = _bounded_codec_text(raw.get(field), limit=bound)
+            if text:
+                row[field] = text
+        digest = _bounded_codec_text(raw.get("content_sha256"), limit=64).lower()
+        if re.fullmatch(r"[0-9a-f]{64}", digest):
+            row["content_sha256"] = digest
+        for field in ("occurred_at", "observed_at", "ingested_at", "valid_from", "valid_to"):
+            instant = _normalize_codec_temporal_instant(raw.get(field))
+            if instant:
+                row[field] = instant
+        date_only = str(raw.get("occurred_on") or "")
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_only) and not row.get("occurred_at"):
+            try:
+                if datetime.fromisoformat(date_only).date().isoformat() == date_only:
+                    row["occurred_on"] = date_only
+                    row["temporal_precision"] = "date"
+            except ValueError:
+                pass
+        for field in ("temporal_kind", "temporal_timezone"):
+            value = _bounded_codec_text(raw.get(field), limit=128)
+            if value:
+                row[field] = value
+        supersedes = raw.get("supersedes")
+        if isinstance(supersedes, list):
+            links = [item for item in supersedes[:32] if isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", item)]
+            if links:
+                row["supersedes"] = list(dict.fromkeys(links))
+        authority = raw.get("source_authority")
+        if isinstance(authority, int) and not isinstance(authority, bool) and 0 <= authority <= 100:
+            row["source_authority"] = authority
+        uncertainty = raw.get("uncertainty")
+        if isinstance(uncertainty, (int, float)) and not isinstance(uncertainty, bool) and 0.0 <= float(uncertainty) <= 1.0:
+            row["uncertainty"] = float(uncertainty)
+        if isinstance(raw.get("source_available"), bool):
+            row["source_available"] = raw["source_available"]
+        if not row:
+            continue
+        key = json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(row)
+        if len(normalized) >= max(1, min(int(limit), CODEC_SOURCE_REF_MAX)):
+            break
+    return normalized
+
+
+def _codec_refs_have_temporal_fields(source_refs: List[Dict[str, Any]]) -> bool:
+    return any(
+        any(ref.get(field) for field in _CODEC_TEMPORAL_REF_FIELDS)
+        for ref in source_refs
+        if isinstance(ref, dict)
+    )
 
 
 def _bounded_codec_receipt_ids(value: Any) -> List[str]:
@@ -727,14 +835,27 @@ def _compact_revision_log(value: Any, *, text_limit: int) -> List[Dict[str, Any]
     for item in (value if isinstance(value, list) else [])[-REVISION_LOG_LIMIT:]:
         if not isinstance(item, dict):
             continue
-        rows.append({
+        row: Dict[str, Any] = {
             "bucket": _bounded_codec_text(item.get("bucket"), limit=64),
             "superseded_text": _bounded_codec_text(item.get("superseded_text"), limit=text_limit),
             "replacement_text": _bounded_codec_text(item.get("replacement_text"), limit=text_limit),
             "claim_key": _bounded_codec_text(item.get("claim_key"), limit=256),
             "reason": _bounded_codec_text(item.get("reason") or "revision", limit=64),
             "generated_at": _bounded_codec_text(item.get("generated_at"), limit=64),
-        })
+        }
+        # Additive temporal lineage; legacy revision entries are unchanged.
+        for field in ("superseded_memory_id", "replacement_memory_id"):
+            identifier = _bounded_codec_text(item.get(field), limit=256)
+            if identifier:
+                row[field] = identifier
+        for field in ("valid_from", "valid_to"):
+            instant = _normalize_codec_temporal_instant(item.get(field))
+            if instant:
+                row[field] = instant
+        source_refs = _normalize_codec_source_refs(item.get("source_refs"))
+        if source_refs:
+            row["source_refs"] = source_refs
+        rows.append(row)
     return rows
 
 
@@ -836,16 +957,7 @@ def _compact_codec_state_with_text_limit(state: Dict[str, Any], *, text_limit: i
     }
 
     compression = payload.get("compression") if isinstance(payload.get("compression"), dict) else {}
-    source_refs: List[Dict[str, Any]] = []
-    for row in (payload.get("source_refs") if isinstance(payload.get("source_refs"), list) else [])[:16]:
-        if not isinstance(row, dict):
-            continue
-        source_refs.append({
-            "event_id": _bounded_codec_text(row.get("event_id"), limit=256) or None,
-            "session_key": _bounded_codec_text(row.get("session_key"), limit=256) or None,
-            "event_kind": _bounded_codec_text(row.get("event_kind") or "event", limit=64),
-            "ts": _bounded_codec_text(row.get("ts"), limit=64) or None,
-        })
+    source_refs = _normalize_codec_source_refs(payload.get("source_refs"))
 
     return {
         # Retain legacy contract markers in source state so the read projection
@@ -854,6 +966,11 @@ def _compact_codec_state_with_text_limit(state: Dict[str, Any], *, text_limit: i
         "schema_version": source_schema_version,
         "state_revision": _coerce_nonnegative_int(payload.get("state_revision")),
         "generated_at": generated_at,
+        **(
+            {"temporal_contract_version": CODEC_TEMPORAL_CONTRACT_VERSION}
+            if _codec_refs_have_temporal_fields(source_refs)
+            else {}
+        ),
         "source_event_count": _coerce_nonnegative_int(payload.get("source_event_count")),
         "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
             payload.get("outcome_feedback_receipt_ids")
@@ -937,6 +1054,14 @@ def _compact_codec_state(state: Dict[str, Any]) -> Dict[str, Any]:
             encoded_size = len(json.dumps(compact, ensure_ascii=False, sort_keys=True))
         if encoded_size < CODEC_STATE_MAX_SERIALIZED_CHARS:
             break
+    # Rich lineage refs are bounded per field; if they alone keep the state
+    # oversized, drop the oldest refs (index 0 is the newest batch).
+    refs = compact.get("source_refs") if isinstance(compact.get("source_refs"), list) else []
+    while refs and len(refs) > 1 and len(
+        json.dumps(compact, ensure_ascii=False, sort_keys=True)
+    ) >= CODEC_STATE_MAX_SERIALIZED_CHARS:
+        refs = refs[:-1]
+        compact["source_refs"] = refs
     return compact
 
 
@@ -958,6 +1083,11 @@ def _stable_state_view(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "version": payload.get("version", CODEC_VERSION),
         "schema_version": payload.get("schema_version", CODEC_SCHEMA_VERSION),
+        **(
+            {"temporal_contract_version": payload["temporal_contract_version"]}
+            if payload.get("temporal_contract_version")
+            else {}
+        ),
         "state_revision": int(payload.get("state_revision", 0) or 0),
         "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
             payload.get("outcome_feedback_receipt_ids")
@@ -1549,29 +1679,68 @@ def _schema_bucket(items: List[str], *, revisions: Optional[List[Dict[str, Any]]
 
 
 def _source_refs_from_events(events: List[Dict[str, Any]], *, limit: int = 16) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    seen = set()
+    """Preserve explicit event lineage without relabeling a generic ts field.
+
+    Each event's own reference precedes any declared ``metadata.source_lineage``
+    so the bounded list always keeps the events themselves (Nexus looks up its
+    lifecycle ``event_id`` here).
+    """
+
+    event_refs: List[Dict[str, Any]] = []
+    lineage_refs: List[Dict[str, Any]] = []
     for event in events or []:
         if not isinstance(event, dict):
             continue
-        event_id = str(event.get("event_id") or event.get("id") or "").strip()
-        session_key = str(event.get("session_key") or event.get("chat_id") or event.get("conversation_id") or "").strip() or None
-        event_kind = str(event.get("event_kind") or event.get("kind") or event.get("type") or "event").strip() or "event"
-        ref_key = (event_id, session_key, event_kind)
-        if ref_key in seen:
-            continue
-        seen.add(ref_key)
-        out.append(
+        # Ordinary Nexus continuity events carry explicit source metadata here.
+        # Preserve it through the same bounded source-ref normalizer; a generic
+        # timestamp, event heading or ingestion time never becomes occurrence.
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        lineage = metadata.get("source_lineage")
+        if isinstance(lineage, list):
+            lineage_refs.extend(item for item in lineage[:16] if isinstance(item, dict))
+        temporal_fields = (
+            "occurred_at", "occurred_on", "observed_at", "ingested_at",
+            "valid_from", "valid_to", "temporal_kind", "temporal_precision",
+            "temporal_timezone", "event_type", "event_id", "source_authority",
+            "uncertainty", "supersedes",
+        )
+        explicit = {key: metadata[key] for key in temporal_fields if key in metadata}
+        # Conflicting top-level and metadata claims are not silently resolved.
+        if any(key in event and event[key] != value for key, value in explicit.items()):
+            explicit = {}
+        event = {**explicit, **event}
+        event_refs.append(
             {
-                "event_id": event_id or None,
-                "session_key": session_key,
-                "event_kind": event_kind,
-                "ts": str(event.get("ts") or event.get("created_at") or event.get("timestamp") or "").strip() or None,
+                "source_id": event.get("source_id"),
+                "source_type": event.get("source_type"),
+                "memory_id": event.get("memory_id"),
+                "event_id": event.get("event_id") or event.get("id"),
+                "evidence_id": event.get("evidence_id"),
+                "version_id": event.get("version_id"),
+                "session_key": event.get("session_key") or event.get("chat_id") or event.get("conversation_id"),
+                "event_kind": event.get("event_kind") or event.get("kind") or event.get("type") or "event",
+                "event_type": event.get("event_type"),
+                "locator": event.get("locator"),
+                "content_sha256": event.get("content_sha256"),
+                # Keep the legacy timestamp under its legacy name. Only fields
+                # whose producer named their semantics enter the temporal contract.
+                "ts": event.get("ts") or event.get("created_at") or event.get("timestamp"),
+                "occurred_at": event.get("occurred_at"),
+                "occurred_on": event.get("occurred_on"),
+                "temporal_kind": event.get("temporal_kind"),
+                "temporal_timezone": event.get("temporal_timezone"),
+                "supersedes": event.get("supersedes"),
+                "observed_at": event.get("observed_at"),
+                "ingested_at": event.get("ingested_at"),
+                "valid_from": event.get("valid_from"),
+                "valid_to": event.get("valid_to"),
+                "source_authority": event.get("source_authority"),
+                "uncertainty": event.get("uncertainty"),
+                "source_available": event.get("source_available"),
+                "missing_reason": event.get("missing_reason"),
             }
         )
-        if len(out) >= max(1, int(limit or 16)):
-            break
-    return out
+    return _normalize_codec_source_refs([*event_refs, *lineage_refs], limit=limit)
 
 
 
@@ -1704,7 +1873,11 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         for bucket, items in active_bucket_items.items()
     }
     utility_summary = _utility_summary(bucket_scores)
-    payload["source_refs"] = [dict(row) for row in (payload.get("source_refs") or []) if isinstance(row, dict)][:32]
+    payload["source_refs"] = _normalize_codec_source_refs(payload.get("source_refs"))
+    if _codec_refs_have_temporal_fields(payload["source_refs"]):
+        payload["temporal_contract_version"] = CODEC_TEMPORAL_CONTRACT_VERSION
+    else:
+        payload.pop("temporal_contract_version", None)
     payload["utility_state"] = {
         "version": _clean_text(utility_state.get("version") or "cortex.codec.utility.v1") or "cortex.codec.utility.v1",
         "bucket_scores": bucket_scores,
@@ -2202,6 +2375,12 @@ def build_codec_state(
     facts = _rank_unique(facts, limit=max_items_per_bucket)
 
     generated_at = _now_iso()
+    # Newest events first so the current batch (e.g. a Nexus lifecycle ref)
+    # always survives the 16-ref bound; prior refs accumulate behind it.
+    source_refs = _normalize_codec_source_refs([
+        *_source_refs_from_events(events),
+        *(previous_state.get("source_refs") or []),
+    ])
 
     preference_resolution = _resolve_bucket_revisions(
         previous_state.get("identity_state", {}).get("preferences"),
@@ -2237,11 +2416,16 @@ def build_codec_state(
             maximum=10**12,
         ),
         "generated_at": generated_at,
+        **(
+            {"temporal_contract_version": CODEC_TEMPORAL_CONTRACT_VERSION}
+            if _codec_refs_have_temporal_fields(source_refs)
+            else {}
+        ),
         "source_event_count": len(events),
         "outcome_feedback_receipt_ids": _bounded_codec_receipt_ids(
             previous_state.get("outcome_feedback_receipt_ids")
         ),
-        "source_refs": _source_refs_from_events(events),
+        "source_refs": source_refs,
         "compression": {
             "raw_characters": sum(len(text) for text in raw_texts),
             "state_fields": 7,
@@ -3524,6 +3708,7 @@ def get_codec_debug_view(
             "max_chars": max_chars,
         },
         "schema_version": state.get("schema_version", CODEC_SCHEMA_VERSION) if isinstance(state, dict) else CODEC_SCHEMA_VERSION,
+        "temporal_contract_version": state.get("temporal_contract_version") if isinstance(state, dict) else None,
         "schema": state.get("schema_state", {}) if isinstance(state, dict) else {},
         "rollups": state.get("rollup_state", {}) if isinstance(state.get("rollup_state", {}), dict) else {},
         "promotion": state.get("promotion_state", {}) if isinstance(state.get("promotion_state", {}), dict) else {},

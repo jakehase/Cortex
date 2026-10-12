@@ -1,18 +1,24 @@
 """
-Meta Conductor compatibility router.
-Provides consistent orchestration contract metadata and delegates routing to Nexus.
-Adds legacy status/health fields expected by watchdogs.
+Meta Conductor router (L36): meta-orchestration and measured aggregate health.
+
+* ``/health`` probes every registered level in-process (mount state from the
+  running app, then the level's canonical status handler invoked through its
+  route object) — no self-HTTP calls and no forwarded credentials.
+* ``/status`` reports the cached aggregate health (never a constant
+  "active"); a stale cache schedules a single background refresh.
+* ``/orchestrate`` obtains the Nexus route plan by calling the Nexus handler
+  with the *real* request (so the caller's authenticated principal is used)
+  and an explicit ``payload=None``; it no longer passes ``request=None``.
 """
 
 from datetime import datetime
+import json
 from typing import Any, Dict, List, Optional
-import asyncio
-import httpx
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
-from cortex_server.internal_addressing import CORTEX_INTERNAL_BASE_URL
-from cortex_server.modules import cortex_kernel_v2
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from cortex_server.modules import cortex_kernel_v2, level_probe
 from cortex_server.routers.nexus import orchestrate_query
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
@@ -28,20 +34,25 @@ LEGACY_LEVELS: Dict[int, Dict[str, str]] = {
     if int(row["level"]) in {33, 34, 35, 36, 37, 38}
 }
 
-# Probes we can safely call without recursive self-status loops.
+# Kept for compatibility with importers; health now covers every level.
 PROBE_LEVELS: Dict[int, Dict[str, str]] = {
-    33: LEGACY_LEVELS[33],
-    34: LEGACY_LEVELS[34],
-    35: LEGACY_LEVELS[35],
-    37: LEGACY_LEVELS[37],
-    38: LEGACY_LEVELS[38],
+    level: info for level, info in LEGACY_LEVELS.items() if level != 36
+}
+
+HEALTH_TTL_S = 30.0
+HEALTH_STALE_AFTER_S = 300.0
+
+CONTRACT_METADATA = {
+    "contract_metadata_only": True,
+    "activation_metadata_available": True,
+    "activation_metadata_source": "meta_conductor",
 }
 
 
 class OrchestrateRequest(BaseModel):
-    query: str
-    target_levels: Optional[List[int]] = None
-    timeout_seconds: float = 8.0
+    query: str = Field(..., min_length=1, max_length=16_384)
+    target_levels: Optional[List[int]] = Field(default=None, max_length=38)
+    timeout_seconds: float = Field(default=8.0, ge=1.0, le=30.0)
 
 
 def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -75,130 +86,147 @@ def _extract_reported_level(body: Any) -> Optional[int]:
 def _status_levels() -> List[Dict[str, Any]]:
     levels = get_level_registry()
     by_level: Dict[int, Dict[str, Any]] = {}
-    if isinstance(levels, list):
-        for item in levels:
-            if not isinstance(item, dict):
-                continue
-            lv = item.get("level")
-            if isinstance(lv, int):
-                by_level[lv] = dict(item)
-
+    for item in levels:
+        if isinstance(item, dict) and isinstance(item.get("level"), int):
+            by_level[item["level"]] = dict(item)
     for lv, info in LEGACY_LEVELS.items():
         base = by_level.get(lv, {"level": lv})
         base["name"] = info["name"]
         base["path"] = info["path"]
         by_level[lv] = base
-
     return [by_level[k] for k in sorted(by_level.keys())]
 
 
-async def _probe_level(client: httpx.AsyncClient, level: int, timeout_seconds: float) -> Dict[str, Any]:
-    info = PROBE_LEVELS[level]
-    started = datetime.utcnow()
-    base_urls = [CORTEX_INTERNAL_BASE_URL]
-    status_path = str(info.get("status_path") or f"{info['path'].rstrip('/')}/status")
-    path_candidates: List[str] = []
-    for candidate in [status_path, str(info["path"] or "")]:
-        normalized = candidate if candidate.startswith("/") else f"/{candidate}"
-        if normalized and normalized not in path_candidates:
-            path_candidates.append(normalized)
+def _self_tests() -> Dict[int, Dict[str, Any]]:
+    """Cheap functional checks for levels that expose a pure self-test."""
 
-    errors: List[str] = []
-    for base_url in base_urls:
-        for candidate_path in path_candidates:
-            url = f"{base_url}{candidate_path}"
-            try:
-                resp = await client.get(url, timeout=max(1.0, float(timeout_seconds)))
-                latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
-                if resp.status_code != 200:
-                    errors.append(f"{url} -> HTTP {resp.status_code}")
-                    continue
-                body = resp.json()
-                reported_level = _extract_reported_level(body)
-                identity_match = (reported_level == level) if reported_level is not None else None
-                return {
-                    "level": level,
-                    "name": info["name"],
-                    "path": info["path"],
-                    "status_path": status_path,
-                    "probed_url": url,
-                    "success": bool(identity_match is not False),
-                    "data": body,
-                    "error": None,
-                    "latency_ms": latency_ms,
-                    "reported_level": reported_level,
-                    "identity_match": identity_match,
-                }
-            except Exception as e:
-                errors.append(f"{url} -> {str(e)}")
+    results: Dict[int, Dict[str, Any]] = {}
+    try:
+        from cortex_server.modules.validator import self_test
 
-    latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
+        results[34] = {"passed": bool(self_test().get("passed")), "check": "validator_known_good_and_bad_payloads"}
+    except Exception as exc:
+        results[34] = {"passed": False, "check": "validator_known_good_and_bad_payloads", "error": type(exc).__name__}
+    try:
+        from cortex_server.modules.kernel import collect_system_metrics
+
+        metrics = collect_system_metrics()
+        results[1] = {
+            "passed": (metrics.get("memory") or {}).get("totalBytes") is not None,
+            "check": "kernel_proc_meminfo_readable",
+        }
+    except Exception as exc:
+        results[1] = {"passed": False, "check": "kernel_proc_meminfo_readable", "error": type(exc).__name__}
+    return results
+
+
+def _aggregate(snapshot: Optional[Dict[str, Any]], self_tests: Optional[Dict[int, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    if snapshot is None or not snapshot.get("available", True):
+        return {"status": "unknown", "reason": (snapshot or {}).get("reason", "no_measurement"), "results": []}
+    tests = self_tests or {}
+    results: List[Dict[str, Any]] = []
+    for row in snapshot.get("levels") or ():
+        probe = row.get("probe") or {}
+        test = tests.get(row["level"])
+        state = row.get("status")
+        if test is not None and not test.get("passed") and state in {"online", "restricted"}:
+            state = "degraded"
+        results.append(
+            {
+                "level": row["level"],
+                "name": row["name"],
+                "path": row.get("route_prefix"),
+                "status_path": row.get("canonical_status"),
+                "mounted": row.get("mount") in {"full", "mounted", "safe_subset"},
+                "mount": row.get("mount"),
+                "state": state,
+                "reason": row.get("reason"),
+                "http_status": probe.get("status_code"),
+                "probe_outcome": probe.get("outcome"),
+                "reported_level": probe.get("reported_level"),
+                "identity_match": (
+                    probe.get("reported_level") == row["level"] if probe.get("reported_level") is not None else None
+                ),
+                "reported_status": probe.get("reported_status"),
+                "latency_ms": probe.get("latency_ms"),
+                "self_test": test,
+                "success": state in {"online", "restricted"},
+            }
+        )
+    mounted = [r for r in results if r["mounted"]]
+    failed = [r["level"] for r in results if r["state"] in {"degraded", "failed"}]
+    healthy = [r for r in mounted if r["success"]]
+    if not mounted:
+        status = "unhealthy"
+    elif not failed:
+        status = "healthy"
+    elif len(healthy) >= max(1, len(mounted) // 2):
+        status = "degraded"
+    else:
+        status = "unhealthy"
     return {
-        "level": level,
-        "name": info["name"],
-        "path": info["path"],
-        "status_path": status_path,
-        "probed_url": None,
-        "success": False,
-        "data": None,
-        "error": " | ".join(errors) if errors else "All connection attempts failed",
-        "latency_ms": latency_ms,
-        "reported_level": None,
-        "identity_match": None,
+        "status": status,
+        "health_pct": round(100.0 * len(healthy) / len(mounted), 1) if mounted else 0.0,
+        "failed_levels": failed,
+        "unmounted_levels": [r["level"] for r in results if r["state"] == "unmounted"],
+        "identity_mismatch_levels": [r["level"] for r in results if r["identity_match"] is False],
+        "timeout_levels": [r["level"] for r in results if r["probe_outcome"] == "timeout"],
+        "levels_probed": sum(1 for r in results if r["http_status"] is not None),
+        "results": results,
     }
 
 
 @router.get("/health")
-async def meta_conductor_health() -> Dict[str, Any]:
-    async with httpx.AsyncClient() as client:
-        results = await asyncio.gather(*[_probe_level(client, lvl, 5.0) for lvl in sorted(PROBE_LEVELS.keys())])
-
-    failed_levels = [r["level"] for r in results if not r.get("success")]
-    identity_mismatch_levels = [r["level"] for r in results if r.get("identity_match") is False]
-    timeout_levels = [r["level"] for r in results if "timeout" in str(r.get("error") or "").lower()]
-    healthy_count = len(results) - len(failed_levels)
-    total = len(results)
-    health_pct = round((healthy_count / total) * 100.0, 1) if total else 0.0
-
+async def meta_conductor_health(http_request: Request, refresh: bool = False) -> Dict[str, Any]:
+    level_probe.remember_app(http_request.app)
+    snapshot = await level_probe.refresh_probe_snapshot(
+        http_request.app, max_age_s=0.0 if refresh else HEALTH_TTL_S
+    )
+    aggregate = _aggregate(snapshot, _self_tests())
     return {
-        "success": True,
+        "success": aggregate["status"] in {"healthy", "degraded"},
         "service": "meta_conductor",
-        "status": "healthy" if not failed_levels else ("degraded" if healthy_count > 0 else "unhealthy"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "measured_at": (snapshot or {}).get("measured_at"),
+        "snapshot_age_s": (snapshot or {}).get("age_s"),
+        "probe_mode": "in_process_route_handler",
         "activation_metadata_source": "meta_conductor",
-        "health_pct": health_pct,
-        "failed_levels": failed_levels,
-        "identity_mismatch_levels": identity_mismatch_levels,
-        "timeout_levels": timeout_levels,
-        "results": results,
+        **aggregate,
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
-        "contract": {
-            "identity_phrase": "Cortex-first orchestration active",
-            "activation_metadata_available": True,
-            "activation_metadata_source": "meta_conductor",
-        },
+        "contract": dict(CONTRACT_METADATA),
     }
 
 
 @router.get("/status")
-async def meta_conductor_status() -> Dict[str, Any]:
+async def meta_conductor_status(http_request: Request) -> Dict[str, Any]:
+    level_probe.remember_app(http_request.app)
+    snapshot = level_probe.cached_probe_snapshot(None)
+    level_probe.schedule_probe_refresh(http_request.app, max_age_s=HEALTH_TTL_S)
+    age = (snapshot or {}).get("age_s")
+    if snapshot is None and level_probe.refresh_in_progress():
+        aggregate: Dict[str, Any] = {"status": "measuring", "failed_levels": [], "unmounted_levels": []}
+    elif snapshot is not None and age is not None and age > HEALTH_STALE_AFTER_S:
+        aggregate = {**_aggregate(snapshot), "status": "stale"}
+    else:
+        aggregate = _aggregate(snapshot)
     levels = _status_levels()
     return {
-        "success": True,
+        "success": aggregate["status"] in {"healthy", "degraded", "measuring"},
         "level": 36,
         "name": "Conductor (Meta)",
-        "status": "active",
+        "status": aggregate["status"],
+        "status_basis": "cached in-process aggregate health of all registered levels",
+        "health_snapshot_age_s": age,
+        "health_pct": aggregate.get("health_pct"),
+        "failed_levels": aggregate.get("failed_levels", []),
+        "unmounted_levels": aggregate.get("unmounted_levels", []),
         "total_levels": len(levels),
         "levels": levels,
         "activation_metadata_available": True,
         "activation_metadata_source": "meta_conductor",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
-        "contract": {
-            "identity_phrase": "Cortex-first orchestration active",
-            "activation_metadata_available": True,
-            "activation_metadata_source": "meta_conductor",
-        },
+        "contract": dict(CONTRACT_METADATA),
     }
 
 
@@ -212,8 +240,36 @@ async def meta_conductor_kernel_telemetry(limit: int = 25) -> Dict[str, Any]:
     return {"success": True, **cortex_kernel_v2.diagnostic_bundle(runtime="meta_conductor", limit=limit)}
 
 
+def _plan_dict(data: Any) -> Dict[str, Any]:
+    if isinstance(data, dict):
+        return data
+    if hasattr(data, "model_dump"):
+        return data.model_dump()
+    body = getattr(data, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        try:
+            parsed = json.loads(bytes(body).decode("utf-8"))
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, UnicodeDecodeError):
+            pass
+    raise ValueError("Nexus returned an unrecognised plan shape")
+
+
+async def _probe_targets(app: Any, levels: List[int], timeout_seconds: float) -> List[Dict[str, Any]]:
+    if not levels:
+        return []
+    snapshot = await level_probe.probe_levels(app, levels=levels, timeout_s=timeout_seconds)
+    return _aggregate(snapshot).get("results", [])
+
+
 @router.post("/orchestrate")
-async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
+async def meta_conductor_orchestrate(req: OrchestrateRequest, http_request: Request) -> Dict[str, Any]:
+    if not req.query.strip():
+        raise HTTPException(status_code=422, detail="query is required")
+    target_levels = req.target_levels if req.target_levels else [33, 34, 35]
+    if any(isinstance(lvl, bool) or not 1 <= int(lvl) <= 38 for lvl in target_levels):
+        raise HTTPException(status_code=422, detail="target_levels must be level numbers 1..38")
     kernel_trace = cortex_kernel_v2.prepare_request(
         req.query,
         response_mode="meta_conductor_orchestrate",
@@ -222,7 +278,22 @@ async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
         surface="orchestrate",
     )
     try:
-        data = await orchestrate_query(req.query, request=None)
+        # Call the Nexus handler with the real request so its principal
+        # authentication runs on the caller's credentials, and pass payload
+        # explicitly (the route-level Body() default is not a value).
+        raw = await orchestrate_query(query=req.query, request=http_request, codec_probe=False, payload=None)
+        data = _plan_dict(raw)
+    except HTTPException as exc:
+        cortex_kernel_v2.finalize_request(
+            kernel_trace.get("request_id"),
+            response="",
+            actual_lane="meta_conductor_orchestrated",
+            used_backend="delegated_nexus",
+            fallback_reason=f"nexus_http_{exc.status_code}",
+            contract_ok=False,
+            error=f"HTTPException:{exc.status_code}",
+        )
+        raise
     except Exception as e:
         cortex_kernel_v2.finalize_request(
             kernel_trace.get("request_id"),
@@ -231,23 +302,17 @@ async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
             used_backend="delegated_nexus",
             fallback_reason="delegation_failed",
             contract_ok=False,
-            error=f"{type(e).__name__}:{str(e)[:160]}",
+            error=f"{type(e).__name__}",
         )
-        raise HTTPException(status_code=502, detail=f"Nexus delegation failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Nexus delegation failed: {type(e).__name__}")
 
-    contract = data.get("contract") if isinstance(data, dict) else {}
-    if not isinstance(contract, dict):
-        contract = {}
-    contract["activation_metadata_available"] = True
-    contract["activation_metadata_source"] = "meta_conductor"
-    contract["identity_phrase"] = "Cortex-first orchestration active"
+    contract = data.get("contract") if isinstance(data.get("contract"), dict) else {}
+    contract = dict(contract)
+    contract.update(CONTRACT_METADATA)
     contract["kernel_contract_version"] = (kernel_trace.get("contract") or {}).get("version")
     contract["kernel_lane"] = (kernel_trace.get("plan") or {}).get("lane")
 
-    target_levels = req.target_levels if req.target_levels else [33, 34, 35]
-    target_levels = [lvl for lvl in target_levels if lvl in PROBE_LEVELS]
-    async with httpx.AsyncClient() as client:
-        results = await asyncio.gather(*[_probe_level(client, lvl, req.timeout_seconds) for lvl in target_levels])
+    results = await _probe_targets(http_request.app, [int(lvl) for lvl in target_levels], req.timeout_seconds)
 
     kernel_result = cortex_kernel_v2.finalize_request(
         kernel_trace.get("request_id"),
@@ -265,6 +330,7 @@ async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
         "semantic_analysis": data.get("semantic_analysis", {}),
         "results": results,
         "levels_queried": len(results),
+        "target_levels_probe_mode": "in_process_route_handler",
         "delegated_from": "nexus",
         "contract": contract,
         "contract_version": contract.get("contract_version") or data.get("contract_version") or "orchestrate_guard_v2",
@@ -280,11 +346,6 @@ async def endpoint_map() -> Dict[str, Any]:
         "success": True,
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "registry_version": LEVEL_REGISTRY_VERSION,
-        "contract": {
-            "identity_phrase": "Cortex-first orchestration active",
-            "activation_metadata_available": True,
-            "activation_metadata_source": "meta_conductor",
-            "contract_version": "cortex.contract.v1",
-        },
+        "contract": {**CONTRACT_METADATA, "contract_version": "cortex.contract.v1"},
         "levels": levels,
     }

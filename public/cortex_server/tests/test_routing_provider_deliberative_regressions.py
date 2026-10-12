@@ -82,86 +82,6 @@ def _valid_outcomes():
     ]
 
 
-def test_council_free_text_cannot_authorize_even_when_it_contains_approve(monkeypatch):
-    async def fake_oracle(*_args, **_kwargs):
-        return "I cannot APPROVE this unsafe action."
-
-    monkeypatch.setattr(council, "_call_oracle", fake_oracle)
-    result = _run(
-        council.council_review(
-            council.ReviewRequest(kind="config_change", title="unsafe action")
-        )
-    )
-
-    assert result["verdict"] == "NEEDS_CHANGES"
-    assert "retry_council_review" in result["required_conditions"]
-
-
-def test_council_strict_json_can_still_approve(monkeypatch):
-    async def valid_json(*_args, **_kwargs):
-        return json.dumps(
-            {
-                "verdict": "APPROVE",
-                "risk_score": 0.1,
-                "top_concerns": [],
-                "required_conditions": ["run_tests"],
-                "rationale": "Bounded and reversible.",
-                "suggested_changes": [],
-            }
-        )
-
-    async def no_advisory(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(council, "_call_oracle", valid_json)
-    monkeypatch.setattr(council, "_call_seer_predict", no_advisory)
-    result = _run(
-        council.council_review(
-            council.ReviewRequest(kind="config_change", title="bounded action")
-        )
-    )
-
-    assert result["verdict"] == "APPROVE"
-    assert result["risk_score"] == 0.1
-
-
-def test_council_incomplete_json_cannot_authorize(monkeypatch):
-    async def incomplete_json(*_args, **_kwargs):
-        return '{"verdict":"APPROVE"}'
-
-    monkeypatch.setattr(council, "_call_oracle", incomplete_json)
-    result = _run(
-        council.council_review(
-            council.ReviewRequest(kind="config_change", title="underspecified action")
-        )
-    )
-
-    assert result["verdict"] == "NEEDS_CHANGES"
-    assert result["risk_score"] == 0.6
-    assert "retry_council_review" in result["required_conditions"]
-
-
-def test_council_embedded_json_cannot_authorize(monkeypatch):
-    async def wrapped_json(*_args, **_kwargs):
-        return (
-            "provider preface\n"
-            '{"verdict":"APPROVE","risk_score":0.1,"top_concerns":[],'
-            '"required_conditions":["run_tests"],"rationale":"bounded",'
-            '"suggested_changes":[]}\n'
-            "provider epilogue"
-        )
-
-    monkeypatch.setattr(council, "_call_oracle", wrapped_json)
-    result = _run(
-        council.council_review(
-            council.ReviewRequest(kind="config_change", title="wrapped decision")
-        )
-    )
-
-    assert result["verdict"] == "NEEDS_CHANGES"
-    assert "retry_council_review" in result["required_conditions"]
-
-
 def test_receiptless_or_mismatched_provider_text_cannot_claim_provider_provenance():
     with pytest.raises(ValueError, match="unverified"):
         provider_text_fields("plain provider-looking text", origin="provider")
@@ -180,425 +100,145 @@ def test_receiptless_or_mismatched_provider_text_cannot_claim_provider_provenanc
     assert fields["model"] == "test-model"
 
 
-def test_council_provider_deliberation_and_critique_preserve_receipt_identity(monkeypatch):
-    deliberation_text = (
-        "Technical feasibility: Score 8/10 - feasible.\n"
-        "Risk/security: Score 2/10 - bounded.\n"
-        "Ethical implications: Score 8/10 - acceptable.\n"
-        "Resource cost: Score 7/10 - affordable.\n"
-        "User impact: Score 8/10 - helpful.\n\n"
-        "Overall recommendation: GO with tests."
-    )
-    critique_text = (
-        "Feasibility: Score 8/10 - feasible.\n"
-        "Risk: Score 2/10 - bounded.\n"
-        "Innovation: Score 6/10 - useful.\n"
-        "Alignment: Score 9/10 - aligned.\n"
-        "- Concern: preserve rollback.\n"
-        "Recommendation: GO."
-    )
-    responses = iter([_provider_text(deliberation_text), _provider_text(critique_text)])
-
-    async def provider_response(*_args, **_kwargs):
-        return next(responses)
-
-    monkeypatch.setattr(council, "_call_oracle", provider_response)
-    monkeypatch.setattr(council, "conscious_action", _conscious_action_stub)
-
-    deliberated = _run(council.deliberate(council.DeliberationRequest(topic="safe rollout")))[
-        "deliberation"
-    ]
-    critiqued = _run(council.critique_action(council.CritiqueRequest(action="safe rollout")))
-
-    for result in (deliberated, critiqued):
-        assert result["origin"] == "provider"
-        assert result["provider_invoked"] is True
-        assert result["provider"] == "openrouter"
-        assert result["model"] == "test-model"
-        assert result["degraded"] is False
-        assert "oracle_completion_receipt" in result["validated_evidence"]
+def _seer_model_result(data=None, *, status="ok", attempts=1):
+    """Shape of cortex_server.modules.level_model results for Seer tests."""
+    if status != "ok":
+        return {"status": status, "ok": False, "origin": "model_unavailable", "elapsed_ms": 3}
+    return {
+        "status": "ok",
+        "ok": True,
+        "origin": "model",
+        "data": data,
+        "model": "test-model",
+        "receipt_id": "receipt-test-provider",
+        "provider_invoked": True,
+        "attempts": attempts,
+        "elapsed_ms": 3,
+    }
 
 
-def test_council_malformed_provider_text_is_explicit_schema_repair(monkeypatch):
-    responses = iter([_provider_text("hello"), _provider_text("hello")])
-
-    async def malformed_provider_response(*_args, **_kwargs):
-        return next(responses)
-
-    monkeypatch.setattr(council, "_call_oracle", malformed_provider_response)
-    monkeypatch.setattr(council, "conscious_action", _conscious_action_stub)
-
-    deliberated = _run(council.deliberate(council.DeliberationRequest(topic="safe rollout")))[
-        "deliberation"
-    ]
-    critiqued = _run(council.critique_action(council.CritiqueRequest(action="safe rollout")))
-
-    for result in (deliberated, critiqued):
-        assert result["origin"] == "schema_repair"
-        assert result["provider_invoked"] is True
-        assert result["provider"] == "openrouter"
-        assert result["model"] == "test-model"
-        assert result["degraded"] is True
-        assert result["repair_applied"] is True
-        assert result["error"] == "degraded:oracle_schema_repair"
-        assert result["validated_evidence"] == ["oracle_completion_receipt"]
-
-
-def test_council_deliberation_labels_deterministic_fallback(monkeypatch):
-    async def unavailable(*_args, **_kwargs):
-        raise httpx.ConnectError("offline")
-
-    monkeypatch.setattr(council, "_call_oracle", unavailable)
-    monkeypatch.setattr(council, "conscious_action", _conscious_action_stub)
-    result = _run(council.deliberate(council.DeliberationRequest(topic="deploy safely")))
-    deliberation = result["deliberation"]
-
-    assert result["success"] is True
-    assert deliberation["origin"] == "deterministic_fallback"
-    assert deliberation["provider_invoked"] is False
-    assert deliberation["provider"] is None
-    assert deliberation["degraded"] is True
-    assert deliberation["repair_applied"] is True
-    assert deliberation["error"].startswith("degraded:oracle_unavailable")
-    assert deliberation["validated_evidence"] == []
-
-
-def test_mediator_empty_provider_object_is_explicit_schema_repair(monkeypatch):
-    async def empty_object(*_args, **_kwargs):
-        return _provider_text("{}")
-
-    monkeypatch.setattr(mediator, "_call_oracle", empty_object)
-    result = _run(
-        mediator.mediate(
-            mediator.MediateRequest(position_a="ship now", position_b="wait for tests")
-        )
-    )
-
-    assert result.success is True
-    assert result.origin == "schema_repair"
-    assert result.degraded is True
-    assert result.repair_applied is True
-    assert result.error == "degraded:oracle_schema_repair"
-    assert result.provider_invoked is True
-    assert result.provider == "openrouter"
-    assert result.model == "test-model"
-    assert result.validated_evidence == ["oracle_completion_receipt"]
-
-
-def test_mediator_complete_provider_schema_remains_non_degraded(monkeypatch):
-    async def complete_object(*_args, **_kwargs):
-        return _provider_text(json.dumps(
-            {
-                "common_ground": [{"area": "quality", "explanation": "both value it"}],
-                "core_differences": [
-                    {
-                        "issue": "timing",
-                        "position_a_view": "now",
-                        "position_b_view": "later",
-                    }
-                ],
-                "compromise_proposals": [
-                    {
-                        "proposal": "pilot",
-                        "fairness_rating": "high",
-                        "rationale": "limits risk",
-                    }
-                ],
-                "recommended_resolution": "Run a bounded pilot.",
-            }
-        ))
-
-    monkeypatch.setattr(mediator, "_call_oracle", complete_object)
-    result = _run(
-        mediator.mediate(
-            mediator.MediateRequest(position_a="ship now", position_b="wait for tests")
-        )
-    )
-
-    assert result.origin == "provider"
-    assert result.degraded is False
-    assert result.repair_applied is False
-    assert result.error is None
-    assert result.provider_invoked is True
-    assert result.provider == "openrouter"
-    assert result.model == "test-model"
-    assert result.validated_evidence == [
-        "oracle_completion_receipt",
-        "mediation_schema_complete",
-    ]
-
-
-def test_mediator_json_wrapper_is_explicit_schema_repair(monkeypatch):
-    wrapped = """```json
-{"common_ground":[{"area":"quality","explanation":"shared"}],"core_differences":[{"issue":"timing","position_a_view":"now","position_b_view":"later"}],"compromise_proposals":[{"proposal":"pilot","fairness_rating":"high","rationale":"bounded"}],"recommended_resolution":"pilot first"}
-```"""
-
-    async def wrapped_object(*_args, **_kwargs):
-        return _provider_text(wrapped)
-
-    monkeypatch.setattr(mediator, "_call_oracle", wrapped_object)
-    result = _run(
-        mediator.mediate(
-            mediator.MediateRequest(position_a="ship now", position_b="wait for tests")
-        )
-    )
-
-    assert result.origin == "schema_repair"
-    assert result.degraded is True
-    assert result.repair_applied is True
-    assert result.provider_invoked is True
-    assert result.error == "degraded:oracle_schema_repair"
-
-
-def test_mediator_resolve_tracks_complete_and_repaired_provider_results(monkeypatch):
-    complete = json.dumps(
-        {
-            "strategies": [
-                {
-                    "order": 1,
-                    "name": "pilot",
-                    "approach": "start small",
-                    "pros": ["bounded"],
-                    "cons": ["slower"],
-                    "best_when": "risk is uncertain",
-                }
-            ]
-        }
-    )
-    empty_lists = json.dumps(
-        {
-            "strategies": [
-                {
-                    "order": 1,
-                    "name": "pilot",
-                    "approach": "start small",
-                    "pros": [],
-                    "cons": [],
-                    "best_when": "risk is uncertain",
-                }
-            ]
-        }
-    )
-    responses = iter(
-        [_provider_text(complete), _provider_text("{}"), _provider_text(empty_lists)]
-    )
-
-    async def provider_response(*_args, **_kwargs):
-        return next(responses)
-
-    monkeypatch.setattr(mediator, "_call_oracle", provider_response)
-    valid = _run(mediator.resolve(mediator.ResolveRequest(conflict="ship or wait")))
-    repaired = _run(mediator.resolve(mediator.ResolveRequest(conflict="ship or wait")))
-    empty_list_repair = _run(
-        mediator.resolve(mediator.ResolveRequest(conflict="ship or wait"))
-    )
-
-    assert valid.origin == "provider"
-    assert valid.degraded is False
-    assert valid.provider == "openrouter"
-    assert valid.model == "test-model"
-    assert valid.validated_evidence == [
-        "oracle_completion_receipt",
-        "resolution_schema_complete",
-    ]
-    assert repaired.origin == "schema_repair"
-    assert repaired.degraded is True
-    assert repaired.repair_applied is True
-    assert repaired.provider_invoked is True
-    assert repaired.provider == "openrouter"
-    assert repaired.error == "degraded:oracle_schema_repair"
-    assert empty_list_repair.origin == "schema_repair"
-    assert empty_list_repair.repair_applied is True
-    assert empty_list_repair.error == "degraded:oracle_schema_repair"
-
-
-def test_seer_empty_provider_object_is_explicit_schema_repair(monkeypatch):
-    async def empty_object(*_args, **_kwargs):
-        return _provider_text("{}")
-
-    monkeypatch.setattr(seer, "_call_oracle", empty_object)
-    result = _run(seer.predict(seer.PredictRequest(scenario="launch")))
-
-    assert result.success is True
-    assert result.origin == "schema_repair"
-    assert result.degraded is True
-    assert result.repair_applied is True
-    assert result.error == "degraded:oracle_schema_repair"
-    assert result.provider_invoked is True
-    assert result.provider == "openrouter"
-    assert result.model == "test-model"
-    assert result.validated_evidence == ["oracle_completion_receipt"]
-
-
-def test_seer_complete_provider_schema_remains_non_degraded(monkeypatch):
-    async def complete_object(*_args, **_kwargs):
-        risks = [
-            {
-                "risk": f"risk {index}",
-                "severity": "low",
-                "likelihood": "possible",
-                "mitigation": "measure",
-            }
-            for index in range(3)
-        ]
-        opportunities = [
-            {
-                "opportunity": f"opportunity {index}",
-                "impact": "medium",
-                "difficulty": "easy",
-                "action": "pilot",
-            }
-            for index in range(3)
-        ]
-        return _provider_text(json.dumps(
-            {
-                "risks": risks,
-                "opportunities": opportunities,
-                "overall_outlook": "neutral",
-                "confidence": "medium",
-                "reasoning": "Evidence is mixed.",
-            }
-        ))
-
-    monkeypatch.setattr(seer, "_call_oracle", complete_object)
-    result = _run(seer.predict(seer.PredictRequest(scenario="launch")))
-
-    assert result.origin == "provider"
-    assert result.degraded is False
-    assert result.repair_applied is False
-    assert result.error is None
-    assert result.provider_invoked is True
-    assert result.provider == "openrouter"
-    assert result.model == "test-model"
-    assert result.validated_evidence == [
-        "oracle_completion_receipt",
-        "prediction_schema_complete",
-    ]
-
-
-def test_seer_json_wrapper_is_explicit_schema_repair(monkeypatch):
-    payload = {
+def _seer_complete_prediction():
+    return {
         "risks": [
-            {
-                "risk": f"risk {index}",
-                "severity": "low",
-                "likelihood": "possible",
-                "mitigation": "measure",
-            }
+            {"risk": f"risk {index}", "severity": "low", "likelihood": "possible", "mitigation": "measure"}
             for index in range(3)
         ],
         "opportunities": [
-            {
-                "opportunity": f"opportunity {index}",
-                "impact": "medium",
-                "difficulty": "easy",
-                "action": "pilot",
-            }
+            {"opportunity": f"opportunity {index}", "impact": "medium", "difficulty": "easy", "action": "pilot"}
             for index in range(3)
         ],
         "overall_outlook": "neutral",
         "confidence": "medium",
         "reasoning": "Evidence is mixed.",
+        "assumptions": [],
+        "evidence_basis": "model_knowledge",
     }
 
-    async def wrapped_object(*_args, **_kwargs):
-        return _provider_text(f"```json\n{json.dumps(payload)}\n```")
 
-    monkeypatch.setattr(seer, "_call_oracle", wrapped_object)
+def test_seer_empty_provider_object_fails_closed_without_padding(monkeypatch):
+    # An empty/incomplete provider object is invalid output after level_model's
+    # one repair attempt: Seer must not pad it with templated risks.
+    from cortex_server.modules import level_model
+
+    async def invalid(**_kwargs):
+        return _seer_model_result(status="invalid_output")
+
+    monkeypatch.setattr(level_model, "level_model_json", invalid)
     result = _run(seer.predict(seer.PredictRequest(scenario="launch")))
 
-    assert result.origin == "schema_repair"
+    assert result.success is False
+    assert result.risks == []
+    assert result.opportunities == []
+    assert result.origin == "model_unavailable"
+    assert result.provider_invoked is False
     assert result.degraded is True
-    assert result.repair_applied is True
-    assert result.provider_invoked is True
-    assert result.error == "degraded:oracle_schema_repair"
+    assert result.error == "invalid_output"
+    assert "Execution risk" not in result.model_dump_json()
 
 
-def test_seer_nonempty_invalid_items_are_explicit_schema_repair(monkeypatch):
-    invalid = json.dumps(
-        {
-            "risks": [{"risk": "", "severity": "impossible"}] * 3,
-            "opportunities": [{"opportunity": "", "impact": "infinite"}] * 3,
-            "overall_outlook": "unknown",
-            "confidence": "certain",
-            "reasoning": "",
-        }
-    )
+def test_seer_complete_provider_schema_remains_non_degraded(monkeypatch):
+    from cortex_server.modules import level_model
 
-    async def invalid_provider_schema(*_args, **_kwargs):
-        return _provider_text(invalid)
+    async def complete(**_kwargs):
+        return _seer_model_result(_seer_complete_prediction())
 
-    monkeypatch.setattr(seer, "_call_oracle", invalid_provider_schema)
+    monkeypatch.setattr(level_model, "level_model_json", complete)
     result = _run(seer.predict(seer.PredictRequest(scenario="launch")))
 
     assert result.success is True
-    assert result.origin == "schema_repair"
-    assert result.degraded is True
-    assert result.repair_applied is True
+    assert result.origin == "model"
+    assert result.degraded is False
+    assert result.repair_applied is False
+    assert result.error is None
     assert result.provider_invoked is True
-    assert result.provider == "openrouter"
-    assert result.error == "degraded:oracle_schema_repair"
+    assert result.model == "test-model"
+    assert result.receipt_id == "receipt-test-provider"
+    assert result.validated_evidence == [
+        "level_model_completion_receipt",
+        "prediction_schema_complete",
+    ]
 
 
-def test_seer_unparseable_verified_provider_output_fails_with_provider_identity(monkeypatch):
-    responses = iter([_provider_text("not json"), _provider_text("not json")])
+def test_seer_second_model_attempt_is_reported_as_repair(monkeypatch):
+    from cortex_server.modules import level_model
 
-    async def invalid_json(*_args, **_kwargs):
-        return next(responses)
+    async def repaired(**_kwargs):
+        return _seer_model_result(_seer_complete_prediction(), attempts=2)
 
-    monkeypatch.setattr(seer, "_call_oracle", invalid_json)
+    monkeypatch.setattr(level_model, "level_model_json", repaired)
+    result = _run(seer.predict(seer.PredictRequest(scenario="launch")))
+
+    assert result.success is True
+    assert result.repair_applied is True
+    assert result.degraded is False
+
+
+def test_seer_timeout_returns_no_fabricated_forecast(monkeypatch):
+    from cortex_server.modules import level_model
+
+    async def timeout(**_kwargs):
+        return _seer_model_result(status="timeout")
+
+    monkeypatch.setattr(level_model, "level_model_json", timeout)
     prediction = _run(seer.predict(seer.PredictRequest(scenario="launch")))
     trends = _run(seer.trends(seer.TrendsRequest(topic="systems")))
 
     for result in (prediction, trends):
         assert result.success is False
-        assert result.origin == "provider"
-        assert result.provider_invoked is True
-        assert result.provider == "openrouter"
-        assert result.model == "test-model"
-        assert result.degraded is True
-        assert result.repair_applied is False
-        assert result.error == "oracle_invalid_json"
-        assert result.validated_evidence == ["oracle_completion_receipt"]
+        assert result.origin == "model_unavailable"
+        assert result.error == "timeout"
+        dumped = result.model_dump_json()
+        assert "Observed in recent operating patterns" not in dumped
+        assert "Monitor leading indicators" not in dumped
+    assert trends.emerging == [] and trends.declining == [] and trends.disruption is None
 
 
-def test_seer_trends_tracks_complete_and_repaired_provider_results(monkeypatch):
-    complete = json.dumps(
-        {
-            "emerging": [
-                {"trend": f"emerging {index}", "evidence": "signal", "timeline": "soon"}
-                for index in range(3)
-            ],
-            "declining": [
-                {"trend": f"declining {index}", "evidence": "signal", "timeline": "later"}
-                for index in range(2)
-            ],
-            "disruption": {"trend": "shift", "evidence": "signal", "timeline": "year"},
-        }
-    )
-    responses = iter([_provider_text(complete), _provider_text("{}")])
+def test_seer_trends_tracks_complete_provider_results(monkeypatch):
+    from cortex_server.modules import level_model
 
-    async def provider_response(*_args, **_kwargs):
-        return next(responses)
+    complete = {
+        "emerging": [{"trend": f"emerging {index}", "evidence": "signal", "timeline": "soon"} for index in range(3)],
+        "declining": [{"trend": f"declining {index}", "evidence": "signal", "timeline": "later"} for index in range(2)],
+        "disruption": {"trend": "shift", "evidence": "signal", "timeline": "year"},
+        "assumptions": [],
+        "evidence_basis": "model_knowledge",
+    }
 
-    monkeypatch.setattr(seer, "_call_oracle", provider_response)
+    async def provider_response(**_kwargs):
+        return _seer_model_result(complete)
+
+    monkeypatch.setattr(level_model, "level_model_json", provider_response)
     valid = _run(seer.trends(seer.TrendsRequest(topic="systems")))
-    repaired = _run(seer.trends(seer.TrendsRequest(topic="systems")))
 
-    assert valid.origin == "provider"
+    assert valid.success is True
+    assert valid.origin == "model"
     assert valid.degraded is False
-    assert valid.provider == "openrouter"
     assert valid.model == "test-model"
+    assert valid.disruption.trend == "shift"
     assert valid.validated_evidence == [
-        "oracle_completion_receipt",
+        "level_model_completion_receipt",
         "trends_schema_complete",
     ]
-    assert repaired.origin == "schema_repair"
-    assert repaired.degraded is True
-    assert repaired.repair_applied is True
-    assert repaired.provider_invoked is True
-    assert repaired.provider == "openrouter"
-    assert repaired.error == "degraded:oracle_schema_repair"
 
 
 def test_synthesist_identifies_local_heuristic_origin(monkeypatch):
@@ -624,66 +264,3 @@ def test_synthesist_identifies_local_heuristic_origin(monkeypatch):
     ]
 
 
-@pytest.mark.parametrize(
-    "outcomes",
-    [
-        [
-            {
-                **item,
-                "label": "best_case",
-            }
-            for item in _valid_outcomes()
-        ],
-        [
-            {
-                **item,
-                "probability": "999%" if index == 0 else item["probability"],
-            }
-            for index, item in enumerate(_valid_outcomes())
-        ],
-        [
-            {
-                "label": item["label"],
-                "probability": "10%",
-                "key_events": item["key_events"],
-                "timeline": "soon",
-                "impact_assessment": item["impact_assessment"],
-            }
-            for item in _valid_outcomes()
-        ],
-    ],
-)
-def test_simulator_rejects_duplicate_labels_out_of_bounds_or_bad_sum(outcomes):
-    with pytest.raises(ValueError, match="contract violation"):
-        simulator._parse_outcomes_strict(outcomes)
-
-
-def test_simulator_accepts_exact_label_set_and_probability_distribution():
-    parsed = simulator._parse_outcomes_strict(_valid_outcomes())
-    assert {item.label for item in parsed} == {
-        "best_case",
-        "most_likely",
-        "worst_case",
-    }
-
-
-def test_simulator_transport_failure_uses_typed_oracle_fallback(monkeypatch):
-    request = httpx.Request("POST", "http://augmenter.invalid/chat")
-
-    async def connection_failure(*_args, **_kwargs):
-        raise httpx.ConnectError("offline", request=request)
-
-    async def oracle_result(*_args, **_kwargs):
-        return {"response": json.dumps({"outcomes": _valid_outcomes()})}
-
-    monkeypatch.setattr(simulator, "_call_augmenter", connection_failure)
-    monkeypatch.setattr(simulator, "_call_oracle_fallback", oracle_result)
-    result = _run(
-        simulator.run_simulation(
-            simulator.SimulatorRequest(scenario="safe rollout"),
-            SimpleNamespace(state=SimpleNamespace()),
-        )
-    )
-
-    assert result.success is True
-    assert result.error == "degraded_path:augmenter_transport_fallback_to_oracle"

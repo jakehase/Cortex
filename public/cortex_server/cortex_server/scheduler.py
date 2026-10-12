@@ -18,6 +18,7 @@ with read_only_construction(not runtime_construction_active()):
         app as celery_app,
         task_consumes_delegated_action_capability,
     )
+from cortex_server.modules import cron_tasks
 from cortex_server.modules.action_capabilities import (
     ActionAuthorization,
     DELEGATED_ACTION_CAPABILITY_HEADER,
@@ -35,6 +36,8 @@ import json
 import os
 import tempfile
 import uuid
+from collections import OrderedDict
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
@@ -250,7 +253,29 @@ def _cron_parts(cron_expr: str) -> Tuple[str, str, str, str, str]:
     return parts[0], parts[1], parts[2], parts[3], parts[4]
 
 
-def _build_cron_trigger(cron_expr: str) -> CronTrigger:
+DEFAULT_JOB_TIMEZONE = "UTC"
+INTERNAL_JOB_PREFIX = "__internal__:"
+ORCHESTRATOR_DRIVER_JOB_ID = f"{INTERNAL_JOB_PREFIX}orchestrator-runtime-driver"
+
+
+def validate_timezone_name(name: Optional[str]) -> str:
+    """Return a canonical IANA timezone name or raise ValueError."""
+
+    candidate = str(name or DEFAULT_JOB_TIMEZONE).strip() or DEFAULT_JOB_TIMEZONE
+    if len(candidate) > 64 or ".." in candidate or candidate.startswith("/"):
+        raise ValueError("timezone must be an IANA name such as 'UTC' or 'America/Chicago'")
+    try:
+        ZoneInfo(candidate)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown timezone: {candidate}") from exc
+    return candidate
+
+
+def _zone(name: Optional[str]):
+    return ZoneInfo(validate_timezone_name(name)) if name else timezone.utc
+
+
+def _build_cron_trigger(cron_expr: str, timezone_name: Optional[str] = None) -> CronTrigger:
     minute, hour, day, month, day_of_week = _cron_parts(cron_expr)
     return CronTrigger(
         minute=minute,
@@ -258,8 +283,57 @@ def _build_cron_trigger(cron_expr: str) -> CronTrigger:
         day=day,
         month=month,
         day_of_week=day_of_week,
-        timezone=timezone.utc,
+        timezone=_zone(timezone_name),
     )
+
+
+def preview_fire_times(cron_expr: str, timezone_name: Optional[str] = None, count: int = 5) -> List[str]:
+    """Next ``count`` fire times computed by the same APScheduler trigger the job uses."""
+
+    try:
+        trigger = _build_cron_trigger(cron_expr, timezone_name)
+    except ValueError:
+        raise
+    except Exception as exc:  # APScheduler raises ValueError/TypeError on bad fields
+        raise ValueError(f"invalid cron expression: {type(exc).__name__}") from exc
+    out: List[str] = []
+    prev = None
+    now = datetime.now(trigger.timezone)
+    nxt = trigger.get_next_fire_time(prev, now)
+    while nxt is not None and len(out) < max(1, min(int(count), 20)):
+        out.append(nxt.isoformat())
+        prev = nxt
+        nxt = trigger.get_next_fire_time(prev, prev + timedelta(seconds=1))
+    return out
+
+
+def is_internal_job(job: Any) -> bool:
+    """Internal jobs (e.g. the opt-in orchestrator driver) are not user cron jobs."""
+
+    return str(getattr(job, "id", "") or "").startswith(INTERNAL_JOB_PREFIX)
+
+
+def task_is_schedulable(task_name: str) -> bool:
+    """True for in-process Cortex tasks or Celery tasks that consume delegated capabilities."""
+
+    return cron_tasks.is_in_process_task(task_name) or task_consumes_delegated_action_capability(
+        task_name,
+        celery=celery_app,
+    )
+
+
+def schedulable_task_catalog() -> List[Dict[str, Any]]:
+    rows = list(cron_tasks.in_process_task_catalog())
+    tasks = getattr(celery_app, "tasks", {}) or {}
+    for name in sorted(tasks.keys() if hasattr(tasks, "keys") else []):
+        if task_consumes_delegated_action_capability(name, celery=celery_app):
+            rows.append({
+                "task": name,
+                "dispatch": "celery",
+                "effect": "celery_worker",
+                "description": "Celery task; 'triggered' only means the broker accepted it. Execution requires a running Celery worker.",
+            })
+    return rows
 
 
 def _validated_job_args(args: Any, *, context: str) -> List[Any]:
@@ -282,8 +356,13 @@ def _validated_job_args(args: Any, *, context: str) -> List[Any]:
     return json.loads(encoded.decode("utf-8"))
 
 
-def _estimate_runs_for_hours(cron_expr: str, window_hours: int = 24, cap: int = 50000) -> int:
-    trigger = _build_cron_trigger(cron_expr)
+def _estimate_runs_for_hours(
+    cron_expr: str,
+    window_hours: int = 24,
+    cap: int = 50000,
+    timezone_name: Optional[str] = None,
+) -> int:
+    trigger = _build_cron_trigger(cron_expr, timezone_name)
     now = _utc_now()
     end = now + timedelta(hours=max(1, int(window_hours)))
 
@@ -332,6 +411,40 @@ def _default_alt_crons(primary: str) -> List[str]:
     return out
 
 
+HEURISTIC_LABEL = "HEURISTIC — fixed-weight formula over the listed inputs, not a measured forecast"
+
+
+def observed_job_history(job_id: Optional[str], *, hours: int = 24 * 7) -> Optional[Dict[str, Any]]:
+    """Measured outcomes for one job from the trigger ledger (job ids are stored hashed)."""
+
+    if not job_id:
+        return None
+    digest = _sha256_hex(str(job_id))
+    events = [
+        event
+        for event in get_trigger_events(hours=hours, limit=5000)
+        if event.get("job_id_sha256") == digest
+    ]
+    counts = Counter(str(event.get("status") or "unknown") for event in events)
+    runs = counts.get("triggered", 0) + counts.get("error", 0)
+    latencies = [
+        float(event["latency_ms"])
+        for event in events
+        if isinstance(event.get("latency_ms"), (int, float))
+    ]
+    timestamps = sorted(str(event.get("ts")) for event in events if event.get("ts"))
+    return {
+        "window_hours": hours,
+        "events": len(events),
+        "by_status": dict(counts),
+        "runs": runs,
+        "error_rate": round(counts.get("error", 0) / runs, 4) if runs else None,
+        "mean_latency_ms": round(sum(latencies) / len(latencies), 1) if latencies else None,
+        "last_event_at": timestamps[-1] if timestamps else None,
+        "basis": "trigger_ledger",
+    }
+
+
 def simulate_cadence_twin(
     primary_cron: str,
     alternatives: Optional[List[str]] = None,
@@ -339,11 +452,29 @@ def simulate_cadence_twin(
     risk_score: float = 0.3,
     token_cost_est: int = 2000,
     estimated_runtime_s: float = 30.0,
+    *,
+    job_id: Optional[str] = None,
+    timezone_name: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Compare cadences.
+
+    Run counts are exact (computed by the APScheduler trigger in the job's
+    timezone).  Everything else is a labelled heuristic: value/risk are
+    caller-supplied priors unless the trigger ledger holds at least five
+    measured runs for ``job_id``, in which case the observed error rate
+    replaces the caller's risk prior.
+    """
+
     value = _clamp(value_score, 0.0, 1.0)
-    risk = _clamp(risk_score, 0.0, 1.0)
+    risk_prior = _clamp(risk_score, 0.0, 1.0)
     token_cost = max(0, int(token_cost_est))
     runtime_s = max(1.0, float(estimated_runtime_s))
+    history = observed_job_history(job_id)
+    risk_basis = "caller_supplied_prior"
+    risk = risk_prior
+    if history and int(history.get("runs") or 0) >= 5 and history.get("error_rate") is not None:
+        risk = _clamp(float(history["error_rate"]), 0.0, 1.0)
+        risk_basis = "observed_error_rate"
 
     candidates = [c for c in (alternatives or _default_alt_crons(primary_cron)) if isinstance(c, str) and c.strip()]
     if primary_cron not in candidates:
@@ -353,8 +484,8 @@ def simulate_cadence_twin(
 
     for cron_expr in candidates:
         try:
-            runs_24h = _estimate_runs_for_hours(cron_expr, window_hours=24)
-            runs_7d = _estimate_runs_for_hours(cron_expr, window_hours=24 * 7)
+            runs_24h = _estimate_runs_for_hours(cron_expr, window_hours=24, timezone_name=timezone_name)
+            runs_7d = _estimate_runs_for_hours(cron_expr, window_hours=24 * 7, timezone_name=timezone_name)
             runtime_hours_24h = round((runs_24h * runtime_s) / 3600.0, 3)
             token_24h = runs_24h * token_cost
 
@@ -370,12 +501,12 @@ def simulate_cadence_twin(
                     "cron": cron_expr,
                     "runs_24h": runs_24h,
                     "runs_7d": runs_7d,
-                    "runtime_hours_24h": runtime_hours_24h,
+                    "runtime_hours_24h_estimate": runtime_hours_24h,
                     "token_est_24h": token_24h,
-                    "quality_forecast": round(projected_quality, 4),
-                    "risk_forecast": round(projected_risk, 4),
-                    "efficiency_forecast": round(efficiency, 4),
-                    "composite_score": composite,
+                    "quality_heuristic": round(projected_quality, 4),
+                    "risk_heuristic": round(projected_risk, 4),
+                    "efficiency_heuristic": round(efficiency, 4),
+                    "composite_heuristic": composite,
                     "is_primary": cron_expr == primary_cron,
                 }
             )
@@ -388,15 +519,31 @@ def simulate_cadence_twin(
                 }
             )
 
-    scored = [s for s in scenarios if "composite_score" in s]
-    scored.sort(key=lambda x: x["composite_score"], reverse=True)
+    scored = [s for s in scenarios if "composite_heuristic" in s]
+    scored.sort(key=lambda x: x["composite_heuristic"], reverse=True)
     recommended = scored[0]["cron"] if scored else primary_cron
 
     return {
         "primary_cron": primary_cron,
         "recommended_cron": recommended,
+        "timezone": timezone_name or DEFAULT_JOB_TIMEZONE,
         "scenarios": scenarios,
-        "model": {
+        "label": HEURISTIC_LABEL,
+        "measured_fields": ["runs_24h", "runs_7d"],
+        "forecast_basis": {
+            "value": "caller_supplied_prior",
+            "risk": risk_basis,
+            "runtime_and_tokens": "caller_supplied_estimates",
+        },
+        "inputs": {
+            "value_score": value,
+            "risk_score": risk_prior,
+            "risk_used": round(risk, 4),
+            "token_cost_est": token_cost,
+            "estimated_runtime_s": runtime_s,
+        },
+        "observed_history": history,
+        "heuristic_weights": {
             "quality_weight": 0.45,
             "risk_weight": 0.35,
             "efficiency_weight": 0.20,
@@ -518,6 +665,8 @@ def get_novelty_budget_status() -> Dict[str, Any]:
         "enabled_job_count": len(enabled_jobs),
         "jobs": enabled_jobs,
         "stats_version": "l8.novelty_budget.v1",
+        "basis": "sha256_time_bucket_sample",
+        "effect": "recorded_only: explore/exploit does not change task execution",
     }
 
 
@@ -540,6 +689,10 @@ def _decide_novelty_mode(job_id: str, policy: Dict[str, Any]) -> Dict[str, Any]:
         "mode": mode,
         "budget_fraction": round(fraction, 4),
         "sample": round(sample, 6),
+        # The sample is a sha256 of (job id, minute); the mode is recorded for
+        # bookkeeping only and does not change how the task runs.
+        "basis": "sha256_time_bucket_sample",
+        "effect": "recorded_only",
     }
 
 
@@ -568,6 +721,9 @@ def evaluate_voi_gate(policy: Dict[str, Any]) -> Dict[str, Any]:
         "voi_score": voi_score,
         "threshold": threshold,
         "reason": "pass" if allowed else "below_threshold",
+        # A caller-configured gating rule, not a measurement: the score is a
+        # fixed-weight formula over the value/urgency/risk/cost the job owner set.
+        "basis": "caller_supplied_priors",
     }
 
 
@@ -589,7 +745,7 @@ def evaluate_verifier_escrow(
     mode = str(policy.get("preflight_mode", "task_exists") or "task_exists").strip().lower()
     checks = []
 
-    task_exists = task_name in celery_app.tasks
+    task_exists = task_name in celery_app.tasks or cron_tasks.is_in_process_task(task_name)
     checks.append({"check": "task_exists", "pass": task_exists})
 
     if mode == "payload_nonempty":
@@ -670,6 +826,10 @@ def build_topology_plan(policies: Optional[Dict[str, Any]] = None) -> Dict[str, 
         "group_count": len(groups_out),
         "groups": groups_out,
         "topology_version": "l8.topology.v1",
+        # Groups and topology are derived only from densities the job owner
+        # declared; nothing here is measured or used for execution ordering.
+        "basis": "caller_supplied_densities",
+        "effect": "descriptive_only",
     }
 
 
@@ -770,6 +930,168 @@ def get_notary_packets(hours: int = 24, limit: int = 100) -> List[Dict[str, Any]
             out.append(row)
 
     return list(out)
+
+
+_IN_PROCESS_RESULTS: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_IN_PROCESS_RESULTS_LOCK = threading.Lock()
+_MAX_IN_PROCESS_RESULTS = 256
+
+
+def _remember_in_process_result(run_id: str, row: Dict[str, Any]) -> None:
+    with _IN_PROCESS_RESULTS_LOCK:
+        _IN_PROCESS_RESULTS[run_id] = row
+        while len(_IN_PROCESS_RESULTS) > _MAX_IN_PROCESS_RESULTS:
+            _IN_PROCESS_RESULTS.popitem(last=False)
+
+
+def get_in_process_result(run_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Outcome of an in-process run started in this process (bounded, volatile)."""
+
+    if not run_id:
+        return None
+    with _IN_PROCESS_RESULTS_LOCK:
+        row = _IN_PROCESS_RESULTS.get(str(run_id))
+        return dict(row) if row is not None else None
+
+
+def _health_report_collectors() -> Dict[str, Any]:
+    def scheduler_view() -> Dict[str, Any]:
+        jobs = [job for job in get_scheduled_jobs() if not is_internal_job(job)]
+        rehydration = get_scheduler_rehydration_status()
+        return {
+            "running": rehydration.get("scheduler_running"),
+            "rehydration_status": rehydration.get("status"),
+            "scheduled_jobs": len(jobs),
+        }
+
+    def triggers_view() -> Dict[str, Any]:
+        stats = get_trigger_stats(hours=24)
+        return {
+            key: stats.get(key)
+            for key in ("trigger_count", "error_count", "skipped_voi_count", "held_escrow_count", "last_trigger_at")
+        }
+
+    def kernel_view() -> Dict[str, Any]:
+        from cortex_server.modules.kernel import get_kernel
+
+        status = get_kernel().status()
+        return {k: status.get(k) for k in ("status", "metricsAvailable", "errorType") if k in status}
+
+    return {"scheduler": scheduler_view, "triggers_24h": triggers_view, "kernel": kernel_view}
+
+
+def _trigger_in_process_task(
+    task_name: str,
+    *,
+    args: List[Any],
+    kwargs: Dict[str, Any],
+    source: str,
+    job_id: Optional[str],
+    job_name: Optional[str],
+    policy: Dict[str, Any],
+    action_authorization: Optional[ActionAuthorization],
+    base_event: Dict[str, Any],
+    started: datetime,
+    voi: Dict[str, Any],
+    escrow: Dict[str, Any],
+    novelty: Dict[str, Any],
+    apply_policy: bool,
+) -> Optional[str]:
+    """Run an allowlisted Cortex task in this process under the same authority rules."""
+
+    scheduled = source == "scheduled"
+    owner: Optional[str] = None
+    if not scheduled:
+        # A caller-chosen source or policy object never creates authority.
+        assert_action_authorized(action_authorization)
+        owner = action_authorization.principal_id  # type: ignore[union-attr]
+
+    def held(status: str, reason: str) -> None:
+        latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+        _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, {
+            **base_event,
+            "status": status,
+            "dispatch": "in_process",
+            "authorization_reason": reason,
+            "latency_ms": latency_ms,
+        })
+        _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, _build_notary_packet(
+            task=task_name, args=args, kwargs=kwargs, source=source, job_id=job_id,
+            job_name=job_name, status=status, latency_ms=latency_ms,
+            voi=voi, escrow=escrow, novelty=novelty,
+        ))
+
+    if kwargs:
+        held("held_in_process_task", "in_process_task_does_not_accept_keyword_arguments")
+        return None
+    try:
+        run_args = cron_tasks.validate_in_process_args(task_name, list(args))
+    except cron_tasks.CronTaskArgsError:
+        held("held_in_process_task", "in_process_task_args_invalid")
+        return None
+
+    if scheduled:
+        delegated_action = policy.get("action_capability")
+        sink_authorization = authorize_deferred_action(
+            delegated_action if isinstance(delegated_action, dict) else {},
+            task=task_name,
+            args=args,
+        )
+        if sink_authorization is None:
+            held("held_action_authorization", "delegated_capability_denied")
+            return None
+        owner = sink_authorization.principal_id
+
+    run_id = f"inproc-{uuid.uuid4().hex}"
+    outcome: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    try:
+        outcome = cron_tasks.run_in_process_task(
+            task_name,
+            run_args,
+            {
+                "state_dir": str(_ensure_state_dir()),
+                "job_id": job_id,
+                "run_id": run_id,
+                "source": _scheduler_source(source),
+                "owner_principal_id": owner,
+                "collectors": _health_report_collectors(),
+            },
+        )
+        status = "triggered"
+    except Exception as exc:
+        status = "error"
+        error = type(exc).__name__
+    latency_ms = int((_utc_now() - started).total_seconds() * 1000)
+    _append_jsonl(_TRIGGER_LEDGER_PATH, _TRIGGER_LEDGER_LOCK, {
+        **base_event,
+        "status": status,
+        "dispatch": "in_process",
+        "outcome": "succeeded" if status == "triggered" else "failed",
+        **_opaque_identifier("task_id", run_id),
+        **({"error_type": error} if error else {}),
+        "voi": voi,
+        "escrow": escrow,
+        "novelty": novelty,
+        "latency_ms": latency_ms,
+    })
+    if apply_policy and novelty.get("enabled") and job_id:
+        _update_novelty_stats(job_id, novelty.get("mode", "exploit"), status)
+    _append_jsonl(_NOTARY_LEDGER_PATH, _NOTARY_LEDGER_LOCK, _build_notary_packet(
+        task=task_name, args=args, kwargs=kwargs, source=source, job_id=job_id,
+        job_name=job_name, status=status, latency_ms=latency_ms, task_id=run_id,
+        error=error, voi=voi, escrow=escrow, novelty=novelty,
+    ))
+    _remember_in_process_result(run_id, {
+        "run_id": run_id,
+        "task": task_name,
+        "status": "completed" if status == "triggered" else "failed",
+        "error_type": error,
+        "outcome": outcome,
+        "latency_ms": latency_ms,
+        "finished_at": _utc_now_iso(),
+    })
+    return run_id
 
 
 def trigger_celery_task(
@@ -882,6 +1204,24 @@ def trigger_celery_task(
         "budget_fraction": 0.0,
         "sample": None,
     }
+
+    if cron_tasks.is_in_process_task(task_name):
+        return _trigger_in_process_task(
+            task_name,
+            args=args,
+            kwargs=kwargs,
+            source=source,
+            job_id=job_id,
+            job_name=job_name,
+            policy=policy,
+            action_authorization=action_authorization,
+            base_event=base_event,
+            started=started,
+            voi=voi,
+            escrow=escrow,
+            novelty=novelty,
+            apply_policy=apply_policy,
+        )
 
     scheduled = source == "scheduled"
     sink_authorization: Optional[ActionAuthorization]
@@ -1004,6 +1344,9 @@ def trigger_celery_task(
         event = {
             **base_event,
             "status": "triggered",
+            # Celery acceptance only: no worker result is observed here.
+            "dispatch": "celery",
+            "outcome": "broker_accepted_unconfirmed",
             **_opaque_identifier("task_id", task_id),
             "voi": voi,
             "escrow": escrow,
@@ -1063,20 +1406,44 @@ def trigger_celery_task(
         raise
 
 
-def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy: Optional[Dict[str, Any]] = None):
+def add_cron_job(
+    job_name: str,
+    task: str,
+    cron: str,
+    args: list = None,
+    policy: Optional[Dict[str, Any]] = None,
+    timezone_name: Optional[str] = None,
+):
     """
-    Add a cron job to trigger a Celery task.
-    cron format: minute hour day month day_of_week
+    Add a cron job that fires an in-process Cortex task or a Celery task.
+    cron format: minute hour day month day_of_week (day names recommended:
+    APScheduler numbers weekdays from Monday=0).
     """
     if args is None:
         args = []
     if not isinstance(job_name, str) or not job_name or len(job_name) > 128:
         raise ValueError("job_name must contain 1 to 128 characters")
-    if task not in celery_app.tasks:
+    if job_name.startswith(INTERNAL_JOB_PREFIX):
+        raise ValueError("job_name uses a reserved internal prefix")
+    in_process = cron_tasks.is_in_process_task(task)
+    if not in_process and task not in celery_app.tasks:
         raise ValueError(f"Unknown task: {task}")
     args = _validated_job_args(args, context=f"cron job {job_name!r}")
+    if in_process:
+        try:
+            args = cron_tasks.validate_in_process_args(task, args)
+        except cron_tasks.CronTaskArgsError as exc:
+            raise ValueError(str(exc)) from exc
+    tz_name = validate_timezone_name(timezone_name) if timezone_name else None
 
     minute, hour, day, month, day_of_week = _cron_parts(cron)
+    # Semantic validation (ranges, names) before anything is persisted.
+    try:
+        _build_cron_trigger(cron, tz_name)
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"invalid cron expression: {type(exc).__name__}") from exc
 
     policy_row = dict(policy or {})
     policy_row["job_name"] = job_name
@@ -1084,6 +1451,9 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
     policy_row["cron"] = cron
     policy_row["spec_version"] = _JOB_SPEC_VERSION
     policy_row["args"] = list(args)
+    if tz_name:
+        policy_row["timezone"] = tz_name
+    policy_row["dispatch"] = "in_process" if in_process else "celery"
 
     # Persist before touching the live scheduler. A failed durable write must
     # never leave a volatile job (or replacement) that restart recovery cannot
@@ -1115,6 +1485,7 @@ def add_cron_job(job_name: str, task: str, cron: str, args: list = None, policy:
                 month=month,
                 day_of_week=day_of_week,
                 replace_existing=True,
+                **({"timezone": ZoneInfo(tz_name)} if tz_name else {}),
             )
         except BaseException:
             if previous_policy is None:
@@ -1169,15 +1540,23 @@ def _validated_rehydration_rows() -> List[Dict[str, Any]]:
             raise RuntimeError(
                 f"persisted scheduler policy {job_id!r} has mismatched job_name"
             )
-        if not isinstance(task, str) or task not in celery_app.tasks:
+        if not isinstance(task, str) or (
+            task not in celery_app.tasks and not cron_tasks.is_in_process_task(task)
+        ):
             raise RuntimeError(
                 f"persisted scheduler policy {job_id!r} references an unknown task"
             )
         if not isinstance(cron, str):
             raise RuntimeError(f"persisted scheduler policy {job_id!r} has invalid cron")
+        tz_name = policy.get("timezone")
+        if tz_name is not None:
+            try:
+                tz_name = validate_timezone_name(tz_name)
+            except ValueError as exc:
+                raise RuntimeError(f"persisted scheduler policy {job_id!r} has invalid cron timezone") from exc
         minute, hour, day, month, day_of_week = _cron_parts(cron)
         # CronTrigger performs semantic range/expression validation.
-        _build_cron_trigger(cron)
+        _build_cron_trigger(cron, tz_name)
         try:
             args = _validated_job_args(
                 args,
@@ -1198,6 +1577,7 @@ def _validated_rehydration_rows() -> List[Dict[str, Any]]:
                 "day": day,
                 "month": month,
                 "day_of_week": day_of_week,
+                "timezone": tz_name,
             }
         )
     return validated
@@ -1223,6 +1603,9 @@ def _rehydrate_scheduler_jobs() -> Dict[str, Any]:
             month=row["month"],
             day_of_week=row["day_of_week"],
             replace_existing=True,
+            # Legacy rows without a stored timezone keep their original
+            # (host-local) behaviour; new rows always store one.
+            **({"timezone": ZoneInfo(row["timezone"])} if row.get("timezone") else {}),
         )
     return {
         "status": "ready",
@@ -1258,6 +1641,67 @@ def _scheduler_rehydration_error(exc: BaseException) -> str:
     return f"{failure_type[:64]}: {reason}"
 
 
+_internal_job_status: Dict[str, Any] = {"orchestrator_runtime_driver": {"enabled": False, "registered": False}}
+
+
+def _env_truthy(name: str) -> bool:
+    return str(os.getenv(name, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def orchestrator_runtime_driver_config() -> Dict[str, Any]:
+    try:
+        interval = int(os.getenv("ORCHESTRATOR_RUNTIME_DRIVER_INTERVAL_SECONDS", "30"))
+    except ValueError:
+        interval = 30
+    try:
+        limit = int(os.getenv("ORCHESTRATOR_RUNTIME_DRIVER_BATCH_LIMIT", "10"))
+    except ValueError:
+        limit = 10
+    return {
+        "enabled": _env_truthy("ORCHESTRATOR_RUNTIME_DRIVER_ENABLED"),
+        "interval_seconds": max(5, min(interval, 3600)),
+        "batch_limit": max(1, min(limit, 50)),
+    }
+
+
+async def _orchestrator_runtime_driver_job() -> None:
+    """Advance due L26 runtime processes (opt-in; default off)."""
+
+    from cortex_server.routers import orchestrator
+
+    await orchestrator.run_runtime_driver_tick(
+        limit=orchestrator_runtime_driver_config()["batch_limit"],
+        source="scheduler_driver",
+    )
+
+
+def _register_internal_jobs() -> None:
+    config = orchestrator_runtime_driver_config()
+    status = {"enabled": config["enabled"], "registered": False, **config}
+    if config["enabled"]:
+        try:
+            scheduler.add_job(
+                _orchestrator_runtime_driver_job,
+                trigger="interval",
+                id=ORCHESTRATOR_DRIVER_JOB_ID,
+                name=ORCHESTRATOR_DRIVER_JOB_ID,
+                args=[],
+                kwargs={},
+                seconds=config["interval_seconds"],
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+            status["registered"] = True
+        except Exception as exc:
+            status["error"] = type(exc).__name__
+    _internal_job_status["orchestrator_runtime_driver"] = status
+
+
+def get_internal_job_status() -> Dict[str, Any]:
+    return {key: dict(value) for key, value in _internal_job_status.items()}
+
+
 def start_scheduler():
     """Start the scheduler in background (non-blocking for FastAPI)."""
     global scheduler, _scheduler_was_shutdown, _scheduler_loop, _scheduler_rehydration_report
@@ -1278,6 +1722,7 @@ def start_scheduler():
             try:
                 _scheduler_rehydration_report = _rehydrate_scheduler_jobs()
                 scheduler.start()
+                _register_internal_jobs()
             except Exception as exc:
                 _scheduler_rehydration_report = {
                     "status": "failed",
@@ -1428,9 +1873,13 @@ def get_trigger_stats(hours: Optional[int] = 24) -> Dict[str, Any]:
         triggered_sorted = sorted(triggered, key=lambda e: e.get("ts") or "")
         last_trigger_at = triggered_sorted[-1].get("ts")
 
+    in_process_runs = [e for e in triggered if e.get("dispatch") == "in_process"]
+    celery_dispatches = [e for e in triggered if e.get("dispatch") != "in_process"]
     return {
         "window_hours": hours,
         "trigger_count": len(triggered),
+        "in_process_completed_count": len(in_process_runs),
+        "celery_dispatch_count": len(celery_dispatches),
         "error_count": len(errors),
         "skipped_voi_count": len(skipped_voi),
         "held_escrow_count": len(held_escrow),

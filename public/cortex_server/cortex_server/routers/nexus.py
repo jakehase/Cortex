@@ -2513,9 +2513,9 @@ def _is_schedule_intent(query: str) -> bool:
     if any(m in q for m in explicit_markers):
         return True
 
-    has_action = bool(re.search(r"(remind|schedule|calendar|book|set)", q))
-    has_date = bool(re.search(r"(today|tomorrow|tonight|next week|next month|this (?:morning|afternoon|evening)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))", q))
-    has_time = bool(re.search(r"at\s+(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|noon|midnight)", q))
+    has_action = bool(re.search(r"\b(remind|schedule|calendar|book|set)\b", q))
+    has_date = bool(re.search(r"\b(today|tomorrow|tonight|next week|next month|this (?:morning|afternoon|evening)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b", q))
+    has_time = bool(re.search(r"\bat\s+(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|noon|midnight)\b", q))
     return has_action and (has_date or has_time)
 
 
@@ -4626,7 +4626,7 @@ def _server_commit_assurance(query: str, response: str) -> Dict[str, Any]:
         query,
         max_sources=3,
         notary_packets=1,
-        enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
+        enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "false").lower() in {"1", "true", "yes", "on"}),
     )
     memory_decision = build_memory_commit_decision(
         query=query,
@@ -5823,11 +5823,28 @@ def _codec_events_response(
     state_fingerprint: Optional[str],
     packet: Dict[str, Any],
 ) -> Dict[str, Any]:
+    # The recovery path must return the same bounded acknowledgement as a fresh write.
+    fingerprint = str(state_fingerprint or "")
+    if not fingerprint:
+        state = packet.get("state")
+        if not isinstance(state, dict) or not state:
+            raise AssuranceReceiptLedgerUnavailable("codec_events_recovery_fingerprint_unavailable")
+        fingerprint = hashlib.sha256(json.dumps(
+            {key: value for key, value in state.items() if key != "durable_write"},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
     return {
         "success": True,
         "session_key": session_key,
         "event_count": event_count,
-        "state_fingerprint": state_fingerprint,
+        "state_fingerprint": fingerprint,
+        "acknowledgement": {
+            "version": _CODEC_WRITE_ACK_VERSION,
+            "status": "accepted",
+            "session_key": session_key,
+            "event_count": event_count,
+            "state_fingerprint": fingerprint,
+        },
         "codec": packet,
         "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check.",
     }
@@ -5852,7 +5869,20 @@ def _codec_events_replay_result(
         raise AssuranceReceiptLedgerUnavailable(
             "codec_events_idempotency_result_invalid"
         )
-    return dict(response)
+    replay = dict(response)
+    if "acknowledgement" not in replay:
+        # Upgrade only a consumed, fingerprint-matched legacy write result.
+        session_key = replay.get("session_key")
+        event_count = replay.get("event_count")
+        if (replay.get("success") is not True or not isinstance(session_key, str)
+                or not session_key or type(event_count) is not int or event_count < 1):
+            raise AssuranceReceiptLedgerUnavailable("codec_events_idempotency_result_invalid")
+        replay = _codec_events_response(
+            session_key=session_key, event_count=event_count,
+            state_fingerprint=replay.get("state_fingerprint"),
+            packet=replay.get("codec") if isinstance(replay.get("codec"), dict) else {},
+        )
+    return replay
 
 
 def analyze_intent_with_oracle(
@@ -6004,7 +6034,39 @@ Intents to detect:
         }
 
 
+def _kernel_mounted_levels(request: Any) -> Optional[set]:
+    """Levels mounted in the request's own production-built app, or None.
+
+    Returns None (guard off) for apps not built by the production loader, so
+    partial test apps and stale process-global apps never filter routing.
+    """
+    app = getattr(request, "app", None)
+    if app is None or not getattr(getattr(app, "state", None), "router_load_report", None):
+        return None
+    try:
+        from cortex_server.modules.level_probe import level_mount_states
+
+        rows = level_mount_states(app)
+    except Exception:
+        return None
+    return {int(row["level"]) for row in rows if row.get("state") != "unmounted"}
+
+
 def _fetch_kernel_online_levels() -> Optional[set]:
+    """Measured level availability from the in-process Kernel (no self-HTTP).
+
+    The previous unauthenticated HTTP call to the admin-only /kernel/levels
+    always got 403, so this guard silently never filtered anything.
+    """
+    try:
+        from cortex_server.modules.kernel import kernel_online_levels
+
+        return kernel_online_levels(None)
+    except Exception:
+        return None
+
+
+def _fetch_kernel_online_levels_http() -> Optional[set]:
     try:
         resp = requests.get(internal_url("/kernel/levels"), timeout=1.2)
         if resp.status_code != 200:
@@ -6028,10 +6090,11 @@ def _fetch_kernel_online_levels() -> Optional[set]:
 
 
 def _architect_healthy(*, route_health: Optional[RouteHealthMonitor] = None) -> bool:
-    # In SAFE_MODE, L9 is intentionally proxied by meta-conductor.
-    # Avoid blocking self-HTTP calls back into the configured internal Cortex worker.
+    # In SAFE_MODE only Architect's advice routes are mounted; report it usable
+    # only when the in-process Kernel measures L9 as online/restricted.
     if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
-        return True
+        online = _fetch_kernel_online_levels()
+        return True if online is None else 9 in online
 
     gate = route_health.allow("architect") if route_health is not None else {"allowed": True}
     if not gate.get("allowed"):
@@ -6351,21 +6414,16 @@ async def post_nexus_codec_events(payload: CodecEventsRequest, request: Request)
         "acknowledgement": acknowledgement,
         "truthBoundary": "A successful write proves this event batch reached the Codec state path; durable recovery requires a subsequent process-restart hydration check."
     }
-    if payload.acknowledgement_only:
-        return response
-    packet = await run_in_threadpool(
-        get_codec_packet_for_session,
-        resolved_session_key,
-        max_chars=max_chars,
-        tenant_id=principal.tenant_id,
-        workspace_id=principal.storage_workspace_id,
-    )
-    response = _codec_events_response(
-        session_key=resolved_session_key,
-        event_count=len(events),
-        state_fingerprint=state.get("durable_write", {}).get("fingerprint"),
-        packet=packet,
-    )
+    if not payload.acknowledgement_only:
+        packet = await run_in_threadpool(
+            get_codec_packet_for_session,
+            resolved_session_key,
+            max_chars=max_chars,
+            tenant_id=principal.tenant_id,
+            workspace_id=principal.storage_workspace_id,
+        )
+        response["codec"] = packet
+    # Finalize the idempotency ledger before either response mode returns success.
     if reservation is not None:
         try:
             await run_in_threadpool(
@@ -7341,6 +7399,113 @@ async def outcome_feedback(payload: OutcomeFeedbackReceiptRequest, request: Requ
             _release_outcome_feedback_claim(reservation)
 
 
+class LevelExecuteRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=8000)
+    levels: List[int] = Field(default_factory=list, max_length=8)
+    conversation: str = Field(default="", max_length=6000)
+    oracle_brief: str = Field(default="", max_length=12000)
+    needs: List[str] = Field(default_factory=list, max_length=16)
+    routing_method: str = Field(default="", max_length=64)
+    deadline_s: float = Field(default=75.0, ge=5.0, le=140.0)
+
+
+_LEVEL_EXEC_NEVER_AUTORUN = frozenset({5, 24})  # already executed by the route gate itself
+_LEVEL_EXEC_DATA_LIMIT = 4000
+
+
+def _bounded_level_data(value: Any) -> Any:
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return None
+    if len(encoded) <= _LEVEL_EXEC_DATA_LIMIT:
+        return value
+    return {"truncated": True, "preview": encoded[:_LEVEL_EXEC_DATA_LIMIT]}
+
+
+@router.post("/execute", dependencies=[Depends(require_authenticated_memory_principal)])
+async def execute_selected_levels(payload: LevelExecuteRequest, request: Request):
+    """Run the levels selected for this turn and return execution receipts.
+
+    Selection is not execution: this endpoint actually invokes each selected
+    level's adapter (principal-scoped, side-effect free, deadline-bound) so the
+    caller can give the assistant real level output instead of level names.
+    Levels that need approval (e.g. external relay) are never run here.
+    """
+    from cortex_server.modules.execution_engine import get_execution_engine
+    from cortex_server.modules.level_registry import get_level_registry
+
+    principal = getattr(request.state, "authenticated_memory_principal", None)
+    if principal is None:
+        raise HTTPException(status_code=403, detail="authenticated memory principal required")
+    names = {int(row["level"]): str(row.get("slug") or row.get("name") or "") for row in get_level_registry()}
+    stack: List[Dict[str, Any]] = []
+    for level in payload.levels:
+        if not isinstance(level, int) or level not in names or level in _LEVEL_EXEC_NEVER_AUTORUN:
+            continue
+        if any(entry["level"] == level for entry in stack):
+            continue
+        stack.append({"level": level, "name": names[level]})
+    if not stack:
+        return {"success": True, "executed": [], "levelsRequested": 0, "note": "no executable levels selected"}
+
+    policies = getattr(request.app.state, "action_capability_policies", {}) or {}
+    context: Dict[str, Any] = {
+        "principal_scope_key": principal.isolation_key("levels.exec.v1"),
+        "memory_principal_key": principal.memory_principal_key,
+        "tenant_id": principal.tenant_id,
+        "workspace_id": principal.workspace_id,
+        "storage_workspace_id": principal.storage_workspace_id,
+        "channel_id": principal.channel_id,
+        "conversation": payload.conversation,
+        "oracle_brief": payload.oracle_brief,
+        "needs": [str(item)[:40] for item in payload.needs],
+        "routing": {"method": payload.routing_method or "unknown", "selected": [entry["level"] for entry in stack]},
+        "app": request.app,
+        "external_action_kill_switch": bool(getattr(request.app.state, "external_action_kill_switch", False)),
+    }
+    if principal.credential_id in policies:
+        context["allowed_actions"] = policies.get(principal.credential_id)
+    engine = get_execution_engine()
+    result = await engine.execute_stack(stack, payload.query, context=context, deadline_s=payload.deadline_s)
+    executed = []
+    for row in result["executionResults"].values():
+        out = row.get("result") if isinstance(row.get("result"), dict) else {}
+        executed.append({
+            "level": row["level"],
+            "name": row["name"],
+            "status": row["status"],
+            "reason": row.get("reason") or row.get("errorType"),
+            "receipt_id": row["receiptId"],
+            "elapsed_ms": row.get("elapsedMs"),
+            "operation": out.get("operation"),
+            "origin": out.get("origin"),
+            "model": out.get("model"),
+            "model_receipt_id": out.get("receipt_id"),
+            "summary": str(out.get("summary") or "")[:1500],
+            "data": _bounded_level_data(out.get("data")),
+        })
+    executed.sort(key=lambda item: item["level"])
+    return {
+        "success": True,
+        "schemaVersion": "cortex.nexus.level-execution.v1",
+        "levelsRequested": len(stack),
+        "levelsExecuted": result["levelsExecuted"],
+        "levelsBlocked": result["levelsBlocked"],
+        "levelsFailed": result["levelsFailed"],
+        "elapsedMs": result.get("elapsedMs"),
+        "executed": executed,
+    }
+
+
+@router.get("/execute/catalog", dependencies=[Depends(require_authenticated_memory_principal)])
+async def execution_catalog():
+    from cortex_server.modules.execution_engine import get_execution_engine
+
+    engine = get_execution_engine()
+    return {"adapters": engine.catalog(), "discoveryErrors": dict(engine.discovery_errors)}
+
+
 @router.get("/orchestrate", dependencies=[Depends(require_authenticated_memory_principal)])
 async def orchestrate_query_read_only_guard():
     """Keep legacy route discovery truthful without permitting GET mutations."""
@@ -7568,7 +7733,7 @@ async def orchestrate_query(
                 max_sources=3,
                 notary_packets=1,
                 enabled=bool(
-                    os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower()
+                    os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "false").lower()
                     in {"1", "true", "yes", "on"}
                 ),
                 timeout_seconds=remaining_seconds(
@@ -8137,11 +8302,15 @@ async def orchestrate_query(
                 "remember": ([7, 22], "Memory retrieval"),
                 "code": ([4], "Code execution"),
                 "python": ([4], "Code execution"),
-                "security": ([8, 15], "Security review"),
-                "scan": ([8], "Security scan"),
+                "security": ([21, 15], "Security review"),
+                "vulnerability": ([21, 15], "Security review"),
+                "translate": ([28], "Translation"),
+                "schedule": ([8], "Scheduling"),
+                "remind": ([8], "Scheduling"),
             }
             for keyword, (levels, reason) in patterns.items():
-                if keyword in query_lower:
+                # Whole words only: "code" must not match "barcode"/"codec".
+                if re.search(r"(?<![a-z0-9])" + re.escape(keyword) + r"(?![a-z0-9])", query_lower):
                     for lvl in levels:
                         if lvl not in [r["level"] for r in recommended]:
                             recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "keyword"})
@@ -8213,16 +8382,10 @@ async def orchestrate_query(
         # live-kernel filter once, then derive every plan/receipt/checkpoint view
         # from that same immutable selection.
         recommended = _deduplicate_route_levels(recommended)
-        try:
-            kernel_online = await run_blocking(
-                "nexus.kernel_levels",
-                _fetch_kernel_online_levels,
-                timeout_seconds=remaining_seconds(
-                    request_deadline_monotonic, ceiling=2.0
-                ),
-            )
-        except BlockingCallDeadlineExceeded:
-            kernel_online = None
+        # Consistency guard: drop only levels that are NOT MOUNTED in this
+        # production app (measured from its own route table). Degraded or
+        # unprobed levels stay selectable; execution reports their real state.
+        kernel_online = _kernel_mounted_levels(request)
         offline_filtered: List[int] = []
         if kernel_online is not None:
             filtered = []

@@ -41,6 +41,7 @@ from cortex_server.models.api_contracts import (
     RootResponse,
 )
 from cortex_server.modules.level_registry import get_level_registry
+from cortex_server.modules.route_inventory import iter_effective_routes
 
 from cortex_server.construction import (
     read_only_construction as read_only_construction_context,
@@ -411,23 +412,7 @@ _shared_service_owners = _SharedServiceOwners()
 
 def _effective_routes(routes):
     """Yield concrete routes, expanding lazy router groups recursively."""
-    for route in routes:
-        effective_candidates = getattr(route, "effective_candidates", None)
-        if callable(effective_candidates):
-            yield from _effective_routes(effective_candidates())
-            continue
-        effective_contexts = getattr(route, "effective_route_contexts", None)
-        if callable(effective_contexts):
-            # The live runtime's lazy router container exposes contexts rather
-            # than candidates. Feed them through the same normalizer so HTTP
-            # metadata remains on the context and WebSocket identity remains
-            # on its concrete Starlette route.
-            yield from _effective_routes(effective_contexts())
-            continue
-        # Newer FastAPI releases expose lazy include candidates as context
-        # objects. HTTP metadata lives on the context, while WebSocket identity
-        # lives on its concrete Starlette route.
-        yield getattr(route, "starlette_route", None) or route
+    yield from iter_effective_routes(routes)
 
 
 def _route_paths(routes) -> set[str]:
@@ -606,6 +591,11 @@ _PRINCIPAL_MUTATION_PREFIXES = (
     "/browser/sandbox/run",
     "/browser/simulate/counterfactual",
     "/browser/truth/arbitrate",
+    # Pure L4 analysis: builds bounded proof/counterfactual planning artifacts
+    # but never invokes the dormant host Python executor.  Keeping this exact
+    # route principal-scoped makes Lab cognition available in safe mode without
+    # admitting /lab/execute or /lab/transcend/execute.
+    "/lab/transcend/plan",
     "/homeassistant/",
     "/diplomat/",
     "/evolution/diplomat/",
@@ -613,6 +603,51 @@ _PRINCIPAL_MUTATION_PREFIXES = (
     "/queue/",
     "/night_shift/",
     "/chronos/",
+)
+# Exact (not prefix) paths for side-effect-free, model-backed or deterministic
+# level operations. A signed principal may call these; the handlers scope every
+# model session and stored record to that principal. Exact matching matters:
+# e.g. /geneticist/apply_plan is allowed but /geneticist/apply (writes) is not.
+_PRINCIPAL_LEVEL_EXACT_PATHS = frozenset({
+    "/nexus/execute",
+    "/council/deliberate", "/council/critique", "/council/review",
+    "/simulator/run",
+    "/mediator/mediate", "/mediator/resolve",
+    "/ethicist/evaluate", "/ethicist/review",
+    "/muse/inspire", "/muse/brainstorm",
+    "/seer/predict", "/seer/trends",
+    "/polyglot/translate", "/polyglot/translate/batch", "/polyglot/detect",
+    "/dreamer/dream",
+    "/listener/analyze",
+    "/academy/learn", "/academy/teach",
+    "/synthesist_api/synthesize_turn",
+    "/singularity/analyze", "/singularity/improve",
+    "/validator/validate",
+    "/catalyst/profile", "/catalyst/analyze",
+    "/meta_conductor/orchestrate",
+    "/parsers/parse",
+    "/lab/compute",
+    "/architect/design",
+    "/geneticist/propose", "/geneticist/mutate", "/geneticist/evolve", "/geneticist/apply_plan",
+    "/forge/generate", "/forge/review",
+    "/hive/run", "/hive/swarm/novel/plan",
+    "/orchestrator/plan/propose", "/conductor/plan/propose",
+})
+# Model-backed level routes legitimately take longer than the global default
+# (CORTEX_LEVEL_MODEL_ROUTE_TIMEOUT_S, read when the app is built).
+_LEVEL_MODEL_ROUTES = (
+    "/nexus/execute",
+    "/council/deliberate", "/council/critique", "/council/review",
+    "/simulator/run", "/mediator/mediate", "/mediator/resolve",
+    "/ethicist/evaluate", "/ethicist/review",
+    "/muse/inspire", "/muse/brainstorm", "/seer/predict", "/seer/trends",
+    "/polyglot/translate", "/polyglot/translate/batch", "/polyglot/detect",
+    "/dreamer/dream", "/listener/analyze", "/academy/learn", "/academy/teach",
+    "/synthesist_api/synthesize_turn", "/singularity/analyze", "/singularity/improve",
+    "/catalyst/analyze", "/architect/design", "/diplomat/draft",
+    "/geneticist/propose", "/geneticist/mutate", "/geneticist/evolve",
+    "/forge/review", "/lab/transcend/plan", "/hive/run", "/hive/swarm/novel/plan",
+    "/orchestrator/plan/propose", "/conductor/plan/propose", "/cron/propose",
 )
 _GLOBAL_ADMIN_ACTION_ROUTE_PATHS = frozenset(
     {
@@ -733,6 +768,8 @@ def _knowledge_volume_identity_check(*, production: bool) -> Dict[str, Any]:
 
 def _principal_mutation_path_allowed(path: str) -> bool:
     normalized = str(path or "")
+    if normalized in _PRINCIPAL_LEVEL_EXACT_PATHS:
+        return True
     return any(
         normalized == prefix.rstrip("/") or normalized.startswith(prefix)
         for prefix in _PRINCIPAL_MUTATION_PREFIXES
@@ -850,6 +887,9 @@ _PUBLIC_READ_PATHS = frozenset(
 )
 _AUTHENTICATED_REDACTED_READ_PATHS = frozenset(
     {
+        # Availability only: this endpoint returns the bounded HA API health
+        # projection, not entities, calendars, services, or policy state.
+        "/homeassistant/status",
         "/meta_conductor/kernel/status",
         "/meta_conductor/kernel/telemetry",
         "/mission_control/capabilities",
@@ -1613,7 +1653,13 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
                     raise RuntimeError(
                         f"safe-mode route subset mismatch for {module_name}: missing={missing}, unexpected={unexpected}"
                     )
-                router_to_mount = APIRouter(routes=selected_routes)
+                # FastAPI/Starlette releases disagree on whether the
+                # APIRouter constructor adopts a supplied ``routes`` list.
+                # Extend the public collection explicitly so the safe subset
+                # cannot silently become an empty router on another supported
+                # runtime.
+                router_to_mount = APIRouter()
+                router_to_mount.routes.extend(selected_routes)
             first_new_route = len(app.routes)
             app.include_router(
                 router_to_mount,
@@ -2215,9 +2261,20 @@ def _create_app(
                     "error": type(exc).__name__,
                 }
                 logger.warning("Awareness is not ready (%s)", type(exc).__name__)
+            try:
+                # Always-on, read-only in-process self-watch (Sentinel L21).
+                from cortex_server.modules import sentinel_selfwatch
+                await sentinel_selfwatch.start(app)
+            except Exception as exc:
+                logger.warning("Sentinel self-watch is not running (%s)", type(exc).__name__)
             yield
         finally:
             try:
+                try:
+                    from cortex_server.modules import sentinel_selfwatch
+                    await sentinel_selfwatch.stop()
+                except BaseException as stop_exc:
+                    logger.warning("Failed to stop Sentinel self-watch cleanly (%s)", type(stop_exc).__name__)
                 if redis_monitor is not None:
                     redis_monitor.cancel()
                     await asyncio.gather(redis_monitor, return_exceptions=True)
@@ -2519,6 +2576,13 @@ def _create_app(
         RequestTimeoutMiddleware,
         timeout_seconds=30,
         exclude_paths=["/homeassistant/voice/assist_tts"],
+        path_timeouts={
+            **{
+                route: float(os.getenv("CORTEX_LEVEL_MODEL_ROUTE_TIMEOUT_S", "150"))
+                for route in _LEVEL_MODEL_ROUTES
+            },
+            "/oracle/chat": float(os.getenv("CORTEX_ORACLE_CHAT_TIMEOUT_S", "200")),
+        },
     )
     app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)

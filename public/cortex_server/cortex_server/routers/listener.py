@@ -1,97 +1,84 @@
 """
-Level 10: Listener — Audio Analysis & Text Processing
+Level 10: Listener — input analysis and intent recognition.
 
-Honest about STT limitations (Whisper not installed), but provides
-real value through Oracle-powered text analysis. Accepts transcribed
-text for sentiment, key points, action items, and summaries.
+* POST /listener/analyze — model-backed (gpt-5.6-sol via the Oracle lane)
+  intent / sentiment / urgency / entity / action-item analysis of text.
+  On model failure it returns ``success: false`` and no analysis.
+* POST /listener/transcribe — speech-to-text is not implemented in Cortex, so
+  this answers HTTP 501 and never claims success. Supplied paths are never read.
+* GET /listener/status — derived from real state (STT unavailable; the
+  analysis lane's last observed outcome since boot).
 """
-from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime
-import httpx
+from datetime import datetime, timezone
+from typing import List, Optional
 
-from cortex_server.internal_addressing import internal_url
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from cortex_server.modules import level_model
+from cortex_server.modules import listener as listener_core
 
 router = APIRouter()
-
-# ── Config ──────────────────────────────────────────────────────────────────
-ORACLE_URL = internal_url("/oracle/chat")
-
-# ── In-memory stats ────────────────────────────────────────────────────────
-_stats = {
-    "transcribe_requests": 0,
-    "analysis_requests": 0,
-    "analysis_successes": 0,
-}
 
 
 # ── Models ──────────────────────────────────────────────────────────────────
 
 class TranscribeRequest(BaseModel):
-    """Audio transcription request."""
+    """Audio transcription request (kept for compatibility; STT is unavailable)."""
     audio_base64: Optional[str] = None
-    file_path: Optional[str] = None
+    file_path: Optional[str] = None  # accepted for compatibility, never read
     format: Optional[str] = "unknown"
     duration_seconds: Optional[float] = None
     language: str = "en"
-    description: Optional[str] = None  # human description of the audio
+    description: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
-    """Text analysis request (for already-transcribed content)."""
+    """Text analysis request (a message or an already-transcribed text)."""
     text: str
-    context: Optional[str] = None      # optional context about where the text came from
+    context: Optional[str] = None      # where the text came from
     tasks: Optional[List[str]] = None  # e.g. ["sentiment", "summary", "action_items"]
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-async def _ask_oracle(prompt: str) -> Optional[str]:
-    """Call Oracle with high priority and 90s timeout."""
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(
-                ORACLE_URL,
-                json={
-                    "message": prompt,
-                    "priority": "high",
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data.get("response") or data.get("reply") or data.get("text") or str(data)
-    except Exception as exc:
-        return f"[Oracle unavailable: {exc}]"
-    return None
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @router.get("/status")
 async def listener_status():
-    """L10 status — honest about capabilities."""
+    """L10 status derived from observed state, not a static capability list."""
+    stats = listener_core.stats_snapshot()
+    stt = listener_core.stt_status()
+    last_status = stats.get("last_analysis_status")
+    if last_status is None:
+        analysis_health = "unverified"
+    elif last_status == "ok":
+        analysis_health = "ok"
+    else:
+        analysis_health = "degraded"
+    capabilities = ["text_intent_analysis"] if analysis_health != "degraded" else []
     return {
         "success": True,
         "data": {
             "level": 10,
             "name": "Listener",
-            "status": "active",
-            "stt_available": False,
-            "stt_reason": "Whisper is not installed on this system",
-            "text_analysis": True,
-            "text_analysis_via": "Oracle (cloud reasoning)",
-            "transcribe_requests": _stats["transcribe_requests"],
-            "analysis_requests": _stats["analysis_requests"],
-            "analysis_successes": _stats["analysis_successes"],
-            "capabilities": [
-                "audio_metadata_guidance",
-                "text_sentiment_analysis",
-                "text_summarization",
-                "action_item_extraction",
-                "key_point_extraction",
-            ],
-            "timestamp": datetime.now().isoformat(),
+            "status": "active" if analysis_health != "degraded" else "degraded",
+            "stt_available": stt["available"],
+            "stt_reason": stt["reason"],
+            # True only once a model-backed analysis has succeeded since boot.
+            "text_analysis": analysis_health == "ok",
+            "text_analysis_health": analysis_health,
+            "text_analysis_via": "level_model (gpt-5.6-sol through the Oracle lane)",
+            "last_analysis_status": last_status,
+            "last_analysis_at": stats.get("last_analysis_at"),
+            "last_success_at": stats.get("last_success_at"),
+            "counters_scope": "since_boot",
+            "counters_since": stats.get("since"),
+            "transcribe_requests": stats.get("transcribe_requests", 0),
+            "analysis_requests": stats.get("analysis_requests", 0),
+            "analysis_successes": stats.get("analysis_successes", 0),
+            "analysis_failures": stats.get("analysis_failures", 0),
+            "capabilities": capabilities,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
         "error": None,
     }
@@ -99,105 +86,29 @@ async def listener_status():
 
 @router.post("/transcribe")
 async def transcribe_audio(request: TranscribeRequest):
-    """
-    Accept audio input. Since Whisper isn't available, honestly explain
-    the situation and suggest alternatives via Oracle.
-    """
-    _stats["transcribe_requests"] += 1
-
-    # Build metadata description
-    meta_parts = []
-    if request.format and request.format != "unknown":
-        meta_parts.append(f"format: {request.format}")
-    if request.duration_seconds:
-        meta_parts.append(f"duration: {request.duration_seconds}s")
-    if request.language:
-        meta_parts.append(f"language: {request.language}")
-    if request.description:
-        meta_parts.append(f"description: {request.description}")
-    if request.audio_base64:
-        size_kb = round(len(request.audio_base64) * 3 / 4 / 1024, 1)
-        meta_parts.append(f"base64 payload: ~{size_kb} KB")
-    if request.file_path:
-        meta_parts.append(f"file path: {request.file_path}")
-
-    metadata_str = ", ".join(meta_parts) if meta_parts else "no metadata provided"
-
-    prompt = (
-        f"You were given audio content described as: [{metadata_str}]. "
-        "Since the Cortex doesn't have Whisper or any STT engine installed, "
-        "I can't process audio directly. Provide a helpful, concise response:\n"
-        "1) What free/open-source tools could transcribe this (Whisper, Vosk, etc.)\n"
-        "2) What cloud services are available (Google STT, AWS Transcribe, OpenAI Whisper API)\n"
-        "3) Offer to process the text if the user can provide it manually\n"
-        "Keep it practical and brief — 3-4 sentences max."
+    """Speech-to-text is not implemented; answer honestly with 501."""
+    listener_core.note_transcribe_request()
+    stt = listener_core.stt_status()
+    return JSONResponse(
+        status_code=501,
+        content={
+            "success": False,
+            "stt_available": False,
+            "transcription": None,
+            "error": "speech_to_text_unavailable",
+            "detail": stt["reason"],
+            "next_step": "If you already have the text, POST it to /listener/analyze.",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
     )
-
-    oracle_response = await _ask_oracle(prompt)
-
-    return {
-        "success": True,
-        "stt_available": False,
-        "transcription": None,
-        "metadata_received": metadata_str,
-        "guidance": oracle_response or (
-            "Whisper is not installed. You can install it with "
-            "`pip install openai-whisper` or use the OpenAI Whisper API. "
-            "Alternatively, paste the text and use /listener/analyze."
-        ),
-        "next_step": "If you already have the text, POST it to /listener/analyze for sentiment, summary, and action items.",
-        "timestamp": datetime.now().isoformat(),
-    }
 
 
 @router.post("/analyze")
-async def analyze_text(request: AnalyzeRequest):
-    """
-    Analyze already-transcribed text via Oracle.
-    Returns sentiment, key points, action items, and summary.
-    """
-    _stats["analysis_requests"] += 1
-
-    if not request.text or not request.text.strip():
-        return {"success": False, "error": "No text provided for analysis"}
-
-    # Determine requested tasks
-    tasks = request.tasks or ["sentiment", "summary", "key_points", "action_items"]
-    task_str = ", ".join(tasks)
-
-    context_note = ""
-    if request.context:
-        context_note = f"\nContext about this text: {request.context}\n"
-
-    prompt = (
-        f"Analyze the following text and provide a structured analysis. "
-        f"Requested analysis types: {task_str}.{context_note}\n\n"
-        f"TEXT:\n\"\"\"\n{request.text[:4000]}\"\"\"\n\n"
-        "Respond in this exact structure:\n"
-        "SENTIMENT: [positive/negative/neutral/mixed] — [brief explanation]\n"
-        "SUMMARY: [2-3 sentence summary]\n"
-        "KEY POINTS:\n- [point 1]\n- [point 2]\n- [point 3]\n"
-        "ACTION ITEMS:\n- [action 1]\n- [action 2]\n"
-        "(If a section has nothing relevant, write 'None identified')"
+async def analyze_text(request: AnalyzeRequest, http_request: Request):
+    """Model-backed structured analysis of text (HTTP 200; success:false on failure)."""
+    return await listener_core.analyze_text(
+        request.text,
+        principal_scope_key=level_model.scope_key_for_request(http_request, "listener"),
+        context=request.context,
+        tasks=request.tasks,
     )
-
-    oracle_response = await _ask_oracle(prompt)
-
-    if oracle_response and "[Oracle unavailable" not in oracle_response:
-        _stats["analysis_successes"] += 1
-        return {
-            "success": True,
-            "text_length": len(request.text),
-            "tasks_requested": tasks,
-            "analysis": oracle_response,
-            "analyzed_via": "Oracle (cloud reasoning)",
-            "timestamp": datetime.now().isoformat(),
-        }
-    else:
-        return {
-            "success": False,
-            "error": "Oracle is unavailable for text analysis",
-            "detail": oracle_response,
-            "text_length": len(request.text),
-            "timestamp": datetime.now().isoformat(),
-        }

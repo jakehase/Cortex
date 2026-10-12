@@ -286,9 +286,12 @@ def test_lab_never_runs_caller_python_without_an_os_sandbox(monkeypatch):
 
     monkeypatch.setattr(lab.asyncio, "create_subprocess_exec", unexpected_launch)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(lab._run_python("print('unsafe')"))
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail["error"] == "lab_execution_unavailable"
+        asyncio.run(lab._run_python(
+            "print('unsafe')", http_request=_request("/lab/execute"), authorization=None,
+        ))
+    # No sealed action receipt: the sink refuses before any sandbox lookup.
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "trusted action authorization required"
     assert launched is False
 
 
@@ -360,7 +363,9 @@ def test_model_generated_filesystem_workflows_default_deny(monkeypatch):
                 request,
             )
         )
-    assert forge_denied.value.detail["error"] == "execution_action_disabled"
+    # Fails closed at the action-receipt gate before any execution grant or write.
+    assert forge_denied.value.status_code == 403
+    assert forge_denied.value.detail == "trusted action authorization required"
 
     with pytest.raises(HTTPException) as evolution_denied:
         asyncio.run(

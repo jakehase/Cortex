@@ -36,7 +36,7 @@ def codebase_source_snapshot(
     recursive: bool = True,
     max_files: int = 1000,
     max_visited_entries: int = 10_000,
-    max_total_bytes: int = 50_000_000,
+    max_total_bytes: int = 64_000_000,
 ) -> dict[str, object]:
     """Hash every bounded file that can feed the structural parser.
 

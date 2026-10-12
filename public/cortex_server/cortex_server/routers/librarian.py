@@ -52,11 +52,24 @@ from cortex_server.runtime.memory_governance import (
     canonical_json,
     canonical_value_hash,
     compile_chroma_where,
+    is_temporal_v1_metadata,
     normalize_filterable_metadata,
     parse_timestamp,
     row_matches_filters,
     sha256_text,
+    temporal_admission_annotations,
     temporal_visibility,
+)
+from cortex_server.runtime.temporal_contract import (
+    TEMPORAL_MEMORY_SCHEMA_VERSION,
+    SourceLineageRef,
+    TemporalMemoryContract,
+    apply_temporal_memory_contract,
+    merge_top_level_temporal_filters,
+    normalize_source_lineage,
+    normalize_temporal_instant,
+    prepare_temporal_write_metadata,
+    present_memory_search_result,
 )
 
 
@@ -377,6 +390,14 @@ class _RetirementJournalCleanupPending(FactSupersessionError):
     """Both retirement projections committed but journal cleanup remains."""
 
 
+class SupersessionValidationError(ValueError):
+    """An explicit supersession request was rejected before any state changed.
+
+    Raised for missing/foreign targets, cycles, same-fact mismatches and
+    invalid explicit temporal bounds; routes map it to HTTP 422.
+    """
+
+
 _ACTIVE_LIFECYCLE_STALE_FIELDS = frozenset({
     "tombstoned",
     "tombstoned_at",
@@ -609,8 +630,17 @@ def _read_fact_supersession_journal(journal_path: Path) -> Dict[str, Any]:
         raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
     operation = str(entry.get("operation") or "fact_revision")
     if entry.get("version") == 1 and operation == "fact_revision":
-        required_strings = ("fact_key", "memory_id", "text")
+        explicit = entry.get("explicit_supersession")
+        if explicit is not None and not _valid_journal_explicit_supersession(explicit):
+            raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+        # A temporal-v1 write with explicit supersedes may have no fact_key;
+        # only such (new-format) entries may omit it.
+        required_strings = ("memory_id", "text") if explicit is not None else (
+            "fact_key", "memory_id", "text"
+        )
         if any(not isinstance(entry.get(key), str) or not entry[key] for key in required_strings):
+            raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+        if not isinstance(entry.get("fact_key"), str):
             raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
         if (
             not isinstance(entry.get("metadata"), dict)
@@ -680,7 +710,89 @@ def _read_fact_supersession_journal(journal_path: Path) -> Dict[str, Any]:
         or len(entry["quota_credential_id"].encode("utf-8")) > 128
     ):
         raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
+    # Optional explicit-supersession fields (absent on every older entry).
+    if "supersession_link" in entry and not _valid_journal_supersession_link(
+        entry.get("supersession_link"), superseded_by=entry.get("superseded_by")
+    ):
+        raise FactSupersessionError(f"invalid fact supersession journal: {journal_path.name}")
     return entry
+
+
+_SUPERSESSION_LINK_KEYS = frozenset({
+    "replacement_memory_id",
+    "update_replacement",
+    "valid_to",
+    "source_authority",
+    "uncertainty",
+    "source_lineage",
+})
+
+
+def _valid_journal_supersession_link(link: Any, *, superseded_by: Any) -> bool:
+    if not isinstance(link, dict) or not set(link) <= _SUPERSESSION_LINK_KEYS:
+        return False
+    replacement = link.get("replacement_memory_id")
+    if replacement is not None and (
+        not isinstance(replacement, str)
+        or not replacement
+        or len(replacement.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
+        or replacement != superseded_by
+    ):
+        return False
+    if not isinstance(link.get("update_replacement", False), bool):
+        return False
+    if link.get("update_replacement") and not replacement:
+        return False
+    if "valid_to" in link:
+        try:
+            if normalize_temporal_instant(link["valid_to"], field="valid_to") != link["valid_to"]:
+                return False
+        except (TypeError, ValueError):
+            return False
+    authority = link.get("source_authority")
+    if "source_authority" in link and (
+        isinstance(authority, bool) or not isinstance(authority, int) or not 0 <= authority <= 100
+    ):
+        return False
+    uncertainty = link.get("uncertainty")
+    if "uncertainty" in link and (
+        isinstance(uncertainty, bool)
+        or not isinstance(uncertainty, (int, float))
+        or not 0.0 <= float(uncertainty) <= 1.0
+    ):
+        return False
+    if "source_lineage" in link:
+        try:
+            if normalize_source_lineage(link["source_lineage"]) != link["source_lineage"]:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _valid_journal_explicit_supersession(value: Any) -> bool:
+    if not isinstance(value, dict) or not set(value) <= {"memory_ids", "valid_to"}:
+        return False
+    memory_ids = value.get("memory_ids")
+    if (
+        not isinstance(memory_ids, list)
+        or not memory_ids
+        or len(memory_ids) > MAX_SUPERSESSION_RECORDS
+        or len(set(memory_ids)) != len(memory_ids)
+        or any(
+            not isinstance(item, str)
+            or not item
+            or len(item.encode("utf-8")) > MAX_SUPERSESSION_ID_BYTES
+            for item in memory_ids
+        )
+    ):
+        return False
+    if "valid_to" in value:
+        try:
+            return normalize_temporal_instant(value["valid_to"], field="valid_to") == value["valid_to"]
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def _supersession_recovery_metadata(
@@ -744,7 +856,17 @@ def _retirement_primary_projection(
             "supersession_reason": entry["reason"],
             "lifecycle_transaction_id": entry["transaction_id"],
         })
-        _close_temporal_validity(metadata, retired_at)
+        link = entry.get("supersession_link")
+        explicit_valid_to = link.get("valid_to") if isinstance(link, dict) else None
+        if explicit_valid_to:
+            # An explicit business-time end wins over the wall-clock retirement
+            # end; lifecycle fields (superseded_at, ...) stay wall-clock.
+            metadata["valid_to"] = explicit_valid_to
+            _close_temporal_validity(metadata, explicit_valid_to)
+        else:
+            _close_temporal_validity(metadata, retired_at)
+        if isinstance(link, dict):
+            _apply_supersession_link_fields(metadata, link)
         superseded_by = str(entry.get("superseded_by") or "").strip()
         if superseded_by:
             metadata["superseded_by"] = superseded_by
@@ -755,6 +877,87 @@ def _retirement_primary_projection(
         scoped_ids.append(str(memory_id))
         retired_metadatas.append(metadata)
     return scoped_ids, retired_metadatas
+
+
+def _apply_supersession_link_fields(metadata: Dict[str, Any], link: Dict[str, Any]) -> None:
+    if "source_authority" in link:
+        metadata["supersession_source_authority"] = int(link["source_authority"])
+    if "uncertainty" in link:
+        metadata["supersession_uncertainty"] = float(link["uncertainty"])
+    if link.get("source_lineage"):
+        metadata["supersession_lineage_json"] = json.dumps(
+            link["source_lineage"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+
+
+def _decoded_supersedes(metadata: Optional[Dict[str, Any]]) -> List[str]:
+    raw = (metadata or {}).get("supersedes_json")
+    if raw in (None, ""):
+        return []
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(
+        str(item).strip() for item in value if isinstance(item, str) and str(item).strip()
+    ))
+
+
+def _supersession_replacement_projection(
+    entry: Dict[str, Any], data: Dict[str, Any]
+) -> tuple[List[str], List[Dict[str, Any]]]:
+    """Idempotent replacement-row update for an explicit supersession entry.
+
+    Pure function of the journal entry and the current replacement row, so
+    crash replay converges on the same metadata (links merged and deduped,
+    recorded time bound to the durable journal timestamp).
+    """
+
+    link = entry.get("supersession_link")
+    replacement = str(entry.get("superseded_by") or "").strip()
+    if not isinstance(link, dict) or not link.get("update_replacement") or not replacement:
+        return [], []
+    tenant_id, workspace_id = _memory_scope(entry.get("tenant_id"), entry.get("workspace_id"))
+    memory_principal_key = str(entry.get("memory_principal_key") or "").strip() or None
+    recorded_at = str(entry.get("created_at") or _utc_iso())
+    found_ids = list(data.get("ids") or [])
+    metadatas = list(data.get("metadatas") or [])
+    for index, memory_id in enumerate(found_ids):
+        prior = dict(metadatas[index] or {}) if index < len(metadatas) else {}
+        if str(memory_id) != replacement or not _metadata_in_requested_scope(
+            prior, tenant_id, workspace_id, memory_principal_key
+        ):
+            continue
+        prior.setdefault("recorded_at", recorded_at)
+        metadata = _normalize_memory_metadata(
+            prior, tenant_id=tenant_id, workspace_id=workspace_id
+        )
+        merged = list(dict.fromkeys([
+            *_decoded_supersedes(metadata),
+            *[str(value) for value in entry.get("memory_ids") or []],
+        ]))
+        metadata["supersedes_json"] = json.dumps(merged, separators=(",", ":"))
+        metadata["supersession_recorded_at"] = recorded_at
+        _apply_supersession_link_fields(metadata, link)
+        _validate_memory_metadata(metadata)
+        return [replacement], [metadata]
+    return [], []
+
+
+def _supersession_replacement_lookup(entry: Dict[str, Any]) -> Dict[str, Any]:
+    link = entry.get("supersession_link")
+    replacement = str(entry.get("superseded_by") or "").strip()
+    if not isinstance(link, dict) or not link.get("update_replacement") or not replacement:
+        return {"ids": [], "metadatas": []}
+    get_kwargs: Dict[str, Any] = {"ids": [replacement], "include": ["metadatas"]}
+    namespace_where = _memory_namespace_where(
+        str(entry.get("memory_principal_key") or "").strip() or None
+    )
+    if namespace_where:
+        get_kwargs["where"] = namespace_where
+    return collection.get(**get_kwargs)
 
 
 def _recover_retirement_journal_locked(
@@ -777,6 +980,12 @@ def _recover_retirement_journal_locked(
     scoped_ids, retired_metadatas = _retirement_primary_projection(entry, data)
     if scoped_ids:
         collection.update(ids=scoped_ids, metadatas=retired_metadatas)
+    if isinstance(entry.get("supersession_link"), dict):
+        replacement_ids, replacement_metadatas = _supersession_replacement_projection(
+            entry, _supersession_replacement_lookup(entry)
+        )
+        if replacement_ids:
+            collection.update(ids=replacement_ids, metadatas=replacement_metadatas)
     _append_fallback_id_tombstone(
         memory_ids,
         superseded_by=(str(entry.get("superseded_by") or "").strip() or None),
@@ -901,12 +1110,19 @@ def _recover_fact_supersessions_locked() -> None:
                 )
                 _remove_fact_supersession_journal(journal_path)
                 continue
-            current = _collection_fact_rows(
-                fact_key,
-                tenant_id,
-                workspace_id,
-                memory_principal_key,
-            )
+            explicit = entry.get("explicit_supersession")
+            explicit_ids = list(explicit["memory_ids"]) if isinstance(explicit, dict) else []
+            if fact_key:
+                current = _collection_fact_rows(
+                    fact_key,
+                    tenant_id,
+                    workspace_id,
+                    memory_principal_key,
+                )
+            else:
+                current = _scoped_memory_rows(
+                    [memory_id], tenant_id, workspace_id, memory_principal_key
+                )
             current_ids = list(current.get("ids") or [])
             if memory_id not in current_ids:
                 pending_metadata = _supersession_recovery_metadata(
@@ -914,7 +1130,20 @@ def _recover_fact_supersessions_locked() -> None:
                 )
                 collection.add(ids=[memory_id], documents=[entry["text"]], metadatas=[pending_metadata])
                 current_ids.append(memory_id)
-            prior_ids = [row_id for row_id in current_ids if row_id != memory_id]
+            if explicit_ids:
+                _apply_explicit_write_supersession(
+                    explicit,
+                    memory_id=memory_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    memory_principal_key=memory_principal_key,
+                    revision_transaction_id=entry["transaction_id"],
+                    retired_at=entry["created_at"],
+                )
+            prior_ids = [
+                row_id for row_id in current_ids
+                if row_id != memory_id and row_id not in explicit_ids
+            ]
             supersede_memory_records(
                 prior_ids,
                 superseded_by=memory_id,
@@ -932,13 +1161,14 @@ def _recover_fact_supersessions_locked() -> None:
                 metadata, stage="active"
             )
             collection.update(ids=[memory_id], metadatas=[active_metadata])
-            _append_fallback_fact_supersession(
-                fact_key,
-                superseded_by=memory_id,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                memory_principal_key=memory_principal_key,
-            )
+            if fact_key:
+                _append_fallback_fact_supersession(
+                    fact_key,
+                    superseded_by=memory_id,
+                    tenant_id=tenant_id,
+                    workspace_id=workspace_id,
+                    memory_principal_key=memory_principal_key,
+                )
             _remove_fact_supersession_journal(journal_path)
         except FactSupersessionError:
             raise
@@ -1223,6 +1453,7 @@ def _dispatch_memory_storage(resource, method: str, args, kwargs):
 class EmbedRequest(BaseModel):
     text: str = Field(..., max_length=1_000_000)
     metadata: Optional[dict] = None
+    temporal: Optional[TemporalMemoryContract] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1261,6 +1492,9 @@ class SearchRequest(BaseModel):
     n_results: int = Field(3, ge=1, le=100)
     allow_fallback: bool = True
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1284,6 +1518,8 @@ class MemoryResult(BaseModel):
     text: str
     distance: float
     metadata: Optional[dict]
+    temporal: Optional[dict] = None
+    source_lineage: List[dict] = Field(default_factory=list)
 
 
 class SearchResponse(BaseModel):
@@ -1292,11 +1528,15 @@ class SearchResponse(BaseModel):
     search_mode: str = "semantic"
     degraded: bool = False
     warning: Optional[str] = None
+    as_of: Optional[str] = None
+    as_known_at: Optional[str] = None
+    temporal_contract_version: Optional[str] = None
 
 
 class NovelEmbedRequest(BaseModel):
     text: str = Field(..., max_length=1_000_000)
     metadata: Optional[dict] = None
+    temporal: Optional[TemporalMemoryContract] = None
     novelty_tags: Optional[List[MemoryTag]] = Field(None, max_length=100)
     compare_window: int = Field(40, ge=1, le=500)
     min_novelty: float = 0.0
@@ -1325,6 +1565,9 @@ class NovelSearchRequest(BaseModel):
     min_novelty: float = 0.0
     allow_fallback: bool = True
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1340,6 +1583,8 @@ class NovelSearchResult(BaseModel):
     novelty_score: float
     combined_score: float
     metadata: Optional[dict]
+    temporal: Optional[dict] = None
+    source_lineage: List[dict] = Field(default_factory=list)
 
 
 class NovelSearchResponse(BaseModel):
@@ -1350,12 +1595,18 @@ class NovelSearchResponse(BaseModel):
     search_mode: str = "semantic+novelty"
     degraded: bool = False
     warning: Optional[str] = None
+    as_of: Optional[str] = None
+    as_known_at: Optional[str] = None
+    temporal_contract_version: Optional[str] = None
 
 
 class RecallRequest(BaseModel):
     query: str = Field(..., max_length=16_384)
     n_results: int = Field(5, ge=1, le=100)
     filters: Optional[MemorySearchFilterRequest] = None
+    as_of: Optional[str] = Field(None, max_length=64)
+    as_known_at: Optional[str] = Field(None, max_length=64)
+    include_temporally_unknown: Optional[bool] = None
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1369,6 +1620,9 @@ class RecallResponse(BaseModel):
     results: List[MemoryResult]
     degraded: bool = False
     warning: Optional[str] = None
+    as_of: Optional[str] = None
+    as_known_at: Optional[str] = None
+    temporal_contract_version: Optional[str] = None
 
 
 class SupersedeRequest(BaseModel):
@@ -1377,6 +1631,12 @@ class SupersedeRequest(BaseModel):
     )
     superseded_by: Optional[MemoryRecordId] = None
     reason: str = Field("explicit_correction", max_length=240)
+    # Optional explicit-supersession fields; any of them opts the request into
+    # graph validation, the same-fact guard and replacement-row lineage.
+    valid_to: Optional[str] = Field(None, max_length=64)
+    source_authority: Optional[int] = Field(None, ge=0, le=100)
+    uncertainty: Optional[float] = Field(None, ge=0.0, le=1.0)
+    source_lineage: Optional[List[SourceLineageRef]] = Field(None, max_length=16)
     tenant_id: MemoryScopeId = DEFAULT_TENANT_ID
     workspace_id: MemoryScopeId = DEFAULT_WORKSPACE_ID
     scope: Optional[MemoryPrincipalScope] = None
@@ -1414,6 +1674,25 @@ class SupersedeRequest(BaseModel):
         if len(normalized.encode("utf-8")) > 240:
             raise ValueError("supersession reason exceeds its immutable byte bound")
         return normalized
+
+    @field_validator("valid_to")
+    @classmethod
+    def _strict_valid_to(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_temporal_instant(value, field="valid_to")
+
+    @field_validator("source_authority", mode="before")
+    @classmethod
+    def _integer_source_authority(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("source_authority must be an integer from 0 to 100")
+        return value
+
+    @field_validator("uncertainty", mode="before")
+    @classmethod
+    def _numeric_uncertainty(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("uncertainty must be between 0 and 1")
+        return value
 
 
 _CANONICAL_PROJECT_INDEX = Path(construction_config("CORTEX_CANONICAL_PROJECT_INDEX", "/root/clawd/memory/projects/INDEX.md"))
@@ -1625,6 +1904,12 @@ def _authority_rank(metadata: Optional[Dict[str, Any]]) -> int:
             return max(0, min(100, int(explicit)))
     except Exception:
         pass
+    if is_temporal_v1_metadata(meta):
+        # Explicit contract authority counts only on temporal-v1 rows; legacy
+        # rows keep their derived rank exactly as before.
+        source_authority = meta.get("source_authority")
+        if isinstance(source_authority, int) and not isinstance(source_authority, bool):
+            return max(0, min(100, source_authority))
     source = str(meta.get("source") or "").strip().lower()
     if source == "live_source_of_record":
         return 100
@@ -1916,6 +2201,22 @@ def parse_memory_search_filters(value: Any) -> Optional[MemorySearchFilters]:
     return MemorySearchFilters.from_mapping(raw)
 
 
+def resolve_request_memory_filters(request: Any) -> Optional[MemorySearchFilters]:
+    """Typed filters plus top-level as_of/as_known_at/include_temporally_unknown.
+
+    Identical to ``parse_memory_search_filters(request.filters)`` when no
+    top-level temporal field is set; conflicting duplicates raise
+    MemoryFilterError (HTTP 422).
+    """
+    return merge_top_level_temporal_filters(
+        getattr(request, "filters", None),
+        parse_memory_search_filters,
+        as_of=getattr(request, "as_of", None),
+        as_known_at=getattr(request, "as_known_at", None),
+        include_temporally_unknown=getattr(request, "include_temporally_unknown", None),
+    )
+
+
 def prepare_governed_memory_write(
     *,
     principal_key: str,
@@ -2083,6 +2384,12 @@ def _apply_governed_result_policy(
                 "temporal_reason": temporal.reason,
             }
         )
+        if filters is not None and (filters.as_of or filters.as_known_at):
+            metadata.update(
+                temporal_admission_annotations(
+                    temporal, as_of=filters.as_of, as_known_at=filters.as_known_at
+                )
+            )
         filtered.append({**row, "metadata": metadata})
 
     principal = str(memory_principal_key or "").strip()
@@ -2176,11 +2483,295 @@ def _collection_fact_rows(
     }
 
 
+def _scoped_memory_rows(
+    memory_ids: List[str],
+    tenant_id: str,
+    workspace_id: str,
+    memory_principal_key: Optional[str],
+) -> Dict[str, Any]:
+    """Principal-scoped exact-ID metadata lookup (foreign rows are dropped)."""
+
+    get_kwargs: Dict[str, Any] = {"ids": list(memory_ids), "include": ["metadatas"]}
+    namespace_where = _memory_namespace_where(memory_principal_key)
+    if namespace_where:
+        get_kwargs["where"] = namespace_where
+    data = collection.get(**get_kwargs)
+    requested = set(str(value) for value in memory_ids)
+    ids = data.get("ids") or []
+    metadatas = data.get("metadatas") or []
+    selected = [
+        index
+        for index, memory_id in enumerate(ids)
+        if str(memory_id) in requested
+        and _metadata_in_requested_scope(
+            metadatas[index] if index < len(metadatas) else {},
+            tenant_id,
+            workspace_id,
+            memory_principal_key,
+        )
+    ]
+    return {
+        "ids": [str(ids[index]) for index in selected],
+        "metadatas": [
+            dict((metadatas[index] if index < len(metadatas) else {}) or {})
+            for index in selected
+        ],
+    }
+
+
+def _validate_supersession_graph(
+    memory_ids: List[str],
+    superseded_by: Optional[str],
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    memory_principal_key: Optional[str],
+    replacement_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Validate an explicit supersession request; return scoped metadata by ID.
+
+    Every target must exist inside the caller's principal scope (a foreign row
+    is indistinguishable from a missing one and is never read further), the
+    replacement must exist in scope unless its pending metadata is supplied
+    (a write that has not been stored yet), and no target may already
+    (transitively) supersede the replacement. Edges come from
+    ``supersedes_json`` and ``superseded_by``. The walk is bounded.
+    """
+
+    replacement = str(superseded_by or "").strip()
+    targets = list(dict.fromkeys(str(value).strip() for value in memory_ids if str(value).strip()))
+    if not targets:
+        raise SupersessionValidationError("explicit supersession requires at least one target")
+    if replacement and replacement in targets:
+        raise SupersessionValidationError("a record cannot supersede itself")
+
+    edges: Dict[str, List[str]] = {}
+
+    def add_edge(source: str, target: str) -> None:
+        if source and target and source != target:
+            children = edges.setdefault(source, [])
+            if target not in children:
+                children.append(target)
+
+    scoped: Dict[str, Dict[str, Any]] = {}
+    visited: set = set()
+    frontier: List[str] = list(targets)
+    if replacement and replacement_metadata is None:
+        frontier.insert(0, replacement)
+    elif replacement_metadata is not None:
+        for linked in _decoded_supersedes(replacement_metadata):
+            if replacement:
+                add_edge(replacement, linked)
+            frontier.append(linked)
+    while frontier:
+        pending = [value for value in dict.fromkeys(frontier) if value not in visited]
+        if not pending:
+            break
+        batch, frontier = pending[:100], pending[100:]
+        if len(visited) + len(batch) > MAX_SUPERSESSION_RECORDS:
+            raise SupersessionValidationError("supersession graph exceeds its traversal bound")
+        visited.update(batch)
+        try:
+            data = _scoped_memory_rows(batch, tenant_id, workspace_id, memory_principal_key)
+        except Exception as exc:
+            raise FactSupersessionError("supersession graph could not be verified") from exc
+        for record_id, metadata in zip(data["ids"], data["metadatas"]):
+            scoped[record_id] = metadata
+            for linked in _decoded_supersedes(metadata):
+                add_edge(record_id, linked)
+                if linked not in visited:
+                    frontier.append(linked)
+            parent = str(metadata.get("superseded_by") or "").strip()
+            if parent:
+                add_edge(parent, record_id)
+                if parent not in visited:
+                    frontier.append(parent)
+
+    missing = [target for target in targets if target not in scoped]
+    if missing:
+        raise SupersessionValidationError(
+            "supersession targets are missing or outside the authenticated memory scope"
+        )
+    if replacement and replacement_metadata is None and replacement not in scoped:
+        raise SupersessionValidationError(
+            "superseded_by is missing or outside the authenticated memory scope"
+        )
+    if replacement:
+        # Iterative DFS with colouring: reaching the replacement from a target
+        # means the target already (transitively) supersedes it.
+        state: Dict[str, int] = {}
+        for target in targets:
+            if state.get(target) == 2:
+                continue
+            stack: List[tuple] = [(target, iter(edges.get(target, [])))]
+            state[target] = 1
+            while stack:
+                node, children = stack[-1]
+                child = next(children, None)
+                if child is None:
+                    state[node] = 2
+                    stack.pop()
+                    continue
+                if child == replacement:
+                    raise SupersessionValidationError("supersession would create a cycle")
+                if state.get(child) == 1:
+                    raise SupersessionValidationError(
+                        "existing supersession graph contains a cycle"
+                    )
+                if state.get(child) is None:
+                    state[child] = 1
+                    stack.append((child, iter(edges.get(child, []))))
+    return {target: scoped[target] for target in targets}
+
+
+def _validate_explicit_supersession(
+    memory_ids: List[str],
+    superseded_by: Optional[str],
+    *,
+    tenant_id: str,
+    workspace_id: str,
+    memory_principal_key: Optional[str],
+    valid_to: Optional[str] = None,
+    replacement_metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Graph validation plus the same-fact guard and explicit-end bounds."""
+
+    targets = _validate_supersession_graph(
+        memory_ids,
+        superseded_by,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        memory_principal_key=memory_principal_key,
+        replacement_metadata=replacement_metadata,
+    )
+    replacement = str(superseded_by or "").strip()
+    replacement_meta = replacement_metadata
+    if replacement_meta is None and replacement:
+        replacement_meta = _scoped_memory_rows(
+            [replacement], tenant_id, workspace_id, memory_principal_key
+        )["metadatas"][0]
+    replacement_fact_key = str((replacement_meta or {}).get("fact_key") or "").strip()
+    if replacement_fact_key:
+        for metadata in targets.values():
+            target_fact_key = str(metadata.get("fact_key") or "").strip()
+            if target_fact_key and target_fact_key != replacement_fact_key:
+                raise SupersessionValidationError(
+                    "explicit supersession requires the same fact_key on every target"
+                )
+    if replacement_meta is not None and len(set([
+        *_decoded_supersedes(replacement_meta), *targets
+    ])) > MAX_SUPERSESSION_RECORDS:
+        raise SupersessionValidationError("replacement supersedes list exceeds its bound")
+    if valid_to:
+        cutoff = parse_timestamp(valid_to, field_name="valid_to")
+        for metadata in targets.values():
+            try:
+                prior_valid_from = parse_timestamp(
+                    metadata.get("valid_from"), field_name="valid_from"
+                )
+            except MemoryGovernanceError:
+                prior_valid_from = None
+            if prior_valid_from is not None and cutoff is not None and prior_valid_from >= cutoff:
+                raise SupersessionValidationError(
+                    "supersession valid_to must be later than the prior valid_from"
+                )
+
+
+def _explicit_temporal_supersedes(metadata: Optional[Dict[str, Any]]) -> List[str]:
+    """Explicit ``temporal.supersedes`` IDs of a temporal-v1 write (else [])."""
+
+    if not is_temporal_v1_metadata(metadata):
+        return []
+    return [
+        value
+        for value in _decoded_supersedes(metadata)
+        if len(value.encode("utf-8")) <= MAX_SUPERSESSION_ID_BYTES
+    ][:MAX_SUPERSESSION_RECORDS]
+
+
+def _explicit_write_valid_to(metadata: Optional[Dict[str, Any]]) -> Optional[str]:
+    try:
+        parsed = parse_timestamp((metadata or {}).get("valid_from"), field_name="valid_from")
+    except MemoryGovernanceError:
+        return None
+    if parsed is None:
+        return None
+    return normalize_temporal_instant(
+        parsed.isoformat(timespec="microseconds").replace("+00:00", "Z"), field="valid_from"
+    )
+
+
+def validate_temporal_write_supersession(
+    metadata: Optional[Dict[str, Any]],
+    *,
+    tenant_id: Optional[str],
+    workspace_id: Optional[str],
+    memory_id: Optional[str] = None,
+) -> None:
+    """Read-only pre-check of a v1 write's explicit supersedes (route 422).
+
+    A no-op for every write without explicit temporal supersedes. The same
+    validation is repeated authoritatively under the supersession lock.
+    """
+
+    explicit_ids = _explicit_temporal_supersedes(metadata)
+    if not explicit_ids:
+        return
+    tenant, workspace = _memory_scope(tenant_id, workspace_id)
+    memory_principal_key = str((metadata or {}).get("memory_principal_key") or "").strip() or None
+    _validate_explicit_supersession(
+        explicit_ids,
+        memory_id,
+        tenant_id=tenant,
+        workspace_id=workspace,
+        memory_principal_key=memory_principal_key,
+        valid_to=_explicit_write_valid_to(metadata),
+        replacement_metadata=dict(metadata or {}),
+    )
+
+
+def _fact_revision_explicit_transaction_id(transaction_id: str) -> str:
+    return "fact-explicit-" + sha256(str(transaction_id).encode("utf-8")).hexdigest()
+
+
+def _apply_explicit_write_supersession(
+    explicit: Dict[str, Any],
+    *,
+    memory_id: str,
+    tenant_id: str,
+    workspace_id: str,
+    memory_principal_key: Optional[str],
+    revision_transaction_id: str,
+    retired_at: str,
+) -> Dict[str, Any]:
+    """Deterministic child retirement for a v1 write's explicit supersedes."""
+
+    return supersede_memory_records(
+        list(explicit["memory_ids"]),
+        superseded_by=memory_id,
+        reason="explicit_temporal_supersession",
+        valid_to=explicit.get("valid_to"),
+        _skip_recovery=True,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        memory_principal_key=memory_principal_key,
+        transaction_id=_fact_revision_explicit_transaction_id(revision_transaction_id),
+        retired_at=retired_at,
+        _explicit_link=True,
+        _link_replacement=False,
+        _validated=True,
+    )
+
+
 def supersede_memory_records(
     memory_ids: List[str],
     *,
     superseded_by: Optional[str] = None,
     reason: str = "explicit_correction",
+    valid_to: Optional[str] = None,
+    source_authority: Optional[int] = None,
+    uncertainty: Optional[float] = None,
+    source_lineage: Optional[List[Any]] = None,
     _skip_recovery: bool = False,
     tenant_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
@@ -2191,7 +2782,18 @@ def supersede_memory_records(
     operation_generation: Optional[int] = None,
     retired_at: Optional[str] = None,
     _lock_held: bool = False,
+    _explicit_link: bool = False,
+    _link_replacement: bool = True,
+    _validated: bool = False,
 ) -> Dict[str, Any]:
+    """Retire records; explicit-supersession fields opt into validation.
+
+    Without ``valid_to``/``source_authority``/``uncertainty``/``source_lineage``
+    the behaviour (journal format, quota hash, result shape) is unchanged.
+    With any of them the request is validated first (targets exist in scope,
+    no cycle, same fact_key) and journalled with a ``supersession_link`` so
+    recovery replays the retired-row end and replacement-row lineage.
+    """
     tenant, workspace = _memory_scope(tenant_id, workspace_id)
     if not _skip_recovery and not _lock_held:
         with _fact_supersession_transaction():
@@ -2200,6 +2802,13 @@ def supersede_memory_records(
                 memory_ids,
                 superseded_by=superseded_by,
                 reason=reason,
+                valid_to=valid_to,
+                source_authority=source_authority,
+                uncertainty=uncertainty,
+                source_lineage=source_lineage,
+                _explicit_link=_explicit_link,
+                _link_replacement=_link_replacement,
+                _validated=_validated,
                 _skip_recovery=False,
                 tenant_id=tenant,
                 workspace_id=workspace,
@@ -2236,6 +2845,53 @@ def supersede_memory_records(
     normalized_reason = str(reason or "explicit_correction").strip() or "explicit_correction"
     if len(normalized_reason.encode("utf-8")) > 240:
         raise ValueError("supersession reason exceeds its immutable byte bound")
+    supersession_link: Optional[Dict[str, Any]] = None
+    if _explicit_link or any(
+        value not in (None, [], ()) for value in (valid_to, source_authority, uncertainty, source_lineage)
+    ):
+        try:
+            normalized_valid_to = normalize_temporal_instant(valid_to, field="valid_to")
+            normalized_lineage = normalize_source_lineage(source_lineage or [])
+        except ValueError as exc:
+            raise SupersessionValidationError(str(exc)) from exc
+        if source_authority is not None and (
+            isinstance(source_authority, bool)
+            or not isinstance(source_authority, int)
+            or not 0 <= source_authority <= 100
+        ):
+            raise SupersessionValidationError("source_authority must be an integer from 0 to 100")
+        if uncertainty is not None and (
+            isinstance(uncertainty, bool)
+            or not isinstance(uncertainty, (int, float))
+            or not 0.0 <= float(uncertainty) <= 1.0
+        ):
+            raise SupersessionValidationError("uncertainty must be between 0 and 1")
+        supersession_link = {
+            "update_replacement": bool(_link_replacement and normalized_superseded_by),
+        }
+        if normalized_superseded_by:
+            supersession_link["replacement_memory_id"] = normalized_superseded_by
+        if normalized_valid_to:
+            supersession_link["valid_to"] = normalized_valid_to
+        if source_authority is not None:
+            supersession_link["source_authority"] = int(source_authority)
+        if uncertainty is not None:
+            supersession_link["uncertainty"] = float(uncertainty)
+        if normalized_lineage:
+            supersession_link["source_lineage"] = normalized_lineage
+        if not ids:
+            raise SupersessionValidationError("explicit supersession requires at least one target")
+        if not _validated:
+            # Validate before anything is journalled; foreign or missing
+            # targets fail the whole request and are never touched.
+            _validate_explicit_supersession(
+                ids,
+                normalized_superseded_by,
+                tenant_id=tenant,
+                workspace_id=workspace,
+                memory_principal_key=memory_principal_key,
+                valid_to=normalized_valid_to,
+            )
     if not ids:
         return {
             "updated": 0,
@@ -2338,10 +2994,23 @@ def supersede_memory_records(
             ):
                 raise ValueError("retired_at is outside its immutable bound")
             journal_entry["created_at"] = normalized_retired_at
+        if supersession_link is not None:
+            journal_entry["supersession_link"] = supersession_link
 
         projected_ids, projected_metadatas = _retirement_primary_projection(
             journal_entry, data
         )
+        replacement_ids: List[str] = []
+        replacement_metadatas: List[Dict[str, Any]] = []
+        if supersession_link is not None and supersession_link.get("update_replacement"):
+            try:
+                replacement_ids, replacement_metadatas = _supersession_replacement_projection(
+                    journal_entry, _supersession_replacement_lookup(journal_entry)
+                )
+            except Exception as exc:
+                raise FactSupersessionError(
+                    "replacement memory lookup failed during supersession"
+                ) from exc
         fallback_marker = _fallback_id_tombstone_marker(
             ids,
             superseded_by=normalized_superseded_by,
@@ -2364,7 +3033,10 @@ def supersede_memory_records(
                     allow_nan=False,
                 ).encode("utf-8")
             )
-            for memory_id, metadata in zip(projected_ids, projected_metadatas)
+            for memory_id, metadata in zip(
+                [*projected_ids, *replacement_ids],
+                [*projected_metadatas, *replacement_metadatas],
+            )
         )
         fallback_bytes = len(
             json.dumps(
@@ -2376,14 +3048,19 @@ def supersede_memory_records(
             ).encode("utf-8")
         )
         charge_bytes = 4096 + update_bytes + fallback_bytes
+        hashed_payload: Dict[str, Any] = {
+            "version": "cortex.memory-retirement.v2",
+            "ids": projected_ids,
+            "metadatas": projected_metadatas,
+            "fallback": fallback_marker,
+        }
+        if supersession_link is not None:
+            # Only explicit entries hash their link; the replacement row's own
+            # lifecycle state is excluded so crash replay keeps the same hash.
+            hashed_payload["supersession_link"] = supersession_link
         payload_hash = sha256(
             json.dumps(
-                {
-                    "version": "cortex.memory-retirement.v2",
-                    "ids": projected_ids,
-                    "metadatas": projected_metadatas,
-                    "fallback": fallback_marker,
-                },
+                hashed_payload,
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -2434,7 +3111,7 @@ def supersede_memory_records(
     affected = set(scoped_ids) | set(fallback_matched)
     affected_ids = [memory_id for memory_id in ids if memory_id in affected]
     missing = [memory_id for memory_id in ids if memory_id not in affected]
-    return {
+    result: Dict[str, Any] = {
         "updated": len(affected_ids),
         "ids": affected_ids,
         "missing": missing,
@@ -2442,6 +3119,14 @@ def supersede_memory_records(
         "fallback_updated": len(fallback_matched),
         "superseded_by": normalized_superseded_by,
     }
+    if supersession_link is not None:
+        result["supersession_graph"] = {
+            "replacement": normalized_superseded_by,
+            "supersedes": list(ids),
+            "cycle_checked": True,
+            "valid_to": supersession_link.get("valid_to"),
+        }
+    return result
 
 
 def _supersede_prior_fact_versions(
@@ -2490,32 +3175,61 @@ def _add_memory_with_supersession(
     )
     fact_key = str(metadata.get("fact_key") or "").strip()
     memory_principal_key = str(metadata.get("memory_principal_key") or "").strip() or None
+    # Only a temporal-v1 write that names explicit supersedes takes the
+    # explicit path; every other write keeps the existing behaviour exactly.
+    explicit_ids = _explicit_temporal_supersedes(metadata)
     with _fact_supersession_transaction():
         _recover_fact_supersessions_locked()
-        if not fact_key:
+        explicit_supersession: Optional[Dict[str, Any]] = None
+        if explicit_ids:
+            explicit_valid_to = _explicit_write_valid_to(metadata)
+            # Validate before journalling or adding anything (HTTP 422).
+            _validate_explicit_supersession(
+                explicit_ids,
+                memory_id,
+                tenant_id=tenant,
+                workspace_id=workspace,
+                memory_principal_key=memory_principal_key,
+                valid_to=explicit_valid_to,
+                replacement_metadata=metadata,
+            )
+            explicit_supersession = {"memory_ids": list(explicit_ids)}
+            if explicit_valid_to:
+                explicit_supersession["valid_to"] = explicit_valid_to
+        if not fact_key and explicit_supersession is None:
             collection.add(ids=[memory_id], documents=[text], metadatas=[metadata])
             return
-        prior = _collection_fact_rows(
-            fact_key,
-            tenant,
-            workspace,
-            memory_principal_key,
+        prior = (
+            _collection_fact_rows(
+                fact_key,
+                tenant,
+                workspace,
+                memory_principal_key,
+            )
+            if fact_key
+            else {"ids": []}
         )
-        prior_ids = [value for value in (prior.get("ids") or []) if value != memory_id]
+        prior_ids = [
+            value for value in (prior.get("ids") or [])
+            if value != memory_id and value not in explicit_ids
+        ]
         revision_transaction_id = uuid.uuid4().hex
         revision_created_at = _utc_iso()
+        revision_entry: Dict[str, Any] = {
+            "version": 1,
+            "transaction_id": revision_transaction_id,
+            "fact_key": fact_key,
+            "memory_id": memory_id,
+            "text": text,
+            "metadata": metadata,
+            "created_at": revision_created_at,
+            "tenant_id": tenant,
+            "workspace_id": workspace,
+        }
+        if explicit_supersession is not None:
+            revision_entry["explicit_supersession"] = explicit_supersession
         try:
-            journal_path = _write_fact_supersession_journal({
-                "version": 1,
-                "transaction_id": revision_transaction_id,
-                "fact_key": fact_key,
-                "memory_id": memory_id,
-                "text": text,
-                "metadata": metadata,
-                "created_at": revision_created_at,
-                "tenant_id": tenant,
-                "workspace_id": workspace,
-            })
+            journal_path = _write_fact_supersession_journal(revision_entry)
         except Exception as exc:
             raise FactSupersessionError(
                 "fact supersession journal could not be persisted; existing fact was preserved"
@@ -2526,6 +3240,16 @@ def _add_memory_with_supersession(
         chroma_committed = False
         try:
             collection.add(ids=[memory_id], documents=[text], metadatas=[pending_metadata])
+            if explicit_supersession is not None:
+                _apply_explicit_write_supersession(
+                    explicit_supersession,
+                    memory_id=memory_id,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                    memory_principal_key=memory_principal_key,
+                    revision_transaction_id=revision_transaction_id,
+                    retired_at=revision_created_at,
+                )
             supersede_memory_records(
                 prior_ids,
                 superseded_by=memory_id,
@@ -2543,13 +3267,14 @@ def _add_memory_with_supersession(
                 metadata, stage="active"
             )
             collection.update(ids=[memory_id], metadatas=[active_metadata])
-            _append_fallback_fact_supersession(
-                fact_key,
-                superseded_by=memory_id,
-                tenant_id=tenant,
-                workspace_id=workspace,
-                memory_principal_key=memory_principal_key,
-            )
+            if fact_key:
+                _append_fallback_fact_supersession(
+                    fact_key,
+                    superseded_by=memory_id,
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                    memory_principal_key=memory_principal_key,
+                )
             chroma_committed = True
         except Exception as exc:
             # The parent journal is the single durable decision once published.
@@ -3769,7 +4494,7 @@ def _persist_indexed_novelty_memory(
             "status": "stored",
             "metadata": enriched_metadata,
         }
-    except FactSupersessionError:
+    except (FactSupersessionError, SupersessionValidationError):
         raise
     except Exception as exc:
         _mark_embedding_error(exc)
@@ -4484,6 +5209,66 @@ def robust_search(
     memory_principal_key: Optional[str] = None,
     filters: Optional[MemorySearchFilters] = None,
 ) -> Dict[str, Any]:
+    """Governed recall; every result row carries a ``temporal`` block."""
+    return present_memory_search_result(
+        _robust_search_unpresented(
+            query,
+            n_results,
+            allow_fallback,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            memory_principal_key=memory_principal_key,
+            filters=filters,
+        ),
+        filters,
+        resolve_memory_ids=_lineage_memory_resolver(
+            tenant_id, workspace_id, memory_principal_key
+        ),
+    )
+
+
+def _lineage_memory_resolver(
+    tenant_id: Optional[str],
+    workspace_id: Optional[str],
+    memory_principal_key: Optional[str],
+):
+    """Bounded, read-only existence check of lineage memory IDs in scope.
+
+    Returns only the IDs that exist inside the caller's principal scope; the
+    referenced records' content is never read or returned. One exact-ID
+    lookup of at most 16 IDs per presented row.
+    """
+
+    def resolve(memory_ids: List[str]) -> set:
+        tenant, workspace = _memory_scope(tenant_id, workspace_id)
+        requested = [
+            str(value).strip()
+            for value in memory_ids
+            if str(value).strip()
+            and len(str(value).strip().encode("utf-8")) <= MAX_SUPERSESSION_ID_BYTES
+        ][:16]
+        if not requested:
+            return set()
+        data = _scoped_memory_rows(requested, tenant, workspace, memory_principal_key)
+        return {
+            memory_id
+            for memory_id, metadata in zip(data["ids"], data["metadatas"])
+            if not bool(metadata.get("supersession_pending"))
+        }
+
+    return resolve
+
+
+def _robust_search_unpresented(
+    query: str,
+    n_results: int = 5,
+    allow_fallback: bool = True,
+    *,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    memory_principal_key: Optional[str] = None,
+    filters: Optional[MemorySearchFilters] = None,
+) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     filters = filters or MemorySearchFilters()
@@ -4749,6 +5534,39 @@ def search_with_novelty(
     memory_principal_key: Optional[str] = None,
     filters: Optional[MemorySearchFilters] = None,
 ) -> Dict[str, Any]:
+    """Novelty-reranked recall; every result row carries a ``temporal`` block."""
+    return present_memory_search_result(
+        _search_with_novelty_unpresented(
+            query,
+            n_results,
+            novelty_weight,
+            semantic_weight,
+            min_novelty,
+            allow_fallback,
+            tenant_id,
+            workspace_id,
+            memory_principal_key,
+            filters,
+        ),
+        filters,
+        resolve_memory_ids=_lineage_memory_resolver(
+            tenant_id, workspace_id, memory_principal_key
+        ),
+    )
+
+
+def _search_with_novelty_unpresented(
+    query: str,
+    n_results: int = 5,
+    novelty_weight: float = 0.28,
+    semantic_weight: float = 0.72,
+    min_novelty: float = 0.0,
+    allow_fallback: bool = True,
+    tenant_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    memory_principal_key: Optional[str] = None,
+    filters: Optional[MemorySearchFilters] = None,
+) -> Dict[str, Any]:
     if not (query or "").strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
     filters = filters or MemorySearchFilters()
@@ -4957,6 +5775,8 @@ async def librarian_status(http_request: Request = None):
             "privacy_admission",
             "typed_pre_retrieval_filters",
             "fact_conflict_projection",
+            "temporal_memory_v1",
+            "valid_time_and_knowledge_time_recall",
         ],
         "novelty_version": "l7l22.v1.2",
     }
@@ -4985,6 +5805,37 @@ async def librarian_status(http_request: Request = None):
     }
 
 
+def _temporal_write_metadata_or_422(request: Any, *, stamp: bool = True) -> Any:
+    """Apply an explicit ``temporal`` contract before governed preparation.
+
+    Requests without ``temporal`` get their metadata back untouched.
+    """
+    temporal = getattr(request, "temporal", None)
+    try:
+        metadata = prepare_temporal_write_metadata(
+            getattr(request, "metadata", None), temporal, stamp=stamp
+        )
+        if temporal is not None:
+            _validate_memory_metadata(metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return metadata
+
+
+def _preflight_temporal_supersession_or_http(
+    metadata: Optional[Dict[str, Any]], *, tenant: str, workspace: str
+) -> None:
+    """422 before any governed staging when explicit v1 supersedes are invalid."""
+    try:
+        validate_temporal_write_supersession(
+            metadata, tenant_id=tenant, workspace_id=workspace
+        )
+    except SupersessionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FactSupersessionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/embed", response_model=EmbedResponse)
 async def embed_memory(
     request: EmbedRequest,
@@ -4999,17 +5850,22 @@ async def embed_memory(
 
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    request_metadata = _temporal_write_metadata_or_422(request)
     memory_id = str(uuid.uuid4())
     operation_id = "librarian:" + memory_id
     try:
+        scoped_request_metadata = _normalize_memory_metadata(
+            scoped_memory_metadata(principal, request_metadata),
+            tenant_id=tenant,
+            workspace_id=workspace,
+        )
+        _preflight_temporal_supersession_or_http(
+            scoped_request_metadata, tenant=tenant, workspace=workspace
+        )
         metadata = prepare_governed_memory_write(
             principal_key=principal.memory_principal_key,
             content=request.text,
-            metadata=_normalize_memory_metadata(
-                scoped_memory_metadata(principal, request.metadata),
-                tenant_id=tenant,
-                workspace_id=workspace,
-            ),
+            metadata=scoped_request_metadata,
             operation_id=operation_id,
         )
     except MemoryAdmissionRejected as exc:
@@ -5027,7 +5883,7 @@ async def embed_memory(
                 workspace_id=workspace,
             )
             return "stored"
-        except FactSupersessionError:
+        except (FactSupersessionError, SupersessionValidationError):
             raise
         except Exception as exc:
             _mark_embedding_error(exc)
@@ -5055,6 +5911,8 @@ async def embed_memory(
             workspace_id=workspace,
             publish=publish,
         )
+    except SupersessionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except FactSupersessionError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
@@ -5084,15 +5942,26 @@ async def embed_memory_novel(
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
+    request_metadata = _temporal_write_metadata_or_422(request)
     memory_id = str(uuid.uuid4())
     operation_id = "librarian-novel:" + memory_id
     try:
+        if request.temporal is not None:
+            _preflight_temporal_supersession_or_http(
+                _normalize_memory_metadata(
+                    scoped_memory_metadata(principal, request_metadata),
+                    tenant_id=tenant,
+                    workspace_id=workspace,
+                ),
+                tenant=tenant,
+                workspace=workspace,
+            )
         enriched_metadata = prepare_governed_memory_write(
             principal_key=principal.memory_principal_key,
             content=request.text,
             metadata=_normalize_memory_metadata(_build_novel_metadata(
                 text=request.text,
-                metadata=scoped_memory_metadata(principal, request.metadata),
+                metadata=scoped_memory_metadata(principal, request_metadata),
                 novelty_tags=request.novelty_tags,
                 source_scope="l7",
                 compare_window=request.compare_window,
@@ -5106,18 +5975,21 @@ async def embed_memory_novel(
         raise HTTPException(status_code=422, detail=exc.decision.public_dict()) from exc
     except MemoryGovernanceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    result = _run_librarian_quota_controlled_write(
-        memory_id=memory_id,
-        text=request.text,
-        metadata=enriched_metadata,
-        tenant_id=tenant,
-        workspace_id=workspace,
-        publish=lambda scoped_metadata: _persist_indexed_novelty_memory(
-            memory_id,
-            request.text,
-            scoped_metadata,
-        ),
-    )
+    try:
+        result = _run_librarian_quota_controlled_write(
+            memory_id=memory_id,
+            text=request.text,
+            metadata=enriched_metadata,
+            tenant_id=tenant,
+            workspace_id=workspace,
+            publish=lambda scoped_metadata: _persist_indexed_novelty_memory(
+                memory_id,
+                request.text,
+                scoped_metadata,
+            ),
+        )
+    except SupersessionValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         finalize_governed_memory_write(
             principal_key=principal.memory_principal_key,
@@ -5223,7 +6095,7 @@ async def search_memory(
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     try:
-        filters = parse_memory_search_filters(request.filters)
+        filters = resolve_request_memory_filters(request)
         result = robust_search(
             request.query,
             n_results=request.n_results,
@@ -5244,6 +6116,9 @@ async def search_memory(
         search_mode=str(result.get("search_mode", "semantic")),
         degraded=bool(result.get("degraded", False)),
         warning=result.get("warning"),
+        as_of=result.get("as_of"),
+        as_known_at=result.get("as_known_at"),
+        temporal_contract_version=result.get("temporal_contract_version"),
     )
 
 
@@ -5256,7 +6131,7 @@ async def search_memory_novel(
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     try:
-        filters = parse_memory_search_filters(request.filters)
+        filters = resolve_request_memory_filters(request)
         ranked = search_with_novelty(
             query=request.query,
             n_results=request.n_results,
@@ -5283,6 +6158,9 @@ async def search_memory_novel(
         search_mode=str(ranked.get("search_mode", "semantic+novelty")),
         degraded=bool(ranked.get("degraded", False)),
         warning=ranked.get("warning"),
+        as_of=ranked.get("as_of"),
+        as_known_at=ranked.get("as_known_at"),
+        temporal_contract_version=ranked.get("temporal_contract_version"),
     )
 
 
@@ -5295,7 +6173,7 @@ async def recall_memory(
     principal = _route_memory_principal(request, http_request)
     tenant, workspace = principal.tenant_id, principal.storage_workspace_id
     try:
-        filters = parse_memory_search_filters(request.filters)
+        filters = resolve_request_memory_filters(request)
         result = robust_search(
             request.query,
             n_results=request.n_results,
@@ -5316,6 +6194,9 @@ async def recall_memory(
         results=memories,
         degraded=bool(result.get("degraded", False)),
         warning=result.get("warning"),
+        as_of=result.get("as_of"),
+        as_known_at=result.get("as_known_at"),
+        temporal_contract_version=result.get("temporal_contract_version"),
     )
 
 
@@ -5353,6 +6234,17 @@ async def supersede_memory(
                 status_code=403,
                 detail="superseded_by must belong to the authenticated principal",
             )
+    explicit_fields: Dict[str, Any] = {}
+    if request.valid_to is not None:
+        explicit_fields["valid_to"] = request.valid_to
+    if request.source_authority is not None:
+        explicit_fields["source_authority"] = request.source_authority
+    if request.uncertainty is not None:
+        explicit_fields["uncertainty"] = request.uncertainty
+    if request.source_lineage:
+        explicit_fields["source_lineage"] = [
+            ref.model_dump(exclude_none=True) for ref in request.source_lineage
+        ]
     try:
         result = supersede_memory_records(
             request.memory_ids,
@@ -5362,9 +6254,12 @@ async def supersede_memory(
             workspace_id=workspace,
             quota_credential_id=principal.credential_id,
             memory_principal_key=principal.memory_principal_key,
+            **explicit_fields,
         )
     except (FactSupersessionError, FallbackPersistenceError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"success": True, **result}
 
 

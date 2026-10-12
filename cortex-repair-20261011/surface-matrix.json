@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "cortex.repair-surface-matrix.v1",
+  "objective": "Fix every finding in the October 11 Cortex audit without losing later approved behavior.",
+  "fidelity": "parity_for_scope",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "surfaces": [
+    {"id":"PROV-1","severity":"high","surface":"active release source parity","status":"red","acceptance":"All deployed product files equal a source-pinned immutable candidate or are declared generated artifacts."},
+    {"id":"PROV-2","severity":"high","surface":"remote accepted ref and rollback","status":"red","acceptance":"Deployed commit, remote accepted ref, manifest, test receipt, and rollback/redeploy proof match."},
+    {"id":"ROUTE-1","severity":"high","surface":"trusted subagent route gate","status":"red","acceptance":"Trusted subagent routing completes; forged or missing trust fails closed."},
+    {"id":"ROUTE-2","severity":"high","surface":"main-lane bounded failure","status":"red","acceptance":"Route outage produces a bounded, explicit failure without a 450-second chat freeze."},
+    {"id":"MEM-1","severity":"medium","surface":"subagent lifecycle persistence","status":"red","acceptance":"Trusted subagent completion callbacks persist expected lifecycle records without identity refusal."},
+    {"id":"SEC-1","severity":"high","surface":"Cortex service least privilege","status":"red","acceptance":"Cortex API runs without unnecessary root/full capabilities or broad OpenClaw state writes; Oracle still works."},
+    {"id":"POLICY-1","severity":"high","surface":"canonical OAuth policy","status":"red","acceptance":"Static instructions, runtime, and memory agree on the later approved PMHNP OAuth decision, with the old rule superseded."},
+    {"id":"POLICY-2","severity":"high","surface":"canonical model/reasoning policy","status":"red","acceptance":"Static instructions, runtime, and memory agree on the later approved xhigh/default-service policy and documented exceptions."},
+    {"id":"HEALTH-1","severity":"medium","surface":"health vocabulary and aggregation","status":"red","acceptance":"Readiness, Sentinel, Meta Conductor, and per-level status classify the same observed state consistently."},
+    {"id":"HEALTH-2","severity":"medium","surface":"restricted and stale evidence semantics","status":"red","acceptance":"Disabled-by-design and stale provider receipts are not misreported as component failure."},
+    {"id":"PARSER-1","severity":"medium","surface":"PDF parser truth","status":"red","acceptance":"Parser initializes and passes a focused parse smoke or is intentionally disabled and reported honestly."},
+    {"id":"MEM-2","severity":"medium","surface":"memory conflict classification","status":"red","acceptance":"Supporting facts are not false conflicts and superseded execution-plane facts are historical, not co-current."},
+    {"id":"MEM-3","severity":"medium","surface":"owner index efficiency","status":"red","acceptance":"No-op timer runs avoid full verification work while preserving freshness and correctness."},
+    {"id":"BROWSER-1","severity":"medium","surface":"Cortex L2 browser reliability","status":"red","acceptance":"Status, search, exact-page, fallback, and egress-policy focused smoke passes with bounded retries."},
+    {"id":"OPS-1","severity":"medium","surface":"controlled restart semantics","status":"red","acceptance":"Intentional restarts do not generate false failed-unit evidence; genuine crashes still alert."},
+    {"id":"OPS-2","severity":"low","surface":"stale timers and cron jobs","status":"red","acceptance":"Obsolete units/jobs are disabled and quarantined with recovery notes; active user reminders are preserved."},
+    {"id":"AIOS-1","severity":"medium","surface":"AI OS evidence freshness","status":"red","acceptance":"Fresh bounded status/recovery proof is green without expanding AI OS authority."},
+    {"id":"SEC-2","severity":"medium","surface":"inbound attachment exposure","status":"red","acceptance":"Attachment policy remains functional while minimizing prompt-injection/tool exposure and documenting residual risk."},
+    {"id":"QUAL-1","severity":"high","surface":"exact-candidate qualification","status":"red","acceptance":"One clean full remote suite and focused security/routing/memory/browser checks pass on the exact deployed commit."}
+  ]
+}

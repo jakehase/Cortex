@@ -116,7 +116,7 @@ def _parse_routing_text(raw: str) -> Optional[List[Dict]]:
             level = int(match.group(1))
             score = float(match.group(2))
             reason = match.group(3).strip()
-            if 1 <= level <= 36 and 0 <= score <= 1.0:
+            if 1 <= level <= 38 and 0 <= score <= 1.0:
                 results.append({"level": level, "score": score, "reason": reason})
     return results if len(results) >= 2 else None
 

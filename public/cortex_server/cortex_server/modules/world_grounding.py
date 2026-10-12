@@ -46,14 +46,20 @@ def _bucket(query: str) -> str:
     return "low"
 
 
+def _has_term(text: str, terms: List[str]) -> bool:
+    # Whole words only: substrings such as "know", "generate", "download" or
+    # "olive" must not look like "now", "rate", "down" or "live".
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text) for term in terms)
+
+
 def assess_need(query: str) -> Dict[str, Any]:
     q = (query or "").lower()
     reasons: List[str] = []
     triggers = {
-        "time_sensitive": any(k in q for k in ["today", "now", "currently", "latest", "breaking", "live"]),
-        "market_sensitive": any(k in q for k in ["price", "stock", "rate", "quote", "market cap"]),
-        "operational_state": any(k in q for k in ["status", "outage", "incident", "down", "latency"]),
-        "event_drift": any(k in q for k in ["score", "weather", "traffic", "results", "election"]),
+        "time_sensitive": _has_term(q, ["today", "right now", "currently", "latest", "breaking", "live score", "live update"]),
+        "market_sensitive": _has_term(q, ["price", "prices", "stock price", "exchange rate", "interest rate", "quote", "market cap"]),
+        "operational_state": _has_term(q, ["outage", "incident", "is down", "went down", "service status"]),
+        "event_drift": _has_term(q, ["score", "weather", "forecast", "traffic", "election results"]),
     }
 
     for key, hit in triggers.items():
@@ -81,6 +87,9 @@ def _domain(url: str) -> str:
 
 
 def _search_web(query: str, timeout_s: float = 3.2) -> List[Dict[str, Any]]:
+    # Privacy: this sends the raw text to a third party outside the egress
+    # policy. It only runs when NEXUS_WORLD_GROUNDING_ENABLED is explicitly on;
+    # live research goes through L2 (/browser) under outbound_egress instead.
     # Avoid recursive calls back into /browser/search from within Nexus request handling.
     # Directly query DuckDuckGo lite HTML and parse top links.
     headers = {
