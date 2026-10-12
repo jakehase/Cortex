@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "clawd.worker_launch.default.v2",
+  "executionPlane": {
+    "host": "jake@37.27.129.239",
+    "codexBin": "/home/jake/.local/bin/codex",
+    "workspace": "/home/jake/clawd-remote"
+  },
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "xhigh",
+  "serviceTierPolicy": "provider_default_no_override",
+  "sandbox": "workspace-write",
+  "timeoutsMs": {
+    "transport": 15000,
+    "provider": 180000
+  },
+  "truthBoundary": "A successful preflight proves transport, executable, workspace, and provider authentication only. Worker completion additionally requires one ordered provider turn, a final agent result, observed token usage, and an integrity-bound persisted result/handoff pair. The default service tier is not requested, transmitted, or claimed as provider-confirmed."
+}

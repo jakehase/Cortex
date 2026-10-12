@@ -16,7 +16,7 @@ const defaultConfigPath = path.join(root, 'config/worker-launch/default.json');
 const schemaVersion = 'clawd.codex_worker_launch.v2';
 const supportedModels = new Set(['gpt-5.6-sol']);
 const supportedSandboxes = new Set(['read-only', 'workspace-write']);
-const supportedReasoningEfforts = new Set(['ultra']);
+const supportedReasoningEfforts = new Set(['xhigh', 'ultra']);
 
 function parseArgs(argv) {
   const parsed = { _: [] };
@@ -257,15 +257,16 @@ codex_bin="$1"
 workspace="$2"
 model="$3"
 sandbox="$4"
-prompt_b64="$5"
+reasoning_effort="$5"
+prompt_b64="$6"
 cd "$workspace" || exit 42
 prompt="$(printf '%s' "$prompt_b64" | base64 -d)" || exit 45
-exec "$codex_bin" exec --json --skip-git-repo-check --sandbox "$sandbox" --model "$model" -c 'model_reasoning_effort="ultra"' "$prompt"
+exec "$codex_bin" exec --json --skip-git-repo-check --sandbox "$sandbox" --model "$model" -c "model_reasoning_effort=\"$reasoning_effort\"" "$prompt"
 `;
   const startedAt = new Date().toISOString();
   const run = sshScript({
     host: options.host,
-    args: [options.codexBin, options.workspace, options.model, options.sandbox, promptBase64],
+    args: [options.codexBin, options.workspace, options.model, options.sandbox, options.reasoningEffort, promptBase64],
     script,
     timeoutMs: options.providerTimeoutMs
   });

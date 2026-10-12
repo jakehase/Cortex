@@ -55,7 +55,7 @@ esac
     schemaVersion: 'clawd.worker_launch.default.v2',
     executionPlane: { host: 'worker@example', codexBin: '/opt/codex', workspace: '/srv/work' },
     model: 'gpt-5.6-sol',
-    reasoningEffort: 'ultra',
+    reasoningEffort: 'xhigh',
     serviceTierPolicy: 'provider_default_no_override',
     sandbox: 'workspace-write',
     timeoutsMs: { transport: 1000, provider: 1000 },
@@ -106,7 +106,9 @@ test('accepts exactly one ordered result and binds the exact persisted result ar
   assert.match(handoff.sourceIdentity.launcherSha256, /^[a-f0-9]{64}$/);
   assert.equal(fs.statSync(fx.artifact).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(fx.root, 'result.completion-handoff.json')).mode & 0o777, 0o600);
-  assert.doesNotMatch(fs.readFileSync(fx.log, 'utf8'), /service[_-]?tier/i);
+  const sshArgs = fs.readFileSync(fx.log, 'utf8');
+  assert.doesNotMatch(sshArgs, /service[_-]?tier/i);
+  assert.match(sshArgs, /xhigh/);
 });
 
 test('rejects model and sandbox injection at admission before SSH transport', (context) => {
