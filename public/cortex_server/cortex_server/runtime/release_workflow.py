@@ -1934,19 +1934,25 @@ class ReleaseWorkflowStore:
         """
 
         process = release_opaque_identifier(process_id, field="process_id")
+        lock_target = self._rollback_lock_target(process)
+        # Re-entrancy must follow the physical lock namespace, not the logical
+        # process namespace. Bounded lock stripes intentionally alias multiple
+        # process IDs; nested acquisition of an already-owned stripe is still
+        # one transaction, while a different thread/process remains fenced by
+        # the kernel flock below.
+        lock_key = str(lock_target)
         depths = getattr(self._transaction_local, "depths", None)
         if depths is None:
             depths = {}
             self._transaction_local.depths = depths
-        if int(depths.get(process, 0) or 0) > 0:
-            depths[process] += 1
+        if int(depths.get(lock_key, 0) or 0) > 0:
+            depths[lock_key] += 1
             try:
                 yield
             finally:
-                depths[process] -= 1
+                depths[lock_key] -= 1
             return
 
-        lock_target = self._rollback_lock_target(process)
         durable_mkdir(lock_target.parent)
         if lock_target.parent.is_symlink():
             raise ValueError("release lock directory cannot be a symbolic link")
@@ -1976,11 +1982,11 @@ class ReleaseWorkflowStore:
                 fcntl.flock(handle.fileno(), flags)
             except BlockingIOError as exc:
                 raise RuntimeError(f"release transaction busy for {process}") from exc
-            depths[process] = 1
+            depths[lock_key] = 1
             try:
                 yield
             finally:
-                depths.pop(process, None)
+                depths.pop(lock_key, None)
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @contextmanager

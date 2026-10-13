@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import stat
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -90,6 +91,46 @@ def test_release_lock_namespace_is_bounded_and_cleans_legacy_locks(tmp_path):
     locks = list((root / ".release-locks").glob("*.lock"))
     assert 1 <= len(locks) <= release_workflow.MAX_RELEASE_LOCK_STRIPES
     assert all(lock.is_file() and not lock.is_symlink() for lock in locks)
+
+
+def test_colliding_release_lock_stripes_reenter_without_admitting_a_contender(tmp_path):
+    root = tmp_path / "runtime_delivery" / "release_workflow"
+    store = ReleaseWorkflowStore(root)
+    process_by_lock = {}
+    collision = None
+    for index in range(release_workflow.MAX_RELEASE_LOCK_STRIPES + 1):
+        process_id = f"striped-process-{index}"
+        lock_target = store._rollback_lock_target(process_id)
+        if lock_target in process_by_lock:
+            collision = (process_by_lock[lock_target], process_id, lock_target)
+            break
+        process_by_lock[lock_target] = process_id
+
+    assert collision is not None
+    first_process, second_process, shared_lock = collision
+    contender_result = []
+
+    def contend():
+        contender = ReleaseWorkflowStore(root)
+        try:
+            with contender.release_transaction(second_process, nonblocking=True):
+                contender_result.append("acquired")
+        except RuntimeError as exc:
+            contender_result.append(str(exc))
+
+    with store.release_transaction(first_process):
+        with store.release_transaction(second_process, nonblocking=True):
+            thread = threading.Thread(target=contend)
+            thread.start()
+            thread.join(timeout=1)
+            assert not thread.is_alive()
+            assert contender_result == [
+                f"release transaction busy for {second_process}"
+            ]
+            assert list(shared_lock.parent.glob("*.lock")) == [shared_lock]
+
+    with store.release_transaction(second_process, nonblocking=True):
+        pass
 
 
 def _directory_for_fd(fd: int) -> tuple[int, int]:
