@@ -441,7 +441,20 @@ async def probe_route(
             # handler expects the (normally middleware-provided) stack under.
             scope["fastapi_astack"] = stack
             scope["fastapi_middleware_astack"] = stack
-            await route.handle(scope, receive, send)
+            route_handle = getattr(route, "handle", None)
+            if callable(route_handle):
+                await route_handle(scope, receive, send)
+                return
+            # FastAPI 0.143+ expands deferred ``include_router`` entries as
+            # _EffectiveRouteContext values.  They intentionally expose the
+            # fully constructed ASGI application but no Starlette ``handle``
+            # method.  Dispatch that effective application directly so the
+            # exact dependencies and response serialisation selected by the
+            # owning FastAPI app still run in process.
+            route_app = getattr(route, "app", None)
+            if not callable(route_app):
+                raise RuntimeError("matched route has no ASGI dispatch surface")
+            await route_app(scope, receive, send)
 
     outcome_error: Optional[str] = None
     token = _IN_PROBE.set(True)

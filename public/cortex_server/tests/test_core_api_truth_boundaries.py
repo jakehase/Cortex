@@ -16,6 +16,7 @@ from cortex_server.capability_manifest import (
 )
 from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.models.api_contracts import NexusOrchestrationResponse
+from cortex_server.modules.route_inventory import iter_effective_routes
 
 
 # Unsafe routers that safe mode loads partially (declared safe_mode_routes only).
@@ -117,7 +118,7 @@ def test_safe_mode_manifest_explicitly_deny_loads_action_routers(monkeypatch):
     assert not (set(report["loaded"]) & (EXPECTED_UNSAFE_ROUTERS - partial))
     mounted = {
         (method, getattr(route, "path", ""))
-        for route in app.routes
+        for route in iter_effective_routes(app.routes)
         for method in (getattr(route, "methods", None) or ())
     }
     for name in partial:
