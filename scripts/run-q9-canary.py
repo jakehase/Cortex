@@ -94,6 +94,56 @@ def atomic_json(path: Path, payload: dict, mode: int = 0o644) -> None:
     os.replace(temporary, path)
 
 
+def browser_status_is_public_redacted(payload: dict) -> bool:
+    """Validate the canonical public-redacted Ghost status contract."""
+
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("level") != 2 or payload.get("name") != "Ghost (Browser)":
+        return False
+    if payload.get("engine") != "pinned_http_broker":
+        return False
+    if payload.get("mode") not in {"read_only_safe_mode", "full_router"}:
+        return False
+    if payload.get("status") not in {"active", "degraded", "unavailable"}:
+        return False
+    for key in (
+        "capabilities",
+        "restricted_capabilities",
+        "unmounted_capabilities",
+        "mounted_routes",
+    ):
+        if not isinstance(payload.get(key), list):
+            return False
+    if "/browser/status" not in payload["mounted_routes"]:
+        return False
+    egress = payload.get("egress")
+    if not isinstance(egress, dict) or "allowed_hosts" in egress:
+        return False
+
+    def exposes_secret(value) -> bool:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized = str(key).strip().lower()
+                if normalized in {
+                    "token",
+                    "secret",
+                    "password",
+                    "credential",
+                    "credentials",
+                    "api_key",
+                    "private_key",
+                }:
+                    return True
+                if exposes_secret(nested):
+                    return True
+        elif isinstance(value, list):
+            return any(exposes_secret(item) for item in value)
+        return False
+
+    return not exposes_secret(payload)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
@@ -208,8 +258,8 @@ def main() -> None:
         "X-Cortex-Admin-Token": environment["CORTEX_ADMIN_TOKEN"],
         "X-Cortex-Write-Token": environment["CORTEX_WRITE_TOKEN"],
     }
-    browser = request_json(args.base_url, "/browser/status", headers=admin_headers, expected=404)
-    check("safe_mode_router_absent", browser.get("detail") == "Not Found")
+    browser = request_json(args.base_url, "/browser/status", headers=admin_headers, expected=200)
+    check("browser_status_public_redacted", browser_status_is_public_redacted(browser))
 
     gateway = subprocess.run(
         ["/usr/bin/openclaw", "gateway", "status"],

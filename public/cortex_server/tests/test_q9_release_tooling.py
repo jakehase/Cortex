@@ -20,6 +20,12 @@ assert DEPLOY_SPEC and DEPLOY_SPEC.loader
 deploy_q9 = importlib.util.module_from_spec(DEPLOY_SPEC)
 DEPLOY_SPEC.loader.exec_module(deploy_q9)
 
+CANARY = SOURCE_ROOT / "scripts/run-q9-canary.py"
+CANARY_SPEC = importlib.util.spec_from_file_location("run_q9_canary", CANARY)
+assert CANARY_SPEC and CANARY_SPEC.loader
+run_q9_canary = importlib.util.module_from_spec(CANARY_SPEC)
+CANARY_SPEC.loader.exec_module(run_q9_canary)
+
 
 def _run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=False)
@@ -405,3 +411,39 @@ def test_release_supervisor_derives_a_terminal_blocker_from_matrix_and_missing_r
     assert next(row for row in report["surfaces"] if row["id"] == "BROWSER-1")["outcome"] == "green"
     assert next(row for row in report["surfaces"] if row["id"] == "PROV-1")["outcome"] == "red"
     assert report["checks"]["releaseEnvelopeIntegrity"]["outcome"] == "green"
+
+
+def test_q9_canary_accepts_only_safe_public_browser_status_contract():
+    payload = {
+        "success": True,
+        "available": True,
+        "level": 2,
+        "name": "Ghost (Browser)",
+        "status": "active",
+        "mode": "read_only_safe_mode",
+        "capabilities": ["web_search", "web_browse"],
+        "restricted_capabilities": ["screenshot"],
+        "unmounted_capabilities": ["screenshot"],
+        "mounted_routes": ["/browser/search", "/browser/browse", "/browser/status"],
+        "egress": {
+            "mode": "public_read",
+            "allowed_hosts_count": 0,
+            "public_read_enabled": True,
+        },
+        "honesty": "Capabilities reflect mounted routes and policy.",
+        "engine": "pinned_http_broker",
+    }
+
+    assert run_q9_canary.browser_status_is_public_redacted(payload) is True
+
+    leaked = dict(payload)
+    leaked["egress"] = {**payload["egress"], "allowed_hosts": ["internal.example"]}
+    assert run_q9_canary.browser_status_is_public_redacted(leaked) is False
+
+    secret = dict(payload)
+    secret["debug"] = {"token": "must-not-leak"}
+    assert run_q9_canary.browser_status_is_public_redacted(secret) is False
+
+    missing_route = dict(payload)
+    missing_route["mounted_routes"] = ["/browser/search", "/browser/browse"]
+    assert run_q9_canary.browser_status_is_public_redacted(missing_route) is False
