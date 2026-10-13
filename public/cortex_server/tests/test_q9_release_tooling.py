@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -234,6 +235,53 @@ def test_cortex_service_proc_hardening_preserves_onnx_cpu_discovery():
     assert "ProtectProc=invisible" in unit
     assert "ProcSubset=all" in unit
     assert "ProcSubset=pid" not in unit
+
+
+def test_gateway_restart_reloads_user_systemd_after_validation_before_restart(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+
+    monkeypatch.setattr(deploy_q9, "run", fake_run)
+    monkeypatch.setattr(
+        deploy_q9.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="Connectivity probe: ok\n",
+            stderr="",
+        ),
+    )
+
+    deploy_q9.restart_gateway()
+
+    assert calls == [
+        ["/usr/bin/openclaw", "config", "validate"],
+        ["systemctl", "--user", "daemon-reload"],
+        ["/usr/bin/openclaw", "gateway", "restart"],
+    ]
+
+    calls.clear()
+
+    def fail_daemon_reload(command, **_kwargs):
+        calls.append(command)
+        if command == ["systemctl", "--user", "daemon-reload"]:
+            raise RuntimeError("daemon reload failed")
+
+    monkeypatch.setattr(deploy_q9, "run", fail_daemon_reload)
+
+    try:
+        deploy_q9.restart_gateway()
+    except RuntimeError as exc:
+        assert str(exc) == "daemon reload failed"
+    else:
+        raise AssertionError("daemon-reload failure must abort gateway restart")
+
+    assert calls == [
+        ["/usr/bin/openclaw", "config", "validate"],
+        ["systemctl", "--user", "daemon-reload"],
+    ]
 
 
 def test_release_supervisor_derives_a_terminal_blocker_from_matrix_and_missing_receipts(tmp_path, monkeypatch):

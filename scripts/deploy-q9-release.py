@@ -386,6 +386,12 @@ def gateway_environment() -> dict[str, str]:
 def restart_gateway(timeout_seconds: int = 120) -> None:
     environment = gateway_environment()
     run(["/usr/bin/openclaw", "config", "validate"], env=environment, timeout=60)
+    # The release transaction can replace gateway unit/drop-in files after the
+    # outer deployment preflight has already reloaded systemd. Reload the user
+    # manager at the point of activation so the following restart always uses
+    # the files that are currently on disk. A reload failure is fatal and is
+    # handled by the caller's existing rollback path.
+    run(["systemctl", "--user", "daemon-reload"], env=environment, timeout=30)
     run(["/usr/bin/openclaw", "gateway", "restart"], env=environment, timeout=90)
     deadline = time.monotonic() + timeout_seconds
     last = "not attempted"
