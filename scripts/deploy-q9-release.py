@@ -23,6 +23,9 @@ LOCK_PATH = Path("/run/cortex-q9-deploy.lock")
 LIVE_ENV = Path("/etc/cortex/cortex.env")
 LIVE_ORACLE_HELPER_ENV = Path("/etc/cortex/oracle-helper.env")
 LIVE_OPENCLAW_CONFIG = Path("/root/.openclaw/openclaw.json")
+OPENCLAW_RUNTIME_STATE = Path("/opt/openclaw-preastra-restore/2026.7.1-2/state")
+OPENCLAW_MAIN_AGENT_DIR = OPENCLAW_RUNTIME_STATE / "agents/main/agent"
+OPENCLAW_MAIN_AGENT_STORE = OPENCLAW_MAIN_AGENT_DIR / "openclaw-agent.sqlite"
 LIVE_UNITS = {
     "cortex.service": Path("/etc/systemd/system/cortex.service"),
     "cortex-oracle-executor.service": Path("/etc/systemd/system/cortex-oracle-executor.service"),
@@ -263,6 +266,96 @@ def validate_oracle_helper_environment(path: Path = LIVE_ORACLE_HELPER_ENV) -> d
     return values
 
 
+def validate_oracle_openclaw_auth(*, expected_uid: int = 0, expected_gid: int = 0) -> dict:
+    """Prove the exact profile mounted into the helper can resolve approved OAuth.
+
+    The command output is parsed in memory and never copied into deployment
+    logs because model status includes account labels. The returned receipt is
+    deliberately metadata-only.
+    """
+    if OPENCLAW_MAIN_AGENT_DIR.is_symlink() or not OPENCLAW_MAIN_AGENT_DIR.is_dir():
+        raise RuntimeError("Oracle helper OAuth source is not a regular directory")
+    directory_info = OPENCLAW_MAIN_AGENT_DIR.stat()
+    if (
+        directory_info.st_uid != expected_uid
+        or directory_info.st_gid != expected_gid
+        or stat.S_IMODE(directory_info.st_mode) & 0o077
+    ):
+        raise RuntimeError("Oracle helper OAuth source has unsafe owner or group/other access")
+    if OPENCLAW_MAIN_AGENT_STORE.is_symlink() or not OPENCLAW_MAIN_AGENT_STORE.is_file():
+        raise RuntimeError("Oracle helper OAuth store is not a regular file")
+    store_info = OPENCLAW_MAIN_AGENT_STORE.stat()
+    if (
+        store_info.st_uid != expected_uid
+        or store_info.st_gid != expected_gid
+        or stat.S_IMODE(store_info.st_mode) != 0o600
+    ):
+        raise RuntimeError("Oracle helper OAuth store has unsafe owner or mode")
+
+    environment = {
+        **os.environ,
+        "HOME": "/root",
+        "OPENCLAW_STATE_DIR": str(OPENCLAW_RUNTIME_STATE),
+        "OPENCLAW_CONFIG_PATH": str(LIVE_OPENCLAW_CONFIG),
+    }
+    result = subprocess.run(
+        ["/usr/bin/openclaw", "models", "status", "--agent", "oracle", "--json"],
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    raw = (result.stdout or "").encode("utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Oracle helper OAuth status failed; "
+            f"returncode={result.returncode}; output_sha256={hashlib.sha256(raw).hexdigest()}"
+        )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Oracle helper OAuth status was not JSON; output_sha256={hashlib.sha256(raw).hexdigest()}"
+        ) from exc
+    auth = payload.get("auth") if isinstance(payload, dict) else None
+    providers = auth.get("providers") if isinstance(auth, dict) else None
+    openai = next(
+        (row for row in providers or [] if isinstance(row, dict) and row.get("provider") == "openai"),
+        None,
+    )
+    effective = openai.get("effective") if isinstance(openai, dict) else None
+    profiles = openai.get("profiles") if isinstance(openai, dict) else None
+    oauth = auth.get("oauth") if isinstance(auth, dict) else None
+    oauth_providers = oauth.get("providers") if isinstance(oauth, dict) else None
+    oauth_openai = next(
+        (row for row in oauth_providers or [] if isinstance(row, dict) and row.get("provider") == "openai"),
+        None,
+    )
+    if (
+        not isinstance(effective, dict)
+        or effective.get("kind") != "profiles"
+        or effective.get("detail") != str(OPENCLAW_MAIN_AGENT_STORE)
+        or not isinstance(profiles, dict)
+        or int(profiles.get("oauth") or 0) < 1
+        or not isinstance(oauth_openai, dict)
+        or oauth_openai.get("status") != "ok"
+    ):
+        raise RuntimeError("Oracle helper could not resolve approved OpenAI OAuth from the mounted profile")
+    return {
+        "schemaVersion": "cortex.oracle-auth-preflight.v1",
+        "outcome": "green",
+        "observedAt": now(),
+        "agentId": "oracle",
+        "provider": "openai",
+        "authType": "oauth",
+        "status": "ok",
+        "profileCount": int(profiles.get("oauth") or 0),
+        "stateDir": str(OPENCLAW_RUNTIME_STATE),
+        "authStorePath": str(OPENCLAW_MAIN_AGENT_STORE),
+    }
+
+
 def install_file(source: Path, target: Path, *, mode: int, uid: int = 0, gid: int = 0) -> None:
     if source.is_symlink() or not source.is_file():
         raise RuntimeError(f"unsafe install source: {source}")
@@ -362,6 +455,7 @@ def wait_oracle_helper(timeout_seconds: int = 60) -> dict:
                 and payload.get("authPolicy") == "pmhnp_oauth_approved_2026-09-25"
                 and payload.get("serviceTierPolicy") == "provider_default_no_override"
                 and payload.get("requestAuthentication") == "required"
+                and payload.get("openclawStatePolicy") == "service_owned_with_mounted_main_oauth"
             ):
                 return payload
             last = "policy mismatch"
@@ -621,6 +715,8 @@ def activate(contract: dict, artifact_root: Path, *, redeploy: bool = False) -> 
     if os.geteuid() != 0:
         raise RuntimeError("q9 activation requires root")
     release, envelope, environment = prepare_release(contract, artifact_root)
+    oracle_auth_preflight = validate_oracle_openclaw_auth()
+    atomic_json(artifact_root / "oracle-auth-preflight.json", oracle_auth_preflight, mode=0o600)
     if not (artifact_root / "preimage.json").exists():
         build_preimage(artifact_root, contract)
     set_state(artifact_root, "running", "activate_q9")

@@ -602,9 +602,17 @@ function tailIntentText(prompt: string): string {
 }
 function isInternalOracleSession(sessionKey: string): boolean {
   const key = String(sessionKey || '').trim().toLowerCase();
-  return key.startsWith('oracle-prod-bridge-short-')
-    || key.startsWith('oracle-prod-bridge-general-')
-    || key.startsWith('oracle-gateway-');
+  // Embedded named-agent runs normalize --session-id to
+  // agent:oracle:explicit:<session-id>. Accept that runtime-owned envelope as
+  // well as the legacy bare form; never infer trust from prompt text.
+  const normalized = key.startsWith('agent:oracle:explicit:')
+    ? key.slice('agent:oracle:explicit:'.length)
+    : key.startsWith('agent:oracle:')
+      ? key.slice('agent:oracle:'.length)
+      : key;
+  return normalized.startsWith('oracle-prod-bridge-short-')
+    || normalized.startsWith('oracle-prod-bridge-general-')
+    || normalized.startsWith('oracle-gateway-');
 }
 function shouldBypassRouteGate(sessionKey?: string): boolean {
   return isInternalOracleSession(String(sessionKey || ''));

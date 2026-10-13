@@ -10,6 +10,9 @@ ROOT = pathlib.Path(__file__).resolve().parent
 
 
 def load_module(path: pathlib.Path, env: dict[str, str]):
+    env = dict(env)
+    if path == ROOT / 'oracle_executor.py':
+        env.setdefault('OPENCLAW_STATE_DIR', '/var/lib/cortex-oracle/openclaw-state')
     previous = {key: os.environ.get(key) for key in env}
     try:
         for key, value in env.items():
@@ -63,6 +66,15 @@ class OracleExecutorSessionTests(unittest.TestCase):
     def test_local_executor_sticky_mode_is_bucketed(self):
         self.check_sticky_bucketed(ROOT / 'oracle_executor.py', 'oracle-gateway')
 
+    def test_local_executor_requires_service_owned_openclaw_state(self):
+        mod = load_module(ROOT / 'oracle_executor.py', {})
+        self.assertEqual(mod.OPENCLAW_STATE_DIR, '/var/lib/cortex-oracle/openclaw-state')
+        self.assertEqual(mod.health()['openclawStatePolicy'], 'service_owned_with_mounted_main_oauth')
+        with self.assertRaisesRegex(RuntimeError, 'must remain service-owned'):
+            load_module(ROOT / 'oracle_executor.py', {
+                'OPENCLAW_STATE_DIR': '/opt/openclaw-preastra-restore/2026.7.1-2/state',
+            })
+
     def test_ct101_executor_sticky_mode_is_bucketed(self):
         self.check_sticky_bucketed(ROOT / 'cortex-vm' / 'oracle_executor.py', 'oracle-prod-bridge')
 
@@ -77,7 +89,11 @@ class OracleExecutorSessionTests(unittest.TestCase):
                 'ORACLE_EXECUTOR_SESSION_RETENTION_DAYS': '2',
                 'ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS': '60',
             })
-            entries = [('oracle-gateway-general-old.jsonl', now - 10 * 86400), ('other-session.jsonl', now - 10)]
+            entries = [
+                ('oracle-gateway-general-old.jsonl', now - 10 * 86400),
+                ('oracle-gateway-general-old.trajectory-path.json', now - 10 * 86400),
+                ('other-session.jsonl', now - 10),
+            ]
             for idx in range(22):
                 entries.append((f'oracle-gateway-short-{idx:02d}.jsonl', now - idx))
             for name, mtime in entries:
@@ -88,6 +104,7 @@ class OracleExecutorSessionTests(unittest.TestCase):
             removed = mod._prune_local_sessions(now=now, session_dir=tmp)
 
             self.assertIn('oracle-gateway-general-old.jsonl', removed)
+            self.assertIn('oracle-gateway-general-old.trajectory-path.json', removed)
             self.assertIn('oracle-gateway-short-20.jsonl', removed)
             self.assertIn('oracle-gateway-short-21.jsonl', removed)
             self.assertTrue((pathlib.Path(tmp) / 'oracle-gateway-short-00.jsonl').exists())
@@ -98,13 +115,13 @@ class OracleExecutorSessionTests(unittest.TestCase):
         mod = load_module(ROOT / 'cortex-vm' / 'oracle_executor.py', {
             'ORACLE_EXECUTOR_SESSION_ID': 'oracle-prod-bridge',
             'ORACLE_EXECUTOR_SESSION_MODE': 'ephemeral',
-            'ORACLE_EXECUTOR_REMOTE_SESSION_DIR': '/root/.openclaw/agents/main/sessions',
+            'ORACLE_EXECUTOR_REMOTE_SESSION_DIR': '/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/sessions',
             'ORACLE_EXECUTOR_SESSION_RETENTION_COUNT': '123',
             'ORACLE_EXECUTOR_SESSION_RETENTION_DAYS': '4',
         })
         cmd = mod._build_remote_cleanup_cmd(now=1_700_000_000)
         self.assertIn('oracle-prod-bridge-', cmd)
-        self.assertIn('/root/.openclaw/agents/main/sessions', cmd)
+        self.assertIn('/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/sessions', cmd)
         self.assertIn('123', cmd)
 
     def test_reset_session_key_defaults_to_agent_main(self):

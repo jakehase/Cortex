@@ -54,6 +54,7 @@
         "/var/lib/cortex-oracle",
         "/var/log/cortex-oracle",
         "/run/cortex-oracle",
+        "/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/agent",
         "/root/.openclaw"
       ]
     }
@@ -96,9 +97,8 @@
     {"path": "/var/lib/cortex", "purpose": "Cortex databases, structured state, attestations, release-controller state and Chroma"},
     {"path": "/var/log/cortex", "purpose": "runtime logs"},
     {"path": "/run/cortex", "purpose": "ephemeral runtime coordination"},
-    {"path": "/root/.openclaw/agents/oracle/sessions", "purpose": "Oracle-only session state", "ownerUnit": "cortex-oracle-executor.service"},
-    {"path": "/root/.openclaw/agents/oracle/agent", "purpose": "Oracle-only auth profile", "ownerUnit": "cortex-oracle-executor.service"},
-    {"path": "/var/lib/cortex-oracle", "purpose": "Oracle helper state"},
+    {"path": "/var/lib/cortex-oracle", "purpose": "Oracle helper-owned OpenClaw lifecycle, plugin and ephemeral session state", "ownerUnit": "cortex-oracle-executor.service"},
+    {"path": "/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/agent", "purpose": "Approved OpenAI OAuth profile store mounted into the helper without main-agent sessions", "ownerUnit": "openclaw-gateway.service", "sharedWith": "cortex-oracle-executor.service"},
     {"path": "/var/log/cortex-oracle", "purpose": "Oracle helper logs"},
     {"path": "/run/cortex-oracle", "purpose": "Oracle helper runtime coordination"},
     {"path": "/var/lib/cortex-health-watchdog", "purpose": "watchdog state"}

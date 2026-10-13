@@ -29,7 +29,10 @@ const helperUnit = read('ops/systemd/cortex-oracle-executor.service');
 assert.match(helperUnit, /--host 127\.0\.0\.1 --port 18999/);
 assert.match(helperUnit, /^CapabilityBoundingSet=$/m);
 assert.match(helperUnit, /^ProtectHome=tmpfs$/m);
-assert.match(helperUnit, /^BindPaths=\/root\/\.openclaw\/agents\/oracle\/sessions \/root\/\.openclaw\/agents\/oracle\/agent$/m);
+assert.match(helperUnit, /^Environment=OPENCLAW_STATE_DIR=\/var\/lib\/cortex-oracle\/openclaw-state$/m);
+assert.match(helperUnit, /^Environment=ORACLE_EXECUTOR_SESSION_DIR=\/var\/lib\/cortex-oracle\/openclaw-state\/agents\/oracle\/sessions$/m);
+assert.match(helperUnit, /^BindPaths=\/opt\/openclaw-preastra-restore\/2026\.7\.1-2\/state\/agents\/main\/agent:\/var\/lib\/cortex-oracle\/openclaw-state\/agents\/main\/agent$/m);
+assert.match(helperUnit, /^InaccessiblePaths=.*\/opt\/openclaw-preastra-restore\/2026\.7\.1-2\/state$/m);
 assert.doesNotMatch(helperUnit, /^ReadWritePaths=.*\/root\/\.openclaw(?:\s|$)/m);
 
 const environmentContract = JSON.parse(read('ops/config/cortex-env.schema.json'));
@@ -63,8 +66,9 @@ assert.match(read('deploy/openclaw-policy/TOOLS.md'), /untrusted data/);
 
 focused(process.execPath, [
   '--test',
-  '--test-name-pattern=attachment content is marked untrusted',
+  '--test-name-pattern=attachment content is marked untrusted|internal oracle bridge sessions bypass route injection entirely',
   'plugins/cortex-route-gate/context-integrity.test.mjs',
+  'plugins/cortex-route-gate/creativity-governor.test.mjs',
 ]);
 focused(process.execPath, [
   '--test',
@@ -75,9 +79,15 @@ const python = process.env.CORTEX_PYTHON;
 assert.ok(python, 'CORTEX_PYTHON must preserve the integration runner interpreter');
 focused(python, [
   '-m', 'unittest',
+  'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_requires_service_owned_openclaw_state',
+  'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_cleanup_prunes_old_and_excess_sessions',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_executors_default_to_xhigh_and_reject_downgrades',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_invocations_pass_xhigh_to_openclaw',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_executors_require_auth_and_sign_bound_receipts',
+]);
+focused(python, [
+  '-m', 'pytest', '-q',
+  'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_auth_preflight_binds_only_approved_runtime_profile',
 ]);
 
 process.stdout.write('PASS cortex security/policy smoke: least privilege, canonical policy, signed Oracle helper, and attachment gate\n');

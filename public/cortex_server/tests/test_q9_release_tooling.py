@@ -257,6 +257,55 @@ def test_cortex_service_owns_nexus_state_outside_legacy_clawdbot_root():
     assert 'Path(_nexus_state_default("nexus_principals"))' in nexus
 
 
+def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, monkeypatch):
+    runtime_state = tmp_path / "state"
+    main_agent = runtime_state / "agents/main/agent"
+    main_agent.mkdir(parents=True, mode=0o700)
+    os.chmod(runtime_state, 0o700)
+    os.chmod(runtime_state / "agents", 0o700)
+    os.chmod(runtime_state / "agents/main", 0o700)
+    os.chmod(main_agent, 0o700)
+    store = main_agent / "openclaw-agent.sqlite"
+    store.write_bytes(b"test-store")
+    os.chmod(store, 0o600)
+
+    monkeypatch.setattr(deploy_q9, "OPENCLAW_RUNTIME_STATE", runtime_state)
+    monkeypatch.setattr(deploy_q9, "OPENCLAW_MAIN_AGENT_DIR", main_agent)
+    monkeypatch.setattr(deploy_q9, "OPENCLAW_MAIN_AGENT_STORE", store)
+    monkeypatch.setattr(
+        deploy_q9.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "auth": {
+                        "providers": [
+                            {
+                                "provider": "openai",
+                                "effective": {"kind": "profiles", "detail": str(store)},
+                                "profiles": {"oauth": 1},
+                            }
+                        ],
+                        "oauth": {"providers": [{"provider": "openai", "status": "ok"}]},
+                    }
+                }
+            ),
+            stderr="",
+        ),
+    )
+
+    receipt = deploy_q9.validate_oracle_openclaw_auth(
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+    )
+
+    assert receipt["outcome"] == "green"
+    assert receipt["authType"] == "oauth"
+    assert receipt["authStorePath"] == str(store)
+    assert "token" not in json.dumps(receipt).lower()
+
+
 def test_gateway_restart_reloads_user_systemd_after_validation_before_restart(monkeypatch):
     calls: list[list[str]] = []
 

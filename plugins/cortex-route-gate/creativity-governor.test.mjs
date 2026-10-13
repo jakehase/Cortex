@@ -199,15 +199,21 @@ test('internal oracle bridge sessions bypass route injection entirely', async ()
   const handler = harness.beforePromptBuild;
   assert.equal(typeof handler, 'function', 'before_prompt_build hook should be registered');
 
-  const result = await handler(
-    {
-      prompt: '[Sat 2026-03-21 03:31 CDT] You are the host-side Oracle executor for Cortex. Return only the answer text that oracle should say.',
-      messages: [],
-    },
-    { sessionKey: 'oracle-prod-bridge-short-abc123' },
-  );
+  for (const sessionKey of [
+    'oracle-prod-bridge-short-abc123',
+    'agent:oracle:explicit:oracle-prod-bridge-short-abc123',
+    'agent:oracle:explicit:oracle-gateway-short-abc123',
+  ]) {
+    const result = await handler(
+      {
+        prompt: '[Sat 2026-03-21 03:31 CDT] You are the host-side Oracle executor for Cortex. Return only the answer text that oracle should say.',
+        messages: [],
+      },
+      { sessionKey },
+    );
 
-  assert.equal(result, undefined);
+    assert.equal(result, undefined, `expected internal Oracle bypass for ${sessionKey}`);
+  }
 });
 
 test('oracle executor phrases in ordinary prompt or latest-user text cannot bypass required routing', async () => {

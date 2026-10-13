@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import subprocess, uuid, os, json, hashlib, hmac, re, math, time
+import logging
 from datetime import datetime, timezone
 
 app = FastAPI()
+LOGGER = logging.getLogger("cortex.oracle_executor")
 WORKDIR = os.getenv("ORACLE_EXECUTOR_WORKDIR", "/root/clawd/deploy/oracle-workspace-lite")
 OPENCLAW = os.getenv("OPENCLAW_BIN", "openclaw")
 TIMEOUT = int(os.getenv("ORACLE_EXECUTOR_TIMEOUT", "60"))
@@ -24,10 +26,18 @@ if SERVICE_TIER_POLICY != "provider_default_no_override":
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
+OPENCLAW_STATE_DIR = os.path.abspath(
+    os.getenv("OPENCLAW_STATE_DIR", "/var/lib/cortex-oracle/openclaw-state")
+)
+if OPENCLAW_STATE_DIR != "/var/lib/cortex-oracle/openclaw-state":
+    raise RuntimeError("OPENCLAW_STATE_DIR must remain service-owned for the Oracle executor")
 SESSION_ID = os.getenv("ORACLE_EXECUTOR_SESSION_ID", "oracle-gateway")
 SESSION_MODE = os.getenv("ORACLE_EXECUTOR_SESSION_MODE", "ephemeral").strip().lower() or "ephemeral"
 SESSION_BUCKET_MINUTES = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES", "60")))
-SESSION_DIR = os.getenv("ORACLE_EXECUTOR_SESSION_DIR", os.path.join(os.path.expanduser("~"), ".openclaw", "agents", "main", "sessions"))
+SESSION_DIR = os.getenv(
+    "ORACLE_EXECUTOR_SESSION_DIR",
+    "/var/lib/cortex-oracle/openclaw-state/agents/oracle/sessions",
+)
 SESSION_RETENTION_COUNT = max(20, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTION_COUNT", "300")))
 SESSION_RETENTION_DAYS = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTION_DAYS", "7")))
 SESSION_CLEANUP_INTERVAL_SECONDS = max(60, int(os.getenv("ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS", "1800")))
@@ -137,7 +147,7 @@ def _matching_session_entries(session_dir: str = SESSION_DIR):
     if not os.path.isdir(session_dir):
         return entries
     for name in os.listdir(session_dir):
-        if not name.startswith(prefix) or not name.endswith('.jsonl'):
+        if not name.startswith(prefix) or not name.endswith(('.jsonl', '.json', '.lock', '.tmp')):
             continue
         path = os.path.join(session_dir, name)
         try:
@@ -212,6 +222,7 @@ def health():
         "localExecution": LOCAL_EXECUTION,
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
+        "openclawStatePolicy": "service_owned_with_mounted_main_oauth",
         "sessionBase": SESSION_ID,
         "sessionMode": SESSION_MODE,
         "sessionBucketMinutes": SESSION_BUCKET_MINUTES,
@@ -256,7 +267,9 @@ def invoke(req: InvokeRequest):
         ]
         reset = subprocess.run(reset_cmd, cwd=WORKDIR, capture_output=True, text=True, timeout=30)
         if reset.returncode != 0:
-            raise HTTPException(status_code=503, detail=_process_failure_detail('failed to reset oracle session', reset))
+            detail = _process_failure_detail('failed to reset oracle session', reset)
+            LOGGER.error("oracle_reset_failed %s", detail)
+            raise HTTPException(status_code=503, detail=detail)
     cmd = [OPENCLAW, 'agent']
     if LOCAL_EXECUTION:
         cmd.append('--local')
@@ -275,9 +288,12 @@ def invoke(req: InvokeRequest):
     try:
         r = subprocess.run(cmd, cwd=WORKDIR, capture_output=True, text=True, timeout=TIMEOUT + 20)
     except subprocess.TimeoutExpired:
+        LOGGER.error("oracle_invoke_timeout timeout_seconds=%d", TIMEOUT + 20)
         raise HTTPException(status_code=504, detail='oracle executor timeout')
     if r.returncode != 0:
-        raise HTTPException(status_code=503, detail=_process_failure_detail('oracle executor failed', r))
+        detail = _process_failure_detail('oracle executor failed', r)
+        LOGGER.error("oracle_invoke_failed %s", detail)
+        raise HTTPException(status_code=503, detail=detail)
     try:
         data = _extract_json_payload('\n'.join(part for part in [r.stdout, r.stderr] if part))
         payloads = data.get('result', {}).get('payloads') or data.get('payloads') or []

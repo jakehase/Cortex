@@ -5,6 +5,7 @@ import os
 import json
 import hashlib
 import hmac
+import logging
 import re
 import uuid
 import math
@@ -12,6 +13,7 @@ import time
 from datetime import datetime, timezone
 
 app = FastAPI()
+LOGGER = logging.getLogger("cortex.oracle_executor")
 CT101_HOST = os.getenv("CT101_HOST", "10.0.0.220")
 CT101_USER = os.getenv("CT101_USER", "root")
 CT101_KEY = os.getenv("CT101_KEY", "/opt/cortex-oracle-bridge/ct101_exec_key")
@@ -37,7 +39,10 @@ RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f
 SESSION_ID = os.getenv("ORACLE_EXECUTOR_SESSION_ID", "oracle-prod-bridge")
 SESSION_MODE = os.getenv("ORACLE_EXECUTOR_SESSION_MODE", "ephemeral").strip().lower() or "ephemeral"
 SESSION_BUCKET_MINUTES = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES", "60")))
-REMOTE_SESSION_DIR = os.getenv("ORACLE_EXECUTOR_REMOTE_SESSION_DIR", f"/root/.openclaw/agents/{AGENT_ID}/sessions")
+REMOTE_SESSION_DIR = os.getenv(
+    "ORACLE_EXECUTOR_REMOTE_SESSION_DIR",
+    f"/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/{AGENT_ID}/sessions",
+)
 SESSION_RETENTION_COUNT = max(20, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTION_COUNT", "300")))
 SESSION_RETENTION_DAYS = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTION_DAYS", "7")))
 SESSION_CLEANUP_INTERVAL_SECONDS = max(60, int(os.getenv("ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS", "1800")))
@@ -150,7 +155,8 @@ def _build_remote_cleanup_cmd(now: float | None = None) -> str:
     cutoff = now - (SESSION_RETENTION_DAYS * 86400)
     script = (
         "import glob, os, time; "
-        f"paths=sorted(glob.glob({json.dumps(os.path.join(REMOTE_SESSION_DIR, _session_prefix() + '*.jsonl'))}), key=os.path.getmtime, reverse=True); "
+        f"paths=[p for p in glob.glob({json.dumps(os.path.join(REMOTE_SESSION_DIR, _session_prefix() + '*'))}) if p.endswith(('.jsonl','.json','.lock','.tmp'))]; "
+        "paths=sorted(paths, key=os.path.getmtime, reverse=True); "
         f"cutoff={cutoff!r}; keep={SESSION_RETENTION_COUNT}; removed=[]; "
         "for idx, path in enumerate(paths):\n"
         "    mtime = os.path.getmtime(path)\n"
@@ -289,10 +295,13 @@ def invoke(req: InvokeRequest):
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT + 20)
     except subprocess.TimeoutExpired:
+        LOGGER.error("oracle_invoke_timeout timeout_seconds=%d", TIMEOUT + 20)
         raise HTTPException(status_code=504, detail='oracle executor timeout')
 
     if r.returncode != 0:
-        raise HTTPException(status_code=503, detail=_process_failure_detail('oracle executor failed', r))
+        detail = _process_failure_detail('oracle executor failed', r)
+        LOGGER.error("oracle_invoke_failed %s", detail)
+        raise HTTPException(status_code=503, detail=detail)
 
     try:
         data = _extract_json_payload('\n'.join(part for part in [r.stdout, r.stderr] if part))

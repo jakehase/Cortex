@@ -8,13 +8,18 @@ Wants=network-online.target
 Type=simple
 # Root is retained only for the existing root-owned OpenClaw OAuth/profile
 # state. The capability set is empty and the home mount namespace exposes only
-# the Oracle workspace, config, session/auth paths, and service-owned state.
+# the Oracle workspace/config while helper lifecycle state is service-owned.
 User=root
 Group=root
 WorkingDirectory=/opt/cortex/current
 EnvironmentFile=/etc/cortex/oracle-helper.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# /usr/bin/openclaw otherwise selects the shared restored state tree. Keep
+# helper lifecycle/plugin/session state private while mounting only the
+# approved provider profile OpenClaw resolves through the main-agent fallback.
+Environment=OPENCLAW_STATE_DIR=/var/lib/cortex-oracle/openclaw-state
+Environment=OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json
 Environment=ORACLE_EXECUTOR_AGENT=oracle
 Environment=ORACLE_EXECUTOR_MODEL=gpt-5.6-sol
 Environment=ORACLE_EXECUTOR_THINKING=xhigh
@@ -23,7 +28,7 @@ Environment=ORACLE_EXECUTOR_SERVICE_TIER_POLICY=provider_default_no_override
 Environment=ORACLE_EXECUTOR_LOCAL=true
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
 Environment=ORACLE_EXECUTOR_SESSION_MODE=ephemeral
-Environment=ORACLE_EXECUTOR_SESSION_DIR=/root/.openclaw/agents/oracle/sessions
+Environment=ORACLE_EXECUTOR_SESSION_DIR=/var/lib/cortex-oracle/openclaw-state/agents/oracle/sessions
 Environment=ORACLE_EXECUTOR_WORKDIR=/root/clawd/deploy/oracle-workspace-lite
 ExecStart=/usr/bin/python3 -m uvicorn deploy.oracle_executor:app --host 127.0.0.1 --port 18999
 Restart=always
@@ -55,8 +60,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/opt/cortex/releases /etc/cortex
 ReadWritePaths=/var/lib/cortex-oracle /var/log/cortex-oracle /run/cortex-oracle
 BindReadOnlyPaths=/root/clawd/deploy/oracle-workspace-lite /root/.openclaw/openclaw.json
-BindPaths=/root/.openclaw/agents/oracle/sessions /root/.openclaw/agents/oracle/agent
-InaccessiblePaths=-/root/.ssh -/root/.aws -/root/.config/gh -/root/.kube -/opt/clawdbot
+# Keep OAuth refreshes coherent with the gateway without exposing main-agent
+# sessions or the rest of the shared OpenClaw state tree.
+BindPaths=/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/agent:/var/lib/cortex-oracle/openclaw-state/agents/main/agent
+InaccessiblePaths=-/root/.ssh -/root/.aws -/root/.config/gh -/root/.kube -/opt/clawdbot /opt/openclaw-preastra-restore/2026.7.1-2/state
 RuntimeDirectory=cortex-oracle
 RuntimeDirectoryMode=0700
 StateDirectory=cortex-oracle

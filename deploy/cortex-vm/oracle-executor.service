@@ -45,7 +45,7 @@ Environment=ORACLE_EXECUTOR_LOCAL=true
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION=false
 Environment=ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY=agent:oracle:main
 Environment=ORACLE_EXECUTOR_SESSION_ID=oracle-prod-bridge
-Environment=ORACLE_EXECUTOR_REMOTE_SESSION_DIR=/root/.openclaw/agents/oracle/sessions
+Environment=ORACLE_EXECUTOR_REMOTE_SESSION_DIR=/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/oracle/sessions
 Environment=ORACLE_EXECUTOR_SESSION_MODE=ephemeral
 Environment=ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES=60
 Environment=ORACLE_EXECUTOR_SESSION_RETENTION_COUNT=300
