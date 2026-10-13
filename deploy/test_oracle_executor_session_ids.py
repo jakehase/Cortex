@@ -1,6 +1,8 @@
 import importlib.util
+import json
 import os
 import pathlib
+import shutil
 import tempfile
 import time
 import unittest
@@ -13,6 +15,10 @@ def load_module(path: pathlib.Path, env: dict[str, str]):
     env = dict(env)
     if path == ROOT / 'oracle_executor.py':
         env.setdefault('OPENCLAW_STATE_DIR', '/var/lib/cortex-oracle/openclaw-state')
+        env.setdefault(
+            'OPENCLAW_CONFIG_PATH',
+            '/opt/cortex/current/ops/config/oracle-openclaw.json',
+        )
     previous = {key: os.environ.get(key) for key in env}
     try:
         for key, value in env.items():
@@ -69,7 +75,12 @@ class OracleExecutorSessionTests(unittest.TestCase):
     def test_local_executor_requires_service_owned_openclaw_state(self):
         mod = load_module(ROOT / 'oracle_executor.py', {})
         self.assertEqual(mod.OPENCLAW_STATE_DIR, '/var/lib/cortex-oracle/openclaw-state')
+        self.assertEqual(
+            mod.OPENCLAW_CONFIG_PATH,
+            '/opt/cortex/current/ops/config/oracle-openclaw.json',
+        )
         self.assertEqual(mod.health()['openclawStatePolicy'], 'service_owned_with_mounted_main_oauth')
+        self.assertEqual(mod.health()['openclawConfigPolicy'], 'dedicated_immutable_oracle_only')
         with self.assertRaisesRegex(RuntimeError, 'must remain service-owned'):
             load_module(ROOT / 'oracle_executor.py', {
                 'OPENCLAW_STATE_DIR': '/opt/openclaw-preastra-restore/2026.7.1-2/state',
@@ -85,6 +96,89 @@ class OracleExecutorSessionTests(unittest.TestCase):
             load_module(ROOT / 'oracle_executor.py', {
                 'ORACLE_EXECUTOR_RESET_AGENT_SESSION': 'true',
             })
+
+    def test_local_executor_accepts_only_the_immutable_oracle_config(self):
+        mod = load_module(ROOT / 'oracle_executor.py', {})
+        with tempfile.TemporaryDirectory() as tmp:
+            source = ROOT.parent / 'ops' / 'config' / 'oracle-openclaw.json'
+            approved = pathlib.Path(tmp) / 'approved-oracle-openclaw.json'
+            shutil.copyfile(source, approved)
+            os.chmod(approved, 0o644)
+            receipt = mod.validate_oracle_openclaw_config(
+                approved,
+                expected_uid=os.getuid(),
+                expected_gid=os.getgid(),
+            )
+            self.assertEqual(receipt['policy'], 'dedicated_immutable_oracle_only')
+            self.assertEqual(receipt['sha256'], mod.OPENCLAW_CONFIG_SHA256)
+
+            broad = pathlib.Path(tmp) / 'oracle-openclaw.json'
+            payload = json.loads(approved.read_text())
+            payload['plugins']['load'] = {
+                'paths': ['/opt/openclaw-preastra-restore/2026.7.1-2/extensions/whatsapp'],
+            }
+            broad.write_text(json.dumps(payload) + '\n')
+            os.chmod(broad, 0o644)
+            with self.assertRaisesRegex(RuntimeError, 'approved immutable policy'):
+                mod.validate_oracle_openclaw_config(
+                    broad,
+                    expected_uid=os.getuid(),
+                    expected_gid=os.getgid(),
+                )
+
+    def test_local_health_endpoint_requires_namespace_auth_preflight(self):
+        token = 'smoke-helper-token-32-characters!!'
+        mod = load_module(ROOT / 'oracle_executor.py', {'ORACLE_BRIDGE_TOKEN': token})
+        mod.validate_oracle_openclaw_config = lambda: {
+            'policy': 'dedicated_immutable_oracle_only',
+            'sha256': mod.OPENCLAW_CONFIG_SHA256,
+            'path': mod.OPENCLAW_CONFIG_PATH,
+        }
+
+        class Request:
+            headers = {'x-bridge-token': token}
+
+        class FailedResult:
+            returncode = 1
+            stdout = 'account-secret-sentinel'
+            stderr = 'provider-secret-sentinel'
+
+        mod.subprocess.run = lambda *_args, **_kwargs: FailedResult()
+        with self.assertRaises(Exception) as failed:
+            mod.health_endpoint(Request())
+        self.assertEqual(getattr(failed.exception, 'status_code', None), 503)
+        detail = str(getattr(failed.exception, 'detail', ''))
+        self.assertNotIn('account-secret-sentinel', detail)
+        self.assertNotIn('provider-secret-sentinel', detail)
+
+        class GreenResult:
+            returncode = 0
+            stderr = ''
+            stdout = json.dumps({
+                'agentId': 'oracle',
+                'auth': {
+                    'providers': [{
+                        'provider': 'openai',
+                        'effective': {
+                            'kind': 'profiles',
+                            'detail': (
+                                '/var/lib/cortex-oracle/openclaw-state/'
+                                'agents/main/agent/openclaw-agent.sqlite'
+                            ),
+                        },
+                        'profiles': {'oauth': 1},
+                    }],
+                    'oauth': {'providers': [{'provider': 'openai', 'status': 'ok'}]},
+                },
+            })
+
+        mod._RUNTIME_PREFLIGHT = None
+        mod.subprocess.run = lambda *_args, **_kwargs: GreenResult()
+        payload = mod.health_endpoint(Request())
+        self.assertEqual(payload['openclawRuntimePreflight'], 'green')
+        self.assertEqual(payload['openclawConfigSha256'], mod.OPENCLAW_CONFIG_SHA256)
+        self.assertEqual(payload['openclawAuthType'], 'oauth')
+        self.assertEqual(payload['openclawOAuthProfileCount'], 1)
 
     def test_ct101_executor_sticky_mode_is_bucketed(self):
         self.check_sticky_bucketed(ROOT / 'cortex-vm' / 'oracle_executor.py', 'oracle-prod-bridge')

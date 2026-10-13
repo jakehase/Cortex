@@ -23,6 +23,10 @@ LOCK_PATH = Path("/run/cortex-q9-deploy.lock")
 LIVE_ENV = Path("/etc/cortex/cortex.env")
 LIVE_ORACLE_HELPER_ENV = Path("/etc/cortex/oracle-helper.env")
 LIVE_OPENCLAW_CONFIG = Path("/root/.openclaw/openclaw.json")
+ORACLE_OPENCLAW_CONFIG_RELATIVE = Path("ops/config/oracle-openclaw.json")
+PACKAGED_ORACLE_OPENCLAW_CONFIG = Path(__file__).resolve().parents[1] / ORACLE_OPENCLAW_CONFIG_RELATIVE
+ORACLE_OPENCLAW_CONFIG_POLICY = "dedicated_immutable_oracle_only"
+ORACLE_OPENCLAW_CONFIG_SHA256 = "b4722df66a893a41d1caeffe16a3cbac8b0d5db15b2da701718b89114abbdae4"
 OPENCLAW_RUNTIME_STATE = Path("/opt/openclaw-preastra-restore/2026.7.1-2/state")
 OPENCLAW_MAIN_AGENT_DIR = OPENCLAW_RUNTIME_STATE / "agents/main/agent"
 OPENCLAW_MAIN_AGENT_STORE = OPENCLAW_MAIN_AGENT_DIR / "openclaw-agent.sqlite"
@@ -52,6 +56,7 @@ MANAGED_START_ORDER = (
     "cortex-owner-memory-index.timer",
 )
 CURRENT_POINTER = Path("/opt/cortex/current")
+LIVE_ORACLE_OPENCLAW_CONFIG = CURRENT_POINTER / ORACLE_OPENCLAW_CONFIG_RELATIVE
 RELEASES_ROOT = Path("/opt/cortex/releases")
 ATTESTATIONS_ROOT = Path("/var/lib/cortex/attestations")
 RELEASE_SCHEMA = "cortex.release-envelope.v2"
@@ -281,13 +286,87 @@ def validate_oracle_helper_environment(
     return values
 
 
-def validate_oracle_openclaw_auth(*, expected_uid: int = 0, expected_gid: int = 0) -> dict:
+def validate_oracle_openclaw_config(
+    path: Path = PACKAGED_ORACLE_OPENCLAW_CONFIG,
+    *,
+    expected_uid: int = 0,
+    expected_gid: int = 0,
+) -> dict:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("Oracle OpenClaw config is not a regular non-symlink file")
+    info = path.stat()
+    if (
+        stat.S_IMODE(info.st_mode) != 0o644
+        or info.st_uid != expected_uid
+        or info.st_gid != expected_gid
+    ):
+        raise RuntimeError("Oracle OpenClaw config must have the approved owner and mode 0644")
+    observed_sha256 = sha256(path)
+    if observed_sha256 != ORACLE_OPENCLAW_CONFIG_SHA256:
+        raise RuntimeError("Oracle OpenClaw config does not match the approved immutable policy")
+    payload = load_json(path, label="Oracle OpenClaw config")
+    if set(payload) != {"agents", "auth", "meta", "models", "plugins", "tools"}:
+        raise RuntimeError("Oracle OpenClaw config has an invalid top-level surface")
+    if payload.get("auth") != {"order": {}, "profiles": {}}:
+        raise RuntimeError("Oracle OpenClaw config must not embed auth profiles")
+    plugins = payload.get("plugins")
+    if plugins != {
+        "allow": ["openai"],
+        "bundledDiscovery": "compat",
+        "entries": {"openai": {"config": {"personality": "friendly"}, "enabled": True}},
+    }:
+        raise RuntimeError("Oracle OpenClaw config must enable only the bundled OpenAI plugin")
+    agents = payload.get("agents") if isinstance(payload, dict) else None
+    defaults = agents.get("defaults") if isinstance(agents, dict) else None
+    rows = agents.get("list") if isinstance(agents, dict) else None
+    if (
+        not isinstance(defaults, dict)
+        or defaults.get("model") != {"primary": "openai/gpt-5.6-sol"}
+        or defaults.get("models")
+        != {"openai/gpt-5.6-sol": {"agentRuntime": {"id": "openclaw"}}}
+        or defaults.get("thinkingDefault") != "xhigh"
+        or defaults.get("workspace") != "/root/clawd/deploy/oracle-workspace-lite"
+        or not isinstance(rows, list)
+        or len(rows) != 1
+        or rows[0].get("id") != "oracle"
+        or rows[0].get("workspace") != "/root/clawd/deploy/oracle-workspace-lite"
+    ):
+        raise RuntimeError("Oracle OpenClaw config violates the fixed Oracle agent policy")
+    encoded = path.read_text(encoding="utf-8")
+    for forbidden in (
+        "/root/.openclaw",
+        "/opt/openclaw-preastra-restore",
+        "whatsapp",
+        "cortex-memory-bridge",
+        "cortex-route-gate",
+    ):
+        if forbidden in encoded:
+            raise RuntimeError("Oracle OpenClaw config crosses the helper isolation boundary")
+    return {
+        "schemaVersion": "cortex.oracle-openclaw-config.v1",
+        "policy": ORACLE_OPENCLAW_CONFIG_POLICY,
+        "path": str(path),
+        "sha256": observed_sha256,
+    }
+
+
+def validate_oracle_openclaw_auth(
+    *,
+    config_path: Path = PACKAGED_ORACLE_OPENCLAW_CONFIG,
+    expected_uid: int = 0,
+    expected_gid: int = 0,
+) -> dict:
     """Prove the exact profile mounted into the helper can resolve approved OAuth.
 
     The command output is parsed in memory and never copied into deployment
     logs because model status includes account labels. The returned receipt is
     deliberately metadata-only.
     """
+    config = validate_oracle_openclaw_config(
+        config_path,
+        expected_uid=expected_uid,
+        expected_gid=expected_gid,
+    )
     if OPENCLAW_MAIN_AGENT_DIR.is_symlink() or not OPENCLAW_MAIN_AGENT_DIR.is_dir():
         raise RuntimeError("Oracle helper OAuth source is not a regular directory")
     directory_info = OPENCLAW_MAIN_AGENT_DIR.stat()
@@ -311,7 +390,7 @@ def validate_oracle_openclaw_auth(*, expected_uid: int = 0, expected_gid: int = 
         **os.environ,
         "HOME": "/root",
         "OPENCLAW_STATE_DIR": str(OPENCLAW_RUNTIME_STATE),
-        "OPENCLAW_CONFIG_PATH": str(LIVE_OPENCLAW_CONFIG),
+        "OPENCLAW_CONFIG_PATH": str(config_path),
     }
     result = subprocess.run(
         ["/usr/bin/openclaw", "models", "status", "--agent", "oracle", "--json"],
@@ -368,6 +447,9 @@ def validate_oracle_openclaw_auth(*, expected_uid: int = 0, expected_gid: int = 
         "profileCount": int(profiles.get("oauth") or 0),
         "stateDir": str(OPENCLAW_RUNTIME_STATE),
         "authStorePath": str(OPENCLAW_MAIN_AGENT_STORE),
+        "configPolicy": config["policy"],
+        "configPath": config["path"],
+        "configSha256": config["sha256"],
     }
 
 
@@ -474,6 +556,12 @@ def wait_oracle_helper(timeout_seconds: int = 60) -> dict:
                 and payload.get("resetAgentSession") is False
                 and payload.get("sessionMode") == "ephemeral"
                 and payload.get("openclawStatePolicy") == "service_owned_with_mounted_main_oauth"
+                and payload.get("openclawConfigPolicy") == ORACLE_OPENCLAW_CONFIG_POLICY
+                and payload.get("openclawConfigPath") == str(LIVE_ORACLE_OPENCLAW_CONFIG)
+                and payload.get("openclawConfigSha256") == ORACLE_OPENCLAW_CONFIG_SHA256
+                and payload.get("openclawRuntimePreflight") == "green"
+                and payload.get("openclawAuthType") == "oauth"
+                and int(payload.get("openclawOAuthProfileCount") or 0) >= 1
             ):
                 return payload
             last = "policy mismatch"
@@ -733,7 +821,9 @@ def activate(contract: dict, artifact_root: Path, *, redeploy: bool = False) -> 
     if os.geteuid() != 0:
         raise RuntimeError("q9 activation requires root")
     release, envelope, environment = prepare_release(contract, artifact_root)
-    oracle_auth_preflight = validate_oracle_openclaw_auth()
+    oracle_auth_preflight = validate_oracle_openclaw_auth(
+        config_path=release / ORACLE_OPENCLAW_CONFIG_RELATIVE,
+    )
     atomic_json(artifact_root / "oracle-auth-preflight.json", oracle_auth_preflight, mode=0o600)
     if not (artifact_root / "preimage.json").exists():
         build_preimage(artifact_root, contract)

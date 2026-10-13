@@ -2,7 +2,9 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import subprocess, uuid, os, json, hashlib, hmac, re, math, time
 import logging
+import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 app = FastAPI()
 LOGGER = logging.getLogger("cortex.oracle_executor")
@@ -33,6 +35,14 @@ OPENCLAW_STATE_DIR = os.path.abspath(
 )
 if OPENCLAW_STATE_DIR != "/var/lib/cortex-oracle/openclaw-state":
     raise RuntimeError("OPENCLAW_STATE_DIR must remain service-owned for the Oracle executor")
+OPENCLAW_CONFIG_PATH = os.path.abspath(
+    os.getenv(
+        "OPENCLAW_CONFIG_PATH",
+        "/opt/cortex/current/ops/config/oracle-openclaw.json",
+    )
+)
+OPENCLAW_CONFIG_POLICY = "dedicated_immutable_oracle_only"
+OPENCLAW_CONFIG_SHA256 = "b4722df66a893a41d1caeffe16a3cbac8b0d5db15b2da701718b89114abbdae4"
 SESSION_ID = os.getenv("ORACLE_EXECUTOR_SESSION_ID", "oracle-gateway")
 SESSION_MODE = os.getenv("ORACLE_EXECUTOR_SESSION_MODE", "ephemeral").strip().lower() or "ephemeral"
 SESSION_BUCKET_MINUTES = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_BUCKET_MINUTES", "60")))
@@ -44,6 +54,10 @@ SESSION_RETENTION_COUNT = max(20, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTI
 SESSION_RETENTION_DAYS = max(1, int(os.getenv("ORACLE_EXECUTOR_SESSION_RETENTION_DAYS", "7")))
 SESSION_CLEANUP_INTERVAL_SECONDS = max(60, int(os.getenv("ORACLE_EXECUTOR_SESSION_CLEANUP_INTERVAL_SECONDS", "1800")))
 LAST_CLEANUP_AT = 0.0
+_RUNTIME_PREFLIGHT = None
+_RUNTIME_PREFLIGHT_AT = 0.0
+_RUNTIME_PREFLIGHT_TTL_SECONDS = 60
+_RUNTIME_PREFLIGHT_LOCK = threading.Lock()
 
 class InvokeRequest(BaseModel):
     prompt: str
@@ -74,6 +88,213 @@ def _process_failure_detail(label: str, result) -> str:
         f"{label}; returncode={getattr(result, 'returncode', 'unknown')}; "
         f"output_bytes={len(encoded)}; output_sha256={hashlib.sha256(encoded).hexdigest()}"
     )
+
+
+def _require_exact_keys(value, expected: set[str], label: str) -> None:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise RuntimeError(f"Oracle OpenClaw config has invalid {label} keys")
+
+
+def _reject_secret_fields(value) -> None:
+    if isinstance(value, dict):
+        forbidden = {
+            "apikey", "credential", "credentials", "password", "secret",
+            "token", "writetoken", "scopehmacsecret", "sessionidentityhmacsecret",
+        }
+        for key, child in value.items():
+            if str(key).replace("_", "").casefold() in forbidden:
+                raise RuntimeError("Oracle OpenClaw config must not contain credentials")
+            _reject_secret_fields(child)
+    elif isinstance(value, list):
+        for child in value:
+            _reject_secret_fields(child)
+
+
+def validate_oracle_openclaw_config(
+    path: str | Path = OPENCLAW_CONFIG_PATH,
+    *,
+    expected_uid: int = 0,
+    expected_gid: int = 0,
+) -> dict:
+    """Validate the immutable, least-privilege config used inside the helper."""
+    config_path = Path(path)
+    if config_path.is_symlink() or not config_path.is_file():
+        raise RuntimeError("Oracle OpenClaw config is not a regular non-symlink file")
+    info = config_path.stat()
+    if (
+        (info.st_mode & 0o777) != 0o644
+        or info.st_uid != expected_uid
+        or info.st_gid != expected_gid
+    ):
+        raise RuntimeError("Oracle OpenClaw config must have the approved owner and mode 0644")
+    raw = config_path.read_bytes()
+    observed_sha256 = hashlib.sha256(raw).hexdigest()
+    if observed_sha256 != OPENCLAW_CONFIG_SHA256:
+        raise RuntimeError("Oracle OpenClaw config does not match the approved immutable policy")
+    try:
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Oracle OpenClaw config is not valid JSON") from exc
+
+    _require_exact_keys(payload, {"agents", "auth", "meta", "models", "plugins", "tools"}, "top-level")
+    if payload["auth"] != {"order": {}, "profiles": {}}:
+        raise RuntimeError("Oracle OpenClaw config must not embed auth profiles")
+
+    agents = payload["agents"]
+    _require_exact_keys(agents, {"defaults", "list"}, "agents")
+    defaults = agents["defaults"]
+    _require_exact_keys(
+        defaults,
+        {"maxConcurrent", "model", "models", "thinkingDefault", "workspace"},
+        "agent defaults",
+    )
+    if (
+        defaults.get("maxConcurrent") != 1
+        or defaults.get("model") != {"primary": "openai/gpt-5.6-sol"}
+        or defaults.get("models")
+        != {"openai/gpt-5.6-sol": {"agentRuntime": {"id": "openclaw"}}}
+        or defaults.get("thinkingDefault") != "xhigh"
+        or defaults.get("workspace") != WORKDIR
+    ):
+        raise RuntimeError("Oracle OpenClaw config violates the fixed agent policy")
+    expected_agent = {
+        "default": True,
+        "fastModeDefault": False,
+        "id": "oracle",
+        "name": "Oracle Bridge",
+        "thinkingDefault": "xhigh",
+        "workspace": WORKDIR,
+    }
+    if agents.get("list") != [expected_agent]:
+        raise RuntimeError("Oracle OpenClaw config must define only the Oracle agent")
+
+    models = payload["models"]
+    _require_exact_keys(models, {"providers"}, "models")
+    providers = models["providers"]
+    _require_exact_keys(providers, {"openai"}, "model providers")
+    openai = providers["openai"]
+    _require_exact_keys(openai, {"api", "baseUrl", "models", "timeoutSeconds"}, "OpenAI provider")
+    if (
+        openai.get("api") != "openai-chatgpt-responses"
+        or openai.get("baseUrl") != "https://chatgpt.com/backend-api/codex"
+        or openai.get("timeoutSeconds") != 300
+        or not isinstance(openai.get("models"), list)
+        or not openai["models"]
+    ):
+        raise RuntimeError("Oracle OpenClaw config violates the approved provider policy")
+
+    if payload["plugins"] != {
+        "allow": ["openai"],
+        "bundledDiscovery": "compat",
+        "entries": {"openai": {"config": {"personality": "friendly"}, "enabled": True}},
+    }:
+        raise RuntimeError("Oracle OpenClaw config must enable only the bundled OpenAI plugin")
+    if payload["tools"] != {
+        "deny": ["web_search", "web_fetch", "browser"],
+        "profile": "coding",
+    }:
+        raise RuntimeError("Oracle OpenClaw config violates the fixed tool policy")
+    if payload["meta"] != {
+        "lastTouchedAt": "2026-10-08T03:08:55.521Z",
+        "lastTouchedVersion": "2026.7.1-2",
+    }:
+        raise RuntimeError("Oracle OpenClaw config version metadata is not pinned")
+
+    _reject_secret_fields(payload)
+    encoded = raw.decode("utf-8")
+    for forbidden in (
+        "/root/.openclaw",
+        "/opt/openclaw-preastra-restore",
+        "whatsapp",
+        "cortex-memory-bridge",
+        "cortex-route-gate",
+    ):
+        if forbidden in encoded:
+            raise RuntimeError("Oracle OpenClaw config crosses the helper isolation boundary")
+    return {
+        "policy": OPENCLAW_CONFIG_POLICY,
+        "sha256": observed_sha256,
+        "path": str(config_path),
+    }
+
+
+def _validate_openclaw_runtime() -> dict:
+    config = validate_oracle_openclaw_config()
+    try:
+        result = subprocess.run(
+            [OPENCLAW, "models", "status", "--agent", AGENT_ID, "--json"],
+            cwd=WORKDIR,
+            env={
+                **os.environ,
+                "OPENCLAW_CONFIG_PATH": OPENCLAW_CONFIG_PATH,
+                "OPENCLAW_STATE_DIR": OPENCLAW_STATE_DIR,
+            },
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Oracle OpenClaw runtime preflight timed out") from exc
+    if result.returncode != 0:
+        raise RuntimeError(_process_failure_detail("Oracle OpenClaw runtime preflight failed", result))
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        digest = hashlib.sha256((result.stdout or "").encode()).hexdigest()
+        raise RuntimeError(f"Oracle OpenClaw runtime preflight was not JSON; output_sha256={digest}") from exc
+    auth = payload.get("auth") if isinstance(payload, dict) else None
+    providers = auth.get("providers") if isinstance(auth, dict) else None
+    openai = next(
+        (row for row in providers or [] if isinstance(row, dict) and row.get("provider") == "openai"),
+        None,
+    )
+    effective = openai.get("effective") if isinstance(openai, dict) else None
+    profiles = openai.get("profiles") if isinstance(openai, dict) else None
+    oauth = auth.get("oauth") if isinstance(auth, dict) else None
+    oauth_providers = oauth.get("providers") if isinstance(oauth, dict) else None
+    oauth_openai = next(
+        (row for row in oauth_providers or [] if isinstance(row, dict) and row.get("provider") == "openai"),
+        None,
+    )
+    expected_store = os.path.join(OPENCLAW_STATE_DIR, "agents/main/agent/openclaw-agent.sqlite")
+    if (
+        payload.get("agentId") != AGENT_ID
+        or not isinstance(effective, dict)
+        or effective.get("kind") != "profiles"
+        or effective.get("detail") != expected_store
+        or not isinstance(profiles, dict)
+        or int(profiles.get("oauth") or 0) < 1
+        or not isinstance(oauth_openai, dict)
+        or oauth_openai.get("status") != "ok"
+    ):
+        raise RuntimeError("Oracle OpenClaw runtime preflight could not resolve mounted OAuth")
+    return {
+        "outcome": "green",
+        "configPolicy": config["policy"],
+        "configSha256": config["sha256"],
+        "authType": "oauth",
+        "profileCount": int(profiles.get("oauth") or 0),
+    }
+
+
+def _ensure_openclaw_runtime() -> dict:
+    global _RUNTIME_PREFLIGHT, _RUNTIME_PREFLIGHT_AT
+    observed_at = time.monotonic()
+    if (
+        _RUNTIME_PREFLIGHT is not None
+        and observed_at - _RUNTIME_PREFLIGHT_AT < _RUNTIME_PREFLIGHT_TTL_SECONDS
+    ):
+        return dict(_RUNTIME_PREFLIGHT)
+    with _RUNTIME_PREFLIGHT_LOCK:
+        observed_at = time.monotonic()
+        if (
+            _RUNTIME_PREFLIGHT is None
+            or observed_at - _RUNTIME_PREFLIGHT_AT >= _RUNTIME_PREFLIGHT_TTL_SECONDS
+        ):
+            _RUNTIME_PREFLIGHT = _validate_openclaw_runtime()
+            _RUNTIME_PREFLIGHT_AT = observed_at
+        return dict(_RUNTIME_PREFLIGHT)
 
 
 def _completion_receipt(response: str, provider: str, model: str, session_id: str, payload_count: int) -> dict:
@@ -225,6 +446,8 @@ def health():
         "resetAgentSession": RESET_AGENT_SESSION,
         "resetAgentSessionKey": RESET_AGENT_SESSION_KEY,
         "openclawStatePolicy": "service_owned_with_mounted_main_oauth",
+        "openclawConfigPolicy": OPENCLAW_CONFIG_POLICY,
+        "openclawConfigPath": OPENCLAW_CONFIG_PATH,
         "sessionBase": SESSION_ID,
         "sessionMode": SESSION_MODE,
         "sessionBucketMinutes": SESSION_BUCKET_MINUTES,
@@ -237,7 +460,26 @@ def health():
 @app.get('/health')
 def health_endpoint(request: Request):
     _require_authorized(request)
-    return health()
+    try:
+        runtime = _ensure_openclaw_runtime()
+    except Exception as exc:
+        if isinstance(exc, RuntimeError):
+            detail = str(exc)
+        else:
+            detail = (
+                "Oracle OpenClaw runtime preflight failed; "
+                f"error_type={type(exc).__name__}; "
+                f"detail_sha256={hashlib.sha256(str(exc).encode()).hexdigest()}"
+            )
+        LOGGER.error("oracle_runtime_preflight_failed %s", detail)
+        raise HTTPException(status_code=503, detail=detail)
+    return {
+        **health(),
+        "openclawRuntimePreflight": runtime["outcome"],
+        "openclawConfigSha256": runtime["configSha256"],
+        "openclawAuthType": runtime["authType"],
+        "openclawOAuthProfileCount": runtime["profileCount"],
+    }
 
 
 def invoke(req: InvokeRequest):

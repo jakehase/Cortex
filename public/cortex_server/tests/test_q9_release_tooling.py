@@ -233,6 +233,14 @@ def test_q9_runtime_surface_contract_has_no_live_secret_values():
         "cortex-owner-memory-index.timer",
         "cortex-health-watchdog.service",
     } <= set(deploy_q9.MANAGED_STOP_ORDER)
+    helper_config = next(
+        row
+        for row in contract["configuration"]
+        if row["path"] == "/opt/cortex/current/ops/config/oracle-openclaw.json"
+    )
+    assert helper_config["source"] == "ops/config/oracle-openclaw.json"
+    assert helper_config["immutable"] is True
+    assert helper_config["secretBearing"] is False
     encoded = json.dumps({"contract": contract, "schema": schema})
     assert "37.27.129.239" not in encoded
     assert "10.0.0." not in encoded
@@ -288,6 +296,44 @@ def test_oracle_helper_environment_is_token_only(tmp_path):
         )
 
 
+def test_oracle_openclaw_config_is_immutable_and_helper_only(tmp_path):
+    source = SOURCE_ROOT / "ops/config/oracle-openclaw.json"
+    approved = tmp_path / "approved-oracle-openclaw.json"
+    shutil.copyfile(source, approved)
+    os.chmod(approved, 0o644)
+    receipt = deploy_q9.validate_oracle_openclaw_config(
+        approved,
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+    )
+    assert receipt["policy"] == "dedicated_immutable_oracle_only"
+    assert receipt["sha256"] == deploy_q9.ORACLE_OPENCLAW_CONFIG_SHA256
+
+    payload = json.loads(approved.read_text(encoding="utf-8"))
+    assert set(payload["plugins"]["entries"]) == {"openai"}
+    assert "load" not in payload["plugins"]
+    assert "channels" not in payload
+    assert "bindings" not in payload
+    assert "gateway" not in payload
+    encoded = json.dumps(payload).lower()
+    assert "whatsapp" not in encoded
+    assert "/root/.openclaw" not in encoded
+    assert "/opt/openclaw-preastra-restore" not in encoded
+
+    broad = tmp_path / "oracle-openclaw.json"
+    payload["plugins"]["load"] = {
+        "paths": ["/opt/openclaw-preastra-restore/2026.7.1-2/extensions/whatsapp"]
+    }
+    broad.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    os.chmod(broad, 0o644)
+    with pytest.raises(RuntimeError, match="approved immutable policy"):
+        deploy_q9.validate_oracle_openclaw_config(
+            broad,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
+
+
 def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, monkeypatch):
     runtime_state = tmp_path / "state"
     main_agent = runtime_state / "agents/main/agent"
@@ -299,6 +345,9 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
     store = main_agent / "openclaw-agent.sqlite"
     store.write_bytes(b"test-store")
     os.chmod(store, 0o600)
+    helper_config = tmp_path / "oracle-openclaw.json"
+    shutil.copyfile(SOURCE_ROOT / "ops/config/oracle-openclaw.json", helper_config)
+    os.chmod(helper_config, 0o644)
 
     monkeypatch.setattr(deploy_q9, "OPENCLAW_RUNTIME_STATE", runtime_state)
     monkeypatch.setattr(deploy_q9, "OPENCLAW_MAIN_AGENT_DIR", main_agent)
@@ -327,6 +376,7 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
     )
 
     receipt = deploy_q9.validate_oracle_openclaw_auth(
+        config_path=helper_config,
         expected_uid=os.getuid(),
         expected_gid=os.getgid(),
     )
@@ -334,6 +384,8 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
     assert receipt["outcome"] == "green"
     assert receipt["authType"] == "oauth"
     assert receipt["authStorePath"] == str(store)
+    assert receipt["configPolicy"] == "dedicated_immutable_oracle_only"
+    assert receipt["configSha256"] == deploy_q9.ORACLE_OPENCLAW_CONFIG_SHA256
     assert "token" not in json.dumps(receipt).lower()
 
 

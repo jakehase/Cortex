@@ -19,7 +19,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # helper lifecycle/plugin/session state private while mounting only the
 # approved provider profile OpenClaw resolves through the main-agent fallback.
 Environment=OPENCLAW_STATE_DIR=/var/lib/cortex-oracle/openclaw-state
-Environment=OPENCLAW_CONFIG_PATH=/root/.openclaw/openclaw.json
+# The helper consumes an immutable Oracle-only config from the exact release.
+# Never bind the gateway config here: it owns channel plugins and secrets whose
+# paths intentionally remain outside this service's mount namespace.
+Environment=OPENCLAW_CONFIG_PATH=/opt/cortex/current/ops/config/oracle-openclaw.json
 Environment=ORACLE_EXECUTOR_AGENT=oracle
 Environment=ORACLE_EXECUTOR_MODEL=gpt-5.6-sol
 Environment=ORACLE_EXECUTOR_THINKING=xhigh
@@ -59,7 +62,7 @@ SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/opt/cortex/releases /etc/cortex
 ReadWritePaths=/var/lib/cortex-oracle /var/log/cortex-oracle /run/cortex-oracle
-BindReadOnlyPaths=/root/clawd/deploy/oracle-workspace-lite /root/.openclaw/openclaw.json
+BindReadOnlyPaths=/root/clawd/deploy/oracle-workspace-lite
 # Keep OAuth refreshes coherent with the gateway without exposing main-agent
 # sessions or the rest of the shared OpenClaw state tree.
 BindPaths=/opt/openclaw-preastra-restore/2026.7.1-2/state/agents/main/agent:/var/lib/cortex-oracle/openclaw-state/agents/main/agent

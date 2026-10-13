@@ -30,10 +30,25 @@ assert.match(helperUnit, /--host 127\.0\.0\.1 --port 18999/);
 assert.match(helperUnit, /^CapabilityBoundingSet=$/m);
 assert.match(helperUnit, /^ProtectHome=tmpfs$/m);
 assert.match(helperUnit, /^Environment=OPENCLAW_STATE_DIR=\/var\/lib\/cortex-oracle\/openclaw-state$/m);
+assert.match(helperUnit, /^Environment=OPENCLAW_CONFIG_PATH=\/opt\/cortex\/current\/ops\/config\/oracle-openclaw\.json$/m);
 assert.match(helperUnit, /^Environment=ORACLE_EXECUTOR_SESSION_DIR=\/var\/lib\/cortex-oracle\/openclaw-state\/agents\/oracle\/sessions$/m);
 assert.match(helperUnit, /^BindPaths=\/opt\/openclaw-preastra-restore\/2026\.7\.1-2\/state\/agents\/main\/agent:\/var\/lib\/cortex-oracle\/openclaw-state\/agents\/main\/agent$/m);
 assert.match(helperUnit, /^InaccessiblePaths=.*\/opt\/openclaw-preastra-restore\/2026\.7\.1-2\/state$/m);
+assert.doesNotMatch(helperUnit, /^BindReadOnlyPaths=.*\/root\/\.openclaw\/openclaw\.json/m);
 assert.doesNotMatch(helperUnit, /^ReadWritePaths=.*\/root\/\.openclaw(?:\s|$)/m);
+
+const helperConfig = JSON.parse(read('ops/config/oracle-openclaw.json'));
+assert.deepEqual(Object.keys(helperConfig.plugins.entries), ['openai']);
+assert.deepEqual(helperConfig.plugins.allow, ['openai']);
+assert.equal(Object.hasOwn(helperConfig.plugins, 'load'), false);
+assert.deepEqual(helperConfig.auth, { order: {}, profiles: {} });
+assert.equal(Object.hasOwn(helperConfig, 'channels'), false);
+assert.equal(Object.hasOwn(helperConfig, 'bindings'), false);
+assert.equal(Object.hasOwn(helperConfig, 'gateway'), false);
+const helperConfigText = JSON.stringify(helperConfig).toLowerCase();
+assert.equal(helperConfigText.includes('whatsapp'), false);
+assert.equal(helperConfigText.includes('/root/.openclaw'), false);
+assert.equal(helperConfigText.includes('/opt/openclaw-preastra-restore'), false);
 
 const environmentContract = JSON.parse(read('ops/config/cortex-env.schema.json'));
 assert.equal(environmentContract.properties.CORTEX_DB_PATH.const, '/var/lib/cortex/knowledge/cortex_graph.db');
@@ -81,6 +96,8 @@ focused(python, [
   '-m', 'unittest',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_requires_service_owned_openclaw_state',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_forbids_gateway_session_reset',
+  'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_accepts_only_the_immutable_oracle_config',
+  'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_health_endpoint_requires_namespace_auth_preflight',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_cleanup_prunes_old_and_excess_sessions',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_executors_default_to_xhigh_and_reject_downgrades',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_invocations_pass_xhigh_to_openclaw',
@@ -89,6 +106,7 @@ focused(python, [
 focused(python, [
   '-m', 'pytest', '-q',
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_helper_environment_is_token_only',
+  'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_openclaw_config_is_immutable_and_helper_only',
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_auth_preflight_binds_only_approved_runtime_profile',
 ]);
 
