@@ -80,6 +80,7 @@ assert.ok(python, 'CORTEX_PYTHON must preserve the integration runner interprete
 focused(python, [
   '-m', 'unittest',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_requires_service_owned_openclaw_state',
+  'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_executor_forbids_gateway_session_reset',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_local_cleanup_prunes_old_and_excess_sessions',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_executors_default_to_xhigh_and_reject_downgrades',
   'deploy.test_oracle_executor_session_ids.OracleExecutorSessionTests.test_all_oracle_invocations_pass_xhigh_to_openclaw',
@@ -87,6 +88,7 @@ focused(python, [
 ]);
 focused(python, [
   '-m', 'pytest', '-q',
+  'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_helper_environment_is_token_only',
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_auth_preflight_binds_only_approved_runtime_profile',
 ]);
 

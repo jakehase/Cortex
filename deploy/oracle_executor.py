@@ -24,7 +24,9 @@ if AUTH_POLICY != "pmhnp_oauth_approved_2026-09-25":
 if SERVICE_TIER_POLICY != "provider_default_no_override":
     raise RuntimeError("ORACLE_EXECUTOR_SERVICE_TIER_POLICY must not force a service tier")
 LOCAL_EXECUTION = os.getenv("ORACLE_EXECUTOR_LOCAL", "true").strip().lower() not in {"0", "false", "no", "off"}
-RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "true").strip().lower() not in {"0", "false", "no", "off"}
+RESET_AGENT_SESSION = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION", "false").strip().lower() not in {"0", "false", "no", "off"}
+if RESET_AGENT_SESSION:
+    raise RuntimeError("ORACLE_EXECUTOR_RESET_AGENT_SESSION must remain disabled for the local Oracle executor")
 RESET_AGENT_SESSION_KEY = os.getenv("ORACLE_EXECUTOR_RESET_AGENT_SESSION_KEY", f"agent:{AGENT_ID}:main").strip() or f"agent:{AGENT_ID}:main"
 OPENCLAW_STATE_DIR = os.path.abspath(
     os.getenv("OPENCLAW_STATE_DIR", "/var/lib/cortex-oracle/openclaw-state")

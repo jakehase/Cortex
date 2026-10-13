@@ -14,6 +14,8 @@ The first supervised deployment of the least-privilege helper reached the live p
 
 The corrected boundary gives the helper a dedicated state root under `/var/lib/cortex-oracle/openclaw-state`, mounts only the active main-agent profile directory there for coherent OAuth refresh, hides the original shared state tree, and leaves main-agent sessions unmounted. The route gate now recognizes OpenClaw's normalized `agent:oracle:explicit:<oracle-session>` identity, while ephemeral transcript cleanup follows the helper-owned session directory and all sidecar formats. Q9 also performs a metadata-only OAuth preflight before making live changes, and helper failures write only return code/length/hash diagnostics to the journal.
 
+A later supervised attempt exposed a separate configuration-ownership boundary: the protected helper environment still contained legacy executor policy values, and systemd gave those file assignments precedence over the corrected immutable unit. Q9 now accepts only `ORACLE_BRIDGE_TOKEN` in that secret file, the local helper fails closed if gateway session reset is enabled, and readiness requires local ephemeral execution with reset disabled. Mutable executor policy therefore has one owner: the qualified unit and source.
+
 ## 2026-03-17
 
 Oracle was made production-safe by shifting from a brittle single-lane dependency chain:

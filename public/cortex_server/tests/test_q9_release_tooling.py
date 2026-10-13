@@ -10,6 +10,8 @@ import sys
 from types import SimpleNamespace
 from pathlib import Path
 
+import pytest
+
 
 SOURCE_ROOT = Path(__file__).resolve().parents[3]
 BUILD = SOURCE_ROOT / "scripts/build-release-envelope.py"
@@ -255,6 +257,35 @@ def test_cortex_service_owns_nexus_state_outside_legacy_clawdbot_root():
     assert "ReadWritePaths=/var/lib/cortex /var/log/cortex /run/cortex" in unit
     assert 'construction_config("CORTEX_STATE_DIR", "/opt/clawdbot/state")' in nexus
     assert 'Path(_nexus_state_default("nexus_principals"))' in nexus
+
+
+def test_oracle_helper_environment_is_token_only(tmp_path):
+    helper_environment = tmp_path / "oracle-helper.env"
+    helper_environment.write_text(
+        "ORACLE_BRIDGE_TOKEN=0123456789abcdef0123456789abcdef\n",
+        encoding="utf-8",
+    )
+    os.chmod(helper_environment, 0o600)
+
+    values = deploy_q9.validate_oracle_helper_environment(
+        helper_environment,
+        expected_uid=os.getuid(),
+        expected_gid=os.getgid(),
+    )
+    assert set(values) == {"ORACLE_BRIDGE_TOKEN"}
+
+    helper_environment.write_text(
+        "ORACLE_BRIDGE_TOKEN=0123456789abcdef0123456789abcdef\n"
+        "ORACLE_EXECUTOR_RESET_AGENT_SESSION=true\n",
+        encoding="utf-8",
+    )
+    os.chmod(helper_environment, 0o600)
+    with pytest.raises(RuntimeError, match="must contain only ORACLE_BRIDGE_TOKEN"):
+        deploy_q9.validate_oracle_helper_environment(
+            helper_environment,
+            expected_uid=os.getuid(),
+            expected_gid=os.getgid(),
+        )
 
 
 def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, monkeypatch):

@@ -75,6 +75,17 @@ class OracleExecutorSessionTests(unittest.TestCase):
                 'OPENCLAW_STATE_DIR': '/opt/openclaw-preastra-restore/2026.7.1-2/state',
             })
 
+    def test_local_executor_forbids_gateway_session_reset(self):
+        mod = load_module(ROOT / 'oracle_executor.py', {
+            'ORACLE_EXECUTOR_RESET_AGENT_SESSION': 'false',
+        })
+        self.assertFalse(mod.RESET_AGENT_SESSION)
+        self.assertFalse(mod.health()['resetAgentSession'])
+        with self.assertRaisesRegex(RuntimeError, 'must remain disabled'):
+            load_module(ROOT / 'oracle_executor.py', {
+                'ORACLE_EXECUTOR_RESET_AGENT_SESSION': 'true',
+            })
+
     def test_ct101_executor_sticky_mode_is_bucketed(self):
         self.check_sticky_bucketed(ROOT / 'cortex-vm' / 'oracle_executor.py', 'oracle-prod-bridge')
 

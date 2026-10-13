@@ -253,13 +253,28 @@ def load_env(path: Path) -> dict[str, str]:
     return values
 
 
-def validate_oracle_helper_environment(path: Path = LIVE_ORACLE_HELPER_ENV) -> dict[str, str]:
+def validate_oracle_helper_environment(
+    path: Path = LIVE_ORACLE_HELPER_ENV,
+    *,
+    expected_uid: int = 0,
+    expected_gid: int = 0,
+) -> dict[str, str]:
     if path.is_symlink() or not path.is_file():
         raise RuntimeError("Oracle helper environment is not a regular non-symlink file")
     info = path.stat()
-    if stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != 0 or info.st_gid != 0:
-        raise RuntimeError("Oracle helper environment must be root:root mode 0600")
+    if (
+        stat.S_IMODE(info.st_mode) != 0o600
+        or info.st_uid != expected_uid
+        or info.st_gid != expected_gid
+    ):
+        raise RuntimeError("Oracle helper environment must have the approved owner and mode 0600")
     values = load_env(path)
+    unexpected = sorted(set(values) - {"ORACLE_BRIDGE_TOKEN"})
+    if unexpected:
+        raise RuntimeError(
+            "Oracle helper environment must contain only ORACLE_BRIDGE_TOKEN; "
+            f"unexpected keys: {', '.join(unexpected)}"
+        )
     token = values.get("ORACLE_BRIDGE_TOKEN", "")
     if len(token) < 32:
         raise RuntimeError("Oracle helper environment requires a protected 32+ character token")
@@ -455,6 +470,9 @@ def wait_oracle_helper(timeout_seconds: int = 60) -> dict:
                 and payload.get("authPolicy") == "pmhnp_oauth_approved_2026-09-25"
                 and payload.get("serviceTierPolicy") == "provider_default_no_override"
                 and payload.get("requestAuthentication") == "required"
+                and payload.get("localExecution") is True
+                and payload.get("resetAgentSession") is False
+                and payload.get("sessionMode") == "ephemeral"
                 and payload.get("openclawStatePolicy") == "service_owned_with_mounted_main_oauth"
             ):
                 return payload
