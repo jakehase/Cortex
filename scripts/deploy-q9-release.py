@@ -350,6 +350,85 @@ def validate_oracle_openclaw_config(
     }
 
 
+def resolve_oracle_oauth_identity_binding(payload: dict, store_path: Path) -> dict:
+    """Bind OpenClaw's effective OAuth profile to the exact mounted store.
+
+    The OpenClaw status payload identifies the effective profile, while the
+    SQLite store is authoritative for its provider, type, and account identity.
+    Only credential-safe metadata and one-way identity digests leave this
+    function; access and refresh values are never returned.
+    """
+    auth = payload.get("auth") if isinstance(payload, dict) else None
+    oauth = auth.get("oauth") if isinstance(auth, dict) else None
+    oauth_providers = oauth.get("providers") if isinstance(oauth, dict) else None
+    openai = next(
+        (row for row in oauth_providers or [] if isinstance(row, dict) and row.get("provider") == "openai"),
+        None,
+    )
+    effective_profiles = openai.get("effectiveProfiles") if isinstance(openai, dict) else None
+    approved = [
+        row
+        for row in effective_profiles or []
+        if isinstance(row, dict)
+        and row.get("provider") == "openai"
+        and row.get("type") == "oauth"
+        and row.get("source") == "store"
+        and row.get("status") == "ok"
+        and isinstance(row.get("profileId"), str)
+        and row["profileId"]
+    ]
+    if len(approved) != 1:
+        raise RuntimeError("Oracle helper requires exactly one effective OpenAI OAuth store profile")
+    profile_id = approved[0]["profileId"]
+
+    try:
+        with sqlite3.connect(f"file:{store_path}?mode=ro", uri=True, timeout=5) as connection:
+            rows = connection.execute(
+                "SELECT store_key, store_json FROM auth_profile_store ORDER BY store_key"
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise RuntimeError("Oracle helper OAuth store could not be read safely") from exc
+
+    matches: list[tuple[str, dict]] = []
+    for store_key, raw in rows:
+        try:
+            store = json.loads(raw)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("Oracle helper OAuth store contains invalid profile metadata") from exc
+        profiles = store.get("profiles") if isinstance(store, dict) else None
+        profile = profiles.get(profile_id) if isinstance(profiles, dict) else None
+        if isinstance(profile, dict):
+            matches.append((str(store_key), profile))
+    if len(matches) != 1:
+        raise RuntimeError("Oracle helper effective OAuth profile is not uniquely bound to its store")
+
+    store_key, profile = matches[0]
+    email = profile.get("email")
+    account_id = profile.get("accountId")
+    if (
+        profile.get("type") != "oauth"
+        or profile.get("provider") != "openai"
+        or not isinstance(email, str)
+        or not email.strip()
+        or not isinstance(account_id, str)
+        or not account_id.strip()
+        or not profile.get("access")
+        or not profile.get("refresh")
+    ):
+        raise RuntimeError("Oracle helper effective OAuth profile lacks approved identity metadata")
+    return {
+        "profileId": profile_id,
+        "profileStoreKey": store_key,
+        "profileType": "oauth",
+        "profileProvider": "openai",
+        "profileSource": "store",
+        "profileEmailSha256": hashlib.sha256(email.strip().casefold().encode()).hexdigest(),
+        "profileAccountIdSha256": hashlib.sha256(account_id.strip().encode()).hexdigest(),
+        "credentialMaterialPresent": True,
+        "credentialValuesPersisted": False,
+    }
+
+
 def validate_oracle_openclaw_auth(
     *,
     config_path: Path = PACKAGED_ORACLE_OPENCLAW_CONFIG,
@@ -427,7 +506,8 @@ def validate_oracle_openclaw_auth(
         None,
     )
     if (
-        not isinstance(effective, dict)
+        payload.get("agentId") != "oracle"
+        or not isinstance(effective, dict)
         or effective.get("kind") != "profiles"
         or effective.get("detail") != str(OPENCLAW_MAIN_AGENT_STORE)
         or not isinstance(profiles, dict)
@@ -436,8 +516,9 @@ def validate_oracle_openclaw_auth(
         or oauth_openai.get("status") != "ok"
     ):
         raise RuntimeError("Oracle helper could not resolve approved OpenAI OAuth from the mounted profile")
+    identity = resolve_oracle_oauth_identity_binding(payload, OPENCLAW_MAIN_AGENT_STORE)
     return {
-        "schemaVersion": "cortex.oracle-auth-preflight.v1",
+        "schemaVersion": "cortex.oracle-auth-preflight.v2",
         "outcome": "green",
         "observedAt": now(),
         "agentId": "oracle",
@@ -450,6 +531,7 @@ def validate_oracle_openclaw_auth(
         "configPolicy": config["policy"],
         "configPath": config["path"],
         "configSha256": config["sha256"],
+        **identity,
     }
 
 

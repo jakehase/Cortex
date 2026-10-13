@@ -108,6 +108,7 @@ focused(python, [
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_helper_environment_is_token_only',
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_openclaw_config_is_immutable_and_helper_only',
   'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_auth_preflight_binds_only_approved_runtime_profile',
+  'public/cortex_server/tests/test_q9_release_tooling.py::test_oracle_auth_preflight_rejects_effective_profile_not_present_in_store',
 ]);
 
 process.stdout.write('PASS cortex security/policy smoke: least privilege, canonical policy, signed Oracle helper, and attachment gate\n');

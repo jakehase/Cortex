@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -343,7 +344,32 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
     os.chmod(runtime_state / "agents/main", 0o700)
     os.chmod(main_agent, 0o700)
     store = main_agent / "openclaw-agent.sqlite"
-    store.write_bytes(b"test-store")
+    email = "approved-pmhnp@example.invalid"
+    account_id = "approved-account-id"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE auth_profile_store (store_key TEXT PRIMARY KEY, store_json TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO auth_profile_store (store_key, store_json) VALUES (?, ?)",
+            (
+                "primary",
+                json.dumps(
+                    {
+                        "profiles": {
+                            "openai:default": {
+                                "type": "oauth",
+                                "provider": "openai",
+                                "email": email,
+                                "accountId": account_id,
+                                "access": "secret-access-value",
+                                "refresh": "secret-refresh-value",
+                            }
+                        }
+                    }
+                ),
+            ),
+        )
     os.chmod(store, 0o600)
     helper_config = tmp_path / "oracle-openclaw.json"
     shutil.copyfile(SOURCE_ROOT / "ops/config/oracle-openclaw.json", helper_config)
@@ -359,6 +385,7 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
             returncode=0,
             stdout=json.dumps(
                 {
+                    "agentId": "oracle",
                     "auth": {
                         "providers": [
                             {
@@ -367,7 +394,23 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
                                 "profiles": {"oauth": 1},
                             }
                         ],
-                        "oauth": {"providers": [{"provider": "openai", "status": "ok"}]},
+                        "oauth": {
+                            "providers": [
+                                {
+                                    "provider": "openai",
+                                    "status": "ok",
+                                    "effectiveProfiles": [
+                                        {
+                                            "profileId": "openai:default",
+                                            "provider": "openai",
+                                            "type": "oauth",
+                                            "source": "store",
+                                            "status": "ok",
+                                        }
+                                    ],
+                                }
+                            ]
+                        },
                     }
                 }
             ),
@@ -386,7 +429,53 @@ def test_oracle_auth_preflight_binds_only_approved_runtime_profile(tmp_path, mon
     assert receipt["authStorePath"] == str(store)
     assert receipt["configPolicy"] == "dedicated_immutable_oracle_only"
     assert receipt["configSha256"] == deploy_q9.ORACLE_OPENCLAW_CONFIG_SHA256
-    assert "token" not in json.dumps(receipt).lower()
+    assert receipt["profileId"] == "openai:default"
+    assert receipt["profileStoreKey"] == "primary"
+    assert receipt["profileType"] == "oauth"
+    assert receipt["profileProvider"] == "openai"
+    assert receipt["profileEmailSha256"] == hashlib.sha256(email.casefold().encode()).hexdigest()
+    assert receipt["profileAccountIdSha256"] == hashlib.sha256(account_id.encode()).hexdigest()
+    encoded = json.dumps(receipt).lower()
+    assert "token" not in encoded
+    assert email not in encoded
+    assert account_id not in encoded
+    assert "secret-access-value" not in encoded
+    assert "secret-refresh-value" not in encoded
+
+
+def test_oracle_auth_preflight_rejects_effective_profile_not_present_in_store(tmp_path):
+    store = tmp_path / "openclaw-agent.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE auth_profile_store (store_key TEXT PRIMARY KEY, store_json TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO auth_profile_store (store_key, store_json) VALUES (?, ?)",
+            ("primary", json.dumps({"profiles": {}})),
+        )
+    payload = {
+        "auth": {
+            "oauth": {
+                "providers": [
+                    {
+                        "provider": "openai",
+                        "status": "ok",
+                        "effectiveProfiles": [
+                            {
+                                "profileId": "openai:missing",
+                                "provider": "openai",
+                                "type": "oauth",
+                                "source": "store",
+                                "status": "ok",
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+    with pytest.raises(RuntimeError, match="not uniquely bound"):
+        deploy_q9.resolve_oracle_oauth_identity_binding(payload, store)
 
 
 def test_gateway_restart_reloads_user_systemd_after_validation_before_restart(monkeypatch):
