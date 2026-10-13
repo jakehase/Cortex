@@ -237,6 +237,20 @@ def test_cortex_service_proc_hardening_preserves_onnx_cpu_discovery():
     assert "ProcSubset=pid" not in unit
 
 
+def test_cortex_service_owns_nexus_state_outside_legacy_clawdbot_root():
+    unit = (SOURCE_ROOT / "ops/systemd/cortex.service").read_text(encoding="utf-8")
+    nexus = (
+        SOURCE_ROOT
+        / "public/cortex_server/cortex_server/routers/nexus.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Environment=CORTEX_STATE_DIR=/var/lib/cortex/state" in unit
+    assert "StateDirectory=cortex" in unit
+    assert "ReadWritePaths=/var/lib/cortex /var/log/cortex /run/cortex" in unit
+    assert 'construction_config("CORTEX_STATE_DIR", "/opt/clawdbot/state")' in nexus
+    assert 'Path(_nexus_state_default("nexus_principals"))' in nexus
+
+
 def test_gateway_restart_reloads_user_systemd_after_validation_before_restart(monkeypatch):
     calls: list[list[str]] = []
 

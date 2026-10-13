@@ -352,18 +352,29 @@ _REFERENT_STATE_RESERVATION_TTL_SECONDS = 10 * 60
 _REFERENT_QUOTA_LOCK = threading.RLock()
 _CONTEXT_STATES: Dict[str, Dict[str, Any]] = {}
 _CONTEXT_QUARANTINE_CHECKED: set[str] = set()
-_REFERENT_STATE_PATH = Path(construction_config("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
-_CHECKPOINT_STORE_PATH = Path(construction_config("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
-_CODEC_EVAL_HISTORY_PATH = Path(construction_config("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
-_CODEC_REPLAY_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
-_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
-_CODEC_CORPUS_EXPORTS_PATH = Path(construction_config("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
-_CODEC_ACTIVE_POLICY_PATH = Path(construction_config("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
-_CODEC_REPLAY_PLANS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
+
+
+def _nexus_state_default(name: str) -> str:
+    """Resolve Nexus defaults inside the service-owned state directory."""
+
+    return str(
+        Path(construction_config("CORTEX_STATE_DIR", "/opt/clawdbot/state"))
+        / name
+    )
+
+
+_REFERENT_STATE_PATH = Path(construction_config("NEXUS_REFERENT_STATE_PATH", _nexus_state_default("nexus_referent_state.json")))
+_CHECKPOINT_STORE_PATH = Path(construction_config("NEXUS_CHECKPOINT_STORE_PATH", _nexus_state_default("nexus_checkpoints.jsonl")))
+_CODEC_EVAL_HISTORY_PATH = Path(construction_config("NEXUS_CODEC_EVAL_HISTORY_PATH", _nexus_state_default("nexus_codec_eval_history.jsonl")))
+_CODEC_REPLAY_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_REPORTS_PATH", _nexus_state_default("nexus_codec_replay_reports.jsonl")))
+_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(construction_config("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", _nexus_state_default("nexus_codec_live_reexec_reports.jsonl")))
+_CODEC_CORPUS_EXPORTS_PATH = Path(construction_config("NEXUS_CODEC_CORPUS_EXPORTS_PATH", _nexus_state_default("nexus_codec_corpus_exports.jsonl")))
+_CODEC_ACTIVE_POLICY_PATH = Path(construction_config("NEXUS_CODEC_ACTIVE_POLICY_PATH", _nexus_state_default("nexus_codec_active_policy.json")))
+_CODEC_REPLAY_PLANS_PATH = Path(construction_config("NEXUS_CODEC_REPLAY_PLANS_PATH", _nexus_state_default("nexus_codec_replay_plans.jsonl")))
 _TOKEN_PLANNER = TokenBudgetPlanner()
 _INITIAL_ENVIRONMENT = str(construction_config("CORTEX_ENV", construction_config("CORTEX_ENVIRONMENT", "development"))).strip().lower()
 _DEFAULT_ADAPTIVE_STATE_ROOT = (
-    Path("/opt/clawdbot/state/nexus_principals")
+    Path(_nexus_state_default("nexus_principals"))
     if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
     else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
 )
@@ -397,13 +408,13 @@ _ASSURANCE_RECEIPT_TTL_SECONDS = max(30, min(int(construction_config("NEXUS_ASSU
 _ASSURANCE_RECEIPT_STATE_PATH = Path(
     construction_config(
         "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
-        "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+        _nexus_state_default("nexus_assurance_receipts.sqlite3"),
     )
 )
 _CODEC_EVENTS_IDEMPOTENCY_STATE_PATH = Path(
     construction_config(
         "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
-        "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
+        _nexus_state_default("nexus_codec_events_idempotency.sqlite3"),
     )
 )
 _OUTCOME_FEEDBACK_RECEIPT_VERSION = "nexus.causal-outcome-receipt.v2"
@@ -415,7 +426,7 @@ _OUTCOME_FEEDBACK_RECEIPT_TTL_SECONDS = max(
 _OUTCOME_FEEDBACK_RECEIPT_STATE_PATH = Path(
     construction_config(
         "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
-        "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
+        _nexus_state_default("nexus_outcome_feedback_receipts.json"),
     )
 )
 _OUTCOME_FEEDBACK_RECEIPT_LOCK = threading.Lock()
@@ -524,14 +535,14 @@ def _activate_runtime_configuration() -> None:
         ),
     )
     for name, setting, default in (
-        ("_REFERENT_STATE_PATH", "NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"),
-        ("_CHECKPOINT_STORE_PATH", "NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"),
-        ("_CODEC_EVAL_HISTORY_PATH", "NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"),
-        ("_CODEC_REPLAY_REPORTS_PATH", "NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"),
-        ("_CODEC_LIVE_REEXEC_REPORTS_PATH", "NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"),
-        ("_CODEC_CORPUS_EXPORTS_PATH", "NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"),
-        ("_CODEC_ACTIVE_POLICY_PATH", "NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"),
-        ("_CODEC_REPLAY_PLANS_PATH", "NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"),
+        ("_REFERENT_STATE_PATH", "NEXUS_REFERENT_STATE_PATH", _nexus_state_default("nexus_referent_state.json")),
+        ("_CHECKPOINT_STORE_PATH", "NEXUS_CHECKPOINT_STORE_PATH", _nexus_state_default("nexus_checkpoints.jsonl")),
+        ("_CODEC_EVAL_HISTORY_PATH", "NEXUS_CODEC_EVAL_HISTORY_PATH", _nexus_state_default("nexus_codec_eval_history.jsonl")),
+        ("_CODEC_REPLAY_REPORTS_PATH", "NEXUS_CODEC_REPLAY_REPORTS_PATH", _nexus_state_default("nexus_codec_replay_reports.jsonl")),
+        ("_CODEC_LIVE_REEXEC_REPORTS_PATH", "NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", _nexus_state_default("nexus_codec_live_reexec_reports.jsonl")),
+        ("_CODEC_CORPUS_EXPORTS_PATH", "NEXUS_CODEC_CORPUS_EXPORTS_PATH", _nexus_state_default("nexus_codec_corpus_exports.jsonl")),
+        ("_CODEC_ACTIVE_POLICY_PATH", "NEXUS_CODEC_ACTIVE_POLICY_PATH", _nexus_state_default("nexus_codec_active_policy.json")),
+        ("_CODEC_REPLAY_PLANS_PATH", "NEXUS_CODEC_REPLAY_PLANS_PATH", _nexus_state_default("nexus_codec_replay_plans.jsonl")),
     ):
         globals()[name] = configured(
             name,
@@ -549,7 +560,7 @@ def _activate_runtime_configuration() -> None:
         .lower(),
     )
     runtime_default_adaptive_root = (
-        Path("/opt/clawdbot/state/nexus_principals")
+        Path(_nexus_state_default("nexus_principals"))
         if _INITIAL_ENVIRONMENT in {"production", "prod", "staging"}
         else Path("/tmp") / f"cortex-nexus-principals-{os.getuid()}"
     )
@@ -601,7 +612,7 @@ def _activate_runtime_configuration() -> None:
         Path(
             construction_config(
                 "NEXUS_ASSURANCE_RECEIPT_STATE_PATH",
-                "/opt/clawdbot/state/nexus_assurance_receipts.sqlite3",
+                _nexus_state_default("nexus_assurance_receipts.sqlite3"),
             )
         ),
     )
@@ -610,7 +621,7 @@ def _activate_runtime_configuration() -> None:
         Path(
             construction_config(
                 "NEXUS_CODEC_EVENTS_IDEMPOTENCY_STATE_PATH",
-                "/opt/clawdbot/state/nexus_codec_events_idempotency.sqlite3",
+                _nexus_state_default("nexus_codec_events_idempotency.sqlite3"),
             )
         ),
     )
@@ -634,7 +645,7 @@ def _activate_runtime_configuration() -> None:
         Path(
             construction_config(
                 "NEXUS_OUTCOME_FEEDBACK_RECEIPT_STATE_PATH",
-                "/opt/clawdbot/state/nexus_outcome_feedback_receipts.json",
+                _nexus_state_default("nexus_outcome_feedback_receipts.json"),
             )
         ),
     )
