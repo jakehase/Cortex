@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const AIOS_PROVIDER_POLICY_SCHEMA = "aios.provider-read-compute-policy.v1";
@@ -23,6 +23,51 @@ const PROVIDER_SYSCALLS = Object.freeze({
   "provider.read": "read",
   "provider.compute": "compute",
 });
+
+const CORTEX_AUTH_HEADER_ALLOWLIST = new Set([
+  "x-cortex-admin-token",
+  "x-cortex-write-token",
+  "x-cortex-tenant-id",
+  "x-cortex-workspace-id",
+  "x-cortex-agent-id",
+  "x-cortex-user-id",
+  "x-cortex-channel-id",
+  "x-cortex-session-id",
+  "x-cortex-scope-credential-id",
+  "x-cortex-scope-signature",
+]);
+
+async function cortexProviderAuthHeaders(providerId, endpoint) {
+  if (providerId !== "cortex" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname)) return {};
+  const path = process.env.AIOS_CORTEX_AUTH_HEADERS_FILE || "/etc/cortex/aios-provider-auth.json";
+  let info;
+  try {
+    info = await stat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    throw error;
+  }
+  if (!info.isFile() || info.uid !== 0 || (info.mode & 0o077) !== 0) {
+    throw providerError(
+      "AIOS_CORTEX_AUTH_FILE_UNSAFE",
+      "Cortex provider auth file must be a root-owned regular file with mode 0600.",
+    );
+  }
+  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const source = parsed?.headers;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    throw providerError("AIOS_CORTEX_AUTH_FILE_INVALID", "Cortex provider auth file has no headers object.");
+  }
+  const headers = {};
+  for (const [name, value] of Object.entries(source)) {
+    const normalized = String(name).trim().toLowerCase();
+    if (!CORTEX_AUTH_HEADER_ALLOWLIST.has(normalized) || typeof value !== "string" || !value.trim()) {
+      throw providerError("AIOS_CORTEX_AUTH_FILE_INVALID", "Cortex provider auth file contains an invalid header.");
+    }
+    headers[normalized] = value.trim();
+  }
+  return headers;
+}
 
 function stableClone(value) {
   if (Array.isArray(value)) return value.map(stableClone);
@@ -484,7 +529,11 @@ export async function executeCapabilityGatedProviderOperation({
   }
   const request = {
     method,
-    headers: { accept: "application/json", "content-type": "application/json" },
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(await cortexProviderAuthHeaders(providerId, endpoint)),
+    },
     redirect: "error",
     signal: AbortSignal.timeout(provider.timeoutMs),
   };
