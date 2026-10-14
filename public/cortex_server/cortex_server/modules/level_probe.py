@@ -47,6 +47,10 @@ from cortex_server.modules.health_status import (
     normalize_status,
 )
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
+from cortex_server.modules.memory_scope import (
+    MemoryScopeAuthError,
+    configured_internal_memory_headers,
+)
 
 PROBE_SCHEMA_VERSION = "cortex.level-probe.v2"
 DEFAULT_PROBE_TIMEOUT_S = 3.0
@@ -415,6 +419,17 @@ async def probe_route(
             if len(chunk) > max(room, 0):
                 response["truncated"] = True
 
+    probe_headers = [(b"host", b"cortex-level-probe"), (b"user-agent", b"cortex-level-probe/1")]
+    try:
+        internal_headers = configured_internal_memory_headers()
+    except MemoryScopeAuthError:
+        internal_headers = None
+    if internal_headers:
+        probe_headers.extend(
+            (str(name).lower().encode("ascii"), str(value).encode("utf-8"))
+            for name, value in internal_headers.items()
+        )
+
     scope: Dict[str, Any] = {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.3"},
@@ -425,7 +440,7 @@ async def probe_route(
         "raw_path": path.encode("utf-8"),
         "root_path": "",
         "query_string": b"",
-        "headers": [(b"host", b"cortex-level-probe"), (b"user-agent", b"cortex-level-probe/1")],
+        "headers": probe_headers,
         "client": ("127.0.0.1", 0),
         "server": ("127.0.0.1", 0),
         "app": app,
