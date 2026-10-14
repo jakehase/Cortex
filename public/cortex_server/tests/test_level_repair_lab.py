@@ -3,6 +3,7 @@ scores, model review only via level_model, execution still sandbox + approval.""
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -140,6 +141,30 @@ def test_status_does_not_advertise_hash_capabilities():
     encoded = json.dumps(status)
     assert "verifier_escrow" not in encoded and "self_modeling_twin" not in encoded
     assert status["execution"]["available"] is False or status["execution"]["reason"] is None
+
+
+def test_status_is_restricted_when_sandbox_paths_are_inaccessible(monkeypatch):
+    monkeypatch.setattr(lab, "LAB_WORKER_CONFIG", Path("/root/inaccessible/worker.json"))
+    monkeypatch.setattr(lab.Path, "is_file", lambda self: (_ for _ in ()).throw(PermissionError()))
+    monkeypatch.setattr(
+        lab,
+        "execution_capability_status",
+        lambda **kwargs: {
+            "enabled": False,
+            "allowedActions": [],
+            "executableActions": [],
+            "allowedRoots": [],
+            "capabilityTokenConfigured": False,
+            "defaultDeny": True,
+            "actionScope": {"requiredActions": [lab.LAB_EXECUTION_ACTION], "requirementsMet": False},
+        },
+    )
+
+    status = _run(lab.lab_status())
+
+    assert status["status"] == "restricted_by_design"
+    assert status["execution"]["available"] is False
+    assert status["execution"]["reason"] == "execution_capability_not_configured"
 
 
 def test_adapter_contract():

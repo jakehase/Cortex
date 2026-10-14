@@ -25,6 +25,7 @@ from cortex_server.modules.execution_capabilities import (
     execution_capability_status,
     resolve_authorized_path,
 )
+from cortex_server.modules.health_status import DEGRADED, OPERATIONAL, RESTRICTED_BY_DESIGN
 
 router = APIRouter()
 
@@ -69,6 +70,22 @@ LAB_WORKER_LAUNCHER = Path(
 LAB_WORKER_CONFIG = Path(
     os.getenv("CORTEX_REMOTE_WORKER_CONFIG", "/root/clawd/config/worker-launch/default.json")
 ).expanduser()
+
+
+def _path_is_file(path: Path) -> bool:
+    """Return file availability without letting service sandbox ACLs break status."""
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _path_is_dir(path: Path) -> bool:
+    """Return directory availability without exposing inaccessible path details."""
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 def _execution_http_error(exc: ExecutionCapabilityDenied) -> HTTPException:
@@ -356,26 +373,38 @@ async def lab_status(request: Request = None):
     policy = execution_capability_status(required_actions=(LAB_EXECUTION_ACTION,))
     adapter_ready = bool(
         shutil.which("node")
-        and LAB_WORKER_LAUNCHER.is_file()
-        and LAB_WORKER_CONFIG.is_file()
-        and LAB_REQUEST_ROOT.is_dir()
+        and _path_is_file(LAB_WORKER_LAUNCHER)
+        and _path_is_file(LAB_WORKER_CONFIG)
+        and _path_is_dir(LAB_REQUEST_ROOT)
     )
     available = bool(policy["enabled"] and adapter_ready)
+    status = (
+        OPERATIONAL
+        if available
+        else RESTRICTED_BY_DESIGN
+        if not policy["enabled"]
+        else DEGRADED
+    )
     blocked = {}
     if not available:
+        reason = (
+            "execution_capability_not_configured"
+            if not policy["enabled"]
+            else "remote_os_isolated_worker_not_configured"
+        )
         blocked = {
-            "sandbox_execute": "remote_os_isolated_worker_not_configured",
-            "gated_sandbox_execute": "remote_os_isolated_worker_not_configured",
+            "sandbox_execute": reason,
+            "gated_sandbox_execute": reason,
         }
     report = capability_report(request, "/lab", _STATUS_CAPABILITIES, extra_unavailable=blocked)
     return {
         'success': True,
         'level': 4,
         'name': 'Lab',
-        'status': 'active' if report["capabilities"] else 'unavailable',
+        'status': status,
         'execution': {
             'available': available,
-            'reason': None if available else 'remote_os_isolated_worker_not_configured',
+            'reason': None if available else reason,
             'defaultDeny': True,
             'executionPlane': 'configured_remote',
             'isolation': 'bubblewrap_unshare_all_no_network_ro_runtime',
