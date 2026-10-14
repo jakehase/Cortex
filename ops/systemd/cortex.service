@@ -19,7 +19,7 @@ Environment=CORTEX_PORT=8000
 Environment=ORACLE_OPENCLAW_DIRECT_ENABLED=false
 Environment=ORACLE_BRIDGE_URL=http://127.0.0.1:18999/invoke
 Environment=ORACLE_BRIDGE_REQUIRE_SIGNED_RECEIPT=true
-Environment=ORACLE_OPENCLAW_MODEL=openai-codex/gpt-5.6-sol
+Environment=ORACLE_OPENCLAW_MODEL=openai/gpt-5.6-sol
 Environment=ORACLE_OPENCLAW_THINKING=xhigh
 Environment=ORACLE_FALLBACKS_ENABLED=false
 Environment=MALLOC_ARENA_MAX=2
