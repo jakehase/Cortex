@@ -218,6 +218,24 @@ def validate_oracle_openclaw_config(
     }
 
 
+# OpenClaw reports "expiring" for the final day of a still-valid OAuth token. Treat it as usable
+# while comfortably unexpired; a missing, expired or erroring profile still fails closed.
+OAUTH_MIN_REMAINING_MS = 15 * 60 * 1000
+
+
+def _oauth_profile_usable(oauth_openai: dict) -> bool:
+    status = oauth_openai.get("status")
+    if status == "ok":
+        return True
+    if status != "expiring":
+        return False
+    try:
+        remaining = int(oauth_openai.get("remainingMs"))
+    except (TypeError, ValueError):
+        return False
+    return remaining >= OAUTH_MIN_REMAINING_MS
+
+
 def _validate_openclaw_runtime() -> dict:
     config = validate_oracle_openclaw_config()
     try:
@@ -266,7 +284,7 @@ def _validate_openclaw_runtime() -> dict:
         or not isinstance(profiles, dict)
         or int(profiles.get("oauth") or 0) < 1
         or not isinstance(oauth_openai, dict)
-        or oauth_openai.get("status") != "ok"
+        or not _oauth_profile_usable(oauth_openai)
     ):
         raise RuntimeError("Oracle OpenClaw runtime preflight could not resolve mounted OAuth")
     return {
