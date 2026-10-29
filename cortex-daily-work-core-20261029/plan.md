@@ -318,3 +318,21 @@ Concrete activation sequence:
 Acceptance: the single smoke is green, a fresh turn invokes the tool successfully, every unrelated tool/safety setting is unchanged, no external action occurs, and no OpenClaw restart/update is used. If fresh-turn loading cannot be observed, report activation as unverified rather than available.
 
 Activation result: the config, integrity, semantic-hook, single-smoke, and fresh-turn **loading** checks passed. Two no-delivery CLI attempts both recorded `cortex_daily_work` in the model tool schema, but the required routing hook stopped each before model execution with `CORTEX_REQUIRED_HOOK_FAILED`. Therefore deployment and new-turn loading are verified; live invocation remains an explicit evidence gap rather than a completion claim. No additional smoke was run.
+
+## 21. Real-path 404 repair continuation — 2026-10-29
+
+**Reply anchor:** the next natural parent turn loaded `cortex_daily_work`, then an actual read-only `attention_view` invocation returned HTTP 404 with the exact 22-byte FastAPI not-found body hash `37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d`. This supersedes the earlier deployment-green wording.
+
+**Observed root cause:** the registered tool posts to `http://127.0.0.1:8000/everyday/...`, while the live OpenAPI table mounts the existing `everyday_intel` router only under `/everyday_intel/...`. The intended `/everyday/*` daily-work path is already covered by signed-principal middleware, so the missing piece is a server-side adapter mount—not a new state primitive, policy widening, or base-URL change.
+
+**Prior-art decision:** `adapter_wrapper_only`. Reuse the existing `everyday_intel.router` handlers and state store; expose only the five daily-work POST routes through a dedicated `/everyday` subset router. Keep all existing `/everyday_intel/*` routes intact.
+
+**Bounded repair sequence:**
+
+1. In canonical source, construct and mount a `/everyday` adapter containing exactly attention view/propose/confirm/resolve and decision workbench. Fail startup if the expected five route signatures drift.
+2. Update the focused source assertion to require the adapter mount and exact five-route set; do not rerun the earlier broad five-surface activation smoke.
+3. Commit/push product source, build a new immutable Cortex release, update the existing target preflight/config/startup-manifest pins together, and use the supported config-RPC reload path. Do not update or upgrade OpenClaw.
+4. Run exactly one post-cutover real-path smoke through the registered `cortex_daily_work` tool factory against the live server using the existing trusted principal/signing configuration. Use read-only `attention_view`; require HTTP 200, non-empty `ok=true`, canonical endpoint `/everyday/attention/view`, and no external send or state mutation.
+5. Record rollback material and exact hashes. If the supported reload cannot activate the new pinned release without an unapproved lifecycle action, stop with a restart blocker rather than mutating the immutable release or bypassing startup integrity.
+
+**Fidelity:** `parity_for_scope` for the five daily-work actions. **Stop condition:** `real_tool_path_green_or_restart_blocker`.

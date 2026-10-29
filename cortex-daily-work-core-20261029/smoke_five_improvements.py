@@ -276,6 +276,16 @@ def route_inventory_check() -> dict[str, Any]:
     assert required.issubset(routes)
     main_text = (SERVER_ROOT / "cortex_server" / "main.py").read_text(encoding="utf-8")
     assert '"/everyday/",' in main_text
+    assert '_DAILY_WORK_ADAPTER_PREFIX = "/everyday"' in main_text
+    assert 'router_load_report["adapters"] = [mount_daily_work_adapter(app)]' in main_text
+    for route_path in (
+        '/attention/view',
+        '/attention/propose',
+        '/attention/confirm',
+        '/attention/resolve',
+        '/decision/workbench',
+    ):
+        assert f'("POST", "{route_path}")' in main_text
     return {"routes": sorted(f"{method} /everyday{path}" for method, path in required), "signedPrincipalAdmission": True}
 
 

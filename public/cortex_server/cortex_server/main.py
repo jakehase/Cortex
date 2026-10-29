@@ -1739,6 +1739,88 @@ def load_dynamic_routers(app: FastAPI, *, safe_mode: bool = True) -> dict:
     return report
 
 
+_DAILY_WORK_ADAPTER_PREFIX = "/everyday"
+_DAILY_WORK_ADAPTER_ROUTES = frozenset(
+    {
+        ("POST", "/attention/view"),
+        ("POST", "/attention/propose"),
+        ("POST", "/attention/confirm"),
+        ("POST", "/attention/resolve"),
+        ("POST", "/decision/workbench"),
+    }
+)
+
+
+def mount_daily_work_adapter(app: FastAPI) -> dict:
+    """Expose the bounded daily-work API over the existing everyday state.
+
+    ``everyday_intel`` remains the canonical implementation and state owner.
+    The OpenClaw tool contract predates its capability-manifest prefix and
+    calls ``/everyday/*``.  Mount only the five declared daily-work routes at
+    that path, failing startup if the source router drifts instead of silently
+    widening the adapter.
+    """
+    module = importlib.import_module("cortex_server.routers.everyday_intel")
+    source_router = getattr(module, "router", None)
+    if source_router is None:
+        raise RuntimeError("daily-work adapter requires the everyday_intel router")
+
+    selected_routes = []
+    observed: set[tuple[str, str]] = set()
+    for route in getattr(source_router, "routes", ()):
+        route_path = str(getattr(route, "path", "") or "")
+        route_keys = {
+            (str(method).upper(), route_path)
+            for method in (getattr(route, "methods", None) or ())
+            if str(method).upper() not in {"HEAD", "OPTIONS"}
+        }
+        selected_keys = route_keys & _DAILY_WORK_ADAPTER_ROUTES
+        if not selected_keys:
+            continue
+        if selected_keys != route_keys:
+            raise RuntimeError(
+                f"daily-work adapter partially selects one route: {sorted(route_keys)}"
+            )
+        selected_routes.append(route)
+        observed.update(selected_keys)
+
+    if observed != _DAILY_WORK_ADAPTER_ROUTES:
+        missing = sorted(_DAILY_WORK_ADAPTER_ROUTES - observed)
+        unexpected = sorted(observed - _DAILY_WORK_ADAPTER_ROUTES)
+        raise RuntimeError(
+            f"daily-work adapter route mismatch: missing={missing}, unexpected={unexpected}"
+        )
+
+    adapter = APIRouter()
+    adapter.routes.extend(selected_routes)
+    first_new_route = len(app.routes)
+    app.include_router(
+        adapter,
+        prefix=_DAILY_WORK_ADAPTER_PREFIX,
+        tags=["Daily Work"],
+    )
+    mounted = {
+        (str(method).upper(), str(getattr(route, "path", "") or ""))
+        for route in app.routes[first_new_route:]
+        for method in (getattr(route, "methods", None) or ())
+        if str(method).upper() not in {"HEAD", "OPTIONS"}
+    }
+    expected_mounted = {
+        (method, f"{_DAILY_WORK_ADAPTER_PREFIX}{route_path}")
+        for method, route_path in _DAILY_WORK_ADAPTER_ROUTES
+    }
+    if mounted != expected_mounted:
+        raise RuntimeError(
+            f"daily-work adapter mount mismatch: expected={sorted(expected_mounted)}, observed={sorted(mounted)}"
+        )
+    return {
+        "name": "daily_work",
+        "implementation": "everyday_intel",
+        "prefix": _DAILY_WORK_ADAPTER_PREFIX,
+        "routes": [f"{method} {_DAILY_WORK_ADAPTER_PREFIX}{path}" for method, path in sorted(_DAILY_WORK_ADAPTER_ROUTES)],
+    }
+
+
 def create_app(
     *,
     schema_only: bool = False,
@@ -2656,6 +2738,7 @@ def _create_app(
     # API Routers
     with read_only_construction_context(read_only_construction):
         router_load_report = load_dynamic_routers(app, safe_mode=safe_mode)
+        router_load_report["adapters"] = [mount_daily_work_adapter(app)]
     websocket_capability = CAPABILITY_BY_MODULE["websockets"]
     first_websocket_route = len(app.routes)
     app.include_router(

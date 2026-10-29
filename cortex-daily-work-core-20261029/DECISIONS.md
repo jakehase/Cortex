@@ -89,3 +89,11 @@ Append-only durable decisions for this bounded implementation.
 - Evidence: `artifacts/activation-receipt.json`, the installed `tools.alsoAllow` schema (`reloadKind=none`), valid config hash `c5b2df1eb50e8eddb6128268ad4abdf28a6c434555ace98576e3c1ff16c2cc74`, and fresh-turn trajectory tool-schema inventory.
 - Supersedes: The stale `staged_not_deployed` status and any proposal to rebuild, update OpenClaw, bypass the startup manifest, or restart the gateway for this tool-policy-only activation.
 - Follow-up: Treat new-turn loading as verified. Do not claim a successful live tool invocation from either synthetic CLI attempt; both were stopped before model execution by the required routing hook.
+
+## 2026-10-29 — Repair the route mismatch with a bounded server adapter
+
+- Decision: Mount exactly five existing `everyday_intel` POST handlers under `/everyday` as an adapter; keep the complete `/everyday_intel` API and canonical decisions state unchanged.
+- Reason: A real parent-turn invocation proved the registered OpenClaw tool posts to `/everyday/attention/view`, while the live capability loader mounted the source router only at `/everyday_intel/attention/view`. The existing signed-principal policy already covers `/everyday/*`.
+- Evidence: Live OpenAPI inventory, exact HTTP 404 body hash `37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d`, and source-level tool/base-URL inspection.
+- Supersedes: The earlier end-to-end activation-green wording. Tool-schema presence proves loading, not transport success.
+- Follow-up: Deploy through a new immutable backend release and require one read-only real-path tool smoke before restoring green status.

@@ -6,7 +6,7 @@
 - Canonical plan: `plan.md`
 - Decisions log: `DECISIONS.md`
 - Last updated: 2026-10-29
-- Status: deployed-active / fresh-turn tool loading verified
+- Status: real-path 404 reproduced / adapter repair source-qualified / deployment pending
 - Current fidelity: `parity_for_scope`
 
 ## Current checkpoint
@@ -16,8 +16,9 @@
 - Focused verification for this activation: exactly one integrated smoke run is green for all five rows; artifact `artifacts/activation-smoke.json`.
 - Default semantic integration: the loaded `cortex-route-gate` supplies proportional routing, evidence lifecycle/finalization/delivery hooks, source-backed attention, and the bounded `cortex_daily_work` tool; `cortex-memory-bridge` persists scoped corrections through canonical assurance/governance; everyday attention and workbench records reuse the existing decisions log.
 - Tool policy: `tools.profile` remains `coding`; `tools.alsoAllow` is now `cortex_browse`, `cortex_browser_status`, and `cortex_daily_work`; existing denies remain `web_search`, `web_fetch`, and `browser`.
-- Fresh-turn proof: a new turn's recorded model tool schema contains `cortex_daily_work`, and runtime plugin inventory identifies its source in the active release.
-- Deployment state: active for the bounded five-surface default path. No OpenClaw update, upgrade, or gateway restart was used.
+- Fresh-turn truth: a new turn loaded `cortex_daily_work`, but its actual read-only `attention_view` invocation returned HTTP 404 with FastAPI's exact 22-byte not-found body. Schema presence was not end-to-end success.
+- Root cause: the tool uses `/everyday/*`; the live router was mounted only at `/everyday_intel/*`.
+- Repair candidate: a fail-closed five-route `/everyday` adapter over the existing `everyday_intel` handlers and state has passed syntax and schema-construction checks. Production deployment is pending.
 
 ## Green implementation rows
 
@@ -35,6 +36,8 @@ passed=true
 surfaceCount=5
 freshTurnToolSchemaObserved=true
 liveSyntheticToolInvocationObserved=false
+actualParentToolInvocation=HTTP404
+endToEndActivationGreen=false
 externalSendInvoked=false
 policyBypassInvoked=false
 openClawUpdateOrUpgradeUsed=false
@@ -50,16 +53,17 @@ Activation evidence:
 
 The historical replay command remains documented in `plan.md`; do not rerun it merely to restate this activation because the approved verification budget was exactly one focused smoke.
 
-## Active blockers and remaining gap
+## Active blocker and repair state
 
-- No implementation, release-integrity, config-activation, or new-turn tool-loading blocker.
-- Two no-delivery synthetic CLI attempts loaded the tool but were stopped before model execution by `CORTEX_REQUIRED_HOOK_FAILED`; therefore this status does **not** claim a successful live `cortex_daily_work` invocation. Neither attempt made an external send. A normal trusted inbound turn can supply that final invocation evidence when the tool is next needed.
+- The active `1de5218d2807` release is not end-to-end green: real tool transport reaches an unmounted `/everyday/attention/view` path and receives HTTP 404.
+- Canonical source now contains the bounded adapter repair, but it is not yet deployed. Do not retry the tool or restore green status until the immutable release cutover and one real-path smoke succeed.
 
 ## Next actions
 
-1. Commit and push this documentation/evidence-only activation record; do not rebuild or mutate the immutable `1de5218d2807` release.
-2. On a later normal trusted user turn that genuinely needs attention or decision support, use `cortex_daily_work` and record success only from its actual non-empty result.
-3. Keep the current tool profile, deny list, signed-principal checks, exact-quote attention gates, and external-write safeguards unchanged.
+1. Commit/push the bounded adapter patch and focused real-path smoke harness.
+2. Build a new immutable backend release; preserve the currently loaded, byte-identical route-gate plugin path; update target preflight and startup-manifest pins without updating OpenClaw.
+3. Restart Cortex only, then run exactly one read-only real-path `attention_view` smoke through the registered tool factory.
+4. Mark end-to-end active only from a non-empty `ok=true` result and unchanged canonical decisions state.
 
 ## Do not use / superseded
 
@@ -70,8 +74,8 @@ The historical replay command remains documented in `plan.md`; do not rerun it m
 
 Allowed now:
 
-- All five bounded product surfaces are implemented in the active immutable release, integrated into the default semantic hooks, green in the single activation smoke, and present in a fresh turn's tool schema.
+- All five bounded semantic implementations exist, and the repair candidate mounts the five intended tool paths over the existing everyday handlers without creating a new state primitive.
 
 Not allowed:
 
-- A claim that either synthetic CLI attempt successfully invoked the tool, universal answer correctness, automatic discovery of every obligation, or any weakening of external-action and evidence gates.
+- Any end-to-end green or successful live invocation claim before the repaired release is active and the one real-path smoke passes; universal answer correctness; automatic discovery of every obligation; or any weakening of external-action and evidence gates.
