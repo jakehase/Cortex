@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "cortex.daily-work.surface-matrix.v1",
+  "project": "cortex-daily-work-core-20261029",
+  "replyAnchor": {
+    "current": "AC925111138D49CE7CBE148AF79F7F3B",
+    "recommendation": "3EB0E8B3478930C8DDDE38"
+  },
+  "fidelity": "parity_for_scope",
+  "stopCondition": "five_surface_matrix_green_or_exact_blocker",
+  "updatedAt": "2026-10-29T07:51:15.066395+00:00",
+  "surfaces": [
+    {
+      "id": "evidence-bound-answers",
+      "title": "Evidence-bound answer enforcement",
+      "priorArtDecision": "extend_existing",
+      "existingPrimitive": [
+        "cortex-route-gate",
+        "completion-integrity",
+        "claim-integrity protocol"
+      ],
+      "productFiles": [
+        "plugins/cortex-route-gate/index.ts"
+      ],
+      "acceptance": [
+        "failed, aborted, disabled, and empty tool results are not usable evidence",
+        "usable source results remain distinct from user-stated facts, inference, and recommendation",
+        "consequential advice cannot claim source verification without usable evidence",
+        "unsupported checked/read/reviewed/verified wording is revised or deterministically qualified before delivery"
+      ],
+      "implementationStatus": "complete",
+      "smokeStatus": "passed",
+      "deploymentState": "staged_not_deployed",
+      "evidence": [
+        "plugins/cortex-route-gate/index.ts",
+        "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "source-backed-attention",
+      "title": "Source-backed attention view",
+      "priorArtDecision": "extend_existing",
+      "existingPrimitive": [
+        "everyday intelligence database",
+        "existing task and daily brief surfaces"
+      ],
+      "productFiles": [
+        "public/cortex_server/cortex_server/routers/everyday_intel.py",
+        "plugins/cortex-route-gate/index.ts",
+        "public/cortex_server/cortex_server/main.py"
+      ],
+      "acceptance": [
+        "every item has source_ref and source_quote",
+        "ambiguous or model-proposed obligations remain candidates",
+        "active user obligations require exact current-user confirmation verified by the plugin",
+        "resolved items leave the active view and remain available as resolved history",
+        "attention never sends or schedules an external action"
+      ],
+      "implementationStatus": "complete",
+      "smokeStatus": "passed",
+      "deploymentState": "staged_not_deployed",
+      "evidence": [
+        "public/cortex_server/cortex_server/routers/everyday_intel.py",
+        "public/cortex_server/cortex_server/main.py",
+        "plugins/cortex-route-gate/index.ts",
+        "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "proportional-work-routing",
+      "title": "Rewrite / advise / execute / investigate proportional routing",
+      "priorArtDecision": "extend_existing",
+      "existingPrimitive": [
+        "cortex-route-gate task classification",
+        "Nexus routing",
+        "attachment/external-action guard"
+      ],
+      "productFiles": [
+        "plugins/cortex-route-gate/index.ts"
+      ],
+      "acceptance": [
+        "explicit rewrite requests select rewrite before domain keywords and add no facts",
+        "rewrite skips optional deep consultation unless verification is explicitly requested",
+        "consequential advice requires usable evidence or a clear evidence gap",
+        "execute preserves permission and external-action guards",
+        "investigate separates observed evidence from inference"
+      ],
+      "implementationStatus": "complete",
+      "smokeStatus": "passed",
+      "deploymentState": "staged_not_deployed",
+      "evidence": [
+        "plugins/cortex-route-gate/index.ts",
+        "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "scope-preserving-corrections",
+      "title": "Scope-preserving correction transfer",
+      "priorArtDecision": "extend_existing",
+      "existingPrimitive": [
+        "cortex-memory-bridge",
+        "memory governance claim_key/fact_key supersession"
+      ],
+      "productFiles": [
+        "plugins/cortex-memory-bridge/index.ts",
+        "plugins/cortex-route-gate/index.ts"
+      ],
+      "acceptance": [
+        "strong direct-human corrections are stored through canonical memory assurance",
+        "same task scope derives the same claim key for supersession",
+        "unrelated task scope derives a different claim key and remains preserved",
+        "matching active correction memories are injected only as same-scope guidance",
+        "a factual correction remains user-stated unless independently verified"
+      ],
+      "implementationStatus": "complete",
+      "smokeStatus": "passed",
+      "deploymentState": "staged_not_deployed",
+      "evidence": [
+        "plugins/cortex-memory-bridge/index.ts",
+        "plugins/cortex-route-gate/index.ts",
+        "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "qualitative-decision-workbench",
+      "title": "Personal decision workbench without fabricated scores",
+      "priorArtDecision": "extend_existing",
+      "existingPrimitive": [
+        "everyday intelligence decision infrastructure"
+      ],
+      "productFiles": [
+        "public/cortex_server/cortex_server/routers/everyday_intel.py",
+        "plugins/cortex-route-gate/index.ts",
+        "public/cortex_server/cortex_server/main.py"
+      ],
+      "acceptance": [
+        "options expose expected benefit, user time, ongoing burden, cost, reversibility, uncertainty, and evidence state",
+        "missing dimensions are surfaced as missing evidence",
+        "recommendation-changing evidence is explicit",
+        "no synthetic numeric score, weighted rank, or false precision is emitted",
+        "user priorities can be recorded as source-backed qualitative constraints"
+      ],
+      "implementationStatus": "complete",
+      "smokeStatus": "passed",
+      "deploymentState": "staged_not_deployed",
+      "evidence": [
+        "public/cortex_server/cortex_server/routers/everyday_intel.py",
+        "plugins/cortex-route-gate/index.ts",
+        "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json"
+      ],
+      "blockers": []
+    }
+  ]
+}

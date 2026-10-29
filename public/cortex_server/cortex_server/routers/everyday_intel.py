@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
+import hashlib
 import json
 import re
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter()
@@ -75,6 +76,76 @@ class ConfidenceRequest(BaseModel):
     evidence_count: int = Field(default=0, ge=0, le=100)
 
 
+ATTENTION_KINDS = {
+    "user_committed",
+    "owed_to_user",
+    "waiting_approval",
+    "cortex_can_prepare",
+}
+ATTENTION_STATUSES = {"candidate", "active", "resolved"}
+WORKBENCH_DIMENSIONS = (
+    "expected_benefit",
+    "user_time",
+    "ongoing_burden",
+    "cost",
+    "reversibility",
+    "uncertainty",
+)
+
+
+class _StrictRequest(BaseModel):
+    class Config:
+        extra = "forbid"
+
+
+class AttentionProposeRequest(_StrictRequest):
+    kind: str
+    summary: str = Field(min_length=3, max_length=600)
+    source_ref: str = Field(min_length=1, max_length=1000)
+    source_quote: str = Field(min_length=1, max_length=1200)
+    external_action_requested: bool = False
+
+
+class AttentionConfirmRequest(_StrictRequest):
+    item_id: str = Field(min_length=1, max_length=128)
+    confirmation_source_ref: str = Field(min_length=1, max_length=1000)
+    confirmation_quote: str = Field(min_length=1, max_length=1200)
+    confirmation_method: str = "exact_current_user_quote"
+    confirmation_verified_by_plugin: bool = False
+
+
+class AttentionResolveRequest(_StrictRequest):
+    item_id: str = Field(min_length=1, max_length=128)
+    resolution_note: str = Field(min_length=1, max_length=600)
+    resolution_source_ref: str = Field(min_length=1, max_length=1000)
+    resolution_quote: str = Field(min_length=1, max_length=1200)
+    resolution_verified_by_plugin: bool = False
+
+
+class AttentionViewRequest(_StrictRequest):
+    include_candidates: bool = True
+    include_resolved: bool = False
+
+
+class WorkbenchOption(_StrictRequest):
+    label: str = Field(min_length=1, max_length=180)
+    expected_benefit: Optional[str] = Field(default=None, max_length=1200)
+    user_time: Optional[str] = Field(default=None, max_length=1200)
+    ongoing_burden: Optional[str] = Field(default=None, max_length=1200)
+    cost: Optional[str] = Field(default=None, max_length=1200)
+    reversibility: Optional[str] = Field(default=None, max_length=1200)
+    uncertainty: Optional[str] = Field(default=None, max_length=1200)
+    source_refs: List[str] = Field(default_factory=list, max_length=20)
+
+
+class DecisionWorkbenchRequest(_StrictRequest):
+    decision: str = Field(min_length=3, max_length=1200)
+    options: List[WorkbenchOption] = Field(min_length=2, max_length=12)
+    priorities: List[str] = Field(default_factory=list, max_length=20)
+    priority_source_refs: List[str] = Field(default_factory=list, max_length=20)
+    decision_changers: List[str] = Field(default_factory=list, max_length=30)
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -102,6 +173,69 @@ def _append_jsonl(path: Path, row: dict) -> None:
     _ensure_state_dir()
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _principal_key(request: Request) -> str:
+    """Derive attention ownership only from authenticated transport identity."""
+
+    principal = getattr(request.state, "cortex_principal", None)
+    if principal is None or getattr(principal, "role", "") != "principal":
+        raise HTTPException(status_code=403, detail="signed principal authorization required")
+    dimensions = (
+        str(getattr(principal, "credential_id", "") or ""),
+        str(getattr(principal, "tenant_id", "") or ""),
+        str(getattr(principal, "storage_workspace_id", "") or ""),
+        str(getattr(principal, "agent_id", "") or ""),
+        str(getattr(principal, "user_id", "") or ""),
+        str(getattr(principal, "channel_id", "") or ""),
+    )
+    if not all(dimensions):
+        raise HTTPException(status_code=403, detail="complete principal scope required")
+    return hashlib.sha256(("cortex.everyday.principal.v1\0" + "\0".join(dimensions)).encode("utf-8")).hexdigest()
+
+
+def _clean_source(value: str, field: str, maximum: int) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=422, detail=f"{field} is required")
+    if len(cleaned) > maximum:
+        raise HTTPException(status_code=422, detail=f"{field} is too long")
+    return cleaned
+
+
+def _attention_latest(principal_key: str) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for row in _read_jsonl(DECISIONS_FILE):
+        if row.get("record_type") != "attention":
+            continue
+        if row.get("principal_key") != principal_key:
+            continue
+        item_id = row.get("id")
+        if isinstance(item_id, str) and item_id:
+            latest[item_id] = row
+    return latest
+
+
+def _public_attention_row(row: dict) -> dict:
+    allowed = (
+        "id", "kind", "summary", "status", "source_ref", "source_quote",
+        "created_at", "updated_at", "confirmed_at", "confirmation_source_ref",
+        "confirmation_quote", "resolved_at", "resolution_note",
+        "resolution_source_ref", "resolution_quote", "external_action_allowed",
+    )
+    return {key: row.get(key) for key in allowed if key in row}
+
+
+def _workbench_value(value: Optional[str], source_refs: List[str]) -> dict:
+    cleaned = str(value or "").strip()
+    refs = [str(ref).strip() for ref in source_refs if str(ref).strip()][:20]
+    if not cleaned:
+        return {"value": None, "evidence_state": "missing", "source_refs": []}
+    return {
+        "value": cleaned,
+        "evidence_state": "source_backed" if refs else "user_stated_or_unverified",
+        "source_refs": refs,
+    }
 
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
@@ -197,10 +331,188 @@ async def status():
             "decision_log",
             "decision_review",
             "decision_resolve",
+            "decision_workbench_qualitative",
+            "source_backed_attention_lifecycle",
             "confidence",
             "daily_brief",
             "profile_snapshot",
         ],
+    }
+
+
+@router.post("/attention/propose")
+async def attention_propose(req: AttentionProposeRequest, http_request: Request):
+    principal_key = _principal_key(http_request)
+    kind = str(req.kind or "").strip().lower()
+    if kind not in ATTENTION_KINDS:
+        raise HTTPException(status_code=422, detail="unsupported attention kind")
+    if req.external_action_requested:
+        raise HTTPException(status_code=422, detail="attention items cannot authorize external actions")
+    now = _utc_now().isoformat()
+    row = {
+        "record_type": "attention",
+        "id": str(uuid.uuid4()),
+        "principal_key": principal_key,
+        "kind": kind,
+        "summary": str(req.summary).strip(),
+        "status": "candidate",
+        "source_ref": _clean_source(req.source_ref, "source_ref", 1000),
+        "source_quote": _clean_source(req.source_quote, "source_quote", 1200),
+        "external_action_allowed": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    _append_jsonl(DECISIONS_FILE, row)
+    return {
+        "success": True,
+        "item": _public_attention_row(row),
+        "activation_required": True,
+        "activation_policy": "exact current-user quote verified by the default plugin path",
+    }
+
+
+@router.post("/attention/confirm")
+async def attention_confirm(req: AttentionConfirmRequest, http_request: Request):
+    principal_key = _principal_key(http_request)
+    latest = _attention_latest(principal_key)
+    current = latest.get(str(req.item_id))
+    if current is None:
+        raise HTTPException(status_code=404, detail="attention item not found")
+    if current.get("status") != "candidate":
+        raise HTTPException(status_code=409, detail="only candidate attention items can be confirmed")
+    if req.confirmation_method != "exact_current_user_quote" or not req.confirmation_verified_by_plugin:
+        raise HTTPException(status_code=422, detail="plugin-verified exact current-user confirmation is required")
+    now = _utc_now().isoformat()
+    row = {
+        **current,
+        "record_type": "attention",
+        "principal_key": principal_key,
+        "status": "active",
+        "confirmed_at": now,
+        "updated_at": now,
+        "confirmation_source_ref": _clean_source(req.confirmation_source_ref, "confirmation_source_ref", 1000),
+        "confirmation_quote": _clean_source(req.confirmation_quote, "confirmation_quote", 1200),
+        "confirmation_method": "exact_current_user_quote",
+        "confirmation_verified_by_plugin": True,
+        "external_action_allowed": False,
+    }
+    _append_jsonl(DECISIONS_FILE, row)
+    return {"success": True, "item": _public_attention_row(row)}
+
+
+@router.post("/attention/resolve")
+async def attention_resolve(req: AttentionResolveRequest, http_request: Request):
+    principal_key = _principal_key(http_request)
+    latest = _attention_latest(principal_key)
+    current = latest.get(str(req.item_id))
+    if current is None:
+        raise HTTPException(status_code=404, detail="attention item not found")
+    if current.get("status") not in {"candidate", "active"}:
+        raise HTTPException(status_code=409, detail="attention item is already resolved")
+    if not req.resolution_verified_by_plugin:
+        raise HTTPException(status_code=422, detail="plugin-verified resolution source is required")
+    now = _utc_now().isoformat()
+    row = {
+        **current,
+        "record_type": "attention",
+        "principal_key": principal_key,
+        "status": "resolved",
+        "resolved_at": now,
+        "updated_at": now,
+        "resolution_note": str(req.resolution_note).strip(),
+        "resolution_source_ref": _clean_source(req.resolution_source_ref, "resolution_source_ref", 1000),
+        "resolution_quote": _clean_source(req.resolution_quote, "resolution_quote", 1200),
+        "resolution_verified_by_plugin": True,
+        "external_action_allowed": False,
+    }
+    _append_jsonl(DECISIONS_FILE, row)
+    return {"success": True, "item": _public_attention_row(row)}
+
+
+@router.post("/attention/view")
+async def attention_view(req: AttentionViewRequest, http_request: Request):
+    principal_key = _principal_key(http_request)
+    rows = list(_attention_latest(principal_key).values())
+    rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+    grouped = {
+        "active": [_public_attention_row(row) for row in rows if row.get("status") == "active"],
+        "candidates": [
+            _public_attention_row(row) for row in rows
+            if req.include_candidates and row.get("status") == "candidate"
+        ],
+        "resolved": [
+            _public_attention_row(row) for row in rows
+            if req.include_resolved and row.get("status") == "resolved"
+        ],
+    }
+    return {
+        "success": True,
+        "view": grouped,
+        "counts": {key: len(value) for key, value in grouped.items()},
+        "policy": {
+            "candidate_is_not_an_obligation": True,
+            "active_requires_explicit_confirmation": True,
+            "external_actions": "never authorized by attention state",
+        },
+    }
+
+
+@router.post("/decision/workbench")
+async def decision_workbench(req: DecisionWorkbenchRequest, http_request: Request):
+    # Authenticate even though this surface is compute-only, so source-backed
+    # preferences and option material cannot cross principal boundaries.
+    _principal_key(http_request)
+    normalized_options = []
+    missing_evidence = []
+    for option in req.options:
+        refs = [str(ref).strip() for ref in option.source_refs if str(ref).strip()][:20]
+        dimensions = {
+            dimension: _workbench_value(getattr(option, dimension), refs)
+            for dimension in WORKBENCH_DIMENSIONS
+        }
+        for dimension, state in dimensions.items():
+            if state["evidence_state"] == "missing":
+                missing_evidence.append({"option": option.label, "dimension": dimension})
+        normalized_options.append({
+            "label": option.label,
+            "dimensions": dimensions,
+            "missing_dimensions": [
+                dimension for dimension, state in dimensions.items()
+                if state["evidence_state"] == "missing"
+            ],
+        })
+    priorities = [str(value).strip() for value in req.priorities if str(value).strip()][:20]
+    priority_refs = [str(value).strip() for value in req.priority_source_refs if str(value).strip()][:20]
+    decision_changers = [str(value).strip() for value in req.decision_changers if str(value).strip()][:30]
+    decision_changers.extend(
+        f"Evidence for {row['dimension']} for {row['option']}"
+        for row in missing_evidence
+    )
+    decision_changers = list(dict.fromkeys(decision_changers))[:60]
+    return {
+        "success": True,
+        "workbench": {
+            "decision": req.decision,
+            "options": normalized_options,
+            "priorities": {
+                "values": priorities,
+                "evidence_state": (
+                    "source_backed" if priorities and priority_refs
+                    else "user_stated_or_unverified" if priorities
+                    else "missing"
+                ),
+                "source_refs": priority_refs,
+            },
+            "missing_evidence": missing_evidence,
+            "what_could_change_the_recommendation": decision_changers,
+            "recommendation": None,
+            "recommendation_boundary": "No winner is selected without source-backed option facts and explicit user priorities.",
+            "scoring": {
+                "numeric_scores": False,
+                "weighted_ranking": False,
+                "fabricated_precision": False,
+            },
+        },
     }
 
 
@@ -229,6 +541,7 @@ async def prioritize(req: PrioritizeRequest):
 async def decision_log(req: DecisionLogRequest):
     now = _utc_now()
     row = {
+        "record_type": "decision",
         "id": str(uuid.uuid4()),
         "created_at": now.isoformat(),
         "review_due": (now + timedelta(days=req.review_after_days)).isoformat(),
@@ -249,6 +562,8 @@ async def decision_review(include_all: bool = False):
 
     latest_by_id: dict[str, dict] = {}
     for r in rows:
+        if r.get("record_type", "decision") != "decision":
+            continue
         rid = r.get("id")
         if isinstance(rid, str):
             latest_by_id[rid] = r
@@ -272,6 +587,8 @@ async def decision_resolve(req: DecisionResolveRequest):
     now = _utc_now().isoformat()
 
     for row in rows:
+        if row.get("record_type", "decision") != "decision":
+            continue
         if row.get("id") == req.decision_id and row.get("resolved") is not True:
             row["resolved"] = True
             row["resolved_at"] = now

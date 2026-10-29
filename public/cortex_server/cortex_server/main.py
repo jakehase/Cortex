@@ -558,6 +558,7 @@ _PRINCIPAL_MUTATION_PREFIXES = (
     "/knowledge/structural/",
     "/knowledge/nodes",
     "/knowledge/edges",
+    "/everyday/",
     "/l22/",
     "/librarian/",
     "/orchestrator/runtime/plan",

@@ -1,0 +1,704 @@
+{
+  "blocker": null,
+  "decision": "extend_existing",
+  "failures": [],
+  "highConfidencePriorArt": [
+    {
+      "id": "local-file-e62a231d830e1a8a-175",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 0.9079,
+        "lexical_score": 0.3864,
+        "line": 175,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.6875,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **Actual remaining activation boundary:** the installed runtime supports hot plugin-setting reloads, but this running process cached the old plugin schema and rejected the new binding keys. The native `plugins.refresh` response was `ok=true, restartRequired=true`; actual chat memory still failed the old user-ID validation. The precise remaining owner-terminal command is `openclaw gateway restart`, followed by live memory verification. Do not reapply the source patch, invent a UI requirement, bypass the guard, or claim memory is repaired before that verification. This session's restriction is on performing the gateway restart, not lack of shell/root access. Evidence: `/root/clawd/artifacts/cortex-memory-identity-20260906T2155/hot-activation/final-status.json`. <!-- project: github.com/jakehase/Cortex --> - **Identity repair implemented but not activated (22:14 CDT):** Jake approved the "
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-53",
+      "label": "/root/clawd/memory/2026-05-11.md",
+      "matchedTerms": [
+        "packages"
+      ],
+      "metadata": {
+        "authority_rank": 55,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 0.6004,
+        "lexical_score": 0.4444,
+        "line": 53,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-05-11.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-05-11.md",
+        "relevance_score": 0.6428,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "## Mailchimp autonomous strict-gap continuation \u2014 Phase 15 audience/CRM - Jake said \u201cContinue\u201d after the Phase 14 autonomous continuation proof. Bound the next anchor to `/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_autonomous_strict_gap_continuation/remote-proof-20260511-123602`, whose `next_work_queue.json` named `audience/CRM parity: limited identity/lifecycle/warehouse realism`. - Extended `run-mailchimp-autonomous-continuation.mjs` so it consumes prior `next_work_queue.json` before fallback strict gaps, added the `audience_identity_lifecycle_warehouse_layer` surface, and added regression coverage that verifies queue-based continuation selects audience/CRM and replans to reporting/analytics. - Product slice: `packages/app/domain-audience.mjs` now builds and persists audience identity lifecycle warehouse snapshots with resolved profiles, duplicate identity"
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-55",
+      "label": "/root/clawd/memory/2026-05-11.md",
+      "matchedTerms": [
+        "packages"
+      ],
+      "metadata": {
+        "authority_rank": 55,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 0.6004,
+        "lexical_score": 0.4444,
+        "line": 55,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-05-11.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-05-11.md",
+        "relevance_score": 0.6428,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- Jake said \u201cContinue\u201d after the Phase 14 autonomous continuation proof. Bound the next anchor to `/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_autonomous_strict_gap_continuation/remote-proof-20260511-123602`, whose `next_work_queue.json` named `audience/CRM parity: limited identity/lifecycle/warehouse realism`. - Extended `run-mailchimp-autonomous-continuation.mjs` so it consumes prior `next_work_queue.json` before fallback strict gaps, added the `audience_identity_lifecycle_warehouse_layer` surface, and added regression coverage that verifies queue-based continuation selects audience/CRM and replans to reporting/analytics. - Product slice: `packages/app/domain-audience.mjs` now builds and persists audience identity lifecycle warehouse snapshots with resolved profiles, duplicate identity groups, lifecycle stages, source completeness, warehouse rows, and sync"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-119",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 0.5,
+        "line": 119,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.7369,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **September14 incident correction:** authenticated admin+principal health200ok for semantic/Codec; unsigned/invalidsignature403. Earlier unauthenticated error was not outage evidence. Actual native query reproduced stale PMHNP current checkpoint: owner CAN-handle-PA correction existed only in client ledger, not canonical project. Reconciled canonical current facts and Gmail wrapper path, preserved/superseded history; identical native query now retrieves corrected fact rank1 with verified ranking. This is data repair, NOT product-code/full audit completion. Gateway start observed September14 10:33CDT, later than staged release; old restart-pending flag no longer sufficient\u2014loaded lifecycle acceptance remains. Evidence incident-20260914/result.json. <!-- project: github.com/jakehase/Cortex --> - **September13 preventive lifecycle repair:** e6874d7 final release includes run-scoped output"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-133",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 0.4643,
+        "line": 133,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.7369,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **September12 15:57 authorization carry-forward correction:** Jake correctly called out stopping at audit/test checkpoints instead of deploying approved safe fixes. Qualified structural indexer a26af03is NOW DEPLOYED via existing guard to a26af03-index-utility;217Python/121bridge qualification,945pins/readiness/config validation, both scoped backend queries target1, invalid scope denied, actual native original recall target1/cross_encoder_verified=true. Environment/grants/OpenClaw config unchanged; gateway PID unchanged. This deploys the offline preservation UTILITY only; live graph has NOT been rebuilt/replaced and full audit remains open. Evidence full-health-20260912/activation-index-utility.json plus semantic-comprehensive-20260912/index-utility-deployment-verified.json. Do not repeat undeployed-utility claim. <!-- project: github.com/jakehase/Cortex --> - **September12 15:37 repai"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-18",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 18,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "## Historical checkpoint \u2014 2026-09-22 20:42 CDT temporal-memory production slice <!-- project: github.com/jakehase/Cortex --> - Continuation anchor `3EB0A209CCC095E36897F1` resumed the stopped 17:42 Past-AI follow-through without changing models, accounts, or budgets. Prior owner `aafe5e73-\u2026` was terminal failed at18:28:52 after its final successful L22 edit; its saved work was recovered, and no competing owner/process was found. <!-- project: github.com/jakehase/Cortex --> - Source commit `93f098eaa8431cb52b5eb2b282cbf9a714391ff1` extends existing Librarian/L22/Codec and Route Gate owners: distinct occurred/observed/system-ingested time; inclusive/exclusive validity; valid-time `as_of` versus knowledge-time `as_known_at`; date-only precision without invented clock time; structured source lineage; explicit same-fact supersession with authority/uncertainty; cycle/self/missing/cross-princi"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-19",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 19,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- Continuation anchor `3EB0A209CCC095E36897F1` resumed the stopped 17:42 Past-AI follow-through without changing models, accounts, or budgets. Prior owner `aafe5e73-\u2026` was terminal failed at18:28:52 after its final successful L22 edit; its saved work was recovered, and no competing owner/process was found. <!-- project: github.com/jakehase/Cortex --> - Source commit `93f098eaa8431cb52b5eb2b282cbf9a714391ff1` extends existing Librarian/L22/Codec and Route Gate owners: distinct occurred/observed/system-ingested time; inclusive/exclusive validity; valid-time `as_of` versus knowledge-time `as_known_at`; date-only precision without invented clock time; structured source lineage; explicit same-fact supersession with authority/uncertainty; cycle/self/missing/cross-principal denial; principal-scoped fallback markers; and legacy unknown-time compatibility. Temporal records sharing a fact key now "
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/cortex-route-gate/openclaw.plugin.json",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/cortex-route-gate/openclaw.plugin.json",
+      "matchedTerms": [
+        "cortex route gate"
+      ],
+      "score": 0.6047,
+      "source": "workspace_file",
+      "text": "{ \"id\": \"cortex-route-gate\", \"name\": \"Cortex Route Gate\", \"description\": \"Forces every agent run to consult Cortex routing first and injects the selected levels into the prompt.\", \"kind\": \"utility\", \"configSchema\": { \"type\": \"object\", \"additionalProperties\": false, \"anyOf\": [ { \"required\": [ \"sessionIdentityHmacSecret\", \"scopeCredentialId\", \"scopeHmacSecret\", \"writeToken\" ], \"properties\": { \"allowUnsignedLocalDevelopment\": { \"const\": false } } }, { \"required\": [ \"sessionIdentityHmacSecret\", \"allowUnsignedLocalDevelopment\" ], \"not\": { \"anyOf\": [ { \"required\": ["
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/modules/level_adapters/architect.py",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/modules/level_adapters/architect.py",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5878,
+      "source": "workspace_file",
+      "text": "\"\"\"ExecutionEngine adapter for L9 Architect: model-backed design advice for the user's design question (components, data flow, risks, trade-offs). Advice only.\"\"\" from __future__ import annotations from typing import Any, Dict, Mapping from cortex_server.modules.level_adapters._safe_level_common import ( blocked_from_status, clip, context_text, require_query, require_scope, ) LEVEL = 9 NAME = \"architect\" NEEDS_MODEL = True SAFE_AUTORUN = True # returns advice; never writes files or installs packages DEFAULT_DEADLINE_S = 80.0 # fits inside the route gate's 85 s level budget async def run(query:"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/cortex-agent-work-adapter.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/cortex-agent-work-adapter.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5878,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { compileCortexAgentWorkHandoff, cortexHandoffToAgentWorkSpec, writeCortexAgentWorkHandoff } from '../packages/cortex-agent-work-adapter/index.mjs'; test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provenance', () => { const compiled = compileCortexAgentWorkHandoff({ objective: 'Integrate Agent Work DSL into Cortex orchestration handoff', repoPath: '/tmp/stack', fid"
+    }
+  ],
+  "objective": "Extend the existing Cortex and OpenClaw default request path with five bounded user-facing capabilities: evidence-bound consequential answers, a source-backed attention lifecycle view, proportional rewrite/advise/execute/investigate routing, scope-preserving correction transfer, and a qualitative decision workbench without fabricated scores.",
+  "ok": true,
+  "plannedCapabilities": [
+    "claim provenance evidence binding successful tool outcomes failed aborted empty evidence rejection",
+    "attention commitments approvals owed preparation resolved lifecycle source links",
+    "rewrite advise execute investigate intent routing proportional scrutiny",
+    "correction supersession scope transfer unrelated facts preserved",
+    "decision options burden cost reversibility uncertainty missing evidence qualitative"
+  ],
+  "plannedPaths": [
+    "plugins/cortex-route-gate",
+    "public/cortex_server",
+    "large-project-capability-stack/packages"
+  ],
+  "priorArtMatches": [
+    {
+      "id": "local-file-e62a231d830e1a8a-175",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 0.9079,
+        "lexical_score": 0.3864,
+        "line": 175,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.6875,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **Actual remaining activation boundary:** the installed runtime supports hot plugin-setting reloads, but this running process cached the old plugin schema and rejected the new binding keys. The native `plugins.refresh` response was `ok=true, restartRequired=true`; actual chat memory still failed the old user-ID validation. The precise remaining owner-terminal command is `openclaw gateway restart`, followed by live memory verification. Do not reapply the source patch, invent a UI requirement, bypass the guard, or claim memory is repaired before that verification. This session's restriction is on performing the gateway restart, not lack of shell/root access. Evidence: `/root/clawd/artifacts/cortex-memory-identity-20260906T2155/hot-activation/final-status.json`. <!-- project: github.com/jakehase/Cortex --> - **Identity repair implemented but not activated (22:14 CDT):** Jake approved the "
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-53",
+      "label": "/root/clawd/memory/2026-05-11.md",
+      "matchedTerms": [
+        "packages"
+      ],
+      "metadata": {
+        "authority_rank": 55,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 0.6004,
+        "lexical_score": 0.4444,
+        "line": 53,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-05-11.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-05-11.md",
+        "relevance_score": 0.6428,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "## Mailchimp autonomous strict-gap continuation \u2014 Phase 15 audience/CRM - Jake said \u201cContinue\u201d after the Phase 14 autonomous continuation proof. Bound the next anchor to `/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_autonomous_strict_gap_continuation/remote-proof-20260511-123602`, whose `next_work_queue.json` named `audience/CRM parity: limited identity/lifecycle/warehouse realism`. - Extended `run-mailchimp-autonomous-continuation.mjs` so it consumes prior `next_work_queue.json` before fallback strict gaps, added the `audience_identity_lifecycle_warehouse_layer` surface, and added regression coverage that verifies queue-based continuation selects audience/CRM and replans to reporting/analytics. - Product slice: `packages/app/domain-audience.mjs` now builds and persists audience identity lifecycle warehouse snapshots with resolved profiles, duplicate identity"
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-55",
+      "label": "/root/clawd/memory/2026-05-11.md",
+      "matchedTerms": [
+        "packages"
+      ],
+      "metadata": {
+        "authority_rank": 55,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 0.6004,
+        "lexical_score": 0.4444,
+        "line": 55,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-05-11.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-05-11.md",
+        "relevance_score": 0.6428,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- Jake said \u201cContinue\u201d after the Phase 14 autonomous continuation proof. Bound the next anchor to `/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_autonomous_strict_gap_continuation/remote-proof-20260511-123602`, whose `next_work_queue.json` named `audience/CRM parity: limited identity/lifecycle/warehouse realism`. - Extended `run-mailchimp-autonomous-continuation.mjs` so it consumes prior `next_work_queue.json` before fallback strict gaps, added the `audience_identity_lifecycle_warehouse_layer` surface, and added regression coverage that verifies queue-based continuation selects audience/CRM and replans to reporting/analytics. - Product slice: `packages/app/domain-audience.mjs` now builds and persists audience identity lifecycle warehouse snapshots with resolved profiles, duplicate identity groups, lifecycle stages, source completeness, warehouse rows, and sync"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-119",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 0.5,
+        "line": 119,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.7369,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **September14 incident correction:** authenticated admin+principal health200ok for semantic/Codec; unsigned/invalidsignature403. Earlier unauthenticated error was not outage evidence. Actual native query reproduced stale PMHNP current checkpoint: owner CAN-handle-PA correction existed only in client ledger, not canonical project. Reconciled canonical current facts and Gmail wrapper path, preserved/superseded history; identical native query now retrieves corrected fact rank1 with verified ranking. This is data repair, NOT product-code/full audit completion. Gateway start observed September14 10:33CDT, later than staged release; old restart-pending flag no longer sufficient\u2014loaded lifecycle acceptance remains. Evidence incident-20260914/result.json. <!-- project: github.com/jakehase/Cortex --> - **September13 preventive lifecycle repair:** e6874d7 final release includes run-scoped output"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-133",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 0.4643,
+        "line": 133,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 0.7369,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- **September12 15:57 authorization carry-forward correction:** Jake correctly called out stopping at audit/test checkpoints instead of deploying approved safe fixes. Qualified structural indexer a26af03is NOW DEPLOYED via existing guard to a26af03-index-utility;217Python/121bridge qualification,945pins/readiness/config validation, both scoped backend queries target1, invalid scope denied, actual native original recall target1/cross_encoder_verified=true. Environment/grants/OpenClaw config unchanged; gateway PID unchanged. This deploys the offline preservation UTILITY only; live graph has NOT been rebuilt/replaced and full audit remains open. Evidence full-health-20260912/activation-index-utility.json plus semantic-comprehensive-20260912/index-utility-deployment-verified.json. Do not repeat undeployed-utility claim. <!-- project: github.com/jakehase/Cortex --> - **September12 15:37 repai"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-18",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 18,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "## Historical checkpoint \u2014 2026-09-22 20:42 CDT temporal-memory production slice <!-- project: github.com/jakehase/Cortex --> - Continuation anchor `3EB0A209CCC095E36897F1` resumed the stopped 17:42 Past-AI follow-through without changing models, accounts, or budgets. Prior owner `aafe5e73-\u2026` was terminal failed at18:28:52 after its final successful L22 edit; its saved work was recovered, and no competing owner/process was found. <!-- project: github.com/jakehase/Cortex --> - Source commit `93f098eaa8431cb52b5eb2b282cbf9a714391ff1` extends existing Librarian/L22/Codec and Route Gate owners: distinct occurred/observed/system-ingested time; inclusive/exclusive validity; valid-time `as_of` versus knowledge-time `as_known_at`; date-only precision without invented clock time; structured source lineage; explicit same-fact supersession with authority/uncertainty; cycle/self/missing/cross-princi"
+    },
+    {
+      "id": "local-file-e62a231d830e1a8a-19",
+      "label": "/root/clawd/memory/projects/cortex-memory-system.md",
+      "matchedTerms": [],
+      "metadata": {
+        "authority_rank": 65,
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "historical_only": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 19,
+        "memory_scope_key": "eb15449a8a7473a9f732730f4ec28266fd4423d32b5cd55f5de131f10994f58b",
+        "memory_status": "active",
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/cortex-memory-system.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/cortex-memory-system.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ],
+        "tenant_id": "cortex-local",
+        "workspace_id": "default"
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- Continuation anchor `3EB0A209CCC095E36897F1` resumed the stopped 17:42 Past-AI follow-through without changing models, accounts, or budgets. Prior owner `aafe5e73-\u2026` was terminal failed at18:28:52 after its final successful L22 edit; its saved work was recovered, and no competing owner/process was found. <!-- project: github.com/jakehase/Cortex --> - Source commit `93f098eaa8431cb52b5eb2b282cbf9a714391ff1` extends existing Librarian/L22/Codec and Route Gate owners: distinct occurred/observed/system-ingested time; inclusive/exclusive validity; valid-time `as_of` versus knowledge-time `as_known_at`; date-only precision without invented clock time; structured source lineage; explicit same-fact supersession with authority/uncertainty; cycle/self/missing/cross-principal denial; principal-scoped fallback markers; and legacy unknown-time compatibility. Temporal records sharing a fact key now "
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/cortex-route-gate/openclaw.plugin.json",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/cortex-route-gate/openclaw.plugin.json",
+      "matchedTerms": [
+        "cortex route gate"
+      ],
+      "score": 0.6047,
+      "source": "workspace_file",
+      "text": "{ \"id\": \"cortex-route-gate\", \"name\": \"Cortex Route Gate\", \"description\": \"Forces every agent run to consult Cortex routing first and injects the selected levels into the prompt.\", \"kind\": \"utility\", \"configSchema\": { \"type\": \"object\", \"additionalProperties\": false, \"anyOf\": [ { \"required\": [ \"sessionIdentityHmacSecret\", \"scopeCredentialId\", \"scopeHmacSecret\", \"writeToken\" ], \"properties\": { \"allowUnsignedLocalDevelopment\": { \"const\": false } } }, { \"required\": [ \"sessionIdentityHmacSecret\", \"allowUnsignedLocalDevelopment\" ], \"not\": { \"anyOf\": [ { \"required\": ["
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/modules/level_adapters/architect.py",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/modules/level_adapters/architect.py",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5878,
+      "source": "workspace_file",
+      "text": "\"\"\"ExecutionEngine adapter for L9 Architect: model-backed design advice for the user's design question (components, data flow, risks, trade-offs). Advice only.\"\"\" from __future__ import annotations from typing import Any, Dict, Mapping from cortex_server.modules.level_adapters._safe_level_common import ( blocked_from_status, clip, context_text, require_query, require_scope, ) LEVEL = 9 NAME = \"architect\" NEEDS_MODEL = True SAFE_AUTORUN = True # returns advice; never writes files or installs packages DEFAULT_DEADLINE_S = 80.0 # fits inside the route gate's 85 s level budget async def run(query:"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/cortex-agent-work-adapter.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/cortex-agent-work-adapter.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5878,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { compileCortexAgentWorkHandoff, cortexHandoffToAgentWorkSpec, writeCortexAgentWorkHandoff } from '../packages/cortex-agent-work-adapter/index.mjs'; test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provenance', () => { const compiled = compileCortexAgentWorkHandoff({ objective: 'Integrate Agent Work DSL into Cortex orchestration handoff', repoPath: '/tmp/stack', fid"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/completion-integrity/core.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/plugins/completion-integrity/core.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import { pathToFileURL } from 'node:url'; import { bootstrapSurfaceHonestyManifest, enforceArchitecture } from '../../large-project-capability-stack/packages/architecture-enforcer/index.mjs'; import { compileClaimIntegrityReport, buildClaimResponseFrame } from '../../large-project-capability-stack/packages/claim-integrity/index.mjs'; const OPENCLAW_DIST_ROOT = '/usr/lib/node_modules/openclaw/dist'; let deliverOutboundPayloadsPromise = null; function resolveDeliverRuntimeCandidates() { const candidates = ["
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/run.py",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/run.py",
+      "matchedTerms": [
+        "cortex server"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "#!/usr/bin/env python3 \"\"\" The Cortex Server Startup Script \"\"\" import sys import os import ipaddress # Add parent directory to path for imports sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) from cortex_server.internal_addressing import DEFAULT_CORTEX_HOST, DEFAULT_CORTEX_PORT import uvicorn def _truthy(value): return str(value or \"\").strip().lower() in {\"1\", \"true\", \"yes\", \"on\"} def _loopback_host(host): if str(host).strip().lower() == \"localhost\": return True try: return ipaddress.ip_address(str(host).strip()).is_loopback except ValueError: return False def launch_config(env"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/tests/test_prior_art_gate.py",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/tests/test_prior_art_gate.py",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import json from datetime import datetime, timezone from cortex_server.modules.prior_art_gate import build_prior_art_gate, extract_prior_art_terms def test_prior_art_gate_blocks_new_primitive_when_existing_capability_is_recalled(): gate = build_prior_art_gate( objective=\"Implement a run ledger and release packet for proof carrying artifacts\", planned_capabilities=[\"run ledger\", \"release packet\", \"proof carrying claim ledger\"], planned_paths=[\"packages/synthetic-labor-os/index.mjs\"], proposed_action=\"new_primitive\", memory_results=[{ \"id\": \"memory-proof-ledger\", \"text\": \"Implemented proof-carry"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/routers/architect.py",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/cortex_server/routers/architect.py",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "\"\"\"Level 9: Architect router. Safe surface: ``POST /architect/design`` (model-backed design advice; no side effects), ``GET /architect/status`` and ``GET /architect/geneticist_contract``. Host-mutating legacy routes are honest refusals: ``/extend`` used to write caller code into the live routers directory and ``pip install`` arbitrary packages; it is disabled in code (generated code goes through Forge's reviewed, approval-gated proposal flow). ``/reload`` was a placeholder that returned ``\"ok\"``; it now returns 501. \"\"\" import re import time from typing import Any, Dict, List, Literal, Optiona"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/docs/CORTEX_CODEC_OVERVIEW.md",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/public/cortex_server/docs/CORTEX_CODEC_OVERVIEW.md",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "# Cortex Codec Overview Cortex Codec is Cortex's memory compression and reuse system. In plain terms: it turns messy conversation history into structured state such as preferences, goals, durable facts, open loops, lessons, and failure patterns. It does more than summarize \u2014 it scores what matters, tracks freshness and confidence, resolves contradictions, and decides what should be promoted or retained over time. Then it packages that state back into compact prompt context, evaluates whether it helped, and learns from replay/history so the memory system gets smarter instead of just bigger. ## "
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/orchestration-learning-ledger.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/orchestration-learning-ledger.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { createLearningLedger, extractPostRunHardeningArtifacts, promoteLearningFromRun, retrieveLearningPatterns, upsertLearningArtifact, writeLearningLedger } from '../packages/orchestration-learning-ledger/index.mjs'; const root = path.resolve(new URL('..', import.meta.url).pathname); test('orchestration learning ledger stores Agent Work pattern fragments and retrieves by assigned file', () =>"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/architecture-enforcer.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/architecture-enforcer.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { execSync } from 'node:child_process'; import { bootstrapSurfaceHonestyManifest, enforceArchitecture, evaluateArchitectureBudget } from '../packages/architecture-enforcer/index.mjs'; test('flags single-file collapse and missing monorepo structure', () => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-enforcer-')); fs.mkdirSync(path.join(dir, 'packages', 'a'), { recursive: true }); fs.writeFileSync(path.join(dir, 'packages', "
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/full-parity-engine.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/full-parity-engine.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { bindObjectiveContract, buildInventory, computeParity, writeParityArtifacts } from '../packages/full-parity-engine/index.mjs'; const objective = { anchor: 'Jake requested parity for the declared fixture', targetPath: '/tmp/target', fidelity: 'production_slice', scope: ['accounts', 'campaigns'], implementationSurface: 'product code', stopCondition: 'parity_matrix_green_or_gap_inventory', d"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/agent-work-v1-cli.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/agent-work-v1-cli.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { AGENT_WORK_COMMANDS, AGENT_WORK_EXIT_CODES, buildCompletionPacket, cancelRun, compileObjective, doctor, getRunStatus, resolveAgentWorkConfig, startRun, verifyRun } from '../packages/canonical-agent-work/index.mjs'; const root = path.resolve(new URL('..', import.meta.url).pathname); const cli = path.join(root, 'apps/agent-work/cli.mjs'); const compatibilityCli = path.join(root, 'apps/syst"
+    },
+    {
+      "id": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/parity-harness.test.mjs",
+      "label": "/root/clawd/_worktrees/oracle-expiring-oauth-20261026/large-project-capability-stack/tests/parity-harness.test.mjs",
+      "matchedTerms": [
+        "packages"
+      ],
+      "score": 0.5708,
+      "source": "workspace_file",
+      "text": "import test from 'node:test'; import assert from 'node:assert/strict'; import http from 'node:http'; import { createFixtureTarget, createHttpTarget, createBrowserAdapterTarget, createSimulatedBrowserDriver, runParityHarness } from '../packages/parity-harness/index.mjs'; test('runs fixture and http parity checks', async () => { const fixtureReport = await runParityHarness({ target: createFixtureTarget({ '/hello': 'hello world', '/json': { ok: true } }), checks: [ { id: 'fixture.text', type: 'text', path: '/hello', expect: 'hello' }, { id: 'fixture.json', type: 'json', path: '/json', select: (pa"
+    }
+  ],
+  "proposedAction": "extend_existing",
+  "requiredAction": "extend_existing",
+  "schemaVersion": "cortex.memory.prior_art_gate.v1",
+  "sourceCoverage": {
+    "fileResultCount": 60,
+    "highConfidenceMatchCount": 10,
+    "matchCount": 66,
+    "memoryAvailable": true,
+    "memoryResultCount": 62,
+    "structuralAvailable": true,
+    "structuralResultCount": 0
+  },
+  "status": "green_prior_art_gate",
+  "terms": [
+    "claim provenance evidence binding successful tool outcomes failed aborted empty evidence rejection",
+    "attention commitments approvals owed preparation resolved lifecycle source links",
+    "rewrite advise execute investigate intent routing proportional scrutiny",
+    "correction supersession scope transfer unrelated facts preserved",
+    "decision options burden cost reversibility uncertainty missing evidence qualitative",
+    "cortex route gate",
+    "cortex server",
+    "packages",
+    "extend cortex openclaw",
+    "cortex openclaw default",
+    "openclaw default request",
+    "default request path",
+    "request path five",
+    "path five bounded",
+    "five bounded user-facing",
+    "bounded user-facing capabilities",
+    "user-facing capabilities evidence-bound",
+    "capabilities evidence-bound consequential"
+  ],
+  "truthBoundary": "Prior-art gate is a pre-implementation recall check across memory and structural evidence. It prevents duplicate architecture; it does not prove the recalled capability is currently correct without live validation.",
+  "warnings": [
+    "prior_art_found_action_scoped_to_existing_capability"
+  ]
+}

@@ -127,6 +127,45 @@ const ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'alwaysOn', 'origin
 const LIVE_ROUTE_LEVEL_KEYS = new Set([...ROUTE_LEVEL_FIELD_KEYS, 'always_on']);
 const ROUTE_LEVEL_ORIGINS = new Set<RouteLevelOrigin>(['provider', 'local_mandatory', 'local_governor', 'cache']);
 const CHECKPOINT_KEYS = new Set(['checkpoint_id', 'state_machine', 'current_state', 'retry_policy', 'levels', 'durable_store']);
+const DailyWorkSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['attention_view', 'attention_propose', 'attention_confirm', 'attention_resolve', 'decision_workbench'],
+    },
+    itemId: { type: 'string', minLength: 1, maxLength: 128 },
+    kind: { type: 'string', enum: ['user_committed', 'owed_to_user', 'waiting_approval', 'cortex_can_prepare'] },
+    summary: { type: 'string', minLength: 3, maxLength: 600 },
+    sourceRef: { type: 'string', minLength: 1, maxLength: 1000 },
+    sourceQuote: { type: 'string', minLength: 1, maxLength: 1200 },
+    resolutionNote: { type: 'string', minLength: 1, maxLength: 600 },
+    includeCandidates: { type: 'boolean' },
+    includeResolved: { type: 'boolean' },
+    decision: { type: 'string', minLength: 3, maxLength: 1200 },
+    options: {
+      type: 'array', minItems: 2, maxItems: 12,
+      items: {
+        type: 'object', additionalProperties: false, required: ['label'],
+        properties: {
+          label: { type: 'string', minLength: 1, maxLength: 180 },
+          expectedBenefit: { type: 'string', maxLength: 1200 },
+          userTime: { type: 'string', maxLength: 1200 },
+          ongoingBurden: { type: 'string', maxLength: 1200 },
+          cost: { type: 'string', maxLength: 1200 },
+          reversibility: { type: 'string', maxLength: 1200 },
+          uncertainty: { type: 'string', maxLength: 1200 },
+          sourceRefs: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 1000 } },
+        },
+      },
+    },
+    priorities: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 600 } },
+    prioritySourceRefs: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 1000 } },
+    decisionChangers: { type: 'array', maxItems: 30, items: { type: 'string', maxLength: 1000 } },
+  },
+} as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -256,8 +295,11 @@ type RunState = {
   promptFingerprint: string;
   plan: RoutePlan;
   taskClass: string;
+  workMode: WorkMode;
+  consequential: boolean;
+  latestUserText: string;
   startedAt: number;
-  toolCalls: { toolName: string; ok: boolean; durationMs?: number; error?: string }[];
+  toolCalls: EvidenceRecord[];
   observedSignals: string[];
   privateRetrievalShadow?: PrivateRetrievalShadowMarker;
   outputObserved: boolean;
@@ -272,6 +314,28 @@ type RunState = {
     kinds: string[];
     externalMutationAuthorizedByUserText: boolean;
   };
+};
+
+type WorkMode = 'rewrite' | 'advise' | 'execute' | 'investigate';
+type EvidenceOutcome = 'usable' | 'failed' | 'aborted' | 'empty';
+type EvidenceRecord = {
+  toolName: string;
+  toolCallId?: string;
+  ok: boolean;
+  outcome: EvidenceOutcome;
+  durationMs?: number;
+  error?: string;
+  sourceRef?: string;
+  payloadChars: number;
+};
+
+type EvidenceDeliveryGuard = {
+  stateKey: string;
+  workMode: WorkMode;
+  consequential: boolean;
+  latestUserText: string;
+  evidence: EvidenceRecord[];
+  createdAt: number;
 };
 
 // Tool name -> Cortex level it exercises (for routing feedback telemetry).
@@ -1278,6 +1342,249 @@ function renderOracleBrief(result: OracleConsultResult): string {
 }
 
 function hasLevel(plan: RoutePlan, level: number): boolean { return plan.recommendedLevels.some((x) => x.level === level); }
+function classifyWorkMode(text: string): WorkMode {
+  const normalized = normalizePrompt(text);
+  // Editing intent wins over domain vocabulary: a billing or contract rewrite
+  // is still a rewrite unless the user explicitly asks to verify its content.
+  if (/\b(?:rewrite|reword|paraphrase|polish|copy[ -]?edit|edit (?:this|the wording)|make (?:this|it) sound|fix (?:the )?(?:grammar|wording|tone)|word this)\b/i.test(normalized)) {
+    return 'rewrite';
+  }
+  if (/\b(?:investigate|diagnose|debug|root cause|what (?:went|is going) wrong|why (?:did|does|is|was)|trace (?:the )?(?:failure|problem)|figure out what happened)\b/i.test(normalized)) {
+    return 'investigate';
+  }
+  if (/\b(?:implement|deploy|send|post|publish|schedule|create|update|change|apply|run|execute|install|remove|delete|fix (?:it|this|the)|do it|make it happen)\b/i.test(normalized)
+      && !/\b(?:should|would you|how (?:would|should|could)|recommend|what do you think)\b/i.test(normalized)) {
+    return 'execute';
+  }
+  return 'advise';
+}
+
+function isConsequentialRequest(text: string, mode: WorkMode): boolean {
+  const normalized = normalizePrompt(text);
+  const verificationRequested = /\b(?:verify|validate|check (?:the|this|source)|source[- ]backed|accurate|authoritative|review (?:the|this) (?:agreement|contract|document))\b/i.test(normalized);
+  if (mode === 'rewrite' && !verificationRequested) return false;
+  if (mode === 'execute') return true;
+  return verificationRequested || /\b(?:contract|agreement|legal|medical|clinical|patient|claim|billing|payer|coding|credential|fee|charge|price|financial|tax|security|production|deploy|external|delete|publish|send|schedule|policy|compliance|privacy)\b/i.test(normalized);
+}
+
+function isAttentionViewRequest(text: string): boolean {
+  return /\b(?:what (?:still )?needs my attention|attention (?:view|list)|open (?:commitments|obligations|loops)|what (?:am i|are we) waiting (?:on|for)|what (?:do i|does cortex) owe|waiting on my approval|what has been resolved)\b/i.test(normalizePrompt(text));
+}
+
+function isDecisionWorkbenchRequest(text: string): boolean {
+  return /\b(?:compare (?:the )?(?:options|choices)|decision workbench|trade[- ]?offs?|which option|should i|worth it|what would you choose|pros and cons)\b/i.test(normalizePrompt(text));
+}
+
+function exactCurrentUserQuotePresent(userText: string, quote: string): boolean {
+  const candidate = String(quote || '').trim();
+  return Boolean(candidate && String(userText || '').includes(candidate));
+}
+
+function applyWorkModeRouting(plan: RoutePlan, mode: WorkMode, consequential: boolean, intent: string): RoutePlan {
+  let levels = plan.recommendedLevels.map((level) => ({ ...level }));
+  const reasoning = [...(plan.reasoning || [])];
+  if (mode === 'rewrite' && !consequential) {
+    const retained = levels.filter((level) => level.alwaysOn || level.origin === 'local_mandatory' || level.origin === 'local_governor');
+    if (retained.length) levels = retained;
+    reasoning.unshift('Work-mode policy: rewrite retained mandatory/always-on safeguards and removed optional deep research/execution levels.');
+  } else if (consequential && (mode === 'advise' || mode === 'investigate')) {
+    const required: RouteLevel[] = [{ level: 34, name: 'validator', reason: 'Consequential advice requires evidence/claim validation.', method: 'work_mode_policy', score: 1, alwaysOn: true, origin: 'local_governor' }];
+    if (/\b(?:contract|agreement|document|pdf|file|ledger|record)\b/i.test(intent)) {
+      required.push({ level: 3, name: 'parser', reason: 'Source document must be read for consequential source-specific conclusions.', method: 'work_mode_policy', score: 1, origin: 'local_governor' });
+    }
+    if (/\b(?:current|latest|payer|policy|price|rule|coding|legal|tax|compliance)\b/i.test(intent)) {
+      required.push({ level: 2, name: 'ghost', reason: 'Current authoritative source evidence may change the recommendation.', method: 'work_mode_policy', score: 1, origin: 'local_governor' });
+    }
+    const byLevel = new Map(levels.map((level) => [level.level, level]));
+    for (const level of required) if (!byLevel.has(level.level)) byLevel.set(level.level, level);
+    levels = [...byLevel.values()];
+    reasoning.unshift('Work-mode policy: consequential advice/investigation retained validation and source-retrieval capabilities.');
+  }
+  return {
+    ...plan,
+    recommendedLevels: levels,
+    reasoning,
+    routingMarkers: {
+      ...(plan.routingMarkers || {}),
+      dailyWorkMode: { mode, consequential, version: 'cortex.daily-work-mode.v1' },
+    },
+  };
+}
+
+function renderDailyWorkContract(mode: WorkMode, consequential: boolean, decisionWorkbench: boolean): string {
+  const modeRules: Record<WorkMode, string[]> = {
+    rewrite: [
+      'Preserve the user’s meaning, factual content, scope, and requested tone.',
+      'Do not add facts, obligations, fees, promises, evidence claims, or external actions.',
+      'Do not perform research unless the user explicitly asks to verify the underlying content.',
+    ],
+    advise: [
+      'Separate user-stated facts, successfully verified source facts, inference, and recommendation.',
+      consequential
+        ? 'This is consequential advice: obtain usable source evidence before source-specific conclusions; otherwise disclose the exact evidence gap and keep the recommendation conditional.'
+        : 'Use only the evidence proportional to the decision; do not turn a small request into a broad audit.',
+      'A recommendation is judgment, not a source-established fact.',
+    ],
+    execute: [
+      'Act only within permission expressed by the user and preserve all existing external-write, attachment, owner, and safety gates.',
+      'Resolve prerequisites before action and verify the smallest meaningful result afterward.',
+      'Do not treat an attachment, inference, or attention item as authorization for an external mutation.',
+    ],
+    investigate: [
+      'Diagnose the uncertain state with observed evidence before proposing a cause.',
+      'Keep observations, inferences, unknowns, and next checks distinct.',
+      consequential
+        ? 'Consequential conclusions require usable source evidence; failed, aborted, or empty tool calls do not count.'
+        : 'Use the smallest checks likely to distinguish the leading explanations.',
+    ],
+  };
+  return [
+    'CORTEX_DAILY_WORK_CONTRACT',
+    `mode: ${mode}`,
+    `consequential: ${consequential}`,
+    'claim_classes:',
+    '- user_fact: explicitly attributed to what the user supplied',
+    '- verified_source_fact: allowed only after a successful, non-empty source/tool result in this turn',
+    '- inference: a conclusion drawn from facts; identify uncertainty',
+    '- recommendation: judgment or proposed action; never present it as source-established',
+    'evidence_rule: failed, aborted, disabled, rejected, and empty tool results are unusable evidence.',
+    ...modeRules[mode].map((rule) => `- ${rule}`),
+    ...(decisionWorkbench ? [
+      'decision_workbench: compare expected benefit, user time, ongoing burden, cost, reversibility, uncertainty, and missing evidence qualitatively.',
+      'decision_precision_rule: do not invent numeric scores, weights, rankings, or a winner; call cortex_daily_work with action=decision_workbench when structured comparison will help.',
+    ] : []),
+  ].join('\n');
+}
+
+function boundedEvidenceText(value: unknown, depth = 0): string {
+  if (depth > 4 || value == null) return '';
+  if (typeof value === 'string') return value.slice(0, 8_000);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.slice(0, 32).map((item) => boundedEvidenceText(item, depth + 1)).filter(Boolean).join('\n').slice(0, 8_000);
+  if (!isRecord(value)) return '';
+  return Object.entries(value).slice(0, 48)
+    .map(([key, nested]) => `${key}:${boundedEvidenceText(nested, depth + 1)}`)
+    .filter((item) => !item.endsWith(':'))
+    .join('\n').slice(0, 8_000);
+}
+
+function structuredFailureOutcome(value: unknown, depth = 0): EvidenceOutcome | null {
+  if (depth > 4 || !isRecord(value)) return null;
+  const status = String(value.status || value.state || value.outcome || '').trim().toLowerCase();
+  const error = String(value.error || value.reason || '').trim().toLowerCase();
+  if (value.ok === false || value.success === false || ['failed', 'error', 'rejected', 'cancelled', 'canceled', 'aborted', 'disabled'].includes(status)) {
+    return /abort|cancel/.test(`${status} ${error}`) ? 'aborted' : 'failed';
+  }
+  for (const nested of [value.data, value.result, value.details]) {
+    const outcome = structuredFailureOutcome(nested, depth + 1);
+    if (outcome) return outcome;
+  }
+  return null;
+}
+
+function classifyToolEvidence(result: unknown, error?: unknown): { outcome: EvidenceOutcome; payloadChars: number } {
+  const errorText = String(error || '').trim();
+  if (errorText) return { outcome: /abort|cancel/i.test(errorText) ? 'aborted' : 'failed', payloadChars: 0 };
+  const structured = structuredFailureOutcome(result);
+  if (structured) return { outcome: structured, payloadChars: boundedEvidenceText(result).trim().length };
+  const text = boundedEvidenceText(result).trim();
+  if (!text || /^(?:null|undefined|\[\]|\{\}|no (?:content|result|output)|tool result missing)$/i.test(text)) {
+    return { outcome: 'empty', payloadChars: 0 };
+  }
+  if (text.length <= 600 && /^(?:tool (?:call )?)?(?:aborted|cancelled|canceled)\b/i.test(text)) {
+    return { outcome: 'aborted', payloadChars: text.length };
+  }
+  if (text.length <= 600 && /^(?:tool (?:call )?)?(?:failed|error|disabled|rejected)\b/i.test(text)) {
+    return { outcome: 'failed', payloadChars: text.length };
+  }
+  return { outcome: 'usable', payloadChars: text.length };
+}
+
+function evidenceSourceRef(event: any): string | undefined {
+  const toolName = String(event?.toolName || 'unknown').slice(0, 128);
+  const params = isRecord(event?.params) ? event.params : {};
+  const raw = String(params.path || params.url || params.image || params.file || '').trim();
+  if (raw) {
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const url = new URL(raw);
+        url.username = '';
+        url.password = '';
+        url.search = '';
+        url.hash = '';
+        return `${toolName}:${url.toString().slice(0, 800)}`;
+      } catch {}
+    }
+    return `${toolName}:${raw.slice(0, 800)}`;
+  }
+  const query = String(params.query || '').trim();
+  if (query) return `${toolName}:query_sha256:${crypto.createHash('sha256').update(query, 'utf8').digest('hex')}`;
+  const command = String(params.command || '').trim();
+  if (command) return `${toolName}:command_sha256:${crypto.createHash('sha256').update(command, 'utf8').digest('hex')}`;
+  return toolName || undefined;
+}
+
+function hasSourceVerificationClaim(text: string): boolean {
+  return /\b(?:I|we|Cortex)\s+(?:actually\s+)?(?:checked|reviewed|read|verified|confirmed|validated|inspected)\b|\bthe (?:agreement|contract|document|source|record|ledger|file) (?:says|shows|confirms|establishes)\b/i.test(text);
+}
+
+function sourceVerificationSupported(text: string, evidence: EvidenceRecord[]): boolean {
+  const usable = evidence.filter((record) => record.outcome === 'usable');
+  if (!usable.length) return false;
+  if (/\b(?:agreement|contract|document|pdf|file|ledger|record)\b/i.test(text)) {
+    return usable.some((record) => /(?:^|_)(?:read|memory_get|parse|parser|document|pdf|file)(?:$|_)/i.test(record.toolName)
+      || /\.(?:pdf|md|txt|json|csv|html?|xml)(?:$|[:#?])/i.test(String(record.sourceRef || '')));
+  }
+  if (/\b(?:web|website|current source|authoritative source|online)\b/i.test(text)) {
+    return usable.some((record) => /(?:browse|browser|ghost|web_search|web_fetch)/i.test(record.toolName));
+  }
+  return true;
+}
+
+function rewriteFactAnchors(text: string): Set<string> {
+  const anchors = new Set<string>();
+  const normalized = String(text || '');
+  const expressions = [
+    /\bhttps?:\/\/[^\s)]+/gi,
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+    /\$\s?\d[\d,]*(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%\b/gi,
+    /\b(?:19|20)\d{2}[-\/]\d{1,2}[-\/]\d{1,2}\b/g,
+    /\b[A-Z]{2,10}-?\d{3,}\b/g,
+  ];
+  for (const expression of expressions) {
+    for (const match of normalized.matchAll(expression)) anchors.add(match[0].toLowerCase());
+  }
+  return anchors;
+}
+
+function rewriteIntroducedFactAnchors(source: string, output: string): string[] {
+  const allowed = rewriteFactAnchors(source);
+  return [...rewriteFactAnchors(output)].filter((anchor) => !allowed.has(anchor));
+}
+
+function qualifyUnsupportedEvidenceClaims(text: string, guard: EvidenceDeliveryGuard): string {
+  if (guard.workMode === 'rewrite') {
+    const added = rewriteIntroducedFactAnchors(guard.latestUserText, text);
+    if (added.length) {
+      return 'I did not deliver that rewrite because it introduced factual details that were not present in your source text. I can retry while preserving only your original facts.';
+    }
+  }
+  const usable = guard.evidence.filter((record) => record.outcome === 'usable');
+  const hasVerificationClaim = hasSourceVerificationClaim(text);
+  const verificationSupported = !hasVerificationClaim || sourceVerificationSupported(text, guard.evidence);
+  if (verificationSupported && usable.length > 0) return text;
+  if (!hasVerificationClaim && !(guard.consequential && (guard.workMode === 'advise' || guard.workMode === 'investigate'))) return text;
+  const qualified = text
+    .replace(/\bI\s+(?:actually\s+)?checked\b/gi, 'I attempted to check')
+    .replace(/\bI\s+(?:actually\s+)?reviewed\b/gi, 'I attempted to review')
+    .replace(/\bI\s+(?:actually\s+)?read\b/gi, 'I attempted to read')
+    .replace(/\bI\s+(?:actually\s+)?(?:verified|validated|confirmed|inspected)\b/gi, 'I could not independently verify');
+  const prefix = usable.length > 0
+    ? 'Evidence status: successful evidence existed in this turn, but none was bound to the source being claimed. Any source-specific statements below are unverified and must be treated as user-provided information, inference, or recommendation—not as checked source facts.'
+    : 'Evidence status: no successful, non-empty source result was available in this turn. Any source-specific statements below are unverified and must be treated as user-provided information, inference, or recommendation—not as checked source facts.';
+  return `${prefix}\n\n${qualified}`;
+}
+
 function classifyTask(prompt: string): string {
   const p = normalizePrompt(prompt);
   if (/\b(code|implement|implementation|fix|repair|harden|hardening|patch|refactor|debug|deploy|deployment|test|verify|verification|repo|runtime|plugin|typescript|python|bug|regression|config|configuration)\b/.test(p)) return 'coding';
@@ -2151,6 +2458,7 @@ export default function register(api: any) {
   const runStateByKey = new Map<string, RunState>();
   const continuityByKey = new Map<string, ContinuityState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
+  const evidenceDeliveryGuards = new Map<string, EvidenceDeliveryGuard>();
   const recentLivePlansByPrincipal = new Map<string, Map<string, RecentLiveRoutePlan>>();
   const livePlanReuseAgeMs = Math.min(maxCachedPlanAgeMs, 300_000);
   // Exact duplicate suppression needs only the most recent bounded plan. Keep
@@ -2284,6 +2592,193 @@ export default function register(api: any) {
     }
     return headers;
   }
+
+  function principalBodyFields(scope: Record<string, string>, headers: Record<string, string>): Record<string, unknown> {
+    return {
+      tenant_id: scope.tenant_id,
+      workspace_id: scope.workspace_id,
+      scope,
+      ...(scopeCredentialId ? { scope_credential_id: scopeCredentialId } : {}),
+      ...(headers['x-cortex-scope-signature'] ? { scope_signature: headers['x-cortex-scope-signature'] } : {}),
+    };
+  }
+
+  async function correctionGuidanceBlock(scope: Record<string, string>, headers: Record<string, string>, intent: string): Promise<string> {
+    try {
+      const response = await postJson(`${baseUrl}/knowledge/search`, {
+        query: `Scope-preserving user correction relevant to this current request: ${boundedText(intent, 1_200)}`,
+        n_results: 4,
+        filters: { tags: ['scope_correction'], statuses: ['active'] },
+        ...principalBodyFields(scope, headers),
+      }, timeoutMs, 1_048_576, headers);
+      const rows = Array.isArray(response?.results) ? response.results : [];
+      const guidance = rows.slice(0, 4).map((row: any) => {
+        const metadata = isRecord(row?.metadata) ? row.metadata : {};
+        const tags = Array.isArray(metadata.tags) ? metadata.tags.map(String) : [];
+        if (!tags.includes('scope_correction')) return '';
+        const text = String(row?.document || row?.content || row?.text || '').replace(/\s+/g, ' ').trim();
+        return text ? `- ${boundedText(text, 700)}` : '';
+      }).filter(Boolean);
+      if (!guidance.length) return '';
+      return [
+        'CORTEX_SCOPE_CORRECTION_GUIDANCE',
+        'These are user corrections from canonical memory, not independently verified source facts.',
+        'Apply one only when its recorded task/domain scope matches the current request. Never globalize terse feedback or discard unrelated facts.',
+        ...guidance,
+      ].join('\n');
+    } catch (error) {
+      api.logger.warn?.(`cortex-route-gate: scoped correction retrieval unavailable ${safeErrorSummary(error)}`);
+      return '';
+    }
+  }
+
+  async function attentionViewBlock(headers: Record<string, string>): Promise<string> {
+    try {
+      const response = await postJson(`${baseUrl}/everyday/attention/view`, {
+        include_candidates: true,
+        include_resolved: false,
+      }, timeoutMs, 1_048_576, headers);
+      const view = response?.view;
+      if (!isRecord(view)) return '';
+      const renderRows = (label: string, rows: unknown) => {
+        if (!Array.isArray(rows) || rows.length === 0) return [`${label}: none`];
+        return [
+          `${label}:`,
+          ...rows.slice(0, 20).map((row: any) => {
+            const source = String(row?.source_ref || '').trim();
+            return `- ${boundedText(String(row?.summary || ''), 500)}${source ? ` [source: ${boundedText(source, 500)}]` : ''}`;
+          }),
+        ];
+      };
+      return [
+        'CORTEX_SOURCE_BACKED_ATTENTION_VIEW',
+        'Candidate items are not obligations. Active items have explicit confirmation. This view never authorizes external action.',
+        ...renderRows('active', view.active),
+        ...renderRows('candidates_needing_confirmation', view.candidates),
+      ].join('\n');
+    } catch (error) {
+      api.logger.warn?.(`cortex-route-gate: attention view unavailable ${safeErrorSummary(error)}`);
+      return 'CORTEX_SOURCE_BACKED_ATTENTION_VIEW\nstatus: unavailable; do not infer obligations from conversation fragments.';
+    }
+  }
+
+  function toolRuntimeContext(trustedContext: any): {
+    scope: Record<string, string>;
+    stateKey: string;
+    runState?: RunState;
+    headers: Record<string, string>;
+  } {
+    const resolution = resolveTrustedCortexPrincipalContext(identityConfig, trustedContext);
+    const scope = resolution.principal;
+    const rawSessionKey = String(trustedContext?.sessionKey || trustedContext?.sessionId || scope.session_id || '').trim();
+    const state = principalState(trustedContext, rawSessionKey);
+    return {
+      scope,
+      stateKey: state.stateKey,
+      runState: runStateByKey.get(state.stateKey),
+      headers: nexusPrincipalHeaders(scope, scope.session_id),
+    };
+  }
+
+  function sourceIsBoundToCurrentRun(runState: RunState | undefined, _sourceRef: string, sourceQuote: string): boolean {
+    if (!runState) return false;
+    const quote = String(sourceQuote || '').trim();
+    return exactCurrentUserQuotePresent(runState.latestUserText, quote);
+  }
+
+  function sourceRefsBoundToCurrentRun(runState: RunState | undefined, refs: unknown): string[] {
+    if (!runState || !Array.isArray(refs)) return [];
+    const usable = new Set(runState.toolCalls.filter((record) => record.outcome === 'usable').map((record) => record.sourceRef).filter(Boolean));
+    return refs.map((ref) => String(ref || '').trim()).filter((ref) => ref && usable.has(ref)).slice(0, 20);
+  }
+
+  api.registerTool((trustedContext: any) => ({
+    label: 'Cortex Daily Work',
+    name: 'cortex_daily_work',
+    description: 'Use the existing Cortex everyday state for source-backed attention lifecycle or a qualitative decision workbench. Attention never authorizes external actions; proposal, confirmation, and resolution require an exact current-user quote.',
+    parameters: DailyWorkSchema,
+    execute: async (_toolCallId: string, params: any) => {
+      const runtime = toolRuntimeContext(trustedContext);
+      const action = String(params?.action || '');
+      const trustedMessageId = String(trustedContext?.messageId || '').trim();
+      const currentUserSourceRef = trustedMessageId && /^[A-Za-z0-9_.:@/-]{1,256}$/.test(trustedMessageId)
+        ? `openclaw:user-message:${trustedMessageId}`
+        : `openclaw:user-message:sha256:${crypto.createHash('sha256').update(`${runtime.stateKey}\n${runtime.runState?.latestUserText || ''}`, 'utf8').digest('hex')}`;
+      let endpoint = '';
+      let payload: Record<string, unknown> = {};
+      if (action === 'attention_view') {
+        endpoint = '/everyday/attention/view';
+        payload = {
+          include_candidates: params?.includeCandidates !== false,
+          include_resolved: Boolean(params?.includeResolved),
+        };
+      } else if (action === 'attention_propose') {
+        const sourceRef = currentUserSourceRef;
+        const sourceQuote = String(params?.sourceQuote || '').trim();
+        if (!sourceIsBoundToCurrentRun(runtime.runState, sourceRef, sourceQuote)) {
+          throw new Error('attention source must contain an exact quote from the current user-authored text');
+        }
+        endpoint = '/everyday/attention/propose';
+        payload = {
+          kind: params?.kind,
+          summary: params?.summary,
+          source_ref: sourceRef,
+          source_quote: sourceQuote,
+          external_action_requested: false,
+        };
+      } else if (action === 'attention_confirm') {
+        const sourceRef = currentUserSourceRef;
+        const sourceQuote = String(params?.sourceQuote || '').trim();
+        if (!runtime.runState || !exactCurrentUserQuotePresent(runtime.runState.latestUserText, sourceQuote)) {
+          throw new Error('attention activation requires an exact quote from the current user-authored text');
+        }
+        endpoint = '/everyday/attention/confirm';
+        payload = {
+          item_id: params?.itemId,
+          confirmation_source_ref: sourceRef,
+          confirmation_quote: sourceQuote,
+          confirmation_method: 'exact_current_user_quote',
+          confirmation_verified_by_plugin: true,
+        };
+      } else if (action === 'attention_resolve') {
+        const sourceRef = currentUserSourceRef;
+        const sourceQuote = String(params?.sourceQuote || '').trim();
+        if (!sourceIsBoundToCurrentRun(runtime.runState, sourceRef, sourceQuote)) {
+          throw new Error('attention resolution requires an exact quote from the current user-authored text');
+        }
+        endpoint = '/everyday/attention/resolve';
+        payload = {
+          item_id: params?.itemId,
+          resolution_note: params?.resolutionNote,
+          resolution_source_ref: sourceRef,
+          resolution_quote: sourceQuote,
+          resolution_verified_by_plugin: true,
+        };
+      } else if (action === 'decision_workbench') {
+        endpoint = '/everyday/decision/workbench';
+        payload = {
+          decision: params?.decision,
+          options: Array.isArray(params?.options) ? params.options.map((option: any) => ({
+            label: option?.label,
+            expected_benefit: option?.expectedBenefit,
+            user_time: option?.userTime,
+            ongoing_burden: option?.ongoingBurden,
+            cost: option?.cost,
+            reversibility: option?.reversibility,
+            uncertainty: option?.uncertainty,
+            source_refs: sourceRefsBoundToCurrentRun(runtime.runState, option?.sourceRefs),
+          })) : [],
+          priorities: Array.isArray(params?.priorities) ? params.priorities : [],
+          priority_source_refs: sourceRefsBoundToCurrentRun(runtime.runState, params?.prioritySourceRefs),
+          decision_changers: Array.isArray(params?.decisionChangers) ? params.decisionChangers : [],
+        };
+      } else {
+        throw new Error('unsupported cortex_daily_work action');
+      }
+      const data = await postJson(`${baseUrl}${endpoint}`, payload, timeoutMs, 1_048_576, runtime.headers);
+      return JSON.stringify({ ok: true, provider: 'cortex-everyday', endpoint, data });
+    },
+  }), { names: ['cortex_daily_work'] });
 
   // Legacy unscoped files are never consumed. Move them aside so an upgrade
   // cannot silently reuse cross-principal history or route plans.
@@ -2826,6 +3321,9 @@ export default function register(api: any) {
     const eventMessages = Array.isArray(event?.messages) ? event.messages : [];
     const attachmentKinds = attachmentKindsForCurrentTurn(eventMessages, prompt);
     const userAuthoredText = userAuthoredTextForCurrentTurn(eventMessages, prompt);
+    const requestIntent = currentTurnText(prompt, eventMessages) || tailIntentText(prompt);
+    const workMode = classifyWorkMode(requestIntent);
+    const consequential = isConsequentialRequest(requestIntent, workMode);
     if (shouldBypassRouteGate(rawSessionKey)) {
       const bypassStateKey = stateKeyForContext(ctx);
       if (bypassStateKey) runStateByKey.delete(bypassStateKey);
@@ -2846,11 +3344,20 @@ export default function register(api: any) {
       api.logger.warn?.(`cortex-route-gate: optional routing skipped because trusted identity is unavailable: ${safeErrorSummary(error)}`);
       return;
     }
-    // Cortex L5: consult Oracle on every user turn, in parallel with live routing.
-    // Delegated work is still routed through Nexus, but does not recursively
-    // start an owner-facing Oracle consultation.
-    const oracleConsultPromise: Promise<OracleConsultResult> | null = !trustedPrincipal.delegated && oracleConsultEnabled && oracleConsultTriggerAllowed(ctx) && !isOracleInternalRun(ctx, rawSessionKey)
-      ? consultOracle(currentTurnText(prompt, eventMessages) || tailIntentText(prompt), eventMessages, rawSessionKey, ctx)
+    const preRoutePrincipal = principalState(ctx, rawSessionKey);
+    const preRouteHeaders = nexusPrincipalHeaders(preRoutePrincipal.scope, preRoutePrincipal.sessionIdentity);
+    const correctionPromise = !trustedPrincipal.delegated
+      ? correctionGuidanceBlock(preRoutePrincipal.scope, preRouteHeaders, requestIntent)
+      : Promise.resolve('');
+    const attentionPromise = !trustedPrincipal.delegated && isAttentionViewRequest(requestIntent)
+      ? attentionViewBlock(preRouteHeaders)
+      : Promise.resolve('');
+    // Rewrites intentionally skip optional deep Oracle consultation. Nexus and
+    // all mandatory local safeguards still run, so this changes effort rather
+    // than weakening policy.
+    const oracleConsultPromise: Promise<OracleConsultResult> | null = workMode !== 'rewrite'
+      && !trustedPrincipal.delegated && oracleConsultEnabled && oracleConsultTriggerAllowed(ctx) && !isOracleInternalRun(ctx, rawSessionKey)
+      ? consultOracle(requestIntent, eventMessages, rawSessionKey, ctx)
       : null;
     let route;
     try {
@@ -2897,13 +3404,14 @@ export default function register(api: any) {
           ? oracle.levels.map((item) => item.level).filter((level) => level !== 5 && level !== 24)
           : [];
         if (levelExecutionEnabled && selectedForExecution.length) {
-          const promptIntent = currentTurnText(prompt, eventMessages) || tailIntentText(prompt);
-          levelExecution = await executeSelectedLevels(selectedForExecution, promptIntent, eventMessages, oracle, semanticNeeds, String(plan.routingMethod || ''), rawSessionKey, ctx);
+          levelExecution = await executeSelectedLevels(selectedForExecution, requestIntent, eventMessages, oracle, semanticNeeds, String(plan.routingMethod || ''), rawSessionKey, ctx);
           for (const row of levelExecution.rows) if (row.status === 'succeeded') executedLevels.add(row.level);
           api.logger.info?.(`cortex-route-gate: level execution ${levelExecution.ok ? 'ok' : `unavailable reason=${levelExecution.reason}`} ms=${levelExecution.ms} ran=${levelExecution.rows.map((row) => `L${row.level}:${row.status}${row.status === 'succeeded' ? '' : `(${row.reason})`}`).join(',') || 'none'}`);
         }
       }
     }
+    plan = applyWorkModeRouting(plan, workMode, consequential, requestIntent);
+    const [correctionBlock, attentionBlock] = await Promise.all([correctionPromise, attentionPromise]);
     const priorContinuity = stateKey ? continuityByKey.get(stateKey) : undefined;
     const recentUsers = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'user', 6);
     const currentIntent = intentText || prompt;
@@ -2923,14 +3431,26 @@ export default function register(api: any) {
     const retryAudit = stateKey && creativity.requested
       ? takeCreativityRetry(statePaths.creativityRetry)
       : undefined;
+    const initialEvidence: EvidenceRecord[] = [];
+    if (correctionBlock) initialEvidence.push({
+      toolName: 'cortex_scoped_correction_retrieval', ok: true, outcome: 'usable',
+      sourceRef: 'cortex:/knowledge/search#scope_correction', payloadChars: correctionBlock.length,
+    });
+    if (attentionBlock && !attentionBlock.includes('status: unavailable')) initialEvidence.push({
+      toolName: 'cortex_attention_view', ok: true, outcome: 'usable',
+      sourceRef: 'cortex:/everyday/attention/view', payloadChars: attentionBlock.length,
+    });
     if (stateKey) {
       runStateByKey.set(stateKey, {
         prompt,
         promptFingerprint: crypto.createHash('sha256').update(prompt, 'utf8').digest('hex'),
         plan,
         taskClass,
+        workMode,
+        consequential,
+        latestUserText: userAuthoredText,
         startedAt: Date.now(),
-        toolCalls: [],
+        toolCalls: initialEvidence,
         observedSignals: [],
         privateRetrievalShadow: privateRetrievalShadowMarker(plan),
         outputObserved: false,
@@ -2960,7 +3480,8 @@ export default function register(api: any) {
     const requestLock = renderActiveRequestLock(currentIntent, priorRequest, baseArtifact, Boolean(priorContinuity?.compactionRisk));
     const levelResultsBlock = renderLevelResults(levelExecution);
     const attachmentBlock = attachmentBoundary ? renderAttachmentBoundary(attachmentBoundary.kinds) : '';
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}${attachmentBlock ? `\n${attachmentBlock}` : ''}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}` };
+    const dailyWorkContract = renderDailyWorkContract(workMode, consequential, isDecisionWorkbenchRequest(currentIntent));
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}\n${dailyWorkContract}${correctionBlock ? `\n${correctionBlock}` : ''}${attentionBlock ? `\n${attentionBlock}` : ''}${attachmentBlock ? `\n${attachmentBlock}` : ''}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}` };
   });
 
   api.on('after_compaction', async (event: any, ctx: any) => {
@@ -3011,7 +3532,18 @@ export default function register(api: any) {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
-    rs.toolCalls.push({ toolName, ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined });
+    const evidence = classifyToolEvidence(event?.result, event?.error);
+    rs.toolCalls.push({
+      toolName,
+      toolCallId: typeof event?.toolCallId === 'string' ? event.toolCallId.slice(0, 256) : undefined,
+      ok: evidence.outcome === 'usable',
+      outcome: evidence.outcome,
+      durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined,
+      error: event?.error ? safeErrorSummary(event.error) : undefined,
+      sourceRef: evidenceSourceRef(event),
+      payloadChars: evidence.payloadChars,
+    });
+    if (evidence.outcome !== 'usable') rs.observedSignals.push(`tool_evidence_rejected:${toolName || 'unknown'}:${evidence.outcome}`);
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
   });
 
@@ -3047,6 +3579,38 @@ export default function register(api: any) {
       budgetState,
     };
     return { message: { role: 'tool', content: `CORTEX_TOOL_RESULT_METADATA ${JSON.stringify(metadata)}` } };
+  });
+
+  api.on('before_agent_finalize', async (event: any, ctx: any) => {
+    if (event?.stopHookActive) return;
+    const rs = runStateByKey.get(stateKeyForContext(ctx));
+    if (!rs) return;
+    const output = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'assistant', 1)[0] || '';
+    if (!output.trim()) return;
+    const usable = rs.toolCalls.filter((record) => record.outcome === 'usable');
+    const rewriteAdditions = rs.workMode === 'rewrite' ? rewriteIntroducedFactAnchors(rs.latestUserText, output) : [];
+    const unsupportedVerification = hasSourceVerificationClaim(output) && !sourceVerificationSupported(output, rs.toolCalls);
+    const undisclosedConsequentialGap = usable.length === 0
+      && rs.consequential
+      && (rs.workMode === 'advise' || rs.workMode === 'investigate')
+      && !/\b(?:unverified|could not verify|wasn['’]t able to verify|evidence gap|based on (?:what|the information) you (?:provided|shared)|recommendation|inference)\b/i.test(output);
+    if (!rewriteAdditions.length && !unsupportedVerification && !undisclosedConsequentialGap) return;
+    const rejected = rs.toolCalls.filter((record) => record.outcome !== 'usable').map((record) => `${record.toolName}:${record.outcome}`).slice(0, 12);
+    return {
+      action: 'revise',
+      additionalSystemPrompt: [
+        'CORTEX_EVIDENCE_BINDING_REVISION_REQUIRED',
+        'Revise the answer before delivery. This is host-observed tool evidence, not a self-attested checklist.',
+        `usable_evidence_count: ${usable.length}`,
+        `rejected_evidence: ${rejected.join(',') || 'none'}`,
+        `rewrite_added_fact_anchors: ${rewriteAdditions.join(',') || 'none'}`,
+        'Do not claim to have checked/read/reviewed/verified a source unless usable_evidence_count is positive.',
+        'For a consequential evidence gap, preserve user-stated facts, label inference/recommendation, and disclose the missing source.',
+        'For rewrite mode, remove every factual anchor not present in the user source text.',
+      ].join('\n'),
+      maxAttempts: 1,
+      idempotencyKey: `cortex-evidence-binding:${rs.promptFingerprint}`,
+    };
   });
 
   api.on('llm_output', async (event: any, ctx: any) => {
@@ -3102,6 +3666,10 @@ export default function register(api: any) {
 
   api.on('message_sending', async (event: any, ctx: any) => {
     cleanupPendingCreativitySuppressions();
+    const now = Date.now();
+    for (const [key, guard] of evidenceDeliveryGuards.entries()) {
+      if (now - guard.createdAt > 5 * 60 * 1000) evidenceDeliveryGuards.delete(key);
+    }
     const stateKey = stateKeyForContext(ctx);
     if (!stateKey) return;
     const deliveryKey = scopedDeliveryKey(
@@ -3109,19 +3677,47 @@ export default function register(api: any) {
       stateKey,
     );
     const pending = pendingCreativitySuppressions.get(deliveryKey);
-    if (!pending) return;
     const outgoing = typeof event?.content === 'string' ? event.content : '';
     if (!outgoing.trim()) return;
-    if (similarity(creativityOutputFingerprint(outgoing), pending.expectedOutputFingerprint) < 0.9) return;
-    pendingCreativitySuppressions.delete(deliveryKey);
-    api.logger.info?.(`cortex-route-gate: cancelled pre-delivery adjacent creative answer for ${deliveryKey}`);
-    return { cancel: true };
+    if (pending && similarity(creativityOutputFingerprint(outgoing), pending.expectedOutputFingerprint) >= 0.9) {
+      pendingCreativitySuppressions.delete(deliveryKey);
+      api.logger.info?.(`cortex-route-gate: cancelled pre-delivery adjacent creative answer for ${deliveryKey}`);
+      return { cancel: true };
+    }
+    const rs = runStateByKey.get(stateKey);
+    const guard = evidenceDeliveryGuards.get(stateKey) || (rs ? {
+      stateKey,
+      workMode: rs.workMode,
+      consequential: rs.consequential,
+      latestUserText: rs.latestUserText,
+      evidence: rs.toolCalls.map((record) => ({ ...record })),
+      createdAt: now,
+    } : undefined);
+    if (!guard) return;
+    const qualified = qualifyUnsupportedEvidenceClaims(outgoing, guard);
+    if (qualified !== outgoing) {
+      api.logger.warn?.(`cortex-route-gate: evidence-bound outbound qualification applied principal=${stateKey} mode=${guard.workMode} usable=${guard.evidence.filter((row) => row.outcome === 'usable').length}`);
+      return { content: qualified };
+    }
+  });
+
+  api.on('message_sent', (_event: any, ctx: any) => {
+    const stateKey = stateKeyForContext(ctx);
+    if (stateKey) evidenceDeliveryGuards.delete(stateKey);
   });
 
   api.on('agent_end', async (event: any, ctx: any) => {
     const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
+    evidenceDeliveryGuards.set(stateKey!, {
+      stateKey: stateKey!,
+      workMode: rs.workMode,
+      consequential: rs.consequential,
+      latestUserText: rs.latestUserText,
+      evidence: rs.toolCalls.map((record) => ({ ...record })),
+      createdAt: Date.now(),
+    });
     recordSemanticFeedback(rs, Boolean(event?.success));
     const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const runCompleted = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
@@ -3201,4 +3797,15 @@ export default function register(api: any) {
   });
 }
 
-export { updateJson, withFileLock };
+export {
+  applyWorkModeRouting,
+  classifyToolEvidence,
+  classifyWorkMode,
+  exactCurrentUserQuotePresent,
+  isConsequentialRequest,
+  qualifyUnsupportedEvidenceClaims,
+  renderDailyWorkContract,
+  rewriteIntroducedFactAnchors,
+  updateJson,
+  withFileLock,
+};

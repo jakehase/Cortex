@@ -2395,6 +2395,99 @@ function extractLatestUserText(messages: unknown): string {
   return '';
 }
 
+const CORRECTION_SCOPE_STOPWORDS = new Set([
+  'about', 'after', 'again', 'also', 'because', 'before', 'being', 'could', 'from',
+  'have', 'into', 'just', 'like', 'make', 'more', 'need', 'only', 'please', 'should',
+  'some', 'than', 'that', 'their', 'them', 'then', 'there', 'these', 'they', 'this',
+  'those', 'through', 'very', 'want', 'what', 'when', 'where', 'which', 'with', 'would',
+  'your', 'youre', 'does', 'doing', 'done', 'tell', 'give', 'help', 'cortex', 'jake',
+  'mon', 'monday', 'tue', 'tues', 'tuesday', 'wed', 'wednesday', 'thu', 'thurs',
+  'thursday', 'fri', 'friday', 'sat', 'saturday', 'sun', 'sunday', 'cst', 'cdt',
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+]);
+
+function correctionTaskMode(text: string): 'rewrite' | 'advise' | 'execute' | 'investigate' {
+  const value = String(text || '').toLowerCase();
+  if (/\b(?:rewrite|reword|paraphrase|polish|edit|wording|tone)\b/.test(value)) return 'rewrite';
+  if (/\b(?:investigate|diagnose|debug|root cause|why did|what happened)\b/.test(value)) return 'investigate';
+  if (/\b(?:implement|deploy|send|post|schedule|create|update|change|apply|run|execute|delete|fix it|do it)\b/.test(value)) return 'execute';
+  return 'advise';
+}
+
+function priorVisibleUserTask(messages: unknown, _currentUserText: string): string {
+  if (!Array.isArray(messages)) return '';
+  let skippedLatestUser = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== 'object' || (message as Record<string, unknown>).role !== 'user') continue;
+    const text = extractText((message as Record<string, unknown>).content ?? message).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    if (!skippedLatestUser) {
+      skippedLatestUser = true;
+      continue;
+    }
+    return text;
+  }
+  return '';
+}
+
+function correctionScopeTerms(text: string): string[] {
+  const terms = String(text || '').toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || [];
+  return [...new Set(terms.filter((term) => !CORRECTION_SCOPE_STOPWORDS.has(term)))].sort().slice(0, 10);
+}
+
+function scopeCorrectionCandidate(userText: string, messages: unknown): {
+  text: string;
+  correction: string;
+  mode: 'rewrite' | 'advise' | 'execute' | 'investigate';
+  scopeLabel: string;
+  scopeDigest: string;
+  correctionType: 'behavioral' | 'fact';
+} | null {
+  const correction = String(userText || '').replace(/\s+/g, ' ').trim()
+    .replace(/^\[[^\]\n]{1,120}\]\s*/, '')
+    .replace(/^Jake\s*[:,-]?\s+/i, '');
+  if (correction.length < 8 || correction.length > 1_600 || containsSecretLike(correction) || /\?$/.test(correction)) return null;
+  const strongCorrection = /^(?:no[,;:]|actually[,;:]|correction\s*:|to correct that[,;:]|that['’]s (?:wrong|incorrect|overcomplicated|too (?:much|detailed|long))\b|you (?:got|have|had) (?:that|this|it) wrong\b|i (?:said|meant)\b|don['’]t (?:do|treat|assume|use|ask)\b)/i.test(correction)
+    || /\b(?:not .{1,100}\bbut\b|was wrong|is incorrect|should be .{1,160} instead)\b/i.test(correction);
+  if (!strongCorrection) return null;
+  const priorTask = priorVisibleUserTask(messages, correction);
+  const scopeSource = priorTask || correction.replace(/^(?:no[,;:]|actually[,;:]|correction\s*:|to correct that[,;:])\s*/i, '');
+  const mode = correctionTaskMode(priorTask || correction);
+  const terms = correctionScopeTerms(scopeSource);
+  if (!terms.length) return null;
+  const scopeLabel = `${mode}:${terms.join('-')}`.slice(0, 240);
+  const scopeDigest = createHash('sha256').update(`cortex.scope-correction.v1\n${mode}\n${terms.join('\n')}`, 'utf8').digest('hex');
+  const correctionType = /\b(?:overcomplicated|too (?:much|detailed|long)|shorter|simpler|concise|tone|wording|don['’]t ask|don['’]t over)\b/i.test(correction)
+    ? 'behavioral' : 'fact';
+  return {
+    correction,
+    mode,
+    scopeLabel,
+    scopeDigest,
+    correctionType,
+    text: [
+      'User correction (scope-bound; user-stated, not independently verified):',
+      `scope=${scopeLabel}`,
+      `correction=${correction}`,
+      `transfer=apply only to matching ${mode} requests in this scope; preserve unrelated facts, instructions, and workflows`,
+    ].join(' '),
+  };
+}
+
+function scopeCorrectionIdentity(
+  candidate: NonNullable<ReturnType<typeof scopeCorrectionCandidate>>,
+  sourceId: string,
+): { claimKey: string; factKey: string } {
+  const claimKey = `owner:correction:${candidate.mode}:${candidate.scopeDigest.slice(0, 32)}`;
+  const factKey = `fact_${createHash('sha256').update([
+    'cortex.openclaw.scope-correction.v1',
+    claimKey,
+    String(sourceId || ''),
+  ].join('\0'), 'utf8').digest('hex').slice(0, 48)}`;
+  return { claimKey, factKey };
+}
+
 function extractDirectUserMemoryRequest(messages: unknown): string {
   if (!Array.isArray(messages)) return '';
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -2780,8 +2873,14 @@ async function maybeWriteThrough(
   const directHumanConversation = invocation.channelId === 'whatsapp'
     && /^agent:[^:]+:whatsapp:direct:/.test(invocation.sessionKey)
     && !invocation.sessionKey.includes(':subagent:');
+  const directUserInput = directHumanConversation
+    ? extractCorrelatedNativeUserMemoryRequest(event, ctx, cfg)
+    : '';
   const explicitMemory = directHumanConversation
     ? explicitUserMemoryCandidate(extractDirectUserMemoryRequest(event?.messages), finalAssistant)
+    : null;
+  const scopedCorrection = directHumanConversation
+    ? scopeCorrectionCandidate(directUserInput, event?.messages)
     : null;
   const text = [
     extractAssistantVisibleText(event?.messages),
@@ -2792,9 +2891,11 @@ async function maybeWriteThrough(
     api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
     return 'skipped' as const;
   }
-  const recent = explicitMemory?.text || text.slice(-2000);
+  const recent = explicitMemory?.text || scopedCorrection?.text || text.slice(-2000);
   const dur = explicitMemory
     ? { score: 1, reasons: ['explicit_user_memory_request'], kind: 'user_statement' }
+    : scopedCorrection
+      ? { score: 1, reasons: ['scope_correction', 'same_scope_only', 'preserve_unrelated_scope'], kind: 'correction' }
     : durabilityScore(recent);
   if (dur.kind === 'blocked' || dur.score < cfg.minDurabilityScore) {
     api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
@@ -2820,6 +2921,47 @@ async function maybeWriteThrough(
       subject: 'owner', predicate: 'stated', fact_scope: 'owner-global',
       fact_value: explicitMemory.fact,
       user_requested: true, independently_verified: false,
+    });
+  } else if (scopedCorrection) {
+    // Keep fact_key stable inside the derived scope. The canonical governance
+    // projector treats a later row with the same fact_key as a revision and
+    // marks the older same-scope row superseded. Unrelated scopes have distinct
+    // claim/fact keys and remain active.
+    const correctionIdentity = scopeCorrectionIdentity(scopedCorrection, String(senderScoped.source_id || ''));
+    const correctionClaimKey = correctionIdentity.claimKey;
+    const correctionFactKey = correctionIdentity.factKey;
+    const correctionTags = Array.from(new Set([
+      ...((senderScoped as any).tags || []),
+      'scope_correction',
+      `work_mode:${scopedCorrection.mode}`,
+      `correction_type:${scopedCorrection.correctionType}`,
+      'same_scope_only',
+      'preserve_unrelated_scope',
+    ]));
+    Object.assign(senderScoped, {
+      source: 'openclaw-user-scope-correction',
+      quality: 'candidate',
+      memory_kind: 'correction',
+      topic: `scope-correction-${scopedCorrection.mode}`,
+      tags: correctionTags,
+      fact_key: correctionFactKey,
+      claim_key: correctionClaimKey,
+      subject: 'owner',
+      predicate: scopedCorrection.correctionType === 'behavioral' ? 'corrected_guidance' : 'corrected_fact',
+      fact_scope: `correction:${scopedCorrection.mode}:${scopedCorrection.scopeDigest.slice(0, 32)}`,
+      fact_value: scopedCorrection.correction,
+      correction_memory: true,
+      correction_type: scopedCorrection.correctionType,
+      correction_scope_label: scopedCorrection.scopeLabel,
+      correction_scope_digest: scopedCorrection.scopeDigest,
+      correction_work_mode: scopedCorrection.mode,
+      supersedes_same_scope: true,
+      preserve_unrelated_scope: true,
+      user_corrected: true,
+      independently_verified: false,
+      evidence_count: 1,
+      required_evidence_count: scopedCorrection.correctionType === 'behavioral' ? 1 : 2,
+      authority_rank: 70,
     });
   }
   try {
@@ -3751,4 +3893,4 @@ const plugin = {
 };
 
 export default plugin;
-export { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, canonicalChannelIdentity, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, extractLatestAssistantVisibleText, extractLlmOutputText, isCanonicalAssuranceRejection, lifecyclePersistenceKey, reconcileResults, sealLifecyclePayload, sealLifecycleReceipt, unsealLifecyclePayload, unsealLifecycleReceipt, withLifecycleDirectoryLock };
+export { DurableLifecycleQuota, DurableLifecycleSpool, ExpiringLruMap, canonicalChannelIdentity, durabilityScore, buildWriteThroughMetadata, durableLifecycleMkdir, extractLatestAssistantVisibleText, extractLlmOutputText, isCanonicalAssuranceRejection, lifecyclePersistenceKey, reconcileResults, scopeCorrectionCandidate, scopeCorrectionIdentity, sealLifecyclePayload, sealLifecycleReceipt, unsealLifecyclePayload, unsealLifecycleReceipt, withLifecycleDirectoryLock };

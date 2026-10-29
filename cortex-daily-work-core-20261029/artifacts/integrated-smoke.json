@@ -1,0 +1,119 @@
+{
+  "command": "python3 cortex-daily-work-core-20261029/smoke_five_improvements.py --artifact cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
+  "defaultIntegration": {
+    "hooks": [
+      "before_prompt_build",
+      "after_tool_call",
+      "before_agent_finalize",
+      "message_sending"
+    ],
+    "tool": "cortex_daily_work"
+  },
+  "fidelity": "parity_for_scope",
+  "generatedAt": "2026-10-29T07:51:15.066395+00:00",
+  "passed": true,
+  "safety": {
+    "externalSendInvoked": false,
+    "policyBypassInvoked": false
+  },
+  "schemaVersion": "cortex.daily-work.integrated-smoke.v1",
+  "surfaceCount": 5,
+  "surfaces": {
+    "evidence-bound-answers": {
+      "evidence": {
+        "claimClasses": [
+          "user_fact",
+          "verified_source_fact",
+          "inference",
+          "recommendation"
+        ],
+        "outcomes": {
+          "aborted": "aborted",
+          "empty": "empty",
+          "failed": "failed",
+          "usable": "usable"
+        },
+        "rejectedClaimQualified": true,
+        "usableClaimPreserved": true
+      },
+      "passed": true
+    },
+    "proportional-work-routing": {
+      "evidence": {
+        "addedFactAnchorsRejected": [
+          "$250"
+        ],
+        "consequentialAdviseLevels": [
+          34,
+          3,
+          2
+        ],
+        "modes": {
+          "advise": "advise",
+          "execute": "execute",
+          "investigate": "investigate",
+          "rewrite": "rewrite"
+        },
+        "rewriteLevels": [
+          34
+        ]
+      },
+      "passed": true
+    },
+    "qualitative-decision-workbench": {
+      "evidence": {
+        "missingEvidenceCount": 4,
+        "optionCount": 2,
+        "recommendation": null,
+        "scoring": {
+          "fabricated_precision": false,
+          "numeric_scores": false,
+          "weighted_ranking": false
+        }
+      },
+      "passed": true
+    },
+    "scope-preserving-corrections": {
+      "evidence": {
+        "sameScopeClaimKey": "owner:correction:rewrite:685ada4b82de3ed2f78c65ce57d87d6b",
+        "sameScopeNewStatus": "active",
+        "sameScopeOldStatus": "superseded",
+        "unrelatedScopeClaimKey": "owner:correction:investigate:e6e99a7487c727afd1ce8966c8605325",
+        "unrelatedScopeStatus": "active"
+      },
+      "passed": true
+    },
+    "source-backed-attention": {
+      "evidence": {
+        "activeLifecycleObserved": true,
+        "candidateNotObligation": true,
+        "crossPrincipalIsolationObserved": true,
+        "externalActionAllowed": false,
+        "resolvedHistoryRetained": true,
+        "resolvedRemovedFromActiveView": true,
+        "routes": [
+          "POST /everyday/attention/confirm",
+          "POST /everyday/attention/propose",
+          "POST /everyday/attention/resolve",
+          "POST /everyday/attention/view",
+          "POST /everyday/decision/workbench"
+        ],
+        "signedPrincipalAdmission": true,
+        "sourceRefsRetained": true,
+        "unverifiedActivationRejected": true,
+        "workbench": {
+          "missingEvidenceCount": 4,
+          "optionCount": 2,
+          "recommendation": null,
+          "scoring": {
+            "fabricated_precision": false,
+            "numeric_scores": false,
+            "weighted_ranking": false
+          }
+        }
+      },
+      "passed": true
+    }
+  },
+  "truthBoundary": "Proves the five bounded workflow mechanics in one integrated smoke; does not prove universal answer correctness or automatic discovery of every obligation."
+}
