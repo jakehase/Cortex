@@ -11,6 +11,8 @@ const jiti = createJiti(__filename, { interopDefault: true, moduleCache: false }
 const routeModule = jiti(path.join(root, 'plugins/cortex-route-gate/index.ts'));
 const memoryModule = jiti(path.join(root, 'plugins/cortex-memory-bridge/index.ts'));
 const routePlugin = routeModule.default || routeModule;
+const routeManifest = JSON.parse(fs.readFileSync(path.join(root, 'plugins/cortex-route-gate/openclaw.plugin.json'), 'utf8'));
+assert.deepEqual(routeManifest.contracts?.tools, ['cortex_daily_work']);
 
 function fakeApi() {
   const hooks = new Map();

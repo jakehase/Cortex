@@ -76,6 +76,7 @@ Important implementation paths:
 
 ```text
 plugins/cortex-route-gate/index.ts                 # default work-mode, evidence and attention/workbench path
+plugins/cortex-route-gate/openclaw.plugin.json     # declared daily-work tool contract
 plugins/cortex-memory-bridge/index.ts              # canonical scoped correction persistence
 public/cortex_server/cortex_server/routers/everyday_intel.py  # existing everyday DB, attention lifecycle/workbench
 public/cortex_server/cortex_server/main.py          # signed-principal admission for bounded internal everyday calls

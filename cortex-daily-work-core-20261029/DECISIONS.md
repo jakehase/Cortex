@@ -73,3 +73,11 @@ Append-only durable decisions for this bounded implementation.
 - Evidence: `artifacts/integrated-smoke.json` and the clean-worktree diff.
 - Supersedes: Any claim that a green local smoke alone means production is active.
 - Follow-up: Use the existing immutable release plus code-manifest guard; do not hot-edit old releases or bypass startup protection.
+
+## 2026-10-29 — Declare the daily-work tool in the plugin contract
+
+- Decision: Add `cortex_daily_work` to the route-gate manifest’s `contracts.tools`, in addition to runtime registration.
+- Reason: OpenClaw inventory and startup guards use the manifest contract as the canonical declared tool surface; runtime factory registration alone did not expose the name in `plugins inspect`.
+- Evidence: Pre-restart plugin inspection showed the new route-gate source but an empty `toolNames` array; the focused smoke now asserts both manifest declaration and runtime registration.
+- Supersedes: Assuming factory registration alone was sufficient product discovery.
+- Follow-up: Final live inspection must show `toolNames=[cortex_daily_work]`.

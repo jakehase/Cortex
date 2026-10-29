@@ -1,8 +1,15 @@
 {
   "id": "cortex-route-gate",
   "name": "Cortex Route Gate",
-  "description": "Forces every agent run to consult Cortex routing first and injects the selected levels into the prompt.",
+  "version": "0.2.0",
+  "entry": "./index.ts",
+  "description": "Routes Cortex work proportionally, binds answer claims to usable evidence, and exposes source-backed daily-work tools.",
   "kind": "utility",
+  "contracts": {
+    "tools": [
+      "cortex_daily_work"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
