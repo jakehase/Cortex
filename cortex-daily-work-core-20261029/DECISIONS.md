@@ -81,3 +81,11 @@ Append-only durable decisions for this bounded implementation.
 - Evidence: Pre-restart plugin inspection showed the new route-gate source but an empty `toolNames` array; the focused smoke now asserts both manifest declaration and runtime registration.
 - Supersedes: Assuming factory registration alone was sufficient product discovery.
 - Follow-up: Final live inspection must show `toolNames=[cortex_daily_work]`.
+
+## 2026-10-29 — Activate the bounded tool through the existing policy layer
+
+- Decision: Add only `cortex_daily_work` to global `tools.alsoAllow`, preserving `tools.profile=coding`, the existing browser additions, every deny, signed-principal checks, and external-action safeguards.
+- Reason: The immutable release, startup code manifest, server code, route/memory hooks, and plugin contract were already active and hash-matched; the remaining gap was policy filtering, not another semantic implementation or release build.
+- Evidence: `artifacts/activation-receipt.json`, the installed `tools.alsoAllow` schema (`reloadKind=none`), valid config hash `c5b2df1eb50e8eddb6128268ad4abdf28a6c434555ace98576e3c1ff16c2cc74`, and fresh-turn trajectory tool-schema inventory.
+- Supersedes: The stale `staged_not_deployed` status and any proposal to rebuild, update OpenClaw, bypass the startup manifest, or restart the gateway for this tool-policy-only activation.
+- Follow-up: Treat new-turn loading as verified. Do not claim a successful live tool invocation from either synthetic CLI attempt; both were stopped before model execution by the required routing hook.

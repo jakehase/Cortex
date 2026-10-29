@@ -1,0 +1,221 @@
+{
+  "schemaVersion": "cortex.daily-work.activation-receipt.v1",
+  "observedAt": "2026-10-29T16:44:50.342207+00:00",
+  "scope": "five_daily_work_features_only",
+  "sourceProductCommit": "1de5218d2807f577b5dd1ec3a8d92985d084347b",
+  "release": {
+    "currentTarget": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+    "immutableRootMode": "0o555",
+    "releaseMetadata": {
+      "schemaVersion": "cortex.live-bounded-release.v1",
+      "head": "1de5218d2807f577b5dd1ec3a8d92985d084347b",
+      "tree": "5fcab2bb791f04f5f64db11f3a71ca5eddd67466",
+      "createdAt": "2026-10-29T08:00:04.904297+00:00",
+      "parentRelease": "/opt/cortex/releases/cortex-daily-work-core-ec145db659aa-20261029",
+      "scope": [
+        "evidence_bound_answers",
+        "source_backed_attention",
+        "proportional_work_routing",
+        "scope_preserving_corrections",
+        "qualitative_decision_workbench"
+      ],
+      "verificationArtifact": "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
+      "truthBoundary": "Bounded five-surface release; one focused integrated smoke. No universal answer-correctness or automatic-obligation-discovery claim."
+    },
+    "productFiles": {
+      "plugins/cortex-route-gate/index.ts": {
+        "sha256": "6ab32f7770e6ac76079c5df7dfb451b63d4c58f7e6dffccd098db206e2437fb1",
+        "sourceReleaseMatch": true,
+        "startupManifestMatch": true
+      },
+      "plugins/cortex-route-gate/openclaw.plugin.json": {
+        "sha256": "fbe4cfbbdfa82840ab7d6fd0bfa2d910603237d04e0a993e9fc16c87b832bbc0",
+        "sourceReleaseMatch": true,
+        "startupManifestMatch": true
+      },
+      "plugins/cortex-memory-bridge/index.ts": {
+        "sha256": "74d6da7acc01bd3935136f5d4097c52a81987f659c89216e840c7edcc409a18e",
+        "sourceReleaseMatch": true,
+        "startupManifestMatch": true
+      },
+      "public/cortex_server/cortex_server/routers/everyday_intel.py": {
+        "sha256": "53acc110ffa780201646c230e8556a9c7deca624999a36654d6d89f22d7b9ce3",
+        "sourceReleaseMatch": true,
+        "startupManifestMatch": true
+      },
+      "public/cortex_server/cortex_server/main.py": {
+        "sha256": "de5e6055f037c7cb937f187aec8d81b76b129f6aa6b186310ae71de85a6a223b",
+        "sourceReleaseMatch": true,
+        "startupManifestMatch": true
+      }
+    }
+  },
+  "startupIntegrity": {
+    "manifestPath": "/opt/openclaw-preastra-restore/2026.7.1-2/code-manifest.json",
+    "manifestSha256": "fccdae970cea64c6db7ed508135178459506d4fdb584a325ea0045b68966a082",
+    "gatewayExpectedManifestSha256": "fccdae970cea64c6db7ed508135178459506d4fdb584a325ea0045b68966a082",
+    "gatewayExpectedCortexRelease": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+    "gatewayPidObserved": 916336,
+    "gatewayRestartUsedForActivation": false,
+    "openClawUpdateOrUpgradeUsed": false
+  },
+  "toolPolicy": {
+    "configPath": "/opt/openclaw-preastra-restore/2026.7.1-2/state/openclaw.json",
+    "rootAliasPath": "/root/.openclaw/openclaw.json",
+    "aliasesShareInode": true,
+    "configHash": "c5b2df1eb50e8eddb6128268ad4abdf28a6c434555ace98576e3c1ff16c2cc74",
+    "valid": true,
+    "profile": "coding",
+    "alsoAllow": [
+      "cortex_browse",
+      "cortex_browser_status",
+      "cortex_daily_work"
+    ],
+    "deny": [
+      "web_search",
+      "web_fetch",
+      "browser"
+    ],
+    "schemaReloadKind": "none",
+    "backupPath": "/opt/openclaw-preastra-restore/2026.7.1-2/state/openclaw.json.bak-cortex-daily-work-20261029T163951Z"
+  },
+  "semanticIntegration": {
+    "runtimePluginStatus": "loaded",
+    "runtimePluginSource": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029/plugins/cortex-route-gate/index.ts",
+    "runtimeToolNames": [
+      "cortex_daily_work"
+    ],
+    "defaultHooks": [
+      "before_prompt_build",
+      "after_tool_call",
+      "before_agent_finalize",
+      "message_sending"
+    ],
+    "canonicalMemoryHook": "cortex-memory-bridge scope_correction via assurance/governance",
+    "canonicalEverydayState": "existing everyday decisions.jsonl with record_type attention/decision"
+  },
+  "focusedSmoke": {
+    "runCountThisActivation": 1,
+    "artifact": "artifacts/activation-smoke.json",
+    "passed": true,
+    "surfaces": {
+      "evidence-bound-answers": {
+        "evidence": {
+          "claimClasses": [
+            "user_fact",
+            "verified_source_fact",
+            "inference",
+            "recommendation"
+          ],
+          "outcomes": {
+            "aborted": "aborted",
+            "empty": "empty",
+            "failed": "failed",
+            "usable": "usable"
+          },
+          "rejectedClaimQualified": true,
+          "usableClaimPreserved": true
+        },
+        "passed": true
+      },
+      "proportional-work-routing": {
+        "evidence": {
+          "addedFactAnchorsRejected": [
+            "$250"
+          ],
+          "consequentialAdviseLevels": [
+            34,
+            3,
+            2
+          ],
+          "modes": {
+            "advise": "advise",
+            "execute": "execute",
+            "investigate": "investigate",
+            "rewrite": "rewrite"
+          },
+          "rewriteLevels": [
+            34
+          ]
+        },
+        "passed": true
+      },
+      "qualitative-decision-workbench": {
+        "evidence": {
+          "missingEvidenceCount": 4,
+          "optionCount": 2,
+          "recommendation": null,
+          "scoring": {
+            "fabricated_precision": false,
+            "numeric_scores": false,
+            "weighted_ranking": false
+          }
+        },
+        "passed": true
+      },
+      "scope-preserving-corrections": {
+        "evidence": {
+          "sameScopeClaimKey": "owner:correction:rewrite:685ada4b82de3ed2f78c65ce57d87d6b",
+          "sameScopeNewStatus": "active",
+          "sameScopeOldStatus": "superseded",
+          "unrelatedScopeClaimKey": "owner:correction:investigate:e6e99a7487c727afd1ce8966c8605325",
+          "unrelatedScopeStatus": "active"
+        },
+        "passed": true
+      },
+      "source-backed-attention": {
+        "evidence": {
+          "activeLifecycleObserved": true,
+          "candidateNotObligation": true,
+          "crossPrincipalIsolationObserved": true,
+          "externalActionAllowed": false,
+          "resolvedHistoryRetained": true,
+          "resolvedRemovedFromActiveView": true,
+          "routes": [
+            "POST /everyday/attention/confirm",
+            "POST /everyday/attention/propose",
+            "POST /everyday/attention/resolve",
+            "POST /everyday/attention/view",
+            "POST /everyday/decision/workbench"
+          ],
+          "signedPrincipalAdmission": true,
+          "sourceRefsRetained": true,
+          "unverifiedActivationRejected": true,
+          "workbench": {
+            "missingEvidenceCount": 4,
+            "optionCount": 2,
+            "recommendation": null,
+            "scoring": {
+              "fabricated_precision": false,
+              "numeric_scores": false,
+              "weighted_ranking": false
+            }
+          }
+        },
+        "passed": true
+      }
+    },
+    "externalSendInvoked": false,
+    "policyBypassInvoked": false
+  },
+  "freshTurn": {
+    "probeAttemptCount": 2,
+    "isolatedSessionId": "67a6e562-85ef-4518-95d9-6f3af1c399ce",
+    "toolLoaded": true,
+    "pluginLoaded": true,
+    "whatsappToolSchemaObserved": true,
+    "toolInvocationSucceeded": false,
+    "status": "error",
+    "promptErrorClass": "CORTEX_REQUIRED_HOOK_FAILED",
+    "toolSchemaObserved": true,
+    "deliveryRequested": false,
+    "note": "Both no-delivery synthetic CLI attempts loaded cortex_daily_work in the recorded model tool schema. Each was stopped by the required routing hook before model execution, so this receipt proves loading but not a successful live invocation."
+  },
+  "externalActions": {
+    "send": false,
+    "post": false,
+    "schedule": false,
+    "safeguardBypass": false
+  },
+  "remainingGap": "Both synthetic CLI invocation attempts were blocked before the model by CORTEX_REQUIRED_HOOK_FAILED; normal new-turn loading is verified, live tool invocation is not claimed by this receipt."
+}

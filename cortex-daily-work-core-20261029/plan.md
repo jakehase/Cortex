@@ -301,4 +301,20 @@ Open decisions before code: none. The user approved all five; the active source 
 
 ## 19. Immediate next milestone
 
-Implement the server-side everyday extensions and route-gate/memory-bridge integration, then run the single integrated smoke.
+Activate the already-committed five-surface release in the default OpenClaw tool policy, verify one fresh internal turn can load and invoke the bounded tool, and record the live deployment state without changing the immutable release.
+
+## 20. Activation continuation — 2026-10-29
+
+Observed prerequisites before activation: source product commit `1de5218d2807f577b5dd1ec3a8d92985d084347b` is on the configured remote; `/opt/cortex/current` and the OpenClaw plugin paths already identify the matching immutable release; the startup code manifest contains that release and its digest matches the running gateway expectation; runtime plugin inspection reports `cortex_daily_work` registered. The remaining gap is the global tool-policy allowlist.
+
+Concrete activation sequence:
+
+1. Leave the release tree, OpenClaw runtime, startup code manifest, credentials, deny list, safety gates, and plugin configuration unchanged. Do not run any OpenClaw update or upgrade path.
+2. Add only `cortex_daily_work` to `tools.alsoAllow`, preserving `tools.profile: coding`, the existing Cortex browser entries, and all denies. Use the supported config RPC/hot-reload path; tools are documented as hot-applicable, so do not restart unless the runtime explicitly reports a restart requirement.
+3. Run exactly one focused five-surface integrated smoke, writing its activation receipt outside the immutable release.
+4. Start one non-delivering internal fresh turn and require an actual read-only `cortex_daily_work` invocation so tool loading is observed rather than inferred.
+5. Recheck policy, release/plugin identity, and manifest digest; then update `surface-matrix.json` and `STATUS.md` and push the documentation-only activation record.
+
+Acceptance: the single smoke is green, a fresh turn invokes the tool successfully, every unrelated tool/safety setting is unchanged, no external action occurs, and no OpenClaw restart/update is used. If fresh-turn loading cannot be observed, report activation as unverified rather than available.
+
+Activation result: the config, integrity, semantic-hook, single-smoke, and fresh-turn **loading** checks passed. Two no-delivery CLI attempts both recorded `cortex_daily_work` in the model tool schema, but the required routing hook stopped each before model execution with `CORTEX_REQUIRED_HOOK_FAILED`. Therefore deployment and new-turn loading are verified; live invocation remains an explicit evidence gap rather than a completion claim. No additional smoke was run.

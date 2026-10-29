@@ -7,7 +7,7 @@
   },
   "fidelity": "parity_for_scope",
   "stopCondition": "five_surface_matrix_green_or_exact_blocker",
-  "updatedAt": "2026-10-29T07:59:32.414110+00:00",
+  "updatedAt": "2026-10-29T16:44:50.342207+00:00",
   "surfaces": [
     {
       "id": "evidence-bound-answers",
@@ -30,13 +30,17 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "staged_not_deployed",
+      "deploymentState": "deployed_active_verified_default_path",
       "evidence": [
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
-        "plugins/cortex-route-gate/openclaw.plugin.json"
+        "plugins/cortex-route-gate/openclaw.plugin.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
       ],
-      "blockers": []
+      "blockers": [],
+      "defaultProductIntegrationObserved": true,
+      "freshTurnToolSchemaObserved": true
     },
     {
       "id": "source-backed-attention",
@@ -61,15 +65,19 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "staged_not_deployed",
+      "deploymentState": "deployed_active_verified_default_path",
       "evidence": [
         "public/cortex_server/cortex_server/routers/everyday_intel.py",
         "public/cortex_server/cortex_server/main.py",
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
-        "plugins/cortex-route-gate/openclaw.plugin.json"
+        "plugins/cortex-route-gate/openclaw.plugin.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
       ],
-      "blockers": []
+      "blockers": [],
+      "defaultProductIntegrationObserved": true,
+      "freshTurnToolSchemaObserved": true
     },
     {
       "id": "proportional-work-routing",
@@ -93,13 +101,17 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "staged_not_deployed",
+      "deploymentState": "deployed_active_verified_default_path",
       "evidence": [
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
-        "plugins/cortex-route-gate/openclaw.plugin.json"
+        "plugins/cortex-route-gate/openclaw.plugin.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
       ],
-      "blockers": []
+      "blockers": [],
+      "defaultProductIntegrationObserved": true,
+      "freshTurnToolSchemaObserved": true
     },
     {
       "id": "scope-preserving-corrections",
@@ -123,14 +135,18 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "staged_not_deployed",
+      "deploymentState": "deployed_active_verified_default_path",
       "evidence": [
         "plugins/cortex-memory-bridge/index.ts",
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
-        "plugins/cortex-route-gate/openclaw.plugin.json"
+        "plugins/cortex-route-gate/openclaw.plugin.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
       ],
-      "blockers": []
+      "blockers": [],
+      "defaultProductIntegrationObserved": true,
+      "freshTurnToolSchemaObserved": true
     },
     {
       "id": "qualitative-decision-workbench",
@@ -154,14 +170,30 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "staged_not_deployed",
+      "deploymentState": "deployed_active_verified_default_path",
       "evidence": [
         "public/cortex_server/cortex_server/routers/everyday_intel.py",
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
-        "plugins/cortex-route-gate/openclaw.plugin.json"
+        "plugins/cortex-route-gate/openclaw.plugin.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+        "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
       ],
-      "blockers": []
+      "blockers": [],
+      "defaultProductIntegrationObserved": true,
+      "freshTurnToolSchemaObserved": true
     }
-  ]
+  ],
+  "activation": {
+    "state": "deployed_active",
+    "release": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+    "toolPolicyActive": true,
+    "freshTurnToolSchemaObserved": true,
+    "liveToolInvocationObserved": false,
+    "invocationGap": "Two no-delivery synthetic CLI attempts were stopped by the required Cortex routing hook before model execution.",
+    "evidence": [
+      "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
+      "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
+    ]
+  }
 }

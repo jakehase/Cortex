@@ -6,16 +6,18 @@
 - Canonical plan: `plan.md`
 - Decisions log: `DECISIONS.md`
 - Last updated: 2026-10-29
-- Status: implementation-green / deployment pending
+- Status: deployed-active / fresh-turn tool loading verified
 - Current fidelity: `parity_for_scope`
 
 ## Current checkpoint
 
-- Product implementation: all five bounded surfaces are complete in the clean source worktree.
-- Focused verification: one integrated smoke is green for exactly five rows; artifact `artifacts/integrated-smoke.json`.
-- Default integration observed in smoke: `cortex-route-gate` registers the evidence/finalization hooks and `cortex_daily_work`; Cortex everyday routes are present; canonical memory governance performs same-scope supersession.
-- Current source base: `28ffec514d3b` plus the uncommitted candidate diff in `/root/clawd/_worktrees/oracle-expiring-oauth-20261026`.
-- Deployment state: staged, not yet deployed.
+- Product implementation: all five bounded surfaces are complete at source product commit `1de5218d2807f577b5dd1ec3a8d92985d084347b`, already present on the configured remote.
+- Active immutable release: `/opt/cortex/current -> /opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029`.
+- Focused verification for this activation: exactly one integrated smoke run is green for all five rows; artifact `artifacts/activation-smoke.json`.
+- Default semantic integration: the loaded `cortex-route-gate` supplies proportional routing, evidence lifecycle/finalization/delivery hooks, source-backed attention, and the bounded `cortex_daily_work` tool; `cortex-memory-bridge` persists scoped corrections through canonical assurance/governance; everyday attention and workbench records reuse the existing decisions log.
+- Tool policy: `tools.profile` remains `coding`; `tools.alsoAllow` is now `cortex_browse`, `cortex_browser_status`, and `cortex_daily_work`; existing denies remain `web_search`, `web_fetch`, and `browser`.
+- Fresh-turn proof: a new turn's recorded model tool schema contains `cortex_daily_work`, and runtime plugin inventory identifies its source in the active release.
+- Deployment state: active for the bounded five-surface default path. No OpenClaw update, upgrade, or gateway restart was used.
 
 ## Green implementation rows
 
@@ -28,31 +30,36 @@
 ## Verification result
 
 ```text
+activationSmokeRunCount=1
 passed=true
 surfaceCount=5
+freshTurnToolSchemaObserved=true
+liveSyntheticToolInvocationObserved=false
 externalSendInvoked=false
 policyBypassInvoked=false
+openClawUpdateOrUpgradeUsed=false
+gatewayRestartUsed=false
 ```
 
-Replay:
+Activation evidence:
 
-```bash
-cd /root/clawd/_worktrees/oracle-expiring-oauth-20261026
-python3 cortex-daily-work-core-20261029/smoke_five_improvements.py \
-  --artifact cortex-daily-work-core-20261029/artifacts/integrated-smoke.json
-```
+- `artifacts/activation-smoke.json` — the one focused five-surface smoke run.
+- `artifacts/activation-receipt.json` — config hash/policy, immutable release and startup-manifest hashes, runtime plugin source, source-release parity, and fresh-turn tool-schema proof.
+- The startup code-manifest SHA-256 remains `fccdae970cea64c6db7ed508135178459506d4fdb584a325ea0045b68966a082`, matching the running gateway's expected digest.
+- Config backup: `/opt/openclaw-preastra-restore/2026.7.1-2/state/openclaw.json.bak-cortex-daily-work-20261029T163951Z`.
 
-## Active blockers
+The historical replay command remains documented in `plan.md`; do not rerun it merely to restate this activation because the approved verification budget was exactly one focused smoke.
 
-- No implementation blocker.
-- Deployment requires the existing immutable release/plugin-path/startup-manifest flow. The gateway currently pins both plugin paths and startup manifest to prior releases; those gates must be updated together rather than bypassed.
+## Active blockers and remaining gap
+
+- No implementation, release-integrity, config-activation, or new-turn tool-loading blocker.
+- Two no-delivery synthetic CLI attempts loaded the tool but were stopped before model execution by `CORTEX_REQUIRED_HOOK_FAILED`; therefore this status does **not** claim a successful live `cortex_daily_work` invocation. Neither attempt made an external send. A normal trusted inbound turn can supply that final invocation evidence when the tool is next needed.
 
 ## Next actions
 
-1. Commit only this worktree diff and push the branch.
-2. Build an immutable bounded release from the committed tree.
-3. Preserve/update exact plugin paths plus startup manifest pins, restart Cortex and the gateway through the approved flow, then verify live identities/endpoints.
-4. Mark every matrix row `deployed` only after those live checks.
+1. Commit and push this documentation/evidence-only activation record; do not rebuild or mutate the immutable `1de5218d2807` release.
+2. On a later normal trusted user turn that genuinely needs attention or decision support, use `cortex_daily_work` and record success only from its actual non-empty result.
+3. Keep the current tool profile, deny list, signed-principal checks, exact-quote attention gates, and external-write safeguards unchanged.
 
 ## Do not use / superseded
 
@@ -63,8 +70,8 @@ python3 cortex-daily-work-core-20261029/smoke_five_improvements.py \
 
 Allowed now:
 
-- All five bounded product surfaces are implemented and green in the focused integrated smoke.
+- All five bounded product surfaces are implemented in the active immutable release, integrated into the default semantic hooks, green in the single activation smoke, and present in a fresh turn's tool schema.
 
-Not allowed yet:
+Not allowed:
 
-- A deployed/live claim, universal answer correctness, or automatic discovery of every obligation.
+- A claim that either synthetic CLI attempt successfully invoked the tool, universal answer correctness, automatic discovery of every obligation, or any weakening of external-action and evidence gates.
