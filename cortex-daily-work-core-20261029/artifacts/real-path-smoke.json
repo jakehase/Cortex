@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "cortex.daily-work.real-path-smoke.v1",
+  "passed": true,
+  "action": "attention_view",
+  "endpoint": "/everyday/attention/view",
+  "provider": "cortex-everyday",
+  "configuredPluginSource": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029/plugins/cortex-route-gate/index.ts",
+  "response": {
+    "success": true,
+    "counts": {
+      "active": 0,
+      "candidates": 0,
+      "resolved": 0
+    },
+    "policy": {
+      "candidate_is_not_an_obligation": true,
+      "active_requires_explicit_confirmation": true,
+      "external_actions": "never authorized by attention state"
+    }
+  },
+  "canonicalStateUnchanged": true,
+  "canonicalStateBefore": {
+    "exists": false,
+    "sha256": null,
+    "bytes": 0
+  },
+  "canonicalStateAfter": {
+    "exists": false,
+    "sha256": null,
+    "bytes": 0
+  },
+  "externalSendInvoked": false,
+  "policyBypassInvoked": false
+}

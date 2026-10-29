@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "cortex.daily-work.route-repair-deployment.v1",
+  "observedAt": "2026-10-29T17:01:10.848637+00:00",
+  "rootCause": {
+    "toolBaseUrl": "http://127.0.0.1:8000",
+    "toolEndpoint": "/everyday/attention/view",
+    "preRepairLiveRouterPrefix": "/everyday_intel",
+    "preRepairHttpStatus": 404,
+    "preRepairBodyBytes": 22,
+    "preRepairBodySha256": "37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d"
+  },
+  "source": {
+    "commit": "1a283c5b4207808aaecb1eaeffc8fc16f429ecc6",
+    "branch": "repair/oracle-expiring-oauth-20261026",
+    "decision": "adapter_wrapper_only",
+    "mainPySha256": "057c0105c0d6a00dc63bc223d7de6200f54111176b5c75a1f8c3901f5e28590b"
+  },
+  "deployment": {
+    "activeRelease": "/opt/cortex/releases/cortex-daily-work-route-adapter-1a283c5b42-20261029-v2",
+    "releaseMetadata": {
+      "schemaVersion": "cortex.live-bounded-release.v1",
+      "head": "1a283c5b4207808aaecb1eaeffc8fc16f429ecc6",
+      "tree": "6cc9341009d6b6e6c06c724282fb3b8e6c96fc5e",
+      "createdAt": "2026-10-29T16:58:33.260460+00:00",
+      "parentRelease": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+      "supersedesQuarantinedRelease": "/opt/cortex/releases/_quarantine/cortex-daily-work-route-adapter-1a283c5b42-20261029-failed-exec-mode",
+      "packagingCorrection": "Preserve Git executable modes before making the release tree read-only.",
+      "scope": [
+        "daily_work_route_adapter"
+      ],
+      "adapter": {
+        "prefix": "/everyday",
+        "implementation": "everyday_intel",
+        "routes": [
+          "POST /everyday/attention/view",
+          "POST /everyday/attention/propose",
+          "POST /everyday/attention/confirm",
+          "POST /everyday/attention/resolve",
+          "POST /everyday/decision/workbench"
+        ]
+      },
+      "predeploymentChecks": [
+        "python_syntax",
+        "node_syntax",
+        "schema_construction_exact_five_routes",
+        "tracked_executable_mode_parity"
+      ],
+      "requiredPostDeploymentArtifact": "cortex-daily-work-core-20261029/artifacts/real-path-smoke.json",
+      "truthBoundary": "Backend route adapter only; not accepted until one live registered-tool attention_view succeeds read-only."
+    },
+    "cortexServicePidAtSmoke": 1389236,
+    "cortexServicePidAtFinalRecheck": 1391295,
+    "postSmokeServiceRestartObserved": true,
+    "postRestartAdapterInventoryVerified": true,
+    "postRestartToolSmokeRepeated": false,
+    "openClawGatewayPid": 916336,
+    "openClawGatewayRestarted": false,
+    "openClawUpdatedOrUpgraded": false,
+    "openClawConfigSha256": "c5b2df1eb50e8eddb6128268ad4abdf28a6c434555ace98576e3c1ff16c2cc74",
+    "toolProfile": "coding",
+    "toolAlsoAllow": [
+      "cortex_browse",
+      "cortex_browser_status",
+      "cortex_daily_work"
+    ],
+    "toolDeny": [
+      "web_search",
+      "web_fetch",
+      "browser"
+    ]
+  },
+  "startupIntegrity": {
+    "targetPreflightSha256": "9be6a25e7778587c563eb42d4be7a4bf463257a2ead3aae12143d7b0e529a859",
+    "codeManifestSha256": "c8b991e608e6d1ad67338ae8c7b72097c4cefe7c3385a39b6a8cfceeb5d625d8",
+    "pinnedFileCount": 41856,
+    "newBackendPinCount": 374,
+    "loadedPluginReleasePinCount": 44,
+    "currentGatewayStartEnvironment": {
+      "EXPECTED_CORTEX_RELEASE": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+      "RESTORED_TARGET_PREFLIGHT_SHA256": "ed660b2dad6bdf68becdd8fe9303c95df79adc7b18bc6b56fa9fed333454b6bd",
+      "RESTORED_CODE_MANIFEST_SHA256": "fccdae970cea64c6db7ed508135178459506d4fdb584a325ea0045b68966a082"
+    },
+    "nextGatewayStartGuard": {
+      "EXPECTED_CORTEX_RELEASE": "/opt/cortex/releases/cortex-daily-work-route-adapter-1a283c5b42-20261029-v2",
+      "RESTORED_TARGET_PREFLIGHT_SHA256": "9be6a25e7778587c563eb42d4be7a4bf463257a2ead3aae12143d7b0e529a859",
+      "RESTORED_CODE_MANIFEST_SHA256": "c8b991e608e6d1ad67338ae8c7b72097c4cefe7c3385a39b6a8cfceeb5d625d8"
+    },
+    "note": "The gateway was not restarted. Its current process retains the prior startup attestation while continuing to run byte-identical plugin code; the on-disk guard/drop-in is atomically prepared for the next normal start."
+  },
+  "failedFirstCutover": {
+    "reason": "Packaging removed Git executable bits, causing cortex.service 203/EXEC.",
+    "rolledBack": true,
+    "liveServiceRecovered": true,
+    "quarantinePath": "/opt/cortex/releases/_quarantine/cortex-daily-work-route-adapter-1a283c5b42-20261029-failed-exec-mode",
+    "recoveryNote": "/opt/cortex/releases/_quarantine/cortex-daily-work-route-adapter-1a283c5b42-20261029-failed-exec-mode.recovery.json"
+  },
+  "rollback": {
+    "previousRelease": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+    "backupRoot": "/root/clawd/artifacts/cortex-daily-work-route-repair-20261029/rollback-20261029T1656Z"
+  },
+  "realPathSmoke": {
+    "runCount": 1,
+    "artifact": "cortex-daily-work-core-20261029/artifacts/real-path-smoke.json",
+    "artifactSha256": "418bc1ac0399c3cb1614b42a467d8d759915c548a3a99db46fae19e69268e5e9",
+    "passed": true,
+    "registeredToolSource": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029/plugins/cortex-route-gate/index.ts",
+    "action": "attention_view",
+    "endpoint": "/everyday/attention/view",
+    "provider": "cortex-everyday",
+    "canonicalStateUnchanged": true,
+    "externalSendInvoked": false,
+    "policyBypassInvoked": false
+  },
+  "truthBoundary": "End-to-end registered-tool transport is green for read-only attention_view. The four mutating/decision actions are mounted but were not invoked in production by this one-smoke repair contract."
+}

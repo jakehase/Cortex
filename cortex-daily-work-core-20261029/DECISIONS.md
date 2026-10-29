@@ -96,4 +96,4 @@ Append-only durable decisions for this bounded implementation.
 - Reason: A real parent-turn invocation proved the registered OpenClaw tool posts to `/everyday/attention/view`, while the live capability loader mounted the source router only at `/everyday_intel/attention/view`. The existing signed-principal policy already covers `/everyday/*`.
 - Evidence: Live OpenAPI inventory, exact HTTP 404 body hash `37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d`, and source-level tool/base-URL inspection.
 - Supersedes: The earlier end-to-end activation-green wording. Tool-schema presence proves loading, not transport success.
-- Follow-up: Deploy through a new immutable backend release and require one read-only real-path tool smoke before restoring green status.
+- Follow-up outcome: Active release is `cortex-daily-work-route-adapter-1a283c5b42-20261029-v2`; the one registered-tool read smoke passed with unchanged canonical state. The first package lost executable bits, rolled back, and remains quarantined with a recovery note.

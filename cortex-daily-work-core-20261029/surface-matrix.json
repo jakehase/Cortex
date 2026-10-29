@@ -7,7 +7,7 @@
   },
   "fidelity": "parity_for_scope",
   "stopCondition": "five_surface_matrix_green_or_exact_blocker",
-  "updatedAt": "2026-10-29T16:44:50.342207+00:00",
+  "updatedAt": "2026-10-29T17:01:10.848637+00:00",
   "surfaces": [
     {
       "id": "evidence-bound-answers",
@@ -30,7 +30,7 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "deployed_active_verified_default_path",
+      "deploymentState": "deployed_active",
       "evidence": [
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
@@ -65,7 +65,7 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "deployed_active_verified_default_path",
+      "deploymentState": "deployed_active",
       "evidence": [
         "public/cortex_server/cortex_server/routers/everyday_intel.py",
         "public/cortex_server/cortex_server/main.py",
@@ -101,7 +101,7 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "deployed_active_verified_default_path",
+      "deploymentState": "deployed_active",
       "evidence": [
         "plugins/cortex-route-gate/index.ts",
         "cortex-daily-work-core-20261029/artifacts/integrated-smoke.json",
@@ -135,7 +135,7 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "deployed_active_verified_default_path",
+      "deploymentState": "deployed_active",
       "evidence": [
         "plugins/cortex-memory-bridge/index.ts",
         "plugins/cortex-route-gate/index.ts",
@@ -170,7 +170,7 @@
       ],
       "implementationStatus": "complete",
       "smokeStatus": "passed",
-      "deploymentState": "deployed_active_verified_default_path",
+      "deploymentState": "deployed_active",
       "evidence": [
         "public/cortex_server/cortex_server/routers/everyday_intel.py",
         "plugins/cortex-route-gate/index.ts",
@@ -185,15 +185,23 @@
     }
   ],
   "activation": {
-    "state": "deployed_active",
-    "release": "/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029",
+    "state": "deployed_active_real_path_read_green",
+    "release": "/opt/cortex/releases/cortex-daily-work-route-adapter-1a283c5b42-20261029-v2",
     "toolPolicyActive": true,
     "freshTurnToolSchemaObserved": true,
-    "liveToolInvocationObserved": false,
-    "invocationGap": "Two no-delivery synthetic CLI attempts were stopped by the required Cortex routing hook before model execution.",
+    "liveToolInvocationObserved": true,
+    "verifiedAction": "attention_view",
+    "verifiedEndpoint": "/everyday/attention/view",
+    "canonicalStateUnchanged": true,
+    "uninvokedActions": [
+      "attention_propose",
+      "attention_confirm",
+      "attention_resolve",
+      "decision_workbench"
+    ],
     "evidence": [
-      "cortex-daily-work-core-20261029/artifacts/activation-smoke.json",
-      "cortex-daily-work-core-20261029/artifacts/activation-receipt.json"
+      "cortex-daily-work-core-20261029/artifacts/real-path-smoke.json",
+      "cortex-daily-work-core-20261029/artifacts/route-repair-deployment.json"
     ]
   }
 }

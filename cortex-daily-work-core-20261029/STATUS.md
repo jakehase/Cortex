@@ -6,19 +6,20 @@
 - Canonical plan: `plan.md`
 - Decisions log: `DECISIONS.md`
 - Last updated: 2026-10-29
-- Status: real-path 404 reproduced / adapter repair source-qualified / deployment pending
+- Status: deployed-active / registered-tool `attention_view` real-path green
 - Current fidelity: `parity_for_scope`
 
 ## Current checkpoint
 
-- Product implementation: all five bounded surfaces are complete at source product commit `1de5218d2807f577b5dd1ec3a8d92985d084347b`, already present on the configured remote.
-- Active immutable release: `/opt/cortex/current -> /opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029`.
-- Focused verification for this activation: exactly one integrated smoke run is green for all five rows; artifact `artifacts/activation-smoke.json`.
+- Product implementation: the original five bounded surfaces remain at `1de5218d2807f577b5dd1ec3a8d92985d084347b`; the bounded route-adapter repair is source commit `1a283c5b4207808aaecb1eaeffc8fc16f429ecc6`, pushed to the configured remote.
+- Active immutable release: `/opt/cortex/current -> /opt/cortex/releases/cortex-daily-work-route-adapter-1a283c5b42-20261029-v2`.
+- Repair verification: exactly one post-cutover registered-tool real-path smoke invoked read-only `attention_view`, received non-empty `ok=true` from `/everyday/attention/view`, and left the canonical decisions state unchanged; artifact `artifacts/real-path-smoke.json`.
 - Default semantic integration: the loaded `cortex-route-gate` supplies proportional routing, evidence lifecycle/finalization/delivery hooks, source-backed attention, and the bounded `cortex_daily_work` tool; `cortex-memory-bridge` persists scoped corrections through canonical assurance/governance; everyday attention and workbench records reuse the existing decisions log.
 - Tool policy: `tools.profile` remains `coding`; `tools.alsoAllow` is now `cortex_browse`, `cortex_browser_status`, and `cortex_daily_work`; existing denies remain `web_search`, `web_fetch`, and `browser`.
-- Fresh-turn truth: a new turn loaded `cortex_daily_work`, but its actual read-only `attention_view` invocation returned HTTP 404 with FastAPI's exact 22-byte not-found body. Schema presence was not end-to-end success.
-- Root cause: the tool uses `/everyday/*`; the live router was mounted only at `/everyday_intel/*`.
-- Repair candidate: a fail-closed five-route `/everyday` adapter over the existing `everyday_intel` handlers and state has passed syntax and schema-construction checks. Production deployment is pending.
+- Incident truth: the first real parent-turn call returned HTTP 404 because the tool uses `/everyday/*` while the live router was mounted only at `/everyday_intel/*`; schema presence alone was not success.
+- Repair: the active backend now mounts exactly five `/everyday` adapter routes over the existing `everyday_intel` handlers/state and fails startup if that set drifts.
+- Cutover truth: the first packaged release lost executable bits, failed `203/EXEC`, rolled back automatically, and was quarantined. The corrected v2 release preserved Git executable modes and is active.
+- OpenClaw was not updated, upgraded, or restarted. Gateway PID `916336`, config hash, tool policy, loaded plugin bytes, and safeguards remained unchanged. The on-disk next-start guard and code manifest now pin the new backend plus the still-loaded prior plugin release.
 
 ## Green implementation rows
 
@@ -32,12 +33,14 @@
 
 ```text
 activationSmokeRunCount=1
-passed=true
-surfaceCount=5
-freshTurnToolSchemaObserved=true
-liveSyntheticToolInvocationObserved=false
-actualParentToolInvocation=HTTP404
-endToEndActivationGreen=false
+repairRealPathSmokeRunCount=1
+repairRealPathSmokePassed=true
+verifiedAction=attention_view
+verifiedEndpoint=/everyday/attention/view
+preRepairParentToolInvocation=HTTP404
+postRepairRegisteredToolResult=ok:true
+canonicalDecisionsStateUnchanged=true
+endToEndAttentionViewGreen=true
 externalSendInvoked=false
 policyBypassInvoked=false
 openClawUpdateOrUpgradeUsed=false
@@ -48,22 +51,25 @@ Activation evidence:
 
 - `artifacts/activation-smoke.json` — the one focused five-surface smoke run.
 - `artifacts/activation-receipt.json` — config hash/policy, immutable release and startup-manifest hashes, runtime plugin source, source-release parity, and fresh-turn tool-schema proof.
-- The startup code-manifest SHA-256 remains `fccdae970cea64c6db7ed508135178459506d4fdb584a325ea0045b68966a082`, matching the running gateway's expected digest.
-- Config backup: `/opt/openclaw-preastra-restore/2026.7.1-2/state/openclaw.json.bak-cortex-daily-work-20261029T163951Z`.
+- `artifacts/real-path-smoke.json` — the single post-repair live registered-tool read smoke.
+- `artifacts/route-repair-deployment.json` — root cause, active release, startup pins, rollback/quarantine, unchanged gateway/config/policy, and truth boundary.
+- Current code-manifest SHA-256: `c8b991e608e6d1ad67338ae8c7b72097c4cefe7c3385a39b6a8cfceeb5d625d8`; target-preflight SHA-256: `9be6a25e7778587c563eb42d4be7a4bf463257a2ead3aae12143d7b0e529a859`.
+- Rollback root: `/root/clawd/artifacts/cortex-daily-work-route-repair-20261029/rollback-20261029T1656Z`.
+- Failed package quarantine: `/opt/cortex/releases/_quarantine/cortex-daily-work-route-adapter-1a283c5b42-20261029-failed-exec-mode`.
 
-The historical replay command remains documented in `plan.md`; do not rerun it merely to restate this activation because the approved verification budget was exactly one focused smoke.
+Do not rerun either focused smoke merely to restate status.
 
-## Active blocker and repair state
+## Active blockers and remaining gaps
 
-- The active `1de5218d2807` release is not end-to-end green: real tool transport reaches an unmounted `/everyday/attention/view` path and receives HTTP 404.
-- Canonical source now contains the bounded adapter repair, but it is not yet deployed. Do not retry the tool or restore green status until the immutable release cutover and one real-path smoke succeed.
+- No blocker remains for registered-tool read-only `attention_view`.
+- The one-smoke repair contract did not invoke `attention_propose`, `attention_confirm`, `attention_resolve`, or `decision_workbench` in production. Their exact adapter routes are mounted and reuse already-qualified handlers, but this status does not claim live transaction evidence for those four actions.
+- The running gateway retains its prior start-time environment because it was deliberately not restarted. The user-systemd next-start drop-in and startup manifest are updated and independently validate the current backend/loaded-plugin split.
 
 ## Next actions
 
-1. Commit/push the bounded adapter patch and focused real-path smoke harness.
-2. Build a new immutable backend release; preserve the currently loaded, byte-identical route-gate plugin path; update target preflight and startup-manifest pins without updating OpenClaw.
-3. Restart Cortex only, then run exactly one read-only real-path `attention_view` smoke through the registered tool factory.
-4. Mark end-to-end active only from a non-empty `ok=true` result and unchanged canonical decisions state.
+1. Commit and push the final deployment/status artifacts.
+2. Let later trusted user turns exercise the remaining actions only when genuinely needed; preserve exact-quote and no-external-action gates.
+3. Do not restart or update OpenClaw solely to restate this repair.
 
 ## Do not use / superseded
 
@@ -74,8 +80,8 @@ The historical replay command remains documented in `plan.md`; do not rerun it m
 
 Allowed now:
 
-- All five bounded semantic implementations exist, and the repair candidate mounts the five intended tool paths over the existing everyday handlers without creating a new state primitive.
+- The bounded semantic implementations remain active, all five intended adapter routes are mounted over the existing everyday handlers without a parallel state primitive, and registered-tool transport is live-green for read-only `attention_view`.
 
 Not allowed:
 
-- Any end-to-end green or successful live invocation claim before the repaired release is active and the one real-path smoke passes; universal answer correctness; automatic discovery of every obligation; or any weakening of external-action and evidence gates.
+- A claim that the four uninvoked mutation/workbench actions have live transaction proof; universal answer correctness; automatic discovery of every obligation; or any weakening of external-action and evidence gates.
