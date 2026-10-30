@@ -364,6 +364,47 @@ test('minimal production configuration signs memory_search and default-on agent_
   }
 });
 
+test('memory_search forwards structural subject and topic address filters unchanged', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-memory-bridge-address-filters-'));
+  const requests = [];
+  let searchFactory;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(String(options?.body || '{}')));
+    return new Response('{"results":[],"search_mode":"semantic"}');
+  };
+  try {
+    plugin.register({
+      pluginConfig: lifecycleConfig({ stateDir, retryCount: 0 }),
+      logger: { info() {}, warn() {} },
+      on() {},
+      registerMemoryRuntime() {},
+      registerTool(factory, options) {
+        if (options?.names?.includes('memory_search')) searchFactory = factory;
+      },
+    });
+    await searchFactory(lifecycleContext('address-filter-session')).execute(
+      'address-filter-search',
+      {
+        query: 'What did Jake decide about memory architecture?',
+        filters: {
+          subjects: ['Jake'],
+          topics: ['memory-architecture'],
+        },
+      },
+    );
+
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0].filters, {
+      subjects: ['Jake'],
+      topics: ['memory-architecture'],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('lifecycle writes and memory_search recall remain isolated across trusted invocation contexts', async () => {
   const handlers = new Map();
   let searchFactory;

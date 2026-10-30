@@ -1464,6 +1464,8 @@ const SearchSchema = {
         fact_keys: { type: 'array', maxItems: 128, items: { type: 'string', minLength: 1, maxLength: 256 } },
         claim_keys: { type: 'array', maxItems: 128, items: { type: 'string', minLength: 1, maxLength: 256 } },
         projects: { type: 'array', maxItems: 128, items: { type: 'string', minLength: 1, maxLength: 256 } },
+        subjects: { type: 'array', maxItems: 128, items: { type: 'string', minLength: 1, maxLength: 256 } },
+        topics: { type: 'array', maxItems: 128, items: { type: 'string', minLength: 1, maxLength: 256 } },
         classifications: { type: 'array', maxItems: 16, items: { type: 'string', enum: ['public', 'private', 'sensitive', 'restricted'] } },
         statuses: { type: 'array', maxItems: 16, items: { type: 'string', enum: ['active', 'superseded', 'tombstoned', 'historical', 'conflicted'] } },
         as_of: { type: 'string', maxLength: 64 },

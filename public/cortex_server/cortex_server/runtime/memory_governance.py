@@ -803,6 +803,8 @@ class MemorySearchFilters:
     fact_keys: tuple[str, ...] = ()
     claim_keys: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
+    subjects: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
     classifications: tuple[str, ...] = ()
     statuses: tuple[str, ...] = ()
     as_of: Optional[str] = None
@@ -822,6 +824,8 @@ class MemorySearchFilters:
             "fact_keys",
             "claim_keys",
             "projects",
+            "subjects",
+            "topics",
             "classifications",
             "statuses",
             "as_of",
@@ -859,6 +863,8 @@ class MemorySearchFilters:
             fact_keys=_bounded_filter_values("fact_keys", raw.get("fact_keys")),
             claim_keys=_bounded_filter_values("claim_keys", raw.get("claim_keys")),
             projects=_bounded_filter_values("projects", raw.get("projects")),
+            subjects=_bounded_filter_values("subjects", raw.get("subjects")),
+            topics=_bounded_filter_values("topics", raw.get("topics")),
             classifications=classifications,
             statuses=statuses,
             as_of=_iso(as_of_dt) if as_of_dt else None,
@@ -894,6 +900,8 @@ def normalize_filterable_metadata(
         "fact_key",
         "claim_key",
         "project",
+        "subject",
+        "topic",
         "source_classification",
     ):
         if field_name in result:
@@ -937,6 +945,8 @@ def compile_chroma_where(
     add_values("fact_key", filters.fact_keys)
     add_values("claim_key", filters.claim_keys)
     add_values("project", filters.projects)
+    add_values("subject", filters.subjects)
+    add_values("topic", filters.topics)
     add_values("privacy_classification", filters.classifications)
     status_prefilter = list(filters.statuses)
     if "conflicted" in status_prefilter:
@@ -1008,6 +1018,8 @@ def row_matches_filters(
         (filters.fact_keys, str(meta.get("fact_key") or "")),
         (filters.claim_keys, str(meta.get("claim_key") or "")),
         (filters.projects, str(meta.get("project") or "")),
+        (filters.subjects, str(meta.get("subject") or "")),
+        (filters.topics, str(meta.get("topic") or "")),
         (filters.classifications, str(meta.get("privacy_classification") or "private")),
         (
             filters.statuses if check_status else (),

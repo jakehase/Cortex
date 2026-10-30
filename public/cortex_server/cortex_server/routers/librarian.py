@@ -1247,6 +1247,7 @@ _STORAGE_METADATA_PROTECTED = frozenset(PRINCIPAL_FIELDS) | frozenset({
     "scope", "scope_signature", "scope_credential_id", "source", "status", "tombstoned",
     "canonical_project_memory", "correction_memory", "quality", "tier",
     "source_id", "chunk_id", "source_revision", "claim_key", "memory_type", "project",
+    "subject", "topic",
     "source_classification", "privacy_classification", "observed_at", "known_at", "valid_from", "valid_until",
     "last_verified_at", "stale_after", "time_precision", "valid_time_state",
     "freshness_state",
@@ -1478,6 +1479,8 @@ class MemorySearchFilterRequest(BaseModel):
     fact_keys: Optional[List[MemoryRecordId]] = Field(None, max_length=128)
     claim_keys: Optional[List[MemoryRecordId]] = Field(None, max_length=128)
     projects: Optional[List[MemoryTag]] = Field(None, max_length=128)
+    subjects: Optional[List[MemoryTag]] = Field(None, max_length=128)
+    topics: Optional[List[MemoryTag]] = Field(None, max_length=128)
     classifications: Optional[List[MemoryTag]] = Field(None, max_length=16)
     statuses: Optional[List[MemoryTag]] = Field(None, max_length=16)
     as_of: Optional[str] = Field(None, max_length=64)

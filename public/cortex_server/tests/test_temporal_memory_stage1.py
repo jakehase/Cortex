@@ -554,6 +554,51 @@ def test_strict_prefilter_never_drops_v1_rows_and_python_recheck_is_authoritativ
     assert search(as_of="2026-01-09T00:00:00Z", include_unknown_time=False)["results"] == []
 
 
+def test_structural_memory_address_filters_compile_and_recheck():
+    filters = MemorySearchFilters.from_mapping(
+        {"subjects": ["Jake"], "topics": ["memory-architecture"]}
+    )
+    where = memory_governance.compile_chroma_where(
+        {"memory_principal_key": PRINCIPAL_A}, filters
+    )
+
+    assert {"subject": "Jake"} in where["$and"]
+    assert {"topic": "memory-architecture"} in where["$and"]
+    assert memory_governance.row_matches_filters(
+        {
+            "memory_status": "active",
+            "subject": "Jake",
+            "topic": "memory-architecture",
+        },
+        filters,
+    ) is True
+    assert memory_governance.row_matches_filters(
+        {
+            "memory_status": "active",
+            "subject": "Morgan",
+            "topic": "memory-architecture",
+        },
+        filters,
+    ) is False
+    assert memory_governance.row_matches_filters(
+        {
+            "memory_status": "active",
+            "subject": "Jake",
+            "topic": "billing",
+        },
+        filters,
+    ) is False
+    assert librarian.MemorySearchFilterRequest(
+        subjects=["Jake"], topics=["memory-architecture"]
+    ).model_dump(exclude_none=True) == {
+        "subjects": ["Jake"],
+        "topics": ["memory-architecture"],
+        "include_stale": False,
+        "include_unknown_time": True,
+        "include_conflicts": False,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Request handling: top-level fields, conflicts and 422 vs 503
 # ---------------------------------------------------------------------------
