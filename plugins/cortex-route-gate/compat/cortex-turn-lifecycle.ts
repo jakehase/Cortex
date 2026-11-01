@@ -29,10 +29,17 @@ export type CortexTurnPhase =
 export interface CortexTurnLifecycleSnapshot {
   contract: typeof CORTEX_TURN_LIFECYCLE_CONTRACT;
   turnKey: string;
+  runId: string | null;
+  sessionKey: string | null;
   phase: CortexTurnPhase;
   sequence: number;
   events: CortexLifecycleHookName[];
   toolDepth: number;
+  attempts: {
+    prompts: number;
+    finalizations: number;
+    revisions: number;
+  };
   observed: {
     prompt: boolean;
     subagentSpawn: boolean;
@@ -81,10 +88,13 @@ function cloneSnapshot(state: MutableTurnState): CortexTurnLifecycleSnapshot {
   return {
     contract: state.contract,
     turnKey: state.turnKey,
+    runId: state.runId,
+    sessionKey: state.sessionKey,
     phase: state.phase,
     sequence: state.sequence,
     events: [...state.events],
     toolDepth: state.toolDepth,
+    attempts: { ...state.attempts },
     observed: { ...state.observed },
     handlerCompletions: state.handlerCompletions,
     success: state.success,
@@ -95,7 +105,7 @@ function cloneSnapshot(state: MutableTurnState): CortexTurnLifecycleSnapshot {
   };
 }
 
-function turnIdentity(context: Record<string, unknown>, event: unknown): string {
+function turnIdentity(context: Record<string, unknown>, event: unknown) {
   const eventRecord = event && typeof event === 'object'
     ? event as Record<string, unknown>
     : {};
@@ -104,9 +114,7 @@ function turnIdentity(context: Record<string, unknown>, event: unknown): string 
     context.sessionKey || context.sessionId || eventRecord.sessionKey || eventRecord.sessionId || '',
   ).trim();
   const agentId = String(context.agentId || eventRecord.agentId || 'unknown-agent').trim();
-  if (sessionKey) return `session:${sessionKey}`;
-  if (runId) return `run:${runId}`;
-  return `agent:${agentId}`;
+  return { runId, sessionKey, agentId };
 }
 
 function uniquePush(target: string[], value: string): void {
@@ -116,6 +124,7 @@ function uniquePush(target: string[], value: string): void {
 export class CortexTurnLifecycleController {
   readonly contract = CORTEX_TURN_LIFECYCLE_CONTRACT;
   private readonly active = new Map<string, MutableTurnState>();
+  private readonly activeRunBySession = new Map<string, string>();
   private readonly completed: CortexTurnLifecycleSnapshot[] = [];
   private readonly maxCompleted: number;
   private readonly staleAfterMs: number;
@@ -135,14 +144,26 @@ export class CortexTurnLifecycleController {
     const context = rawContext && typeof rawContext === 'object'
       ? rawContext as Record<string, unknown>
       : {};
-    const turnKey = turnIdentity(context, event);
+    const identity = turnIdentity(context, event);
+    const aliasedTurnKey = identity.sessionKey ? this.activeRunBySession.get(identity.sessionKey) : undefined;
+    const turnKey = identity.runId
+      ? `run:${identity.runId}`
+      : aliasedTurnKey && this.active.has(aliasedTurnKey)
+        ? aliasedTurnKey
+        : identity.sessionKey
+          ? `session:${identity.sessionKey}`
+          : `agent:${identity.agentId}`;
     let state = this.active.get(turnKey);
 
     if (!state || (START_EVENTS.has(hook) && state.observed.agentEnd)) {
       if (state) this.completeState(state, state.observed.deliveryComplete ? 'completed' : 'stale', now);
-      state = this.createState(turnKey, now);
+      state = this.createState(turnKey, identity.runId, identity.sessionKey, now);
       this.active.set(turnKey, state);
     }
+    if (identity.runId && state.runId && identity.runId !== state.runId) {
+      throw new Error('cortex turn lifecycle run identity mismatch');
+    }
+    if (identity.sessionKey) this.activeRunBySession.set(identity.sessionKey, turnKey);
 
     this.observe(state, hook, event, now);
     return {
@@ -157,20 +178,25 @@ export class CortexTurnLifecycleController {
     };
   }
 
-  finish(token: CortexTurnLifecycleToken, hook: CortexLifecycleHookName): void {
+  finish(token: CortexTurnLifecycleToken, hook: CortexLifecycleHookName, result?: unknown): void {
     const state = this.active.get(token.turnKey);
     if (!state || state.sequence < token.sequence) return;
     const now = Date.now();
     state.handlerCompletions += 1;
+    if (
+      hook === 'before_agent_finalize'
+      && result
+      && typeof result === 'object'
+      && (result as Record<string, unknown>).action === 'revise'
+    ) {
+      state.attempts.revisions += 1;
+    }
     state.updatedAtMs = now;
     state.updatedAt = iso(now);
 
     if (hook === 'message_sent') {
       this.completeState(state, 'completed', now);
       return;
-    }
-    if (hook === 'agent_end' && !state.observed.deliveryStart) {
-      this.completeState(state, 'completed', now);
     }
   }
 
@@ -193,23 +219,31 @@ export class CortexTurnLifecycleController {
 
   getLatestCompleted(): CortexTurnLifecycleSnapshot | null {
     const latest = this.completed.at(-1);
-    return latest ? { ...latest, events: [...latest.events], observed: { ...latest.observed }, anomalies: [...latest.anomalies] } : null;
+    return latest ? { ...latest, events: [...latest.events], attempts: { ...latest.attempts }, observed: { ...latest.observed }, anomalies: [...latest.anomalies] } : null;
   }
 
   reset(): void {
     this.active.clear();
+    this.activeRunBySession.clear();
     this.completed.length = 0;
   }
 
-  private createState(turnKey: string, now: number): MutableTurnState {
+  private createState(turnKey: string, runId: string, sessionKey: string, now: number): MutableTurnState {
     const timestamp = iso(now);
     return {
       contract: CORTEX_TURN_LIFECYCLE_CONTRACT,
       turnKey,
+      runId: runId || null,
+      sessionKey: sessionKey || null,
       phase: 'preparing',
       sequence: 0,
       events: [],
       toolDepth: 0,
+      attempts: {
+        prompts: 0,
+        finalizations: 0,
+        revisions: 0,
+      },
       observed: {
         prompt: false,
         subagentSpawn: false,
@@ -240,7 +274,7 @@ export class CortexTurnLifecycleController {
     event: unknown,
     now: number,
   ): void {
-    if (state.observed.agentEnd && hook !== 'message_sent') {
+    if (state.observed.agentEnd && hook !== 'message_sending' && hook !== 'message_sent') {
       uniquePush(state.anomalies, `event_after_agent_end:${hook}`);
     }
 
@@ -260,6 +294,7 @@ export class CortexTurnLifecycleController {
         break;
       case 'before_prompt_build':
         state.observed.prompt = true;
+        state.attempts.prompts += 1;
         state.phase = 'prompted';
         break;
       case 'after_compaction':
@@ -285,6 +320,7 @@ export class CortexTurnLifecycleController {
         break;
       case 'before_agent_finalize':
         state.observed.finalization = true;
+        state.attempts.finalizations += 1;
         state.phase = 'finalizing';
         break;
       case 'message_sending':
@@ -314,6 +350,9 @@ export class CortexTurnLifecycleController {
     state.updatedAt = iso(now);
     state.completedAt = iso(now);
     this.active.delete(state.turnKey);
+    if (state.sessionKey && this.activeRunBySession.get(state.sessionKey) === state.turnKey) {
+      this.activeRunBySession.delete(state.sessionKey);
+    }
     this.completed.push(cloneSnapshot(state));
     while (this.completed.length > this.maxCompleted) this.completed.shift();
   }

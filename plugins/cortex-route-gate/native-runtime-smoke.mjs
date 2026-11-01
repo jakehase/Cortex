@@ -21,9 +21,13 @@ const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-openclaw-runtime-
 const handlers = new Map();
 const logLines = [];
 let toolRegistered = false;
+let nexusCalls = 0;
 const sessionKey = 'agent:main:smoke:cortex-openclaw-runtime';
+const runId = 'native-runtime-smoke-run-1';
 const context = {
+  runId,
   sessionKey,
+  sessionId: 'native-runtime-smoke-session',
   agentId: 'main',
   userId: 'smoke-user',
   channelId: 'smoke',
@@ -46,6 +50,7 @@ globalThis.fetch = async (url) => {
     });
   }
   if (pathname === '/nexus/orchestrate') {
+    nexusCalls += 1;
     return new Response(JSON.stringify(fixture), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -94,7 +99,7 @@ try {
   });
 
   assert.equal(metadata.schemaVersion, 'cortex.openclaw.compat.v1');
-  assert.equal(metadata.adapterVersion, '1.2.0');
+  assert.equal(metadata.adapterVersion, '1.3.0');
   assert.equal(metadata.turnLifecycleContract, CORTEX_TURN_LIFECYCLE_CONTRACT);
   assert.equal(metadata.testedOpenClaw.version, '2026.7.1-2');
   assert.deepEqual([...handlers.keys()], [...metadata.requiredHooks]);
@@ -108,16 +113,17 @@ try {
   );
   assert.match(String(promptResult?.appendSystemContext || ''), /CORTEX_ROUTE_GATE/);
   assert.match(String(promptResult?.appendSystemContext || ''), /CORTEX_DAILY_WORK_CONTRACT/);
+  assert.equal(nexusCalls, 1);
 
   const unsupported = await handlers.get('before_agent_finalize')(
     {
-      runId: 'native-runtime-smoke-run',
+      runId,
       sessionId: context.sessionId,
       sessionKey: context.sessionKey,
       stopHookActive: false,
       lastAssistantMessage: 'I verified the production deployment is safe.',
     },
-    { ...context, runId: 'native-runtime-smoke-run' },
+    context,
   );
   assert.equal(unsupported?.action, 'revise');
   assert.match(unsupported?.reason || '', /usable_evidence_count: 0/);
@@ -125,6 +131,16 @@ try {
   assert.equal(unsupported?.retry?.maxAttempts, 1);
   assert.match(unsupported?.retry?.idempotencyKey || '', /^cortex-evidence-binding:/);
   assert.equal('additionalSystemPrompt' in unsupported, false);
+
+  const retryPrompt = String(unsupported?.reason || 'Revise with evidence.');
+  const retryPromptResult = await handlers.get('before_prompt_build')(
+    { prompt: retryPrompt, messages: [{ role: 'user', content: retryPrompt }] },
+    context,
+  );
+  assert.match(String(retryPromptResult?.appendSystemContext || ''), /CORTEX_RUN_ATTEMPT_CONTINUITY/);
+  assert.match(String(retryPromptResult?.appendSystemContext || ''), /prompt_attempt: 2/);
+  assert.match(String(retryPromptResult?.appendSystemContext || ''), /revision_requests: 1/);
+  assert.equal(nexusCalls, 1);
 
   await handlers.get('before_tool_call')(
     { toolName: 'memory_search', toolCallId: 'smoke-tool-1' },
@@ -145,46 +161,61 @@ try {
   );
   assert.match(String(persisted?.message?.content || ''), /CORTEX_TOOL_RESULT_METADATA/);
 
-  const supported = await handlers.get('before_agent_finalize')(
-    { messages: [{ role: 'assistant', content: 'Recommendation: proceed only with the observed focused-smoke evidence and retain rollback.' }] },
-    context,
-  );
-  assert.equal(supported, undefined);
-
   await handlers.get('llm_output')(
     { assistantTexts: ['Recommendation: proceed only with the observed focused-smoke evidence and retain rollback.'] },
     context,
   );
+  await handlers.get('agent_end')({ runId, success: true }, context);
+  const deliveryContext = { ...context };
+  delete deliveryContext.runId;
   const delivery = await handlers.get('message_sending')(
     { to: 'smoke-destination', content: 'Recommendation: proceed only with the observed focused-smoke evidence and retain rollback.' },
-    context,
+    deliveryContext,
   );
   assert.notEqual(delivery?.cancel, true);
+  handlers.get('message_sent')({}, deliveryContext);
 
-  await handlers.get('agent_end')({ success: true }, context);
-  const postEnd = await handlers.get('before_agent_finalize')(
-    { messages: [{ role: 'assistant', content: 'I verified an unsupported claim.' }] },
-    context,
-  );
-  assert.equal(postEnd, undefined);
-  handlers.get('message_sent')({}, context);
-
-  const turnReceipt = cortexTurnLifecycle.getLatestCompleted();
+  const firstTurnReceipt = cortexTurnLifecycle.getLatestCompleted();
   assert.equal(cortexTurnLifecycle.getActiveCount(), 0);
   assert.equal(cortexTurnLifecycle.getCompletedCount(), 1);
-  assert.equal(turnReceipt?.contract, CORTEX_TURN_LIFECYCLE_CONTRACT);
-  assert.equal(turnReceipt?.phase, 'completed');
-  assert.equal(turnReceipt?.toolDepth, 0);
-  assert.equal(turnReceipt?.observed.prompt, true);
-  assert.equal(turnReceipt?.observed.toolCall, true);
-  assert.equal(turnReceipt?.observed.toolResult, true);
-  assert.equal(turnReceipt?.observed.persistedToolResult, true);
-  assert.equal(turnReceipt?.observed.output, true);
-  assert.equal(turnReceipt?.observed.finalization, true);
-  assert.equal(turnReceipt?.observed.deliveryStart, true);
-  assert.equal(turnReceipt?.observed.deliveryComplete, true);
-  assert.equal(turnReceipt?.observed.agentEnd, true);
-  assert.equal(turnReceipt?.success, true);
+  assert.equal(firstTurnReceipt?.contract, CORTEX_TURN_LIFECYCLE_CONTRACT);
+  assert.equal(firstTurnReceipt?.runId, runId);
+  assert.equal(firstTurnReceipt?.phase, 'completed');
+  assert.equal(firstTurnReceipt?.toolDepth, 0);
+  assert.equal(firstTurnReceipt?.attempts.prompts, 2);
+  assert.equal(firstTurnReceipt?.attempts.finalizations, 1);
+  assert.equal(firstTurnReceipt?.attempts.revisions, 1);
+  assert.equal(firstTurnReceipt?.observed.prompt, true);
+  assert.equal(firstTurnReceipt?.observed.toolCall, true);
+  assert.equal(firstTurnReceipt?.observed.toolResult, true);
+  assert.equal(firstTurnReceipt?.observed.persistedToolResult, true);
+  assert.equal(firstTurnReceipt?.observed.output, true);
+  assert.equal(firstTurnReceipt?.observed.finalization, true);
+  assert.equal(firstTurnReceipt?.observed.deliveryStart, true);
+  assert.equal(firstTurnReceipt?.observed.deliveryComplete, true);
+  assert.equal(firstTurnReceipt?.observed.agentEnd, true);
+  assert.equal(firstTurnReceipt?.success, true);
+
+  const secondContext = { ...context, runId: 'native-runtime-smoke-run-2', messageId: 'smoke-message-2' };
+  await handlers.get('before_prompt_build')(
+    { prompt, messages: [{ role: 'user', content: prompt }] },
+    secondContext,
+  );
+  assert.equal(nexusCalls, 1);
+  const isolatedRevision = await handlers.get('before_agent_finalize')(
+    { runId: secondContext.runId, sessionId: secondContext.sessionId, sessionKey, stopHookActive: false, lastAssistantMessage: 'I verified the production deployment is safe.' },
+    secondContext,
+  );
+  assert.equal(isolatedRevision?.action, 'revise');
+  assert.match(isolatedRevision?.reason || '', /usable_evidence_count: 0/);
+  await handlers.get('agent_end')({ runId: secondContext.runId, success: true }, secondContext);
+  handlers.get('message_sent')({}, { ...secondContext, runId: undefined });
+  const secondTurnReceipt = cortexTurnLifecycle.getLatestCompleted();
+  assert.equal(cortexTurnLifecycle.getActiveCount(), 0);
+  assert.equal(cortexTurnLifecycle.getCompletedCount(), 2);
+  assert.equal(secondTurnReceipt?.runId, secondContext.runId);
+  assert.equal(secondTurnReceipt?.attempts.prompts, 1);
+  assert.equal(secondTurnReceipt?.attempts.revisions, 1);
 
   const receipt = {
     schemaVersion: 'cortex.openclaw.runtime-smoke.v1',
@@ -202,8 +233,15 @@ try {
       agentEndClearedInflightState: true,
       cortexTurnLifecycleReceiptCompleted: true,
       cortexTurnLifecycleActiveStateCleared: true,
+      sameRunRetryContinuityPreserved: true,
+      retryRouteNotRecomputed: true,
+      principalPlanReusePreservedAcrossRuns: true,
+      newRunEvidenceIsolationPreserved: true,
     },
-    turnLifecycle: turnReceipt,
+    turnLifecycle: {
+      firstRun: firstTurnReceipt,
+      isolatedSecondRun: secondTurnReceipt,
+    },
   };
   const receiptPath = '/root/clawd/cortex-openclaw-runtime/artifacts/native-runtime-smoke.json';
   fs.mkdirSync(path.dirname(receiptPath), { recursive: true });

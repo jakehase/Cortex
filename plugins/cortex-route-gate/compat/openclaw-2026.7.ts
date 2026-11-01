@@ -6,7 +6,7 @@ import {
 
 export const CORTEX_OPENCLAW_COMPATIBILITY = Object.freeze({
   schemaVersion: 'cortex.openclaw.compat.v1',
-  adapterVersion: '1.2.0',
+  adapterVersion: '1.3.0',
   turnLifecycleContract: CORTEX_TURN_LIFECYCLE_CONTRACT,
   testedOpenClaw: Object.freeze({
     version: '2026.7.1-2',
@@ -209,7 +209,7 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
         if (result && typeof result.then === 'function') {
           return result.then(
             (value: any) => {
-              cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
+              cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName, value);
               return projectHookResult(hookName as CortexLifecycleHookName, value);
             },
             (error: unknown) => {
@@ -218,7 +218,7 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
             },
           );
         }
-        cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
+        cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName, result);
         return projectHookResult(hookName as CortexLifecycleHookName, result);
       } catch (error) {
         cortexTurnLifecycle.fail(dispatch.token, hookName as CortexLifecycleHookName, error);

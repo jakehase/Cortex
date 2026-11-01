@@ -292,6 +292,13 @@ function liveRouteLevels(value: unknown): LiveRouteLevel[] | null {
 }
 
 type RunState = {
+  runId: string;
+  runKey: string;
+  principalStateKey: string;
+  promptAttempts: number;
+  finalizeAttempts: number;
+  revisionRequests: number;
+  renderedSystemContext: string;
   prompt: string;
   promptFingerprint: string;
   plan: RoutePlan;
@@ -2457,6 +2464,7 @@ export default function register(api: any) {
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
+  const activeRunKeyByPrincipal = new Map<string, string>();
   const continuityByKey = new Map<string, ContinuityState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
   const evidenceDeliveryGuards = new Map<string, EvidenceDeliveryGuard>();
@@ -2676,7 +2684,7 @@ export default function register(api: any) {
     return {
       scope,
       stateKey: state.stateKey,
-      runState: runStateByKey.get(state.stateKey),
+      runState: runStateByKey.get(runStateKeyForContext(trustedContext)),
       headers: nexusPrincipalHeaders(scope, scope.session_id),
     };
   }
@@ -2900,6 +2908,43 @@ export default function register(api: any) {
       return principalState(ctx, String(ctx?.sessionKey || ctx?.sessionId || '')).stateKey;
     } catch {
       return '';
+    }
+  }
+
+  function runIdForContext(ctx: any): string {
+    return String(ctx?.runId || '').trim();
+  }
+
+  function deriveRunStateKey(principalStateKey: string, runId: string): string {
+    return crypto.createHmac('sha256', sessionIdentityHmacSecret)
+      .update(`cortex.route-gate.run-state.v1\n${principalStateKey}\n${runId}`, 'utf8')
+      .digest('hex');
+  }
+
+  function runStateKeyForContext(ctx: any): string {
+    const principalStateKey = stateKeyForContext(ctx);
+    if (!principalStateKey) return '';
+    const runId = runIdForContext(ctx);
+    if (runId) return deriveRunStateKey(principalStateKey, runId);
+    return activeRunKeyByPrincipal.get(principalStateKey) || '';
+  }
+
+  function bindRunStateKey(ctx: any, principalStateKey: string): { runId: string; runKey: string } {
+    const runId = runIdForContext(ctx);
+    if (!runId) throw new Error('cortex-openclaw compatibility failure: before_prompt_build requires runId');
+    const runKey = deriveRunStateKey(principalStateKey, runId);
+    const activeRunKey = activeRunKeyByPrincipal.get(principalStateKey);
+    if (activeRunKey && activeRunKey !== runKey && runStateByKey.has(activeRunKey)) {
+      throw new Error('cortex-openclaw compatibility failure: concurrent runs for one session cannot be safely correlated to outbound delivery');
+    }
+    activeRunKeyByPrincipal.set(principalStateKey, runKey);
+    return { runId, runKey };
+  }
+
+  function releaseRunState(rs: RunState): void {
+    runStateByKey.delete(rs.runKey);
+    if (activeRunKeyByPrincipal.get(rs.principalStateKey) === rs.runKey) {
+      activeRunKeyByPrincipal.delete(rs.principalStateKey);
     }
   }
 
@@ -3319,6 +3364,33 @@ export default function register(api: any) {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const runId = runIdForContext(ctx);
+    if (!runId) throw new Error('cortex-openclaw compatibility failure: before_prompt_build requires runId');
+    const existingPrincipalStateKey = stateKeyForContext(ctx);
+    const existingRunKey = existingPrincipalStateKey
+      ? deriveRunStateKey(existingPrincipalStateKey, runId)
+      : '';
+    const existingRun = existingRunKey ? runStateByKey.get(existingRunKey) : undefined;
+    if (existingRun) {
+      if (existingRun.runId !== runId || existingRun.principalStateKey !== existingPrincipalStateKey) {
+        throw new Error('cortex-openclaw compatibility failure: retry attempt identity mismatch');
+      }
+      existingRun.promptAttempts += 1;
+      existingRun.outputObserved = false;
+      existingRun.observedSignals.push(`run_attempt_started:${existingRun.promptAttempts}`);
+      activeRunKeyByPrincipal.set(existingRun.principalStateKey, existingRun.runKey);
+      return {
+        appendSystemContext: [
+          existingRun.renderedSystemContext,
+          'CORTEX_RUN_ATTEMPT_CONTINUITY',
+          'This is another model attempt inside the same OpenClaw run. Preserve the original user intent, Cortex route, and host-observed evidence.',
+          `prompt_attempt: ${existingRun.promptAttempts}`,
+          `finalize_hook_invocations: ${existingRun.finalizeAttempts}`,
+          `revision_requests: ${existingRun.revisionRequests}`,
+          'OpenClaw remains the retry-budget enforcer. Do not treat this retry instruction as a new user request.',
+        ].filter(Boolean).join('\n'),
+      };
+    }
     const eventMessages = Array.isArray(event?.messages) ? event.messages : [];
     const attachmentKinds = attachmentKindsForCurrentTurn(eventMessages, prompt);
     const userAuthoredText = userAuthoredTextForCurrentTurn(eventMessages, prompt);
@@ -3327,7 +3399,9 @@ export default function register(api: any) {
     const consequential = isConsequentialRequest(requestIntent, workMode);
     if (shouldBypassRouteGate(rawSessionKey)) {
       const bypassStateKey = stateKeyForContext(ctx);
-      if (bypassStateKey) runStateByKey.delete(bypassStateKey);
+      const bypassRunKey = runStateKeyForContext(ctx);
+      if (bypassRunKey) runStateByKey.delete(bypassRunKey);
+      if (bypassStateKey && activeRunKeyByPrincipal.get(bypassStateKey) === bypassRunKey) activeRunKeyByPrincipal.delete(bypassStateKey);
       api.logger.info?.(`cortex-route-gate: bypassed internal oracle session_type=internal_oracle principal_hash=${bypassStateKey || sha256Metadata(rawSessionKey)}`);
       return;
     }
@@ -3441,8 +3515,16 @@ export default function register(api: any) {
       toolName: 'cortex_attention_view', ok: true, outcome: 'usable',
       sourceRef: 'cortex:/everyday/attention/view', payloadChars: attentionBlock.length,
     });
-    if (stateKey) {
-      runStateByKey.set(stateKey, {
+    const runBinding = stateKey ? bindRunStateKey(ctx, stateKey) : undefined;
+    if (stateKey && runBinding) {
+      runStateByKey.set(runBinding.runKey, {
+        runId: runBinding.runId,
+        runKey: runBinding.runKey,
+        principalStateKey: stateKey,
+        promptAttempts: 1,
+        finalizeAttempts: 0,
+        revisionRequests: 0,
+        renderedSystemContext: '',
         prompt,
         promptFingerprint: crypto.createHash('sha256').update(prompt, 'utf8').digest('hex'),
         plan,
@@ -3482,7 +3564,12 @@ export default function register(api: any) {
     const levelResultsBlock = renderLevelResults(levelExecution);
     const attachmentBlock = attachmentBoundary ? renderAttachmentBoundary(attachmentBoundary.kinds) : '';
     const dailyWorkContract = renderDailyWorkContract(workMode, consequential, isDecisionWorkbenchRequest(currentIntent));
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}\n${dailyWorkContract}${correctionBlock ? `\n${correctionBlock}` : ''}${attentionBlock ? `\n${attentionBlock}` : ''}${attachmentBlock ? `\n${attachmentBlock}` : ''}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}` };
+    const appendSystemContext = `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}\n${dailyWorkContract}${correctionBlock ? `\n${correctionBlock}` : ''}${attentionBlock ? `\n${attentionBlock}` : ''}${attachmentBlock ? `\n${attachmentBlock}` : ''}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}`;
+    if (runBinding) {
+      const currentRun = runStateByKey.get(runBinding.runKey);
+      if (currentRun) currentRun.renderedSystemContext = appendSystemContext;
+    }
+    return { appendSystemContext };
   };
 
   const handleAfterCompaction = async (event: any, ctx: any) => {
@@ -3496,7 +3583,7 @@ export default function register(api: any) {
   };
 
   const handleBeforeToolCall = async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(stateKeyForContext(ctx));
+    const rs = runStateByKey.get(runStateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
     const normalizedToolName = toolName.replace(/([a-z0-9])([A-Z])/g, '$1_$2');
@@ -3530,7 +3617,7 @@ export default function register(api: any) {
   };
 
   const handleAfterToolCall = async (event: any, ctx: any) => {
-    const rs = runStateByKey.get(stateKeyForContext(ctx));
+    const rs = runStateByKey.get(runStateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
     const evidence = classifyToolEvidence(event?.result, event?.error);
@@ -3584,8 +3671,9 @@ export default function register(api: any) {
 
   const handleBeforeAgentFinalize = async (event: any, ctx: any) => {
     if (event?.stopHookActive) return;
-    const rs = runStateByKey.get(stateKeyForContext(ctx));
+    const rs = runStateByKey.get(runStateKeyForContext(ctx));
     if (!rs) return;
+    rs.finalizeAttempts += 1;
     const output = recentVisibleRoleTexts(Array.isArray(event?.messages) ? event.messages : [], 'assistant', 1)[0] || '';
     if (!output.trim()) return;
     const usable = rs.toolCalls.filter((record) => record.outcome === 'usable');
@@ -3596,6 +3684,11 @@ export default function register(api: any) {
       && (rs.workMode === 'advise' || rs.workMode === 'investigate')
       && !/\b(?:unverified|could not verify|wasn['’]t able to verify|evidence gap|based on (?:what|the information) you (?:provided|shared)|recommendation|inference)\b/i.test(output);
     if (!rewriteAdditions.length && !unsupportedVerification && !undisclosedConsequentialGap) return;
+    if (rs.revisionRequests >= 1) {
+      rs.observedSignals.push('evidence_revision_budget_exhausted');
+      return;
+    }
+    rs.revisionRequests += 1;
     const rejected = rs.toolCalls.filter((record) => record.outcome !== 'usable').map((record) => `${record.toolName}:${record.outcome}`).slice(0, 12);
     return {
       action: 'revise',
@@ -3610,14 +3703,15 @@ export default function register(api: any) {
         'For rewrite mode, remove every factual anchor not present in the user source text.',
       ].join('\n'),
       maxAttempts: 1,
-      idempotencyKey: `cortex-evidence-binding:${rs.promptFingerprint}`,
+      idempotencyKey: `cortex-evidence-binding:${rs.promptFingerprint}:${rs.runKey}`,
     };
   };
 
   const handleLlmOutput = async (event: any, ctx: any) => {
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const stateKey = stateKeyForContext(ctx);
-    const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
+    const runKey = runStateKeyForContext(ctx);
+    const rs = runKey ? runStateByKey.get(runKey) : undefined;
     if (!rs) return;
     const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
     rs.outputObserved = Boolean(output.trim());
@@ -3685,7 +3779,8 @@ export default function register(api: any) {
       api.logger.info?.(`cortex-route-gate: cancelled pre-delivery adjacent creative answer for ${deliveryKey}`);
       return { cancel: true };
     }
-    const rs = runStateByKey.get(stateKey);
+    const runKey = runStateKeyForContext(ctx);
+    const rs = runKey ? runStateByKey.get(runKey) : undefined;
     const guard = evidenceDeliveryGuards.get(stateKey) || (rs ? {
       stateKey,
       workMode: rs.workMode,
@@ -3709,7 +3804,8 @@ export default function register(api: any) {
 
   const handleAgentEnd = async (event: any, ctx: any) => {
     const stateKey = stateKeyForContext(ctx);
-    const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
+    const runKey = runStateKeyForContext(ctx);
+    const rs = runKey ? runStateByKey.get(runKey) : undefined;
     if (!rs) return;
     evidenceDeliveryGuards.set(stateKey!, {
       stateKey: stateKey!,
@@ -3794,7 +3890,7 @@ export default function register(api: any) {
         api.logger.warn?.(`cortex-route-gate: private retrieval shadow telemetry failed ${safeErrorSummary(error)}`);
       }
     }
-    runStateByKey.delete(stateKey);
+    releaseRunState(rs);
   };
 
   registerCortexLifecycleHooks(api, {
