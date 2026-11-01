@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import register from './index.ts';
 import { cortexOpenClawCompatibilityMetadata } from './compat/openclaw-2026.7.ts';
+import {
+  CORTEX_TURN_LIFECYCLE_CONTRACT,
+  cortexTurnLifecycle,
+} from './compat/cortex-turn-lifecycle.ts';
 
 const fixture = JSON.parse(fs.readFileSync(
   new URL('./nexus-orchestrate-response.fixture.json', import.meta.url),
@@ -27,6 +32,10 @@ const context = {
 };
 const sessionSecret = 'cortex-openclaw-runtime-smoke-session-secret';
 const originalFetch = globalThis.fetch;
+const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+  cwd: path.dirname(new URL(import.meta.url).pathname),
+  encoding: 'utf8',
+}).trim();
 
 globalThis.fetch = async (url) => {
   const pathname = new URL(String(url)).pathname;
@@ -46,6 +55,7 @@ globalThis.fetch = async (url) => {
 };
 
 try {
+  cortexTurnLifecycle.reset();
   register({
     pluginConfig: {
       enabled: true,
@@ -84,6 +94,8 @@ try {
   });
 
   assert.equal(metadata.schemaVersion, 'cortex.openclaw.compat.v1');
+  assert.equal(metadata.adapterVersion, '1.1.0');
+  assert.equal(metadata.turnLifecycleContract, CORTEX_TURN_LIFECYCLE_CONTRACT);
   assert.equal(metadata.testedOpenClaw.version, '2026.7.1-2');
   assert.deepEqual([...handlers.keys()], [...metadata.requiredHooks]);
   assert.equal(toolRegistered, true);
@@ -146,11 +158,28 @@ try {
   assert.equal(postEnd, undefined);
   handlers.get('message_sent')({}, context);
 
+  const turnReceipt = cortexTurnLifecycle.getLatestCompleted();
+  assert.equal(cortexTurnLifecycle.getActiveCount(), 0);
+  assert.equal(cortexTurnLifecycle.getCompletedCount(), 1);
+  assert.equal(turnReceipt?.contract, CORTEX_TURN_LIFECYCLE_CONTRACT);
+  assert.equal(turnReceipt?.phase, 'completed');
+  assert.equal(turnReceipt?.toolDepth, 0);
+  assert.equal(turnReceipt?.observed.prompt, true);
+  assert.equal(turnReceipt?.observed.toolCall, true);
+  assert.equal(turnReceipt?.observed.toolResult, true);
+  assert.equal(turnReceipt?.observed.persistedToolResult, true);
+  assert.equal(turnReceipt?.observed.output, true);
+  assert.equal(turnReceipt?.observed.finalization, true);
+  assert.equal(turnReceipt?.observed.deliveryStart, true);
+  assert.equal(turnReceipt?.observed.deliveryComplete, true);
+  assert.equal(turnReceipt?.observed.agentEnd, true);
+  assert.equal(turnReceipt?.success, true);
+
   const receipt = {
     schemaVersion: 'cortex.openclaw.runtime-smoke.v1',
     status: 'passed',
     adapter: metadata,
-    sourceCommit: '1de5218d2807f577b5dd1ec3a8d92985d084347b',
+    sourceCommit,
     registeredHooks: [...handlers.keys()],
     checks: {
       routeContextInjected: true,
@@ -160,7 +189,10 @@ try {
       outputObserved: true,
       deliveryPreserved: true,
       agentEndClearedInflightState: true,
+      cortexTurnLifecycleReceiptCompleted: true,
+      cortexTurnLifecycleActiveStateCleared: true,
     },
+    turnLifecycle: turnReceipt,
   };
   const receiptPath = '/root/clawd/cortex-openclaw-runtime/artifacts/native-runtime-smoke.json';
   fs.mkdirSync(path.dirname(receiptPath), { recursive: true });

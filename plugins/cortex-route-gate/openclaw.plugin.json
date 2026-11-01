@@ -1,7 +1,7 @@
 {
   "id": "cortex-route-gate",
   "name": "Cortex Route Gate",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "entry": "./index.ts",
   "description": "Runs the Cortex cognitive lifecycle through a versioned OpenClaw compatibility adapter, routes work proportionally, binds claims to usable evidence, and exposes source-backed daily-work tools.",
   "kind": "utility",

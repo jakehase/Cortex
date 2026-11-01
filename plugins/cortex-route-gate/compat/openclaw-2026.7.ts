@@ -1,6 +1,13 @@
+import {
+  CORTEX_TURN_LIFECYCLE_CONTRACT,
+  cortexTurnLifecycle,
+  type CortexLifecycleHookName,
+} from './cortex-turn-lifecycle.ts';
+
 export const CORTEX_OPENCLAW_COMPATIBILITY = Object.freeze({
   schemaVersion: 'cortex.openclaw.compat.v1',
-  adapterVersion: '1.0.0',
+  adapterVersion: '1.1.0',
+  turnLifecycleContract: CORTEX_TURN_LIFECYCLE_CONTRACT,
   testedOpenClaw: Object.freeze({
     version: '2026.7.1-2',
     revision: '0790d9f',
@@ -146,7 +153,34 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
     if (typeof handler !== 'function') {
       throw new Error(`cortex-openclaw compatibility failure: missing lifecycle handler ${handlerName}`);
     }
-    api.on(hookName, (event: any, context: any) => handler(normalizeEvent(event), normalizeContext(context)));
+    api.on(hookName, (event: any, context: any) => {
+      const normalizedEvent = normalizeEvent(event);
+      const dispatch = cortexTurnLifecycle.begin(
+        hookName as CortexLifecycleHookName,
+        normalizedEvent,
+        normalizeContext(context),
+      );
+      try {
+        const result = handler(normalizedEvent, dispatch.context);
+        if (result && typeof result.then === 'function') {
+          return result.then(
+            (value: any) => {
+              cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
+              return value;
+            },
+            (error: unknown) => {
+              cortexTurnLifecycle.fail(dispatch.token, hookName as CortexLifecycleHookName, error);
+              throw error;
+            },
+          );
+        }
+        cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
+        return result;
+      } catch (error) {
+        cortexTurnLifecycle.fail(dispatch.token, hookName as CortexLifecycleHookName, error);
+        throw error;
+      }
+    });
   }
   api.logger?.info?.(
     `cortex-route-gate: registered ${CORTEX_OPENCLAW_COMPATIBILITY.schemaVersion}` +
