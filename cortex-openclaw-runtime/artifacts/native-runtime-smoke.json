@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "cortex.openclaw.runtime-smoke.v1",
+  "status": "passed",
+  "adapter": {
+    "schemaVersion": "cortex.openclaw.compat.v1",
+    "adapterVersion": "1.0.0",
+    "testedOpenClaw": {
+      "version": "2026.7.1-2",
+      "revision": "0790d9f"
+    },
+    "requiredHooks": [
+      "subagent_spawning",
+      "subagent_spawned",
+      "before_prompt_build",
+      "after_compaction",
+      "before_tool_call",
+      "after_tool_call",
+      "tool_result_persist",
+      "before_agent_finalize",
+      "llm_output",
+      "message_sending",
+      "message_sent",
+      "agent_end"
+    ]
+  },
+  "sourceCommit": "1de5218d2807f577b5dd1ec3a8d92985d084347b",
+  "registeredHooks": [
+    "subagent_spawning",
+    "subagent_spawned",
+    "before_prompt_build",
+    "after_compaction",
+    "before_tool_call",
+    "after_tool_call",
+    "tool_result_persist",
+    "before_agent_finalize",
+    "llm_output",
+    "message_sending",
+    "message_sent",
+    "agent_end"
+  ],
+  "checks": {
+    "routeContextInjected": true,
+    "unsupportedClaimRevisionRequested": true,
+    "toolEvidenceObserved": true,
+    "toolPersistenceProjected": true,
+    "outputObserved": true,
+    "deliveryPreserved": true,
+    "agentEndClearedInflightState": true
+  }
+}

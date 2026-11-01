@@ -6,6 +6,7 @@ import {
   registerTrustedCortexSubagentSession,
   resolveTrustedCortexPrincipalContext,
 } from '../cortex-principal-identity.mjs';
+import { registerCortexLifecycleHooks } from './compat/openclaw-2026.7.ts';
 
 type RouteLevelOrigin = 'provider' | 'local_mandatory' | 'local_governor' | 'cache';
 type RouteLevelFields = { level: number; name?: string; reason?: string; method?: string; score?: number };
@@ -3292,7 +3293,7 @@ export default function register(api: any) {
   // Older runtimes can block the spawn here. Newer runtimes additionally emit
   // subagent_spawned; the child's first route hook waits briefly for that event
   // rather than trusting agent names or caller-supplied principal fields.
-  api.on('subagent_spawning', (event: any, ctx: any) => {
+  const handleSubagentSpawning = (event: any, ctx: any) => {
     try {
       bindTrustedSubagent(event, ctx);
       return { status: 'ok' };
@@ -3301,9 +3302,9 @@ export default function register(api: any) {
       api.logger.warn?.(`cortex-route-gate: ${message}; ${safeErrorSummary(error)}`);
       return { status: 'error', error: message };
     }
-  });
+  };
 
-  api.on('subagent_spawned', (event: any, ctx: any) => {
+  const handleSubagentSpawned = (event: any, ctx: any) => {
     try {
       bindTrustedSubagent(event, ctx);
     } catch (error) {
@@ -3311,9 +3312,9 @@ export default function register(api: any) {
       // its mandatory before_prompt_build hook will then fail closed explicitly.
       api.logger.warn?.(`cortex-route-gate: CORTEX_DELEGATION_REJECTED after spawn: ${safeErrorSummary(error)}`);
     }
-  });
+  };
 
-  api.on('before_prompt_build', async (event: any, ctx: any) => {
+  const handleBeforePromptBuild = async (event: any, ctx: any) => {
     const routeStartedAt = Date.now();
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
@@ -3482,9 +3483,9 @@ export default function register(api: any) {
     const attachmentBlock = attachmentBoundary ? renderAttachmentBoundary(attachmentBoundary.kinds) : '';
     const dailyWorkContract = renderDailyWorkContract(workMode, consequential, isDecisionWorkbenchRequest(currentIntent));
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit, taskClass, executedLevels)}\n${renderSelfModelBlock(selfModel, predictedChecks)}\n${requestLock}\n${dailyWorkContract}${correctionBlock ? `\n${correctionBlock}` : ''}${attentionBlock ? `\n${attentionBlock}` : ''}${attachmentBlock ? `\n${attachmentBlock}` : ''}${oracleBlock ? `\n${oracleBlock}` : ''}${levelResultsBlock ? `\n${levelResultsBlock}` : ''}` };
-  });
+  };
 
-  api.on('after_compaction', async (event: any, ctx: any) => {
+  const handleAfterCompaction = async (event: any, ctx: any) => {
     const stateKey = stateKeyForContext(ctx);
     if (!stateKey) return;
     const continuity = continuityByKey.get(stateKey) || { latestUserPrompt: '', artifacts: [], updatedAt: Date.now(), compactionRisk: false };
@@ -3492,9 +3493,9 @@ export default function register(api: any) {
     continuity.updatedAt = Date.now();
     continuityByKey.set(stateKey, continuity);
     if (continuity.compactionRisk) api.logger.warn?.(`cortex-route-gate: noisy compaction detected principal=${stateKey}; active-request lock will fail closed against stale scope`);
-  });
+  };
 
-  api.on('before_tool_call', async (event: any, ctx: any) => {
+  const handleBeforeToolCall = async (event: any, ctx: any) => {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
@@ -3526,9 +3527,9 @@ export default function register(api: any) {
     if (rs.creativity?.requested && (event?.toolName === 'memory_search' || event?.toolName === 'web_search' || event?.toolName === 'web_fetch')) {
       rs.observedSignals.push(`creative_grounding:${String(event.toolName)}`);
     }
-  });
+  };
 
-  api.on('after_tool_call', async (event: any, ctx: any) => {
+  const handleAfterToolCall = async (event: any, ctx: any) => {
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
     const toolName = String(event?.toolName || '');
@@ -3545,9 +3546,9 @@ export default function register(api: any) {
     });
     if (evidence.outcome !== 'usable') rs.observedSignals.push(`tool_evidence_rejected:${toolName || 'unknown'}:${evidence.outcome}`);
     if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
-  });
+  };
 
-  api.on('tool_result_persist', (event: any) => {
+  const handleToolResultPersist = (event: any) => {
     const message = event?.message;
     if (!message || typeof message !== 'object') return;
     const content = (message as any).content;
@@ -3579,9 +3580,9 @@ export default function register(api: any) {
       budgetState,
     };
     return { message: { role: 'tool', content: `CORTEX_TOOL_RESULT_METADATA ${JSON.stringify(metadata)}` } };
-  });
+  };
 
-  api.on('before_agent_finalize', async (event: any, ctx: any) => {
+  const handleBeforeAgentFinalize = async (event: any, ctx: any) => {
     if (event?.stopHookActive) return;
     const rs = runStateByKey.get(stateKeyForContext(ctx));
     if (!rs) return;
@@ -3611,9 +3612,9 @@ export default function register(api: any) {
       maxAttempts: 1,
       idempotencyKey: `cortex-evidence-binding:${rs.promptFingerprint}`,
     };
-  });
+  };
 
-  api.on('llm_output', async (event: any, ctx: any) => {
+  const handleLlmOutput = async (event: any, ctx: any) => {
     const rawSessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
@@ -3662,9 +3663,9 @@ export default function register(api: any) {
         api.sendUserMessage(buildCreativityAutoRetryPrompt(audit), { deliverAs: 'followUp' });
       }
     }
-  });
+  };
 
-  api.on('message_sending', async (event: any, ctx: any) => {
+  const handleMessageSending = async (event: any, ctx: any) => {
     cleanupPendingCreativitySuppressions();
     const now = Date.now();
     for (const [key, guard] of evidenceDeliveryGuards.entries()) {
@@ -3699,14 +3700,14 @@ export default function register(api: any) {
       api.logger.warn?.(`cortex-route-gate: evidence-bound outbound qualification applied principal=${stateKey} mode=${guard.workMode} usable=${guard.evidence.filter((row) => row.outcome === 'usable').length}`);
       return { content: qualified };
     }
-  });
+  };
 
-  api.on('message_sent', (_event: any, ctx: any) => {
+  const handleMessageSent = (_event: any, ctx: any) => {
     const stateKey = stateKeyForContext(ctx);
     if (stateKey) evidenceDeliveryGuards.delete(stateKey);
-  });
+  };
 
-  api.on('agent_end', async (event: any, ctx: any) => {
+  const handleAgentEnd = async (event: any, ctx: any) => {
     const stateKey = stateKeyForContext(ctx);
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
@@ -3794,6 +3795,21 @@ export default function register(api: any) {
       }
     }
     runStateByKey.delete(stateKey);
+  };
+
+  registerCortexLifecycleHooks(api, {
+    subagentSpawning: handleSubagentSpawning,
+    subagentSpawned: handleSubagentSpawned,
+    beforePromptBuild: handleBeforePromptBuild,
+    afterCompaction: handleAfterCompaction,
+    beforeToolCall: handleBeforeToolCall,
+    afterToolCall: handleAfterToolCall,
+    toolResultPersist: handleToolResultPersist,
+    beforeAgentFinalize: handleBeforeAgentFinalize,
+    llmOutput: handleLlmOutput,
+    messageSending: handleMessageSending,
+    messageSent: handleMessageSent,
+    agentEnd: handleAgentEnd,
   });
 }
 
