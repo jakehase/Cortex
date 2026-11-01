@@ -6,7 +6,7 @@ import {
 
 export const CORTEX_OPENCLAW_COMPATIBILITY = Object.freeze({
   schemaVersion: 'cortex.openclaw.compat.v1',
-  adapterVersion: '1.1.0',
+  adapterVersion: '1.2.0',
   turnLifecycleContract: CORTEX_TURN_LIFECYCLE_CONTRACT,
   testedOpenClaw: Object.freeze({
     version: '2026.7.1-2',
@@ -54,15 +54,24 @@ function record(value: unknown): Record<string, any> {
     : {};
 }
 
-function normalizeContext(context: unknown) {
+function normalizeContext(context: unknown, event: unknown = {}) {
   const source = record(context);
-  const sessionKey = String(source.sessionKey || source.sessionId || '');
+  const eventSource = record(event);
+  const contextRunId = String(source.runId || '').trim();
+  const eventRunId = String(eventSource.runId || '').trim();
+  if (contextRunId && eventRunId && contextRunId !== eventRunId) {
+    throw new Error('cortex-openclaw compatibility failure: event/context runId mismatch');
+  }
+  const sessionKey = String(
+    source.sessionKey || source.sessionId || eventSource.sessionKey || eventSource.sessionId || '',
+  );
   return {
     ...source,
+    runId: contextRunId || eventRunId || undefined,
     sessionKey,
-    sessionId: String(source.sessionId || sessionKey),
-    channelId: String(source.channelId || source.messageChannel || ''),
-    accountId: String(source.accountId || 'default'),
+    sessionId: String(source.sessionId || eventSource.sessionId || sessionKey),
+    channelId: String(source.channelId || source.messageChannel || eventSource.channelId || ''),
+    accountId: String(source.accountId || eventSource.accountId || 'default'),
   };
 }
 
@@ -95,10 +104,19 @@ function normalizeToolEvent(event: unknown) {
 
 function normalizeFinalizeEvent(event: unknown) {
   const source = record(event);
+  const lastAssistantMessage = typeof source.lastAssistantMessage === 'string'
+    ? source.lastAssistantMessage
+    : '';
+  const messages = Array.isArray(source.messages)
+    ? source.messages
+    : lastAssistantMessage
+      ? [{ role: 'assistant', content: lastAssistantMessage }]
+      : [];
   return {
     ...source,
     stopHookActive: source.stopHookActive === true,
-    messages: Array.isArray(source.messages) ? source.messages : [],
+    lastAssistantMessage,
+    messages,
   };
 }
 
@@ -126,6 +144,32 @@ function normalizeAgentEndEvent(event: unknown) {
   return {
     ...source,
     success: source.success === true,
+  };
+}
+
+function projectHookResult(hookName: CortexLifecycleHookName, value: any) {
+  if (hookName !== 'before_agent_finalize' || !value || typeof value !== 'object') return value;
+  const source = record(value);
+  if (source.action !== 'revise') return value;
+  const legacyInstruction = typeof source.additionalSystemPrompt === 'string'
+    ? source.additionalSystemPrompt
+    : '';
+  const existingRetry = record(source.retry);
+  const instruction = typeof existingRetry.instruction === 'string'
+    ? existingRetry.instruction
+    : legacyInstruction || String(source.reason || 'Revise the answer before finalization.');
+  return {
+    action: 'revise',
+    reason: typeof source.reason === 'string' ? source.reason : instruction,
+    retry: {
+      instruction,
+      idempotencyKey: typeof existingRetry.idempotencyKey === 'string'
+        ? existingRetry.idempotencyKey
+        : typeof source.idempotencyKey === 'string' ? source.idempotencyKey : undefined,
+      maxAttempts: typeof existingRetry.maxAttempts === 'number'
+        ? existingRetry.maxAttempts
+        : typeof source.maxAttempts === 'number' ? source.maxAttempts : undefined,
+    },
   };
 }
 
@@ -158,7 +202,7 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
       const dispatch = cortexTurnLifecycle.begin(
         hookName as CortexLifecycleHookName,
         normalizedEvent,
-        normalizeContext(context),
+        normalizeContext(context, normalizedEvent),
       );
       try {
         const result = handler(normalizedEvent, dispatch.context);
@@ -166,7 +210,7 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
           return result.then(
             (value: any) => {
               cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
-              return value;
+              return projectHookResult(hookName as CortexLifecycleHookName, value);
             },
             (error: unknown) => {
               cortexTurnLifecycle.fail(dispatch.token, hookName as CortexLifecycleHookName, error);
@@ -175,7 +219,7 @@ export function registerCortexLifecycleHooks(api: OpenClawHookApi, handlers: Cor
           );
         }
         cortexTurnLifecycle.finish(dispatch.token, hookName as CortexLifecycleHookName);
-        return result;
+        return projectHookResult(hookName as CortexLifecycleHookName, result);
       } catch (error) {
         cortexTurnLifecycle.fail(dispatch.token, hookName as CortexLifecycleHookName, error);
         throw error;

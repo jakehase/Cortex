@@ -94,7 +94,7 @@ try {
   });
 
   assert.equal(metadata.schemaVersion, 'cortex.openclaw.compat.v1');
-  assert.equal(metadata.adapterVersion, '1.1.0');
+  assert.equal(metadata.adapterVersion, '1.2.0');
   assert.equal(metadata.turnLifecycleContract, CORTEX_TURN_LIFECYCLE_CONTRACT);
   assert.equal(metadata.testedOpenClaw.version, '2026.7.1-2');
   assert.deepEqual([...handlers.keys()], [...metadata.requiredHooks]);
@@ -110,10 +110,21 @@ try {
   assert.match(String(promptResult?.appendSystemContext || ''), /CORTEX_DAILY_WORK_CONTRACT/);
 
   const unsupported = await handlers.get('before_agent_finalize')(
-    { messages: [{ role: 'assistant', content: 'I verified the production deployment is safe.' }] },
-    context,
+    {
+      runId: 'native-runtime-smoke-run',
+      sessionId: context.sessionId,
+      sessionKey: context.sessionKey,
+      stopHookActive: false,
+      lastAssistantMessage: 'I verified the production deployment is safe.',
+    },
+    { ...context, runId: 'native-runtime-smoke-run' },
   );
   assert.equal(unsupported?.action, 'revise');
+  assert.match(unsupported?.reason || '', /usable_evidence_count: 0/);
+  assert.match(unsupported?.retry?.instruction || '', /CORTEX_EVIDENCE_BINDING_REVISION_REQUIRED/);
+  assert.equal(unsupported?.retry?.maxAttempts, 1);
+  assert.match(unsupported?.retry?.idempotencyKey || '', /^cortex-evidence-binding:/);
+  assert.equal('additionalSystemPrompt' in unsupported, false);
 
   await handlers.get('before_tool_call')(
     { toolName: 'memory_search', toolCallId: 'smoke-tool-1' },
