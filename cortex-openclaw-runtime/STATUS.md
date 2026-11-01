@@ -1,8 +1,8 @@
 # Cortex-Native OpenClaw Runtime Status
 
 Updated: 2026-11-01 CDT
-Status: active
-Current milestone: Phase 2, qualified release packaging and activation
+Status: production slice green
+Current milestone: Phase 3, default-path activation completed
 Fidelity: production slice
 Stop condition: focused end-to-end smoke green or blocker report
 
@@ -37,16 +37,30 @@ Jake approved the immediately preceding recommendation: make Cortex the native c
 - Ran exactly one focused lifecycle smoke. It passed prompt routing, evidence-gated finalization, tool observation, tool-result projection, output observation, delivery preservation, and agent-end in-flight cleanup.
 - Smoke receipt: `/root/clawd/cortex-openclaw-runtime/artifacts/native-runtime-smoke.json`.
 
-## Current work
+## Completed in Phases 2 and 3
 
-1. Commit the exact-live implementation slice.
-2. Build a versioned release from the currently configured live release plus the qualified plugin delta.
-3. Update the configured Cortex plugin load path without changing secrets or plugin policy.
-4. Reload OpenClaw once and inspect plugin selection directly.
+- Committed the exact-live implementation slice as `85b4ccb6090b5da0ab2a5b02492f187ab8dab66b`.
+- Built immutable release `/opt/cortex/releases/cortex-openclaw-runtime-85b4ccb60-20261101` from the previously configured live release plus the qualified delta.
+- Verified source-to-release hashes for the route gate, adapter, and plugin manifest.
+- Changed only the configured `cortex-route-gate` plugin load path. Existing plugin policy, secrets, model configuration, and sibling plugin paths were preserved.
+- Config backup: `/root/clawd/backups/cortex-openclaw-runtime-20261101/openclaw.json.before-cortex-runtime-20261101T010348-0500`.
+- Reloaded OpenClaw once. The gateway returned active with connectivity `ok`.
+- Direct plugin inspection showed `cortex-route-gate` enabled from the new release at version `0.3.0`.
+- Live logs recorded `cortex.openclaw.compat.v1` adapter registration against OpenClaw `2026.7.1-2`.
+
+## Rollback
+
+Restore the recorded configuration backup or replace the route-gate load path with:
+
+```text
+/opt/cortex/releases/cortex-daily-work-core-1de5218d2807-20261029/plugins/cortex-route-gate
+```
+
+Then restart the OpenClaw gateway once.
 
 ## Blockers
 
-None currently.
+None.
 
 ## Truth boundary
 
